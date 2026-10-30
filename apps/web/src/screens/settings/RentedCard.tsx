@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { ExternalLink } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { shortGpu, SETTING_HELP } from "@afflatus/core";
-import { Link, useLocation } from "wouter";
+import { Link } from "wouter";
 import { api, type RunpodPod } from "../../api";
 import { useQueue, useSettings } from "../../data";
 import { useOpenComfyUI } from "../../actions";
@@ -12,10 +12,10 @@ import { minutesSaid, plural, usd, when } from "../../format";
 import { Select } from "../../Select";
 import { queryKeys } from "../../queryKeys";
 import { useSayFailed } from "../../sayFailed";
-import { Button, Checkbox, cx, ErrorNote, fieldClass, Help } from "../../ui";
+import { Button, Checkbox, cx, ErrorNote, Failed, fieldClass, Help } from "../../ui";
 import { runwayNowSaid, runwaySaid, runwayWhy } from "../queue/costsView";
 import { Block, Card, Row } from "./Rows";
-import { tabHref } from "./settingsIndex";
+import { settingHref, tabHref } from "./settingsIndex";
 import { COLUMNS } from "./wide";
 import { capAmount } from "./capAmount";
 import { useCapsSave } from "../../rentCaps";
@@ -92,19 +92,17 @@ function S3Key() {
 }
 
 /**
- * "Or a RunPod pod", under "Add a ComfyUI": the API key once, and then the way to Settings › Rented GPUs, where the
- * account's pods are added. The key saved here opens that tab.
+ * "Or a RunPod pod", under "Add a ComfyUI": the key's state and the way to Settings › Rented GPUs, where the key is typed
+ * and the account's pods are added (card #168: the key was typed here, and the tab only came once it was).
  */
 export function RentRow() {
   const settings = useSettings();
-  const [, go] = useLocation();
+  const running = useQueue().data?.machines.filter((m) => m.rented?.status === "RUNNING").length ?? 0;
   if (!settings.data) return null;
-  if (!settings.data.hasRunpodKey) return <RunpodKey setting="comfy.runpod" label="Or a RunPod pod" onSaved={() => go(tabHref("rented"))} />;
   return (
     <Row setting="comfy.runpod" label="Or a RunPod pod" help={WHY_RUNPOD}>
-      <span className="grow text-xs text-ink-2">Your pods, the caps and the key</span>
+      <span className="grow text-xs text-ink-2">{settings.data.hasRunpodKey ? `key saved${running ? ` · ${plural(running, "pod")} running` : ""}` : "no RunPod key yet"}</span>
       <Link href={tabHref("rented")} className="text-body font-semibold hover:underline">Rented GPUs ›</Link>
-      <Button size="sm" onClick={() => openDeploy()}>Deploy a GPU…</Button>
     </Row>
   );
 }
@@ -116,6 +114,10 @@ export const CAP_MONTH_WHY = "Everything RunPod bills this month: the pods, the 
 
 /** A figure against its cap, in a few words: "$1.18 of $5", or the figure alone without a cap. */
 const against = (value: number, cap: number) => `${usd(value, true)}${cap > 0 ? ` of ${usd(cap)}` : ""}`;
+
+/** The caps as RunPod account says them: "$10 a day · $60 a month", or none. */
+const capsSaid = (caps: { day: number; month: number }) =>
+  [caps.day > 0 && `${usd(caps.day)} a day`, caps.month > 0 && `${usd(caps.month)} a month`].filter(Boolean).join(" · ") || "none: no cap";
 
 /**
  * A cap in dollars: a small box, saved when it is left. Empty or 0: no cap. Its parent remounts it (a new `key`, useCapsSave
@@ -148,9 +150,43 @@ export function CapBox({ label, value, help, onSave }: { label: string; value: n
 }
 
 /**
- * The RunPod account: its key, its balance and how long it lasts, the caps with today and this month under them, and when a
- * volume counts as unused. The spending itself (the month, the day, where it went) is Queue › Costs's: here, only what a
- * setting is weighed against.
+ * Settings › Costs › Spending caps (card #168: they were the RunPod account's): the day's and the month's, with today and
+ * this month under them, and the way to an agent's own cap. Set before a RunPod key too: they hold from the first deploy.
+ */
+export function CapsCard() {
+  const settings = useSettings();
+  const has = Boolean(settings.data?.hasRunpodKey);
+  const any = has || (settings.data?.machines.some((m) => m.rented) ?? false);
+  const spending = useQuery({ queryKey: queryKeys.rentedSpending(), queryFn: ({ signal }) => api.rentedSpending({ signal }), enabled: any, staleTime: 60_000 });
+  const s = spending.data?.spending;
+  // the caps as saved (written in at once on a save), not as the spending read some seconds ago: two edits in a row each keep the other
+  const caps = settings.data?.rentCaps ?? s?.caps ?? { day: 0, month: 0 };
+  const capsSave = useCapsSave(caps);
+  return (
+    <Card title="Spending caps">
+      {/* today and this month under the caps, which they are weighed against */}
+      <Row setting="comfy.rentcaps" label="Rented GPUs" sub={s ? `today ${against(s.today, caps.day)} · this month ${against(s.month, caps.month)}` : has ? undefined : "no RunPod key yet: they hold from the first deploy"} help={SETTING_HELP.rentCaps}>
+        <CapBox key={`day-${capsSave.resets.day}`} label="a day" value={caps.day} help={CAP_DAY_WHY} onSave={(day) => capsSave.change("day", day)} />
+        <CapBox key={`month-${capsSave.resets.month}`} label="a month" value={caps.month} help={CAP_MONTH_WHY} onSave={(month) => capsSave.change("month", month)} />
+      </Row>
+      <Row label="An agent's own cap" help="Each MCP token with Spend has its own month cap, under these: set on its line in Settings › Agents (MCP).">
+        <span className="grow text-xs text-ink-2">set per token</span>
+        <Link href={tabHref("agents")} className="shrink-0 text-body font-semibold hover:underline">Agents (MCP) ›</Link>
+      </Row>
+      {(spending.isError || capsSave.notes.length > 0) && (
+        <Block>
+          {spending.isError && <Failed what="Today's and this month's spending could not be read" error={spending.error} />}
+          {capsSave.notes.map((n) => <ErrorNote key={n.key}>{n.text}</ErrorNote>)}
+        </Block>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * The RunPod account: its key first, always shown (card #168), its balance and how long it lasts, the caps' state (set in
+ * Settings › Costs), the S3 key, when a volume counts as unused and the boot logs. The spending itself (the month, the day,
+ * where it went) is Queue › Costs's.
  */
 function RunpodAccount() {
   const settings = useSettings();
@@ -179,9 +215,7 @@ function RunpodAccount() {
   const bootLogDays = settings.data?.bootLogDays ?? 0;
   const s = spending.data?.spending;
   const now = s ? runwayNowSaid({ spendPerHr: s.spendPerHr, runwayNowMs: s.runwayMs, perDay: s.perDay.pods + s.perDay.storage }) : null;
-  // the caps as saved (written in at once on a save), not as the spending read some seconds ago: two edits in a row each keep the other
   const caps = settings.data?.rentCaps ?? s?.caps ?? { day: 0, month: 0 };
-  const capsSave = useCapsSave(caps);
   return (
     <Card
       title="RunPod account"
@@ -198,7 +232,7 @@ function RunpodAccount() {
           )}
           {s && s.balance !== null && <Help text={runwayWhy(s.perDay)} title="How long the balance lasts" className="self-center" />}
           {/* the spending itself is the Queue's Costs view */}
-          <Link href="/queue?view=costs" className="font-semibold text-ink-2 hover:text-ink">Costs ›</Link>
+          <Link href="/queue?view=costs" className="font-semibold text-ink-2 hover:text-ink">Queue › Costs</Link>
         </span>
       )}
     >
@@ -210,34 +244,27 @@ function RunpodAccount() {
             <Button size="sm" tone="quiet" onClick={() => setChanging(true)}>Change key</Button>
           </Row>
         )}
-      {has && (
-        // today and this month under the caps, which they are weighed against
-        <Row setting="comfy.rentcaps" label="Caps" sub={s ? `today ${against(s.today, caps.day)} · this month ${against(s.month, caps.month)}` : undefined} help={SETTING_HELP.rentCaps}>
-          <CapBox key={`day-${capsSave.resets.day}`} label="a day" value={caps.day} help={CAP_DAY_WHY} onSave={(day) => capsSave.change("day", day)} />
-          <CapBox key={`month-${capsSave.resets.month}`} label="a month" value={caps.month} help={CAP_MONTH_WHY} onSave={(month) => capsSave.change("month", month)} />
-        </Row>
-      )}
-      {has && <S3Key />}
-      {has && (
-        <Row setting="rented.unused" label="Unused volumes" help={SETTING_HELP.volumeUnusedDays}>
-          <span className="w-[120px]"><Select size="sm" label="Flag a volume unused after" value={String(settings.data?.volumeUnusedDays ?? 7)} onChange={(v) => !saveUnused.isPending && saveUnused.mutate(Number(v))} options={UNUSED_DAYS.map((n) => ({ value: String(n), label: n ? `after ${plural(n, "day")}` : "never" }))} /></span>
-        </Row>
-      )}
-      {has && (
-        <Row setting="rented.bootlogs" label="Boot logs" help={BOOT_LOGS_WHY}>
-          <span className="flex items-center gap-2">
-            <Checkbox checked={bootLogDays > 0} onChange={(on) => !saveBootLogs.isPending && saveBootLogs.mutate(on ? 14 : 0)}>Keep each deploy's boot log</Checkbox>
-            {bootLogDays > 0 && <span className="w-[120px]"><Select size="sm" label="Keep boot logs for" value={String(bootLogDays)} onChange={(v) => !saveBootLogs.isPending && saveBootLogs.mutate(Number(v))} options={[...new Set([...BOOT_LOG_DAYS, bootLogDays])].sort((a, b) => a - b).map((n) => ({ value: String(n), label: `for ${plural(n, "day")}` }))} /></span>}
-          </span>
-        </Row>
-      )}
-      {(s?.lowBalance || spending.isError || capsSave.notes.length > 0 || Boolean(s?.storage?.unused.length) || Boolean(s?.storage?.stoppedDisks)) && (
+      {/* the caps are set in Costs, beside the electricity (card #168): their state here, and the way there */}
+      <Row setting="rented.caps" label="Spending caps" help={SETTING_HELP.rentCaps}>
+        <span className="grow text-xs text-ink-2">{capsSaid(caps)}</span>
+        <Link href={settingHref("comfy.rentcaps")} className="shrink-0 text-body font-semibold hover:underline">Costs ›</Link>
+      </Row>
+      <S3Key />
+      <Row setting="rented.unused" label="Unused volumes" help={SETTING_HELP.volumeUnusedDays}>
+        <span className="w-[120px]"><Select size="sm" label="Flag a volume unused after" value={String(settings.data?.volumeUnusedDays ?? 7)} onChange={(v) => !saveUnused.isPending && saveUnused.mutate(Number(v))} options={UNUSED_DAYS.map((n) => ({ value: String(n), label: n ? `after ${plural(n, "day")}` : "never" }))} /></span>
+      </Row>
+      <Row setting="rented.bootlogs" label="Boot logs" help={BOOT_LOGS_WHY}>
+        <span className="flex items-center gap-2">
+          <Checkbox checked={bootLogDays > 0} onChange={(on) => !saveBootLogs.isPending && saveBootLogs.mutate(on ? 14 : 0)}>Keep each deploy's boot log</Checkbox>
+          {bootLogDays > 0 && <span className="w-[120px]"><Select size="sm" label="Keep boot logs for" value={String(bootLogDays)} onChange={(v) => !saveBootLogs.isPending && saveBootLogs.mutate(Number(v))} options={[...new Set([...BOOT_LOG_DAYS, bootLogDays])].sort((a, b) => a - b).map((n) => ({ value: String(n), label: `for ${plural(n, "day")}` }))} /></span>}
+        </span>
+      </Row>
+      {(s?.lowBalance || spending.isError || Boolean(s?.storage?.unused.length) || Boolean(s?.storage?.stoppedDisks)) && (
         <Block>
           {s?.lowBalance && <ErrorNote>Your RunPod balance is low: RunPod stops pods at zero, and may delete their disks after a while.</ErrorNote>}
           {Boolean(s?.storage?.stoppedDisks) && <ErrorNote>{s!.storage!.stoppedDisks === 1 ? "1 stopped pod with a disk: billed while it waits. Terminate it if you will not start it again." : `${s!.storage!.stoppedDisks} stopped pods with a disk: billed while they wait. Terminate them if you will not start them again.`}</ErrorNote>}
           {s?.storage?.unused.map((v) => <ErrorNote key={v.id}>The volume {v.name} is unused {v.usedAt ? `since ${when(v.usedAt)}` : "since Afflatus first saw it"}: {usd(v.perMonth)} a month for nothing. Delete it under Network volumes if you will not deploy on it soon.</ErrorNote>)}
           {spending.isError && <ErrorNote>{spending.error.message}</ErrorNote>}
-          {capsSave.notes.map((n) => <ErrorNote key={n.key}>{n.text}</ErrorNote>)}
         </Block>
       )}
     </Card>
@@ -255,7 +282,9 @@ const SHORT_PAST = 6;
  */
 function RunpodPods() {
   const client = useQueryClient();
-  const pods = useQuery({ queryKey: queryKeys.runpodPods(), queryFn: ({ signal }) => api.runpodPods({ signal }), refetchInterval: 15_000, staleTime: 10_000, retry: false });
+  // shown before a RunPod key too (card #168), with a line in place of the list: nothing is asked of RunPod until then
+  const has = Boolean(useSettings().data?.hasRunpodKey);
+  const pods = useQuery({ queryKey: queryKeys.runpodPods(), queryFn: ({ signal }) => api.runpodPods({ signal }), refetchInterval: 15_000, staleTime: 10_000, retry: false, enabled: has });
   const add = useMutation({
     mutationFn: (pod: string) => api.addRunpodPod(pod),
     onSuccess: () => {
@@ -267,7 +296,7 @@ function RunpodPods() {
   const ops = useRentedOps();
   const openComfy = useOpenComfyUI();
   // the volumes' names (the Network volumes card reads them on this tab too)
-  const volumes = useQuery({ queryKey: queryKeys.runpodVolumes(), queryFn: ({ signal }) => api.runpodVolumes({ signal }), staleTime: 30_000, retry: false });
+  const volumes = useQuery({ queryKey: queryKeys.runpodVolumes(), queryFn: ({ signal }) => api.runpodVolumes({ signal }), staleTime: 30_000, retry: false, enabled: has });
   // a machine's state is the queue's, live; RunPod's list is read every 15 s and runs behind a pod just started or stopped
   const live = (p: RunpodPod) => {
     const r = p.added ? states.find((m) => m.id === p.added)?.rented : undefined;
@@ -293,10 +322,11 @@ function RunpodPods() {
               {stopped > 0 && `${stopped} stopped`}
             </span>
           )}
-          <Button size="sm" tone="primary" onClick={() => openDeploy()}>Deploy a GPU…</Button>
+          <Button size="sm" tone="primary" onClick={() => openDeploy()} disabled={!has} data-tip={has ? undefined : "Save the RunPod API key first (RunPod account, on this tab)"}>Deploy a GPU…</Button>
         </span>
       )}
     >
+      {!has && <Block><span className="text-xs text-ink-2">Your pods on RunPod show here once the API key is saved (RunPod account, on this tab).</span></Block>}
       {pods.isError && <Block><ErrorNote>{pods.error.message}</ErrorNote></Block>}
       {pods.isSuccess && !list.length && <Block><span className="text-xs text-ink-2">No pods on this account. Deploy a GPU, or make one on RunPod (a ComfyUI template, port 8188 exposed): then it shows here.</span></Block>}
       {list.map((p) => {
@@ -391,13 +421,16 @@ function NextDeploy() {
   );
 }
 
-/** Settings › Rented GPUs: what is on RunPod on the left (the pods, the volumes), the account and the next deploy on the right. */
+/**
+ * Settings › Rented GPUs, always a tab (card #168: it only came once a RunPod key was saved): the account, its key first,
+ * and the next deploy on the left; what is on RunPod on the right (the pods, the volumes), each with a line until there is
+ * a key. One column under 1600 px, the key on top.
+ */
 export function RentedTab() {
-  const has = Boolean(useSettings().data?.hasRunpodKey);
   return (
     <div className={COLUMNS}>
-      {has && <div className="flex min-w-0 flex-col gap-4"><RunpodPods /><VolumesCard /></div>}
-      <div className="flex min-w-0 flex-col gap-4"><RunpodAccount />{has && <NextDeploy />}</div>
+      <div className="flex min-w-0 flex-col gap-4"><RunpodAccount /><NextDeploy /></div>
+      <div className="flex min-w-0 flex-col gap-4"><RunpodPods /><VolumesCard /></div>
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { Block } from "./Rows";
 
 /**
  * The password asked again, under a row, for a change the server holds behind it (access.ts mayChange: no sign-in in the
- * last 10 minutes): the Access settings, and Telegram's bot and chat in Notifications. `said`: why the last try failed.
+ * last 10 minutes): the Sign-in settings, and Telegram's bot and chat in Notifications. `said`: why the last try failed.
  */
 export function PasswordAsk({ said, busy, onConfirm, onCancel }: { said: string | null; busy: boolean; onConfirm(password: string): void; onCancel(): void }) {
   const [password, setPassword] = useState("");

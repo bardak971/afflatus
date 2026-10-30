@@ -11,7 +11,7 @@ import { readSettings, updateSettings, type AccessSettings } from "./settings";
 import { renameOver } from "./storage";
 
 /**
- * The optional password (Settings › Access). Off by default: Afflatus is open to whoever reaches its port,
+ * The optional password (Settings › Sign-in). Off by default: Afflatus is open to whoever reaches its port,
  * as it always was. Set, every API route but a few (access-api.ts) needs a signed-in device, except a request from this
  * computer itself when "From this computer" is on (hostCheck.ts fromThisComputer). What it protects is the network side:
  * the library, the renders, the GPUs and pods, the keys Afflatus holds; not the files on the disk, which are the
@@ -66,7 +66,7 @@ export const TELEGRAM_HOLD_MS = 24 * 3600_000;
 const WINDOW_MS = 15 * 60_000;
 const SENDS_PER_WINDOW = 20;
 const WRONG_CODES_PER_WINDOW = 20;
-/** A session this young counts as the password just typed, for a change of the Access settings (accessChange). */
+/** A session this young counts as the password just typed, for a change of the Sign-in settings (accessChange). */
 const FRESH_MS = 10 * 60_000;
 /** The owner is told at most this often that sign-ins are being refused (alarm). */
 const ALARM_GAP_MS = 15 * 60_000;
@@ -208,7 +208,7 @@ export const HERE_LOGIN = "here";
 /** Who a request is, for the lock: a session's id when it has a good one; `bypass` when it is this computer's and that needs no password. */
 export interface Who { session: string | null; bypass: boolean }
 
-/** A device signed in, as Settings › Access lists it. */
+/** A device signed in, as Settings › Sign-in lists it. */
 export interface DeviceView { id: string; name: string; firstSeen: string; ip: string; lastSeen: string; remember: boolean; here: boolean }
 
 /** What a sign-in hands back: the cookie's token, the device's own cookie, and how long the cookie lives (null: the browser's session). */
@@ -265,7 +265,7 @@ export class Access extends EventEmitter {
   private sends: number[] = [];
   private sendsHour: number[] = [];
   private wrongCodes: number[] = [];
-  /** The last time the owner was told that sign-ins or codes look attacked, and what was said (Settings › Access shows it a day). */
+  /** The last time the owner was told that sign-ins or codes look attacked, and what was said (Settings › Sign-in shows it a day). */
   lastAlarm: { at: number; said: string } | null = null;
   /** When each kind of alarm was last said: each at most every 15 minutes. */
   private readonly alarmed = new Map<string, number>();
@@ -381,7 +381,7 @@ export class Access extends EventEmitter {
 
   /**
    * Sign-ins are being refused (everyone waits, or an address reached the longest wait): the owner, who may be one of
-   * those refused, is told on Telegram and in Settings › Access, at most every 15 minutes. Devices signed in go on.
+   * those refused, is told on Telegram and in Settings › Sign-in, at most every 15 minutes. Devices signed in go on.
    */
   private async alarm(tries: Tries): Promise<void> {
     const { wrong, addresses } = tries.lastMinute();
@@ -389,7 +389,7 @@ export class Access extends EventEmitter {
     await this.warnOwner("sign-in", said, "Afflatus: sign-ins refused", `${said} Devices signed in go on. Not you? Look at who reaches Afflatus; behind a proxy every visitor shares its address.`);
   }
 
-  /** The owner told, on Telegram and in Settings › Access, at most every 15 minutes for each kind of alarm. */
+  /** The owner told, on Telegram and in Settings › Sign-in, at most every 15 minutes for each kind of alarm. */
   private async warnOwner(kind: string, said: string, title: string, body: string): Promise<void> {
     const t = this.now();
     const last = this.alarmed.get(kind);
@@ -401,7 +401,7 @@ export class Access extends EventEmitter {
   }
 
   /**
-   * Whether a change of the Access settings may go: a session signed in with the password in the last 10 minutes, or the
+   * Whether a change of the Sign-in settings may go: a session signed in with the password in the last 10 minutes, or the
    * current password with it (checked under the limits). Else 403 with `needPassword`, which the page answers by asking.
    */
   async mayChange(session: string | null, current: string | undefined, ip: string): Promise<void> {
@@ -416,7 +416,7 @@ export class Access extends EventEmitter {
   }
 
   /**
-   * The Access settings changed (once mayChange let it), and the new-device notice's channels: the streams are looked at
+   * The Sign-in settings changed (once mayChange let it), and the new-device notice's channels: the streams are looked at
    * again at once, since "From this computer" off may end some (events.ts).
    */
   async changeSettings(asked: Partial<Pick<AccessSettings, "localNoPassword" | "stayDays" | "resetTelegram">>, newDevice?: { telegram?: boolean; discord?: boolean }): Promise<void> {
@@ -479,7 +479,7 @@ export class Access extends EventEmitter {
     const known = await this.db.selectFrom("devices").select("id").where("id", "=", deviceId).executeTakeFirst();
     if (!known) {
       await this.db.insertInto("devices").values({ id: deviceId, first_seen_at: new Date(t).toISOString(), name }).onConflict((oc) => oc.column("id").doNothing()).execute();
-      if (opts.tell) this.notify?.say("newDevice", { title: "New device signed in", body: `${name} from ${opts.ip}. Not you? Settings › Access: Sign out everywhere, and change the password.`, key: deviceId });
+      if (opts.tell) this.notify?.say("newDevice", { title: "New device signed in", body: `${name} from ${opts.ip}. Not you? Settings › Sign-in: Sign out everywhere, and change the password.`, key: deviceId });
     }
     const token = randomBytes(32).toString("base64url");
     const lifeMs = opts.remember ? stayDays * 86_400_000 : IDLE_MS;
@@ -597,7 +597,7 @@ export class Access extends EventEmitter {
   // ---------------------------------------------------------------- reset codes
 
   /**
-   * Where a code may go now: this computer always; Telegram when it is set up, the Access setting allows it, and its bot
+   * Where a code may go now: this computer always; Telegram when it is set up, the Sign-in setting allows it, and its bot
    * and chat have not changed in the last 24 h. `telegramHeld`: the ms left of that hold, for the Forgot screen to say.
    */
   async resetWays(): Promise<{ telegram: boolean; computer: true; telegramHeld: number }> {
@@ -817,6 +817,6 @@ export async function resetAccess(db: Db, log: Pick<Console, "log" | "warn"> = c
   if (had) await updateSettings(db, (s) => ({ access: { ...s.access, password: null } }));
   const ended = await db.deleteFrom("sessions").executeTakeFirst();
   const n = Number(ended.numDeletedRows ?? 0);
-  log.warn(`[access] ${had ? "THE PASSWORD WAS REMOVED" : "there was no password"}${n ? `; ${plural(n, "device")} signed out` : ""}. Afflatus is open to whoever reaches it: set a new password in Settings › Access.`);
+  log.warn(`[access] ${had ? "THE PASSWORD WAS REMOVED" : "there was no password"}${n ? `; ${plural(n, "device")} signed out` : ""}. Afflatus is open to whoever reaches it: set a new password in Settings › Sign-in.`);
   return had;
 }

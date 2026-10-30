@@ -13,7 +13,7 @@ export interface KeyRow {
   note?: string;
   /** A mouse move: listed last, as text. */
   mouse?: true;
-  /** The command bar's own shortcut: the one set in Settings › Command bar is drawn in place of `keys`. */
+  /** The command bar's own shortcut: the one set in Settings › Interface › Command bar is drawn in place of `keys`. */
   bar?: true;
   /** A name the rest of the app reads the row by (the command bar's rows show its keys): never a second copy of a chord. */
   id?: RowId;
@@ -52,7 +52,7 @@ export const PLACES: KeyPlace[] = [
       {
         name: "Anywhere",
         rows: [
-          { keys: BAR_DEFAULT, does: "Command bar", note: "a text box included; set in Settings › Command bar", bar: true },
+          { keys: BAR_DEFAULT, does: "Command bar", note: "a text box included; set in Settings › Interface › Command bar", bar: true },
           { keys: "/ | :", does: "Search nearest the mouse", note: "pressed again inside one: the next search" },
           { keys: "?", does: "Keyboard shortcuts", id: "keys" },
           { keys: "Esc", does: "Close what is open on top" },
@@ -106,7 +106,7 @@ export const PLACES: KeyPlace[] = [
           { keys: "!", does: "Queue" },
           { keys: "?", does: "Keys", note: "the rows of this sheet; Enter opens it on one" },
           { keys: '"', does: "prompt:", note: "renders whose prompt holds the words; its values are the last prompts" },
-          { keys: "@", does: "Cast", note: "when turned on in Settings › Command bar" },
+          { keys: "@", does: "Cast", note: "when turned on in Settings › Interface › Command bar" },
         ],
       },
     ],
@@ -215,7 +215,7 @@ export const PLACES: KeyPlace[] = [
       {
         name: "Snippets by name",
         rows: [
-          { keys: ";", does: "Snippet by name", note: "when turned on in Settings › Command bar" },
+          { keys: ";", does: "Snippet by name", note: "when turned on in Settings › Interface › Command bar" },
           { keys: "↑ ↓", does: "Choose in the list" },
           { keys: "Tab | Enter", does: "Put it in" },
           { keys: "Space | Tab", does: "Put it in, the whole name typed" },

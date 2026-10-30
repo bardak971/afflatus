@@ -12,7 +12,8 @@ function texts(): string[] {
     for (const e of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
       const path = `${dir}/${e.name}`;
       if (e.isDirectory()) {
-        if (e.name !== "node_modules" && e.name !== "dist") walk(path);
+        // a migration says what the place was called when it was written: history, as the CHANGELOG
+        if (e.name !== "node_modules" && e.name !== "dist" && e.name !== "migrations") walk(path);
       } else if (/\.(ts|tsx|md|json)$/.test(e.name)) found.push(path);
     }
   };
@@ -20,24 +21,34 @@ function texts(): string[] {
   return found;
 }
 
-describe("Settings › Access", () => {
-  it("is a tab of its own, after Interface", () => {
+describe("Settings › Sign-in and Agents (MCP) (card #168: the Access tab, split)", () => {
+  it("are tabs of their own, after Notifications", () => {
     const ids = TABS.map((t) => t.id as string);
-    expect(ids.indexOf("access")).toBe(ids.indexOf("interface") + 1);
+    expect(ids.indexOf("signin")).toBe(ids.indexOf("notifications") + 1);
+    expect(ids.indexOf("agents")).toBe(ids.indexOf("signin") + 1);
+    expect(ids).not.toContain("access");
   });
 
-  it("holds every Access row, and Interface none", () => {
+  it("hold every Access row: the password's on Sign-in, the tokens on Agents (MCP)", () => {
     const access = INDEX.filter((i) => i.key === "access" || i.key.startsWith("access."));
     expect(access.map((i) => i.label)).toEqual(expect.arrayContaining(["Password", "Agents (MCP)", "Metrics token", "Devices signed in"]));
-    for (const i of access) expect(i.tab).toBe("access");
-    expect(settingHref("access.mcp")).toBe("/settings/access?find=access.mcp");
+    for (const i of access) expect(i.tab).toBe(i.key === "access.mcp" ? "agents" : "signin");
+    expect(settingHref("access.mcp")).toBe("/settings/agents?find=access.mcp");
+    expect(settingHref("access.password")).toBe("/settings/signin?find=access.password");
   });
 
-  // the card left Interface (0.8.2): a text sending someone to its old place sends them where it is not. The words are
-  // put together here so that this file does not hold them; the CHANGELOG keeps its history
-  it("is never said to be in Interface again", () => {
-    const old = new RegExp(["Interface", "\\s*(›|>|→|&rsaquo;|\\\\u203a)\\s*", "Access"].join(""), "i");
-    const said = texts().filter((f) => old.test(readFileSync(join(ROOT, f), "utf8"))).map((f) => relative(ROOT, join(ROOT, f)));
+  // a text sending someone to a place since gone sends them where it is not. The words are put together here so that this
+  // file does not hold them; the CHANGELOG keeps their history
+  it("never sends anyone to a Settings place since gone", () => {
+    const arrow = "\\s*(›|>|→|&rsaquo;|\\\\u203a)\\s*";
+    const gone = [
+      ["Interface", "Access"], ["Interface", "Notifications"], ["Settings", "Access(?! Tokens)"], ["Settings", "Designer"], ["Settings", "Command bar"],
+      ["ComfyUI", "Electricity"], ["ComfyUI", "First launch"],
+    ].map(([a, b]) => new RegExp(`${a}${arrow}${b}`, "i"));
+    const said = texts().flatMap((f) => {
+      const text = readFileSync(join(ROOT, f), "utf8");
+      return gone.filter((re) => re.test(text)).map((re) => `${relative(ROOT, join(ROOT, f))}: ${re.source}`);
+    });
     expect(said).toEqual([]);
   });
 });

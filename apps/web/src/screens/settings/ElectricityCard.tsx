@@ -72,7 +72,7 @@ export function kwhWrong(typed: number | null, symbol: string): { field: "price"
   return null;
 }
 
-/** Settings › ComfyUI: the electricity row, where the settings search and the command bar's `/` find it. */
+/** Settings › Costs (card #168: it was on the ComfyUI tab): the electricity row, where the settings search and the command bar's `/` find it. */
 export function ElectricityCard() {
   return (
     <Card title="Electricity">

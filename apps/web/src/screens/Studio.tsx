@@ -327,7 +327,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
 
 /**
  * How an empty library fills: Create, on the left (a click opens it where it is folded; a key alone was missed at a first
- * look), a drop, the command bar's key (the one set in Settings › Command bar).
+ * look), a drop, the command bar's key (the one set in Settings › Interface › Command bar).
  */
 function WaysIn() {
   const bar = useSettings().data?.bar?.shortcut ?? "Ctrl+K";

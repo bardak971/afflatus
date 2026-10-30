@@ -1,5 +1,5 @@
 /**
- * What Settings › Access › Agents (MCP) copies: /mcp's address and Claude Code's command, with the token just made filled
+ * What Settings › Agents (MCP) copies: /mcp's address and Claude Code's command, with the token just made filled
  * in, or a stand-in for one made before (its token was shown once, and is gone); and the line of Claude Code's settings
  * that has it follow MCP Tasks.
  */

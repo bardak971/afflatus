@@ -36,7 +36,7 @@ import { machinesNow, saveSettings, setupOf } from "./setup-api";
 
 /** Whether this token has Spend: what starts a rented GPU, lengthens its run or stops it needs it. */
 function mustSpend(ctx: Pick<ToolCtx, "token">, what: string): void {
-  if (!ctx.token.scopes.includes("spend")) throw refusal(`This token cannot spend on rented GPUs, and ${what}: tick Spend on it in Settings › Access.`);
+  if (!ctx.token.scopes.includes("spend")) throw refusal(`This token cannot spend on rented GPUs, and ${what}: tick Spend on it in Settings › Agents (MCP).`);
 }
 
 /** A machine as the tools say it: never its token, its folder on this computer, nor figures of its card's memory. */
@@ -225,7 +225,7 @@ export async function mayStart(s: Services, token: McpToken, hour: number, what:
   const work = await committedSpend(s, machines, ctx.token.id);
   await s.mcp.tokens.maySpend(token, hour + mine + work.usd, { committed: [...workCommitted(work), ...minePods], adds: { what: `the first hour of ${pod}`, usd: hour } });
   const why = await s.rented.noRoomFor(hour + all);
-  if (why) throw refusal(`The rented GPUs' spending cap has no room for this pod's first hour (${dollars(hour)}${all ? `, with the next hour of the pods up: ${dollars(all)}` : ""}): ${why}.${allPods.length ? ` Up: ${allPods.join(", ")} an hour.` : ""} The user raises it in Settings › Rented GPUs.`);
+  if (why) throw refusal(`The rented GPUs' spending cap has no room for this pod's first hour (${dollars(hour)}${all ? `, with the next hour of the pods up: ${dollars(all)}` : ""}): ${why}.${allPods.length ? ` Up: ${allPods.join(", ")} an hour.` : ""} The user raises it in Settings › Costs.`);
 }
 
 /**

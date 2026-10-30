@@ -11,6 +11,7 @@ import { Block, Card, Row, Status } from "./Rows";
 import { GetFfmpeg } from "../../GetFfmpeg";
 import { queryKeys } from "../../queryKeys";
 import { COLUMNS } from "./wide";
+import { FirstLaunchCard } from "./NoComfyCard";
 
 /** The app itself: its version, its updates, where it runs, what it talks to. */
 export function AboutCard() {
@@ -77,6 +78,8 @@ export function AboutCard() {
           {health.isSuccess && !checks.length && <Block className="text-xs text-ink-3">Not checked yet: the server started before these checks existed.</Block>}
           {recheck.isError && <Block><ErrorNote>{recheck.error.message}</ErrorNote></Block>}
         </Card>
+        {/* the first launch's page brought back: it stood on the ComfyUI tab for good (card #168) */}
+        <FirstLaunchCard />
       </div>
     </div>
   );

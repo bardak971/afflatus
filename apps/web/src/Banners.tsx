@@ -139,7 +139,7 @@ export function Banners() {
           const from = passFrom.get(j.id);
           if (from) void client.invalidateQueries({ queryKey: queryKeys.assets.one(from) });
           if (showsResults(path)) continue;
-          // switched off in Settings › Interface: what finished is not announced (a failure still is, below)
+          // switched off in Settings › Notifications: what finished is not announced (a failure still is, below)
           if (!useNotify.getState().banner) continue;
           const f = folds.current.done;
           add(f, j);

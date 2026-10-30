@@ -157,7 +157,7 @@ describe("a token with Spend", () => {
     const c = await connect(token);
     await pause();
     expect((await call(c, "render", { ...FORM, takes: 2 })).isError).toBeFalsy();
-    await refusedWith(c, "render", { ...FORM, takes: 2 }, /cap is \$1\.00 a month on rented GPUs, and it has spent \$0\.00 this month\. Committed: \$0\.8\d, its 2 jobs running and waiting on rented pods .*\. This call adds \$0\.8\d: 2 jobs on “.+”, with the pod's idle time after: \$1\.[67]\d in all, past the cap\. Raise it in Settings › Access\./);
+    await refusedWith(c, "render", { ...FORM, takes: 2 }, /cap is \$1\.00 a month on rented GPUs, and it has spent \$0\.00 this month\. Committed: \$0\.8\d, its 2 jobs running and waiting on rented pods .*\. This call adds \$0\.8\d: 2 jobs on “.+”, with the pod's idle time after: \$1\.[67]\d in all, past the cap\. Raise it in Settings › Agents \(MCP\)\./);
     await c.close();
   });
 

@@ -128,7 +128,7 @@ export function StatusBar() {
           </span>
         )}
         <Sep />
-        {/* the command bar opened with the mouse: its own key, the one set in Settings › Command bar, drawn as the chip */}
+        {/* the command bar opened with the mouse: its own key, the one set in Settings › Interface › Command bar, drawn as the chip */}
         <button type="button" data-tip={`Command bar (${barKey})`} aria-label="Command bar" onClick={() => window.dispatchEvent(new CustomEvent("afflatus:bar", { detail: {} }))} className={cx(stripGhost, "shrink-0 px-1.5")}>
           <Keys keys={barKey} size="sm" />
         </button>

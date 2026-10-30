@@ -12,18 +12,19 @@ import { Chip, cx, IconButton, PageHeader, SearchField, SegmentCount, Segmented 
 import { AboutCard } from "./settings/AboutCard";
 import { CivitaiCard } from "./settings/CivitaiCard";
 import { ComfyCard } from "./settings/ComfyCard";
-import { ElectricityCard } from "./settings/ElectricityCard";
+import { CostsTab } from "./settings/CostsTab";
 import { DesignerCard } from "./settings/DesignerCard";
 import { LinkCard } from "./settings/LinkCard";
 import { ModelsByMachine } from "./settings/ModelsMachines";
 import { InterfaceTab } from "./settings/InterfaceTab";
 import { AccessCard } from "./settings/AccessCard";
+import { AgentsBlock } from "./settings/AgentsBlock";
+import { NotificationsTab } from "./settings/NotifyCards";
 import { PromptsCard, WritingCard } from "./settings/PromptsCard";
 import { StorageCard } from "./settings/StorageCard";
 import { UpdatesCard } from "./settings/UpdatesCard";
-import { BarCard } from "./settings/BarCard";
 import { RentedTab } from "./settings/RentedCard";
-import { INDEX, MOVED, settingHref, spotOf, tabHref, TABS, type Tab } from "./settings/settingsIndex";
+import { INDEX, landing, settingHref, spotOf, tabHref, TABS, type Tab } from "./settings/settingsIndex";
 import { queryKeys } from "../queryKeys";
 import { ModelSetsCard } from "./settings/ModelSetsCard";
 import { DownloadsCard } from "../DownloadsLine";
@@ -122,22 +123,16 @@ function useFind(box: RefObject<HTMLElement | null>, tab: Tab) {
 export function Setup() {
   const params = useParams<{ tab?: string }>();
   const [, go] = useLocation();
-  const moved = params.tab ? MOVED[params.tab] : undefined;
-  const tab: Tab = moved ?? (TABS.some((t) => t.id === params.tab) ? (params.tab as Tab) : "comfyui");
-  // a setting asked for on a tab it is no longer on (the Access card left Interface for a tab of its own): an old link,
-  // /settings/interface?find=access.mcp or /settings/interface#access, is sent on to the tab that has it
-  const asked = new URLSearchParams(useSearch()).get("find") ?? window.location.hash.slice(1);
-  const spot = asked ? spotOf(asked) : undefined;
-  const elsewhere = spot && spot.tab !== tab ? settingHref(spot.key) : null;
-  // an old address (/settings/appearance) is put right, so that what is bookmarked next is the new one
+  // an old address (/settings/access, /settings/interface?find=notify.what, /settings/interface#access) lands on the tab
+  // that has it now, and the address is put right (settingsIndex.ts landing)
+  const asked = new URLSearchParams(useSearch()).get("find") ?? (window.location.hash.slice(1) || null);
+  const { tab, to } = landing(params.tab, asked);
   useEffect(() => {
-    if (elsewhere) go(elsewhere, { replace: true });
-    else if (moved) go(`/settings/${moved}`, { replace: true });
-  }, [elsewhere, moved, go]);
+    if (to) go(to, { replace: true });
+  }, [to, go]);
   const marks = useTabMarks();
-  // Rented GPUs once there is a RunPod key (its address opens it all the same, to type one)
-  const hasKey = Boolean(useSettings().data?.hasRunpodKey);
-  const tabs = TABS.filter((t) => t.id !== "rented" || hasKey || tab === "rented");
+  // every tab, always: Rented GPUs too before a RunPod key, which is typed at its top (card #168)
+  const tabs = TABS;
   const scroller = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   useFind(scroller, tab);
@@ -167,7 +162,7 @@ export function Setup() {
     <div className="flex min-h-0 grow flex-col overflow-hidden">
       <PageHeader
         title="Settings"
-        // Nine tabs do not leave room for much else at 1024 px: the search gives up width, then becomes an icon, then the
+        // Twelve tabs do not leave room for much else at 1280 px: the search gives up width, then becomes an icon, then the
         // plain figures on Storage and About go (a warning on a tab stays), and last the title, which the sidebar says too.
         folds={4}
         titleYields
@@ -216,26 +211,37 @@ export function Setup() {
         {/* Model files is a table of a dozen columns: the whole width, up to the wide window's */}
         <div className={cx("flex flex-col gap-4", tab === "model-files" ? "max-w-[1736px]" : "max-w-[860px] min-[1600px]:max-w-[1736px]")}>
           {tab === "comfyui" && <ComfyCard />}
-          {tab === "comfyui" && <ElectricityCard />}
           {tab === "rented" && <RentedTab />}
+          {tab === "costs" && <CostsTab />}
+          {/* which families, and how their files come: the switch, the keys, the downloads, a URL */}
           {tab === "models" && (
             <ModelsByMachine
-              left={<><CivitaiCard /><LinkCard /><UpdatesCard /></>}
-              right={(machine) => <><ModelsOnlineCard /><ModelSetsCard /><DownloadsCard machine={machine} /></>}
+              left={<CivitaiCard part="missing" />}
+              right={(machine) => <><CivitaiCard part="sites" /><DownloadsCard machine={machine} /><LinkCard /></>}
             />
           )}
-          {tab === "model-files" && <ModelFilesTab />}
-          {tab === "designer" && <DesignerCard />}
-          {/* the settings first: eleven guides above them pushed the tag check below the fold */}
+          {/* what is on the disk: the table, then the cards about files (hashes, newer versions, sets) */}
+          {tab === "model-files" && (
+            <>
+              <ModelFilesTab />
+              <div className={COLUMNS}>
+                <div className="flex min-w-0 flex-col gap-4"><ModelsOnlineCard /><UpdatesCard /></div>
+                <div className="flex min-w-0 flex-col gap-4"><ModelSetsCard /></div>
+              </div>
+            </>
+          )}
+          {/* writing on the left (the settings first: eleven guides above them pushed the tag check below the fold), the
+              designer that writes them on the right */}
           {tab === "prompts" && (
             <div className={COLUMNS}>
-              <WritingCard />
-              <PromptsCard />
+              <div className="flex min-w-0 flex-col gap-4"><WritingCard /><PromptsCard /></div>
+              <DesignerCard />
             </div>
           )}
           {tab === "interface" && <InterfaceTab />}
-          {tab === "access" && <AccessCard />}
-          {tab === "bar" && <BarCard />}
+          {tab === "notifications" && <NotificationsTab />}
+          {tab === "signin" && <div className={COLUMNS}><AccessCard /></div>}
+          {tab === "agents" && <AgentsBlock />}
           {tab === "storage" && <StorageCard />}
           {tab === "about" && <AboutCard />}
         </div>
