@@ -4,6 +4,10 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-10-30
+
+Seamless joins that say when they cut (a reference picture's continuation told its run-up, in positive words), the Face refine and upscale models chosen per clip (one model in memory on Swap), every LoRA a render loads shown in the LoRA list with its weight, Swap's windows all swaps, and no more "ComfyUI is offline" for one late answer.
+
 ### Added
 - **Face refine model, per clip.** Every H3 form (Video with audio, Lip sync, Swap character, Motion transfer) and Finish choose the model the faces are redrawn with: the fused refdelta turbo, any H3 reference model or hybrid, or **Clip's own model**, which runs the pass on the clip's own loader with its turbo LoRA when Turbo is on (on a fresh pod, the reference turbo LoRA a reference clip was made with), one model in memory (a Swap held its swap model and the turbo at once, and every job reloaded the other). Swap starts on its own model, the other forms on the fused turbo, or on the clip's own where that file is missing; a clip made by the frames model, which follows no picture, takes the fused turbo, and its job says so. Face refine steps follow the model (4 on a fused or distilled turbo or the clip's model with its turbo, 10 on a full model) unless typed. A clip made before keeps the turbo. Clip's own model is offered by Face refine alone: set on another model input through MCP or the API (SeedVR2's, the latent upscaler), it is refused before anything is queued.
 - **Every LoRA Afflatus adds by itself is a row of the LoRA list**, first, with its file (the Settings › Models slot's unless another is picked; the slot's kind listed first, any LoRA allowed) and its weight. Turbo's LoRA on H3 (every form), Qwen Image and Qwen Edit, and Wan (a row in each list: the high-noise one weighted by High-noise turbo, the low-noise one by a weight of its own) shows while Turbo puts it on; its × turns Turbo off, and turned on again it comes back with the file and weight chosen before. What a model needs has a row without a ×, at 0 not loaded: LTX's distilled LoRA on a model that is not distilled, SCAIL-2's DPO and step-distill LoRAs, Krea 2's style-reference LoRA with reference images. The same file added by hand is that row: one loader, at the weight typed (Turbo on with its LoRA also in the list was loaded twice, at about 1.8); added by hand at 0, it stays a row of its own and Turbo's row keeps its weight, as before. Face refine on the clip's own model keeps Turbo's LoRA at the row's weight. Left as they start, renders are unchanged. `describe_form` lists the rows.
@@ -15,11 +19,11 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 ### Fixed
 - **H3 seamless joins with a reference picture no longer cut to another shot as often.**
   - **The prompt:** a clip that carries on with a reference picture (Video with audio, Lip sync) is now told how long its run-up is and that the rest is the same continuous take, in the same place, light and camera, as the frame-and-words route always was.
-  - **Why:** the latent continuation itself held (the run-up is the clip before's own frames), but on 8721's 109 H3 joins the model cut to a new shot on the first new frame in 6 of 65 with a reference picture and none of 44 without one.
+  - **Why:** the latent continuation itself held (the run-up is the clip before's own frames), but on 109 H3 joins measured, the model cut to a new shot on the first new frame in 6 of 65 with a reference picture and none of 44 without one.
   - **Positive words only:** both routes now say a continuation in positive words only, since H3 reads a negation as what it names ("Do not … cut, fade, add titles").
 - **A seamless join that cut is said on the timeline.**
   - **On the track and the takes:** the circle between two clips turns attention-coloured with what was measured and its figure, and the take's row and the hover card say "cut at the join ×N", with New take beside it.
-  - **When:** a hard cut within a second after the run-up (two frames under 17 dB apart, 6 dB more than the frames around them), or the run-up's end jumping past ×3 against the take's own motion. Timeline 17's read ×20 while its circle said seamless; two of Oct 27 cut 10 and 13 frames on, where the step at the join read ×0.5. On 8721's joins it found the 11 cuts seen in their frames and nothing else.
+  - **When:** a hard cut within a second after the run-up (two frames under 17 dB apart, 6 dB more than the frames around them), or the run-up's end jumping past ×3 against the take's own motion. Measured on 173 joins of every family, it found the 11 cuts seen in their frames and nothing else, two of them 10 and 13 frames after the join, where the run-up end figure alone missed them.
   - **Through MCP:** `read_timeline` says it on the join, the take and Needs a look.
   - **Takes already made:** the takes that carry on are looked at once in the background, at the backfill's slow pace.
   - **H3 only:** a cut at the join is said for H3's takes alone, measured at its 24 frames a second where it was tuned; on Wan's 16 it read quick moves as cuts. Other families' run-up end figure shows in Look as before.
@@ -702,7 +706,8 @@ The 0.6.0 cycle: the timeline reworked around sources, recordings and joins, H3 
 
 The first release: the Studio and its library, a form per model family, timelines, the prompt kit, imported workflows, the queue, the node pack, the Docker image, the Helm chart and the desktop bundles.
 
-[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.8.2...HEAD
+[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.8.3...HEAD
+[0.8.3]: https://github.com/bardak971/afflatus/releases/tag/v0.8.3
 [0.8.2]: https://github.com/bardak971/afflatus/releases/tag/v0.8.2
 [0.8.1]: https://github.com/bardak971/afflatus/releases/tag/v0.8.1
 [0.8.0]: https://github.com/bardak971/afflatus/releases/tag/v0.8.0
