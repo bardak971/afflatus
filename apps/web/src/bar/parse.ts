@@ -179,7 +179,7 @@ export const COMMANDS: Array<{ id: CommandId; name: string; typed: string; examp
   { id: "retry-failed", name: "Retry all failed", typed: "retry failed", example: "retry failed", what: "The failed jobs the queue lists, queued again oldest first" },
   { id: "dismiss-failed", name: "Dismiss all failed…", typed: "dismiss failed", example: "dismiss failed", what: "The failed jobs the queue lists, off the history, asked first" },
   { id: "group-queue", name: "Group by model", typed: "group by model", example: "group by model", what: "Same model together, the loaded one first" },
-  { id: "find-models", name: "Find models…", typed: "find models ", example: "find models wan lightning", what: "Civitai, Hugging Face and your own, in one search, to download onto this PC (with Search Hugging Face and Civitai on)" },
+  { id: "find-models", name: "Find models…", typed: "find models ", example: "find models wan lightning", what: "Civitai, Hugging Face and your own, in one search, to download onto this PC" },
   { id: "picked", name: "Picked models", typed: "picked", example: "picked", what: "The model files picked in Find models or the bar: onto this PC (asked, with their total), or open there" },
   { id: "get-missing", name: "Get missing files", typed: "get missing files", example: "get missing files", what: "The open form's missing model files, looked up and downloaded onto this PC (asked, with their total)" },
   { id: "model-updates", name: "Model updates", typed: "model updates", example: "model updates", what: "Newer versions of your models on Civitai: asked now, then the list in Settings › Models" },
