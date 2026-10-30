@@ -1,7 +1,7 @@
 import { slug } from "@afflatus/core";
 
 /**
- * Prompt snippets typed by name (Settings › Command bar): the Prompt kit's snippets, each reached as `;` and
+ * Prompt snippets typed by name (Settings › Interface › Command bar): the Prompt kit's snippets, each reached as `;` and
  * its name made a slug ("Cine look" → `;cine-look`), expand in a prompt box on a space or Tab. Pure: the box
  * hands in its text and where the cursor is, and gets both back.
  */

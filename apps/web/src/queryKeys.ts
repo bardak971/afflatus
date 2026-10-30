@@ -19,7 +19,7 @@ export const queryKeys = {
   health: () => ["health"] as const,
   /** Get ffmpeg's download, while it goes (GetFfmpeg.tsx). */
   ffmpegGet: () => ["ffmpeg-get"] as const,
-  /** Whether a password is set and this browser is in (the gate, Access.tsx), and the devices signed in (Settings › Access). */
+  /** Whether a password is set and this browser is in (the gate, Access.tsx), and the devices signed in (Settings › Sign-in). */
   session: () => ["session"] as const,
   signedDevices: () => ["session", "devices"] as const,
   mcpTokens: () => ["mcp", "tokens"] as const,

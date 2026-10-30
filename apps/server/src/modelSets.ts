@@ -17,7 +17,7 @@ import { readSettings } from "./settings";
  * Model sets: a named list of model files, nothing else (no form, no values), for a rented pod (Deploy a GPU), a new
  * computer, or a friend. A set holds presets by reference, so that a preset moved to a new version moves the set, and
  * files of its own (a LoRA, an upscaler, any model file); a preset's file can be left out of the set without changing the
- * preset. Kept in Settings › Models, saved as a file and brought in as presets are.
+ * preset. Kept in Settings › Model files, saved as a file and brought in as presets are.
  */
 
 /** The model folders the search looks through on this computer's ComfyUI, and that a volume's pod lists (rentedVolumes.ts). */

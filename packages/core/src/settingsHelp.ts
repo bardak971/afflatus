@@ -10,7 +10,7 @@ export const SETTING_HELP = {
   families: "Each model family on each machine: ready, how many of its operations are, off there (switched off, its files there), no files there, or away (not answering). Click a cell for that machine's tab. The switch turns the family off on every machine (out of the model lists), or back on wherever its files are.",
   allFamilies: "On: a family not switched by hand is on whatever files are found; its files are listed greyed until they are there (fetched by a pod, downloaded into a ComfyUI of your own). Off: a family not switched by hand follows its files, offered when they are found and left out when they are not.",
   slotFiles: "Where several files fit a family's slot (a checkpoint, a text encoder, a VAE), the one chosen by hand: family id, then slot id, then the file. A slot not named takes the file its patterns find first.",
-  designerLlm: "The LLM the designer writes with (an id of the LLMs set in Settings › Designer); the first when none is named. Picked in the designer's panel, remembered for the next conversation.",
+  designerLlm: "The LLM the designer writes with (an id of the LLMs set in Settings › Prompts); the first when none is named. Picked in the designer's panel, remembered for the next conversation.",
   designerInstructions: `Standing instructions of your own, each under a name, picked in the designer's panel for a draft or a clip; the one picked holds for every answer of that conversation. They are added after the model's prompting guide (Settings › Prompts) and WIN over it: an instruction that says "always name the focal length" brings the lens back into every prompt, which the guides now avoid unless the picture calls for it. Say what the guide cannot know: your taste, your subject matter, your limits.`,
   designerInstruction: "The system prompt in use (an id of the system prompts); empty: none. Picked in the designer's panel, remembered for the next conversation.",
   designerGuides: "How each model family's prompts are written, as the designer is told first: the rules of the model's own guide, and one example of the form. Change a family's text and yours replaces the built-in one for that family; the eye in the designer panel shows the whole system prompt as it is sent.",
@@ -51,14 +51,21 @@ export function settingHelp(path: string): string | undefined {
 export const SETTING_TABS = [
   { id: "comfyui", label: "ComfyUI" },
   { id: "rented", label: "Rented GPUs" },
+  { id: "costs", label: "Costs" },
   { id: "models", label: "Models" },
   { id: "model-files", label: "Model files" },
-  { id: "designer", label: "Designer" },
   { id: "prompts", label: "Prompts" },
   { id: "interface", label: "Interface" },
-  { id: "access", label: "Access" },
-  { id: "bar", label: "Command bar" },
+  { id: "notifications", label: "Notifications" },
+  { id: "signin", label: "Sign-in" },
+  { id: "agents", label: "Agents (MCP)" },
   { id: "storage", label: "Storage" },
   { id: "about", label: "About" },
 ] as const;
 export type SettingTab = (typeof SETTING_TABS)[number]["id"];
+
+/**
+ * Tabs that are no more, and the one that has their settings now (card #168): an old address (/settings/access), a
+ * bookmark or an agent naming one still lands. A setting asked for with it (`?find=`) is sent on to its own tab after.
+ */
+export const SETTING_TABS_MOVED: Record<string, SettingTab> = { appearance: "interface", bar: "interface", designer: "prompts", access: "signin" };

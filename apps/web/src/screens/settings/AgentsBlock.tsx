@@ -12,14 +12,16 @@ import { Button, cx, fieldClass, Help, NumberBox, Segmented, TwoStep } from "../
 import { motionAllowed } from "../../useFlip";
 import { CLAUDE_TASKS_SETTING, claudeCodeCommand, mcpUrl } from "./mcpSnippets";
 import { PasswordAsk } from "./PasswordAsk";
+import { Card } from "./Rows";
 
 /**
- * Settings › Access › Agents (MCP), as the owner's mock v2 (2026-10-27): /mcp's address with one Copy, a new
- * token made on one line and shown once in its row, then one line per token (its dot, name and state, its scopes as pills
- * clicked in place, two thin meters, its last use) that opens in place on its limits, end and name, its activity, and
- * Revoke. A change of scopes, limits or end, a new token and a revoke ask for the password past a sign-in of 10 minutes
- * (mcp-api.ts), as the Access settings do. Under the address, the line of Claude Code's settings that sends its long calls to
- * the background (MCP Tasks); each row says its client, and whether that client follows them.
+ * Settings › Agents (MCP), its own tab (card #168: it was the end of the Access card), as the owner's mock v2
+ * (2026-10-27): /mcp's address with one Copy, a new token made on one line and shown once in its row, then one line per
+ * token (its dot, name and state, its scopes as pills clicked in place, two thin meters, its last use) that opens in place
+ * on its limits, end and name, its activity, and Revoke. A change of scopes, limits or end, a new token and a revoke ask
+ * for the password past a sign-in of 10 minutes (mcp-api.ts), as the Sign-in settings do. Under the address, the line of
+ * Claude Code's settings that sends its long calls to the background (MCP Tasks); each row says its client, and whether
+ * that client follows them.
  */
 
 const HELP = "An MCP client (Claude Code, Cursor, any that speaks Streamable HTTP) drives Afflatus at /mcp with a token, as far as its scopes go: Look (read everything, see the takes), Make (forms, renders on your machines, timelines, library, Prompt kit), Spend (rented GPUs), Manage (settings, downloads, machines, caps). Never through MCP, whatever the scopes: the password, tokens, Lock, sign-outs, where codes go, Show in folder, Get ffmpeg, updates. A token works on /mcp only, never on the API nor as a sign-in. Click a scope to change it; a token's limits, activity and Revoke open under it.";
@@ -189,7 +191,7 @@ function ShownOnce({ token }: { token: string }) {
 /** A token's activity, the newest first: in plain words, the tool in small type, what was refused in amber with why. */
 function Activity({ t }: { t: McpToken }) {
   const [refusedOnly, setRefusedOnly] = useState(false);
-  const failed = useSayFailed({ href: "/settings/access", go: "Open Settings › Access" });
+  const failed = useSayFailed({ href: "/settings/agents", go: "Open Settings › Agents (MCP)" });
   const lines = useQuery({ queryKey: queryKeys.mcpActivity(t.id, refusedOnly), queryFn: () => api.mcpActivity(t.id, refusedOnly), refetchInterval: 15_000 });
   const list = lines.data?.lines ?? [];
   const today = new Date().toDateString();
@@ -320,7 +322,7 @@ function TokenRow({ t, open, toggle, fresh, busy, ask, showSetting }: { t: McpTo
 export function AgentsBlock() {
   const client = useQueryClient();
   const tokens = useQuery({ queryKey: queryKeys.mcpTokens(), queryFn: () => api.mcpTokens(), refetchInterval: 15_000 });
-  const sayFailed = useSayFailed({ href: "/settings/access", go: "Open Settings › Access" });
+  const sayFailed = useSayFailed({ href: "/settings/agents", go: "Open Settings › Agents (MCP)" });
   const [name, setName] = useState("");
   const [start, setStart] = useState<McpStart>("make");
   const [opened, setOpened] = useState<string | null>(null);
@@ -370,45 +372,49 @@ export function AgentsBlock() {
     ask({ kind: "make", name: name.trim() || `${said} · ${new Date().toLocaleDateString(undefined, { day: "numeric", month: "short" })}`, start });
   };
   return (
-    <div className="flex flex-col border-t border-line" data-setting="access.mcp">
-      <div className="flex flex-wrap items-center gap-2.5 px-gutter pt-3.5 pb-2.5">
-        <span className="text-meta tracking-wider text-ink-3 uppercase">Agents (MCP)</span>
-        <Help text={HELP} title="Agents (MCP)" />
-        <span className="grow" />
-        <span className="inline-flex items-stretch overflow-hidden rounded-control border border-line-strong">
-          <code className="bg-ground px-2.5 py-1.5 font-mono text-xs text-ink">{location.host}/mcp</code>
-          <button type="button" aria-label="Copy the address or Claude Code's command" onClick={(e) => copyMenu.open(e, true)} className="flex items-center gap-1.5 border-l border-line-strong bg-raised px-2.5 text-xs hover:bg-hover">
-            Copy <ChevronDown size={12} />
-          </button>
-        </span>
-        {copyMenu.menu && (
-          <ContextMenu
-            at={copyMenu.menu.at} label="Copy" head={{ title: "Copy", sub: fresh ? "with the token just made" : "with a stand-in for the token" }} onClose={copyMenu.close}
-            items={[
-              { label: "Address", note: snips.url, icon: <Link2 size={14} />, run: () => copy(snips.url) },
-              { label: "For Claude Code", note: "claude mcp add …", icon: <Terminal size={14} />, run: () => copy(snips.code) },
-            ]}
-          />
-        )}
-      </div>
-      <TasksSetting lit={settingLit} />
-      {/* the box shows where the typing goes, as a search field does: its input is bare inside it (card #178) */}
-      <form onSubmit={make} className="mx-gutter mb-2.5 flex flex-wrap items-center gap-2 rounded-control border border-dashed border-line-strong p-2 has-[input:focus-visible]:border-solid has-[input:focus-visible]:border-accent has-[input:focus-visible]:shadow-[0_0_0_3px_var(--color-accent-wash)]">
-        <input aria-label="New token's name" placeholder="New token's name (Claude Code, laptop…), optional" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} className="min-w-[120px] grow bg-transparent px-1 text-body text-ink outline-none placeholder:text-ink-3" />
-        <Segmented<McpStart> size="sm" label="Its scopes to start with" value={start} options={STARTS} onChange={setStart} />
-        <Button size="sm" tone="primary" type="submit" disabled={run.isPending}>Create token</Button>
-      </form>
-      {asking && <PasswordAsk said={asking.said} busy={run.isPending} onConfirm={(password) => run.mutate({ ask: asking.ask, password })} onCancel={() => setAsking(null)} />}
-      {all.length === revoked.length && !showRevoked && !tokens.isLoading && <span className="mx-gutter mb-3.5 text-xs text-ink-3">No token yet: /mcp refuses every client until you make one.</span>}
-      {list.map((t) => (
-        <TokenRow key={t.id} t={t} open={opened === t.id} toggle={() => setOpened(opened === t.id ? null : t.id)} fresh={fresh?.id === t.id ? fresh.token : null} busy={run.isPending} ask={ask} showSetting={showSetting} />
-      ))}
-      {revoked.length > 0 && (
-        <button type="button" onClick={() => setShowRevoked(!showRevoked)} className="mx-gutter mb-2 self-start text-xs text-ink-3 underline decoration-line-strong underline-offset-2 hover:text-ink-2">
-          {showRevoked ? "Hide the revoked tokens" : `${plural(revoked.length, "revoked token")}: show`}
-        </button>
+    <Card
+      title="Agents (MCP)" setting="access.mcp" help={HELP}
+      status={(
+        <>
+          <span className="inline-flex items-stretch overflow-hidden rounded-control border border-line-strong">
+            <code className="bg-ground px-2.5 py-1.5 font-mono text-xs text-ink">{location.host}/mcp</code>
+            <button type="button" aria-label="Copy the address or Claude Code's command" onClick={(e) => copyMenu.open(e, true)} className="flex items-center gap-1.5 border-l border-line-strong bg-raised px-2.5 text-xs hover:bg-hover">
+              Copy <ChevronDown size={12} />
+            </button>
+          </span>
+          {copyMenu.menu && (
+            <ContextMenu
+              at={copyMenu.menu.at} label="Copy" head={{ title: "Copy", sub: fresh ? "with the token just made" : "with a stand-in for the token" }} onClose={copyMenu.close}
+              items={[
+                { label: "Address", note: snips.url, icon: <Link2 size={14} />, run: () => copy(snips.url) },
+                { label: "For Claude Code", note: "claude mcp add …", icon: <Terminal size={14} />, run: () => copy(snips.code) },
+              ]}
+            />
+          )}
+        </>
       )}
-      {list.length > 0 && <span className="h-1.5" />}
-    </div>
+    >
+      <div className="flex flex-col pt-3">
+        <span className="px-gutter pb-2.5 text-body text-ink-2">Any MCP client (Claude Code, Claude Desktop, Cursor…) drives Afflatus with a token, as far as its scopes go.</span>
+        <TasksSetting lit={settingLit} />
+        {/* the box shows where the typing goes, as a search field does: its input is bare inside it (card #178) */}
+        <form onSubmit={make} className="mx-gutter mb-2.5 flex flex-wrap items-center gap-2 rounded-control border border-dashed border-line-strong p-2 has-[input:focus-visible]:border-solid has-[input:focus-visible]:border-accent has-[input:focus-visible]:shadow-[0_0_0_3px_var(--color-accent-wash)]">
+          <input aria-label="New token's name" placeholder="New token's name (Claude Code, laptop…), optional" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} className="min-w-[120px] grow bg-transparent px-1 text-body text-ink outline-none placeholder:text-ink-3" />
+          <Segmented<McpStart> size="sm" label="Its scopes to start with" value={start} options={STARTS} onChange={setStart} />
+          <Button size="sm" tone="primary" type="submit" disabled={run.isPending}>Create token</Button>
+        </form>
+        {asking && <PasswordAsk said={asking.said} busy={run.isPending} onConfirm={(password) => run.mutate({ ask: asking.ask, password })} onCancel={() => setAsking(null)} />}
+        {all.length === revoked.length && !showRevoked && !tokens.isLoading && <span className="mx-gutter mb-3.5 text-xs text-ink-3">No token yet: /mcp refuses every client until you make one.</span>}
+        {list.map((t) => (
+          <TokenRow key={t.id} t={t} open={opened === t.id} toggle={() => setOpened(opened === t.id ? null : t.id)} fresh={fresh?.id === t.id ? fresh.token : null} busy={run.isPending} ask={ask} showSetting={showSetting} />
+        ))}
+        {revoked.length > 0 && (
+          <button type="button" onClick={() => setShowRevoked(!showRevoked)} className="mx-gutter mb-2 self-start text-xs text-ink-3 underline decoration-line-strong underline-offset-2 hover:text-ink-2">
+            {showRevoked ? "Hide the revoked tokens" : `${plural(revoked.length, "revoked token")}: show`}
+          </button>
+        )}
+        {list.length > 0 && <span className="h-1.5" />}
+      </div>
+    </Card>
   );
 }

@@ -113,7 +113,7 @@ export function PromptField({ spec, id, value, values, onChange, bare }: { spec:
   const checked = spec.style === "tags" && !spec.optional && Boolean(settings.data?.tagCheck);
   const ignore = useLoraWords(checked ? values : undefined);
   const weighs = spec.weights !== false;
-  // `;name` puts a snippet of the Prompt kit in (Settings › Command bar)
+  // `;name` puts a snippet of the Prompt kit in (Settings › Interface › Command bar)
   const snippetKeys = useSnippetKeys({ value, onChange });
   // the keys it takes, in its ? rather than over the text on every hover
   // a few words on one line (a swap's Track) take no weights and no choices: neither is said

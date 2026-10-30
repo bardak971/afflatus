@@ -71,7 +71,7 @@ async function call(t: Tool, raw: unknown, s: Services, token: McpToken, ip: str
     // the scope first: a token that may not use the tool is told what to tick, not that its arguments are wrong
     if (!token.scopes.includes(t.scope)) {
       said = `${t.title}: needs ${SCOPE_WORDS[t.scope]}`;
-      throw refusal(`This token cannot ${t.scope === "spend" ? "spend on rented GPUs" : `do this (it needs ${SCOPE_WORDS[t.scope]})`}: tick ${SCOPE_WORDS[t.scope]} on it in Settings › Access.`);
+      throw refusal(`This token cannot ${t.scope === "spend" ? "spend on rented GPUs" : `do this (it needs ${SCOPE_WORDS[t.scope]})`}: tick ${SCOPE_WORDS[t.scope]} on it in Settings › Agents (MCP).`);
     }
     // the arguments checked here rather than by the SDK, so that a refused one is in the activity too
     const parsed = z.object(t.input ?? {}).safeParse(raw ?? {});
@@ -161,7 +161,7 @@ export function clientOf(body: unknown): string | undefined {
 
 /**
  * Whether the client follows MCP Tasks, from a tools/call in the body: the capabilities that call declares in its own
- * envelope (a 2025-era call has none: no). Undefined without a tools/call, which says nothing of it. Settings › Access
+ * envelope (a 2025-era call has none: no). Undefined without a tools/call, which says nothing of it. Settings › Agents (MCP)
  * shows it on the token's row, since a client that does not follow them holds its session through a long render.
  */
 export function tasksOf(body: unknown): boolean | undefined {
@@ -205,7 +205,7 @@ export function registerMcp(app: FastifyInstance, s: Services): void {
       const token = await s.mcp.tokens.byBearer(req.headers.authorization);
       if (!token) {
         return reply.status(401).header("WWW-Authenticate", 'Bearer realm="afflatus"').header("Cache-Control", "no-store")
-          .send({ error: "/mcp needs a token of Settings › Access as a Bearer token: none was sent, or it is wrong, revoked or ended." });
+          .send({ error: "/mcp needs a token of Settings › Agents (MCP) as a Bearer token: none was sent, or it is wrong, revoked or ended." });
       }
       tokenOf.set(req, token);
     },

@@ -303,7 +303,7 @@ export const api = {
   signOutEverywhere: (keepThis: boolean) => call<{ ok: true }>("POST", "/session/sign-out-everywhere", { keepThis }),
   setPassword: (password: string, current: string, signOutOthers: boolean) => call<{ ok: true }>("POST", "/session/password", { password, current, signOutOthers }),
   passwordOff: (current: string) => call<{ ok: true }>("POST", "/session/password/off", { current }),
-  /** The Access settings: a sign-in of the last 10 minutes, or the password with them (a 403 with needPassword asks for it). */
+  /** The Sign-in settings: a sign-in of the last 10 minutes, or the password with them (a 403 with needPassword asks for it). */
   accessSettings: (patch: { localNoPassword?: boolean; stayDays?: 1 | 7 | 30 | 90; resetTelegram?: boolean; newDevice?: { telegram?: boolean; discord?: boolean } }, current?: string) => call<{ ok: true }>("POST", "/session/settings", { ...patch, ...(current ? { current } : {}) }),
   /** The metrics token made (its only showing) or taken off, under the same rule. */
   metricsToken: (make: boolean, current?: string) => call<{ token: string | null }>("POST", "/session/metrics-token", { make, ...(current ? { current } : {}) }),

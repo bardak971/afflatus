@@ -58,7 +58,7 @@ export const rowId = (place: KeyPlace, group: KeyGroup, i: number) => `${place.i
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** The words of a search, matched at the start of a word ("split" in "Split at the playhead", not in "unsplit"). */
 export const wordsRe = (q: string) => new RegExp(`(^|[^\\p{L}\\p{N}])(${escapeRe(q)})`, "iu");
-/** A row's keys as drawn: the command bar's own row shows the shortcut set in Settings › Command bar. */
+/** A row's keys as drawn: the command bar's own row shows the shortcut set in Settings › Interface › Command bar. */
 export const keysOfRow = (row: KeyRow, barKey: string) => (row.bar ? barKey : row.keys);
 
 /** The places in the order they are listed: the open ones first, the rest as the table has them. */

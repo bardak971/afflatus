@@ -257,7 +257,7 @@ export function registerModelUpdates(app: FastifyInstance, s: Services, updates:
   app.get("/api/models/updates", async () => updates.report());
   /** Check now. Hashes a few more files each time; asks Civitai once per model. */
   app.post("/api/models/updates/check", async () => updates.check());
-  /** How far the hashing of every model file is, and what the sites said of them (Settings › Models › Your models online). */
+  /** How far the hashing of every model file is, and what the sites said of them (Settings › Model files › Your models online). */
   app.get("/api/models/hashes", async () => s.hashes.status());
   /** Hash now: what is not hashed yet, then what is not matched asked of the sites. Answers at once; the status says how far. */
   app.post("/api/models/hashes/run", async () => {

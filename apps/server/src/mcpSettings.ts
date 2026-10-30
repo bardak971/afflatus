@@ -16,7 +16,7 @@ import { saveSettings } from "./setup-api";
  * Every setting of the schema is one of four kinds, and a setting added later that is none of them fails a test
  * (mcpSettings.test.ts) before it ships unsaid:
  * - one an agent may change (Manage): those with a "?" text in SETTING_HELP;
- * - one on the never-list (mcpTool.ts NEVER): the Access settings, where notices and reset codes go, Afflatus's updates.
+ * - one on the never-list (mcpTool.ts NEVER): the Sign-in settings, where notices and reset codes go, Afflatus's updates.
  *   Not read either;
  * - a secret (API keys, tokens): never read back (said set or not), and never written from here either. A key pasted
  *   into a chat would sit in the agent's transcript, and one swapped for another account's would move the user's bills
@@ -51,7 +51,7 @@ export const ELSEWHERE: Record<string, { where: string; hidden?: true; path?: tr
   machines: { where: "list_machines, edit_machine and remove_machine; a machine is added, and its address changed, in Afflatus itself" },
   comfyUrl: { where: "Settings › ComfyUI in Afflatus itself (the first machine's address)" },
   comfyDir: { where: "Settings › ComfyUI in Afflatus itself: a folder on this computer", path: true },
-  llms: { where: "Settings › Designer in Afflatus itself: an LLM's address goes with its API key" },
+  llms: { where: "Settings › Prompts in Afflatus itself: an LLM's address goes with its API key" },
   firstLaunch: { where: "the app itself (the first launch's page)", hidden: true },
   lastDeploy: { where: "deploy_pod (the last deploy's choices are its defaults)" },
   acceptedPresets: { where: "Afflatus itself: a licence is accepted by the user's own tick" },
@@ -121,7 +121,7 @@ const readSettingsTool = tool({
   name: "read_settings",
   scope: "look",
   title: "Settings",
-  description: "Afflatus's settings as Settings shows them, each with its value, its \"?\" text, and whether it may be changed here (change_setting, Manage) or where it is changed. A secret (an API key, a token) is said set or not, never read back. The Access settings, where notices and reset codes go and Afflatus's updates are never reached through MCP. `key`: one setting (a dotted path reaches inside: \"rentCaps.day\"), with its shape and range as JSON Schema.",
+  description: "Afflatus's settings as Settings shows them, each with its value, its \"?\" text, and whether it may be changed here (change_setting, Manage) or where it is changed. A secret (an API key, a token) is said set or not, never read back. The Sign-in settings, where notices and reset codes go and Afflatus's updates are never reached through MCP. `key`: one setting (a dotted path reaches inside: \"rentCaps.day\"), with its shape and range as JSON Schema.",
   input: {
     key: z.string().min(1).max(200).optional().describe("One setting, or a dotted path inside one (\"finish.route\")."),
   },
@@ -136,7 +136,7 @@ const readSettingsTool = tool({
           ...(x.kind === "writable" ? { help: settingHelp(x.key) } : {}),
           changed: x.kind === "writable" ? "change_setting" : x.kind === "secret" ? "in Afflatus itself (a secret)" : ELSEWHERE[x.key]!.where,
         })),
-        never: "The Access settings, where notices and reset codes go (Telegram, Discord, the new-device notice) and Afflatus's updates: never through MCP.",
+        never: "The Sign-in settings, where notices and reset codes go (Telegram, Discord, the new-device notice) and Afflatus's updates: never through MCP.",
       };
     }
     const [top, ...rest] = key.split(".");
@@ -185,7 +185,7 @@ function mayRaiseCaps(ctx: ToolCtx, was: Settings["rentCaps"], sent: unknown): v
     const now = next[k] === undefined ? was[k] : next[k];
     if (typeof now !== "number") continue;
     const raised = was[k] > 0 && (now <= 0 || now > was[k]);
-    if (raised) throw refusal(`This token cannot spend on rented GPUs, and ${now <= 0 ? "taking off" : "raising"} the app's ${k === "day" ? "daily" : "monthly"} cap lets more be spent on them: tick Spend on it in Settings › Access, or the user changes it in Settings › Rented GPUs. Lowering a cap needs Manage only.`);
+    if (raised) throw refusal(`This token cannot spend on rented GPUs, and ${now <= 0 ? "taking off" : "raising"} the app's ${k === "day" ? "daily" : "monthly"} cap lets more be spent on them: tick Spend on it in Settings › Agents (MCP), or the user changes it in Settings › Costs. Lowering a cap needs Manage only.`);
   }
 }
 
@@ -193,7 +193,7 @@ const changeSetting = tool({
   name: "change_setting",
   scope: "manage",
   title: "Change a setting",
-  description: "Change one setting of Afflatus as Settings does, with the same checks and the same save: a dotted path reaches inside one (\"rentCaps.month\", \"finish.route\", \"families.flux\"; null on a family's or a file's key takes it out). read_settings says which may be changed here, each with its \"?\" text and range. Secrets, the Access settings, where notices and reset codes go and Afflatus's updates are refused. Raising or taking off the app's rented-GPU caps (rentCaps) needs Spend too; lowering them is Manage's. Answers the value it had and the one it has now.",
+  description: "Change one setting of Afflatus as Settings does, with the same checks and the same save: a dotted path reaches inside one (\"rentCaps.month\", \"finish.route\", \"families.flux\"; null on a family's or a file's key takes it out). read_settings says which may be changed here, each with its \"?\" text and range. Secrets, the Sign-in settings, where notices and reset codes go and Afflatus's updates are refused. Raising or taking off the app's rented-GPU caps (rentCaps) needs Spend too; lowering them is Manage's. Answers the value it had and the one it has now.",
   input: {
     key: z.string().min(1).max(200).describe("The setting, or a dotted path inside it."),
     value: z.unknown().describe("Its new value, as read_settings shows values (its schema with key)."),

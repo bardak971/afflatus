@@ -84,7 +84,7 @@ function MachineFacts({ probe, state, rented }: { probe: MachineProbe | undefine
  */
 export function PacksRow({ machine, label, put }: { machine: Machine; label: string; put: (change: Partial<Machine>) => void }) {
   return (
-    <Row setting="comfy.packs" label="Node packs renders need" help={`A render that asks for a node pack ${label} lacks (Veda, H3's Cache, RTX VSR, the GGUF loader). Ask: it waits, and its Queue row offers Install and restart (or Run without, for what it can do without). Always: installed through ComfyUI-Manager without asking. Either way ComfyUI restarts only once nothing renders on it, from Afflatus or from outside.`}>
+    <Row setting="comfy.packs" label="Missing node packs" sub="the ones a render needs, installed by ComfyUI-Manager" help={`A render that asks for a node pack ${label} lacks (Veda, H3's Cache, RTX VSR, the GGUF loader). Ask: it waits, and its Queue row offers Install and restart (or Run without, for what it can do without). Always: installed through ComfyUI-Manager without asking. Either way ComfyUI restarts only once nothing renders on it, from Afflatus or from outside.`}>
       <Segmented oneLine label={`Node packs on ${label}`} value={machine.packs} options={PACKS} onChange={(packs) => put({ packs })} />
     </Row>
   );

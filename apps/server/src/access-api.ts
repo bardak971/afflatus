@@ -8,7 +8,7 @@ import type { Services } from "./services";
 
 /**
  * The lock and its routes (access.ts): who a request is, the 401 for an API route without a session when a password is
- * set, and the sign-in, the reset codes, the password itself and the devices signed in (Settings › Access).
+ * set, and the sign-in, the reset codes, the password itself and the devices signed in (Settings › Sign-in).
  */
 
 declare module "fastify" {
@@ -168,7 +168,7 @@ export function registerAccessHook(app: FastifyInstance, access: Access): void {
     }
     if (metrics) {
       if (bypass || session || (await access.metricsTokenOk(req.headers.authorization))) return;
-      return reply.status(401).header("WWW-Authenticate", "Bearer").type("text/plain").send("Afflatus has a password: /metrics needs the metrics token (Settings › Access) as a Bearer token.\n");
+      return reply.status(401).header("WWW-Authenticate", "Bearer").type("text/plain").send("Afflatus has a password: /metrics needs the metrics token (Settings › Sign-in) as a Bearer token.\n");
     }
     if (!api || bypass || session || open) return;
     // the page reads this header (api.ts) to show the sign-in again: a 401 of its own (a wrong password) is not this
@@ -250,7 +250,7 @@ export function registerAccess(app: FastifyInstance, s: Services): void {
     return { ok: true };
   });
 
-  /** Settings › Access: where Afflatus listens, whether this computer may be exempt, the devices signed in, the last alarm. Behind the lock. */
+  /** Settings › Sign-in: where Afflatus listens, whether this computer may be exempt, the devices signed in, the last alarm. Behind the lock. */
   app.get("/api/session/devices", async (req) => {
     const bound = config.host;
     const everywhere = bound === "0.0.0.0" || bound === "::" || bound === "[::]";
@@ -289,7 +289,7 @@ export function registerAccess(app: FastifyInstance, s: Services): void {
   });
 
   /**
-   * The Access settings (and the new-device notice's channels): a sign-in of the last 10 minutes, or the password with them
+   * The Sign-in settings (and the new-device notice's channels): a sign-in of the last 10 minutes, or the password with them
    * (access.ts mayChange), since each loosens what a password guards. "From this computer" is refused while Afflatus
    * listens on loopback only (access.ts bypassOn).
    */

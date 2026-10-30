@@ -5,7 +5,7 @@ import { fakeApi } from "./fakeApi";
 import { draw } from "./render";
 
 /**
- * Settings › Access (review S5): signing a device out ends the ComfyUI login it got through Open ComfyUI (node pack 0.42.0
+ * Settings › Sign-in (review S5): signing a device out ends the ComfyUI login it got through Open ComfyUI (node pack 0.42.0
  * and newer), and the list of devices says so, with the way to end it under an older pack.
  */
 
