@@ -103,6 +103,8 @@ function JobCell({ run, figures }: { run: RunningJob; figures: React.ReactNode }
         {/* what is left before its figures, which give way first (whole in their tip) */}
         <span className="shrink-0">{stepSaid(run)}</span>
         {run.spilling && <span className="shrink-0 font-sans font-semibold text-warn-ink" data-tip="Out of video memory, it seems: much slower than usual. Stop it and run it again once nothing else holds the GPU's memory.">spilling out of VRAM</span>}
+        {/* its ComfyUI answers nothing, but still runs (a PC paging): the render goes on, it is not offline */}
+        {run.busy && <span className="shrink-0 font-sans font-semibold text-attention-ink" data-tip={`${run.busy}.`}>not answering · goes on</span>}
         <span className="grow" />
         {figures}
       </span>

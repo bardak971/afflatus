@@ -77,6 +77,7 @@ export function RunningCard({ running, onStop }: { running: RunningJob | null; o
             {seed !== null && <span data-tip="Right-click to copy it">seed {seed}</span>}
             {seedCopy.note && <span aria-live="polite" className={cx("font-sans", seedCopy.note.ok ? "text-accent" : "text-warn-ink")}>{seedCopy.note.text}</span>}
             {running.spilling && <span className="font-sans font-semibold text-warn-ink" data-tip="Out of video memory, it seems: much slower than usual. Stop it and run it again once nothing else holds the GPU's memory (a finish frees ComfyUI's models first), or give SeedVR2 a smaller batch size (Finish).">spilling out of VRAM, much slower than usual</span>}
+            {running.busy && <span className="font-sans font-semibold text-attention-ink">{running.busy}</span>}
           </span>
         </div>
         <Button size="sm" className="shrink-0" onClick={() => onStop(running.id)}>Stop this render</Button>

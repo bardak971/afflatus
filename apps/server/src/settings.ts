@@ -196,7 +196,7 @@ export type DeployAsk = z.infer<typeof deploySchema>;
  * What Afflatus tells about, on Telegram, Discord and in the browser (notify.ts); `gpuFound` and `huntGaveUp` are the GPU
  * hunt's (hunt.ts), `newDevice` the password's (access.ts): a sign-in from a device never seen before.
  */
-export const NOTIFY_KINDS = ["renderDone", "renderFailed", "queueEmpty", "renderStuck", "podStopped", "capReached", "balanceLow", "comfyGone", "gpuFound", "huntGaveUp", "newDevice"] as const;
+export const NOTIFY_KINDS = ["renderDone", "renderFailed", "queueEmpty", "renderStuck", "podStopped", "capReached", "balanceLow", "comfyGone", "comfyBusy", "gpuFound", "huntGaveUp", "newDevice"] as const;
 export type NotifyKind = (typeof NOTIFY_KINDS)[number];
 /**
  * Only a render done is off by default: every other kind is something to act on. A new device goes to Telegram only: a

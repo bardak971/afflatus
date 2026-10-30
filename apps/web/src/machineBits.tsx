@@ -80,7 +80,7 @@ export function Dot({ m }: { m: MachineState }) {
   }
   // away is amber, not red (the owner, 2026-10-22): a ComfyUI not answering often comes back by itself (restarting, a
   // pod booting), a look rather than a failure; locked against Afflatus's token stays red, Afflatus cannot call it
-  if (m.online === false) return <span aria-hidden data-state={m.locked ? "locked" : "offline"} className={cx("size-[7px] shrink-0 rounded-full", m.locked ? "bg-warn" : "bg-attention")} />;
+  if (m.online === false && !(m.busy && m.running)) return <span aria-hidden data-state={m.locked ? "locked" : "offline"} className={cx("size-[7px] shrink-0 rounded-full", m.locked ? "bg-warn" : "bg-attention")} />;
   // its ComfyUI at work for someone else (its own page): an accent ring filled with its wash, as its Queue lane has it,
   // never the idle ring
   if (!m.running && !m.paused && busyOutside(m)) return <span aria-hidden data-state="outside" className="size-[7px] shrink-0 rounded-full border-[1.5px] border-accent bg-accent-wash" />;
@@ -124,7 +124,8 @@ export function doing(m: MachineState, now: number): string {
   // a rented pod: its own state first (stopped, starting, its first start, its ComfyUI not up yet), its cost while it runs
   if (m.rented && (m.rented.status !== "RUNNING" || m.rented.stopping || m.rented.booting || m.rented.answers === false)) return rentedSaid(m.rented, now);
   const cost = m.rented?.since ? ` · ${usd(rentedSpent(m.rented, now), true)}` : "";
-  if (m.online === false) return m.locked ? "locked: its token is wrong" : "offline";
+  if (m.online === false && !(m.busy && m.running)) return m.locked ? "locked: its token is wrong" : "offline";
+  if (m.running && m.busy) return `${m.running.label} · not answering, goes on${cost}`;
   if (m.running) return `${m.running.label}${m.running.steps ? ` · ${m.running.step}/${m.running.steps}` : ` · ${Math.round(m.running.progress * 100)} %`}${cost}`;
   if (!m.paused && busyOutside(m)) return `busy outside Afflatus · ${outsideSaid(m)}${cost}`;
   const getting = gettingFiles(m);

@@ -953,6 +953,16 @@ export class RentedFollow extends RentedBilling {
   }
 
   /**
+   * Whether a pod's ComfyUI may still run, for a render whose ComfyUI answers nothing (queue.ts stillRuns): RunPod said it runs
+   * at the last read, and no death of its ComfyUI was said. A pod that renders on unseen is held to its stuck and overrun
+   * rules all the same (quietFor, overrunFor), so that a ComfyUI hung there is not billed until a cap.
+   */
+  comfyRuns(machine: string): boolean {
+    const s = this.seen.get(machine);
+    return s?.pod?.status === "RUNNING" && !s.comfyDied;
+  }
+
+  /**
    * The queue found a pod's ComfyUI started again without the render it ran (queue.ts lostOnPod): its death, though its image
    * said nothing of it. Acted on at the next read, as a death the pod reports is.
    */

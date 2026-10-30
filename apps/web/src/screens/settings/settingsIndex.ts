@@ -101,6 +101,7 @@ export const INDEX: SettingSpot[] = [
   { tab: "notifications", label: "Notify: GPU found", key: "notify.gpuFound", near: "notify.what", words: "notifications notify rented runpod hunt gpu found deployed free stock" },
   { tab: "notifications", label: "Notify: hunt gave up", key: "notify.huntGaveUp", near: "notify.what", words: "notifications notify rented runpod hunt gpu gave up none free stock" },
   { tab: "notifications", label: "Notify: ComfyUI offline", key: "notify.comfyGone", near: "notify.what", words: "notifications notify comfyui offline gone crashed down machine" },
+  { tab: "notifications", label: "Notify: ComfyUI not answering", key: "notify.comfyBusy", near: "notify.what", words: "notifications notify comfyui busy not answering paging memory full swamped machine" },
   { tab: "notifications", label: "Notify: new device signed in", key: "notify.newDevice", also: ["access.newDevice"], near: "notify.what", words: "notifications notify new device sign in login password browser phone security" },
   { tab: "signin", label: "Password", key: "access.password", words: "password login sign in lock access protect security network lan remote set change turn off reset forgot" },
   { tab: "signin", label: "Reachable from", key: "access.reach", words: "host listen address network lan 0.0.0.0 127.0.0.1 port access" },

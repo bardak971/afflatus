@@ -55,13 +55,14 @@ export function gettingFiles(m: WithFiles): { left: PodFile[]; done: number; tot
  * as idle before. Nor does one whose ComfyUI runs work queued from outside Afflatus (its own page, another tool): it reads
  * "busy outside Afflatus", and takes no job until that is done.
  */
-export function machineState(m: Pick<MachineState, "paused" | "online" | "rented"> & { locked?: boolean; running: unknown; files?: readonly PodFile[]; outside?: MachineState["outside"] }): MachineWord {
+export function machineState(m: Pick<MachineState, "paused" | "online" | "rented"> & { locked?: boolean; running: unknown; files?: readonly PodFile[]; outside?: MachineState["outside"]; busy?: string | null }): MachineWord {
   const r = m.rented;
   // a pod RunPod was not read for yet (Afflatus just started): not known, never said stopped while it may be running
   if (r?.status === "UNKNOWN") return "checking";
   if (r && (r.status !== "RUNNING" || r.booting)) return r.status === "STARTING" || r.status === "PROVISIONING" || r.booting ? "starting" : "stopped";
   if (m.paused) return "paused";
-  if (m.online === false) return m.locked ? "locked" : "offline";
+  // silent but still running (a PC paging): it renders on, not offline
+  if (m.online === false && !(m.busy && m.running)) return m.locked ? "locked" : "offline";
   return m.running ? "rendering" : busyOutside(m) ? "busy outside Afflatus" : gettingFiles(m) ? "getting files" : "idle";
 }
 
@@ -71,7 +72,8 @@ export function machineState(m: Pick<MachineState, "paused" | "online" | "rented
  */
 export function onlineSaid(machines: ReadonlyArray<Parameters<typeof machineState>[0]>): string {
   const starting = machines.filter((m) => machineState(m) === "starting").length;
-  const online = machines.filter((m) => m.online !== false && machineState(m) !== "starting").length;
+  // one silent but still running (busy) renders on: online
+  const online = machines.filter((m) => (m.online !== false || (m.busy && m.running)) && machineState(m) !== "starting").length;
   return `${online} of ${machines.length} machines online${starting ? ` · ${starting} starting` : ""}`;
 }
 

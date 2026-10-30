@@ -106,7 +106,7 @@ export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiK
   llm?: Partial<Omit<LlmPatch, "id">>;
 };
 /** What Afflatus tells about (the server's notify.ts); `newDevice`: a sign-in from a device never seen (access.ts). */
-export type NotifyKind = "renderDone" | "renderFailed" | "queueEmpty" | "renderStuck" | "podStopped" | "capReached" | "balanceLow" | "comfyGone" | "gpuFound" | "huntGaveUp" | "newDevice";
+export type NotifyKind = "renderDone" | "renderFailed" | "queueEmpty" | "renderStuck" | "podStopped" | "capReached" | "balanceLow" | "comfyGone" | "comfyBusy" | "gpuFound" | "huntGaveUp" | "newDevice";
 /** The optional password's settings (Settings › Sign-in). The password itself never comes back: only whether there is one. */
 export interface AccessSettings {
   hasPassword: boolean;

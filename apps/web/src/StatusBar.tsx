@@ -208,6 +208,8 @@ function Running({ run }: { run: RunningJob }) {
         <span className="shrink-0 font-mono whitespace-pre text-ink-2">· {left}</span>
         <Progress shape="edge" value={run.progress} steps={run.steps} loading={!run.progress} />
       </Link>
+      {/* its ComfyUI answers nothing but still runs (a PC paging): said here, not "offline", and the render goes on */}
+      {run.busy && <span className="shrink-0 rounded-key bg-attention-wash px-1.5 py-px font-semibold whitespace-nowrap text-attention-ink" data-tip={`${run.busy}.`}>ComfyUI isn't answering · the render goes on</span>}
       {run.spilling && <span className="shrink-0 rounded-key bg-warn-wash px-1.5 py-px font-semibold whitespace-nowrap text-warn-ink" data-tip="Out of video memory, it seems: much slower than usual. Stop it and run it again once nothing else holds the GPU's memory (a finish frees ComfyUI's models first), or give SeedVR2 a smaller batch size (Finish).">spilling out of VRAM</span>}
     </>
   );

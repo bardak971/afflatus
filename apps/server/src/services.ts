@@ -41,6 +41,7 @@ import { downPodFiles } from "./filePlaces";
 import { McpTokens } from "./mcpTokens";
 import { WhereNow } from "./whatsOpen";
 import { followComfyLogins } from "./comfyLogins";
+import { stillRuns } from "./comfyAlive";
 import { Hunt } from "./hunt";
 import { OfficialSizes } from "./officialSizes";
 
@@ -206,6 +207,9 @@ export async function createServices(
   queue.podCrashed = (id, why) => rented.podCrashed(id, why);
   // a render lost on a deployed pod: its death asked of the pod before it goes again (a crash seen late was run again elsewhere)
   queue.diedLate = (id) => rented.diedLate(id);
+  // a ComfyUI that answers nothing while it renders: its process asked of (its port, its pod) before it is said offline or
+  // its render lost; one still running is swamped, and its render followed on
+  queue.stillRuns = (m, memory) => stillRuns(m, (id) => rented.comfyRuns(id), memory);
   notify.watch();
   // the reset codes and the sign-ins go to the data folder's log file as well as the console (none in the tests)
   const access = new Access(db, notify, { logFile: dirs.dataDir ? join(dirs.dataDir, "logs", "afflatus.log") : undefined });
