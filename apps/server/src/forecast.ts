@@ -1,4 +1,4 @@
-import { gpuKey, roughly, roughSpeed, secondsOf, type BuiltGraph, type MediaFacts, type Recipe } from "@afflatus/core";
+import { gpuKey, plannedSeconds, roughly, roughSpeed, type BuiltGraph, type MediaFacts, type Recipe } from "@afflatus/core";
 import { sql } from "kysely";
 import type { Db } from "./db";
 
@@ -611,7 +611,9 @@ export async function rates(db: Db): Promise<Record<string, Rate>> {
 export function fromRates(all: Record<string, Rate>, recipe: Recipe<any>, input: Record<string, unknown>, at: { cold?: boolean | null; pace?: number; samples?: boolean } = {}): Forecast | null {
   const rate = rateOf(all[recipe.id], at.samples);
   if (!rate) return null;
-  const seconds = secondsOf(recipe.inputs, input);
+  // the clip's length, its Duration or the part of the video or recording it is made from: a Swap, a Motion transfer or a Lip
+  // sync whose source is not picked yet (its graph not built) is priced by its part's length too, not by a usual job (card #170)
+  const seconds = plannedSeconds(recipe.inputs, input);
   const run = (rate.perSecondMs && seconds ? rate.perSecondMs * seconds : rate.perJobMs) * (at.pace && at.pace > 0 ? at.pace : 1);
   const warm = rate.loads?.warmMs ?? 0;
   const load = at.cold && rate.loads ? Math.max(warm, rate.loads.coldMs ?? warm) : warm;

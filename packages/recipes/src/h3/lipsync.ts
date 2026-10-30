@@ -1,7 +1,7 @@
 import { defineRecipe, type InputSpec, type Variant } from "@afflatus/core";
 import { H3_FPS } from "./family";
 import { RECORDING_AFTER, recordingInputs, recordingNodes, recordingOnClip, type Recording } from "../shared/recording";
-import { H3_NO_TAGS, REF_VIDEOS_WHAT, h3Inputs, type H3Video } from "./inputs";
+import { H3_NO_TAGS, H3_SOUND_CHAPTER, REF_VIDEOS_WHAT, h3Inputs, type H3Video } from "./inputs";
 import { buildH3, h3Video } from "./video";
 import { isH3Layout } from "./prompt";
 import { H3_STARTS, referenceNeeds, turboNeeds, vedaNeeds } from "./model";
@@ -52,15 +52,19 @@ const speechAt: InputSpec = {
  * H3's inputs with the scene in place of the dialogue, the recording after it, no duration (the recording's length decides
  * it) and no voice sample: the recording is the voice, and the cast's sample would only pull the timbre elsewhere.
  */
+const recording = recordingInputs({ shown: true, less: [speechAt] });
+const IN_SOUND = new Set(["speechAt", "evenLoudness"]);
 const lipSyncInputs: InputSpec[] = h3Inputs.flatMap((spec): InputSpec[] => {
   // nor In the take: the file's sound is always the recording, so each cue's part is laid over it (H3's own is not in it, B12)
   if (spec.id === "seconds" || spec.id === "voice" || spec.id === "voiceStart" || spec.id === "voiceSeconds" || spec.id === "voiceEven" || spec.id === "cueSound") return [];
   if (spec.id === "description" && spec.type === "prompt") {
     return [
       { ...spec, label: "What happens", placeholder: "A man at a café terrace, medium close-up, talking to the camera, calm and friendly.", note: `where they are and how they speak, without a dialogue line: the recording is what is said. ${H3_NO_TAGS}` },
-      ...recordingInputs({ shown: true, less: [speechAt] }),
+      ...recording.filter((i) => !IN_SOUND.has(i.id)),
     ];
   }
+  // the Sound card (card #170): Sound effects and Music as on every H3 form, then when the words start and the loudness
+  if (spec.id === "music") return [spec, ...recording.filter((i) => IN_SOUND.has(i.id)).map((i): InputSpec => ({ ...i, chapter: "sound" }))];
   // the recording is the voice: no reference video gives its sound here (build)
   if (spec.id === "refVideos") return [{ ...spec, note: `${REF_VIDEOS_WHAT} Their sound is left out: the recording is the voice` }];
   return [spec];
@@ -78,6 +82,7 @@ export const h3LipSync = defineRecipe<H3LipSync>({
   output: "video",
   traits: h3Video.traits,
   inputs: lipSyncInputs,
+  chapters: [H3_SOUND_CHAPTER],
   starts: H3_STARTS,
   presets: h3Video.presets,
   // the recording is cut to the clip; the model's decoded sound goes before it when the clip opens on frames of the clip

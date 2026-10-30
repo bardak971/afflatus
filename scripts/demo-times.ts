@@ -28,6 +28,10 @@ const KINDS: Kind[] = [
   { recipe: "krea2.text-to-picture", family: "krea2", files: ["krea2-q8"], key: "steps=8", kind: "image", sizes: [[896, 1152], [1024, 1024]], seconds: [], steps: 8, stepMs: 2_600, loadMs: 21_000, refineMs: 12_000, finishMs: 3_000, weight: 16, vram: 90 },
   { recipe: "klein.edit", family: "klein", files: ["klein-4b-distilled"], key: "steps=4", kind: "image", sizes: [[1024, 1024], [768, 1344]], seconds: [], steps: 4, stepMs: 1_300, loadMs: 12_000, refineMs: 0, finishMs: 2_000, weight: 12, vram: 71 },
   { recipe: "h3.video", family: "h3", files: ["h3-fl2va-int8", "h3-hybrid-turbo-v3"], key: "seconds=5;fast=true", kind: "video", sizes: [[576, 1024], [768, 768]], seconds: [5, 5, 7, 10], steps: 8, stepMs: 9_400, loadMs: 38_000, refineMs: 0, finishMs: 24_000, weight: 22, vram: 96 },
+  // the other H3 forms, so that each shows what it will take before its source is picked (card #170)
+  { recipe: "h3.lipsync", family: "h3", files: ["h3-fl2va-int8"], key: "fast=true", kind: "video", sizes: [[576, 1024]], seconds: [6, 8, 12], steps: 8, stepMs: 9_600, loadMs: 38_000, refineMs: 0, finishMs: 24_000, weight: 6, vram: 96 },
+  { recipe: "h3.swap", family: "h3", files: ["h3-ref2va-int8"], key: "fast=true", kind: "video", sizes: [[576, 1024]], seconds: [5.2], steps: 4, stepMs: 15_000, loadMs: 40_000, refineMs: 0, finishMs: 22_000, weight: 5, vram: 97 },
+  { recipe: "h3.motion", family: "h3", files: ["h3-fl2va-int8"], key: "fast=true", kind: "video", sizes: [[576, 1024]], seconds: [5.2], steps: 8, stepMs: 11_000, loadMs: 42_000, refineMs: 0, finishMs: 24_000, weight: 4, vram: 97 },
   { recipe: "wan.video", family: "wan", files: ["wan22-i2v-fine-tune"], key: "seconds=5;fast=true", kind: "video", sizes: [[480, 832], [832, 480]], seconds: [5, 5, 3], steps: 4, stepMs: 19_500, loadMs: 41_000, refineMs: 0, finishMs: 21_000, weight: 9, vram: 94 },
   { recipe: "ltx.video", family: "ltx", files: ["ltx23-fine-tune"], key: "seconds=5;twoPass=true", kind: "video", sizes: [[704, 1216]], seconds: [5, 5, 8], steps: 11, stepMs: 1_800, loadMs: 24_000, refineMs: 19_000, finishMs: 23_000, weight: 7, vram: 92 },
 ];

@@ -9,7 +9,7 @@ import { conditionFor, type MorePicture } from "./condition";
 import { cueMixNodes, cueNodes, cueOwnSoundSaid, cuesFor, guideCues, layCues, laysCues } from "./cue";
 import { finish, H3_SAVE_LATENT } from "./finish";
 import { FACE_REFINE_OPTIONAL, FACE_REFINE_PACK_NEEDED, FACE_REFINE_SLOTS, clipModelOf, faceRefineNeeds, faceRefineSkipped, openingPicture, type ClipModel } from "./faceRefine";
-import { h3Inputs, type H3Video } from "./inputs";
+import { H3_SOUND_CHAPTER, h3Inputs, type H3Video } from "./inputs";
 import { recordingInputs, recordingNodes, recordingOnClip, type Recording } from "../shared/recording";
 import { isH3Layout } from "./prompt";
 import { H3_CONTINUATION_NODES, H3_HEAD_GUIDE, H3_LANDING, H3_SEAM, H3_TRIM, resolveJoin } from "./join";
@@ -35,6 +35,8 @@ export const h3Video = defineRecipe<H3Video & Partial<Recording>>({
   },
   // a clip under a recording it plays over (card #72): its place in the recording, set by the timeline, never drawn
   inputs: [...h3Inputs, ...recordingInputs({ shown: false })],
+  // every H3 form's cards (card #170): Sound under the Inputs tab
+  chapters: [H3_SOUND_CHAPTER],
   starts: H3_STARTS,
   // a distilled file (DaSiWa's …TurboV3) is made for few steps: it starts on Turbo, which runs them without a LoRA
   presets: [

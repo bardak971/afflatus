@@ -92,7 +92,7 @@ describe("the designer's guide on a clip whose sound is a recording, and on Moti
 
   it("Motion transfer: its boxes walked, the prompt as sent left to Afflatus, nothing of the camera or the words", () => {
     const said = systemPrompt(recipeById("h3.motion")!, h3, "chat", { values: {}, speaks: true });
-    expect(said).toContain("A MOTION TRANSFER PROMPT is for MiniMax H3 held to a driving video's pose");
+    expect(said).toContain("A MOTION TRANSFER PROMPT is for MiniMax H3 held to a source video's pose");
     expect(said).toContain('Leave "Prompt as sent" empty: Afflatus writes it from the parts');
     expect(said).toMatch(/- look: "How they look"/);
     expect(said).toMatch(/- happens: "What happens"/);

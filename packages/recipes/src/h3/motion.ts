@@ -33,7 +33,7 @@ export const POSE_SDPOSE = "SDPose";
 export const MOTION_CHAPTER = {
   id: "motion",
   label: "Motion",
-  help: "How the driving video moves the clip: its people drawn as skeletons (body, hands, face) frame by frame, which the Fun ControlNet holds H3 to. Nothing of the video's look comes through, only the moves.",
+  help: "How the source video moves the clip: its people drawn as skeletons (body, hands, face) frame by frame, which the Fun ControlNet holds H3 to. Nothing of the video's look comes through, only the moves.",
 };
 
 export const motionControlInputs: InputSpec[] = [

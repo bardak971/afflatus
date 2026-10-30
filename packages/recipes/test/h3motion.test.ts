@@ -182,6 +182,25 @@ describe("MiniMax H3 · Motion transfer", () => {
     expect(of(graph, "UNETLoader").map((n) => n.inputs.unet_name)).not.toContain(slots.swapUnet);
   });
 
+  it("takes Sound effects and Music while the take makes its own sound, and reference videos, as every H3 form (card #170)", () => {
+    const said = (graph: Graph) => JSON.stringify(graph);
+    const sounds = { soundscape: "zz rain on a window", music: "zz a soft piano" };
+    expect(said(build({ ...sounds, keepSound: false }).graph)).toContain("zz rain on a window");
+    expect(said(build({ ...sounds, keepSound: false }).graph)).toContain("zz a soft piano");
+    // the source's sound kept: H3's own is not in the file, its words are not sent
+    expect(said(build(sounds).graph)).not.toContain("zz rain");
+    const shown = (values: Record<string, unknown>) => h3MotionTransfer.inputs.filter((i) => isShown(i, values, h3MotionTransfer.inputs)).map((i) => i.id);
+    expect(shown({ keepSound: false })).toEqual(expect.arrayContaining(["soundscape", "music", "refVideos"]));
+    expect(shown({ keepSound: true })).not.toContain("soundscape");
+    expect(shown({ afterSwap: true, previous: { asset: "w" } })).not.toContain("refVideos");
+    const input = parseInput(h3MotionTransfer, { picture: "p1", source: { asset: "d1" }, refVideos: [{ asset: "rv", role: "place" }] });
+    const graph = h3MotionTransfer.build(input, dryContext({
+      slots, uploads: { picture: "p.png", source: "d.mp4", "refVideos.0": "rv.mp4" },
+      media: { picture: { width: 832, height: 1472 }, source: part({ width: 720, height: 1280 }), "refVideos.0": part() },
+    })).graph as Graph;
+    expect(of(graph, "LoadVideo").map((n) => n.inputs.file)).toContain("rv.mp4");
+  });
+
   it("waits for the Picture on a source lane: a window that opens is refused without one, one after a swap needs none", () => {
     const picture = h3MotionTransfer.inputs.find((i) => i.id === "picture");
     expect(picture).toMatchObject({ type: "image", role: "source" });

@@ -99,7 +99,7 @@ export const h3 = defineFamily({
     {
       // the motion's ControlNet (motion.ts): one checkpoint for pose, depth, edges and inpaint; 2.0, its 10 control blocks
       id: "h3Control", label: "Fun ControlNet Union 2.0 (motion)", folder: "model_patches", detect: ["minimax.?h3.*fun.?controlnet.*union.?2", "minimax.?h3.*fun.?controlnet"], optional: true, onlyFor: ["h3.motion"],
-      hint: "For Motion transfer: alibaba-pai's Fun ControlNet Union for MiniMax H3, which holds a clip to the driving video's pose. Put minimax_h3_fun_controlnet_union_2.0_*.safetensors in ComfyUI's models/model_patches folder.",
+      hint: "For Motion transfer: alibaba-pai's Fun ControlNet Union for MiniMax H3, which holds a clip to the source video's pose. Put minimax_h3_fun_controlnet_union_2.0_*.safetensors in ComfyUI's models/model_patches folder.",
       get: { file: "minimax_h3_fun_controlnet_union_2.0_pruned_int8_convrot.safetensors", url: `${HF}/model_patches/minimax_h3_fun_controlnet_union_2.0_pruned_int8_convrot.safetensors` },
     },
     {

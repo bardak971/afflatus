@@ -207,7 +207,7 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
                 onLook={d.setLook}
                 onDesigner={() => setDesigning(true)}
                 // the prompt's card is headed apart from its field: an MCP token's name goes after its title, as after a field's
-                head={<PartHead>{mainText?.label ?? "Prompt"}{mainText && agentRings[mainText.id] && <span className="ml-1.5 font-medium normal-case tracking-normal text-picture">· {agentRings[mainText.id]}</span>}</PartHead>}
+                head={<PartHead>{mainText?.label ?? "Prompt"}{mainText?.type === "prompt" && mainText.optional && <span className="ml-1.5 font-normal normal-case tracking-normal text-ink-3">optional</span>}{mainText && agentRings[mainText.id] && <span className="ml-1.5 font-medium normal-case tracking-normal text-picture">· {agentRings[mainText.id]}</span>}</PartHead>}
                 onInsert={(snippet) => {
                   if (mainText?.type === "prompt") d.setValue(recipe.id, mainText.id, appendTo(String(whole[mainText.id] ?? ""), snippet, mainText.style));
                 }}

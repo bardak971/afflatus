@@ -56,7 +56,7 @@ export const ACTIONS: Record<ActionId, Spec> = {
   variation: { group: "make", label: "Variation", key: "V", kinds: ALL, icon: Shuffle, tip: "Same parameters, new seed: queued at once." },
   i2v: { group: "make", sub: "video", label: "Image to video (i2v)", key: "M", kinds: ["image"], icon: Clapperboard, tip: "A new video with this picture as the first frame, on the video model used last." },
   extend: { group: "make", sub: "video", label: "Extend", key: "C", kinds: ["video"], icon: ArrowRightFromLine, tip: "A new clip that carries on from the end of this one, same model and parameters." },
-  motion: { group: "make", sub: "video", label: "Motion transfer…", key: "Shift+M", kinds: SEEN, icon: PersonStanding, tip: "A new draft of Motion transfer with this in its place: a picture is what moves, a video is how it moves (the driving video)." },
+  motion: { group: "make", sub: "video", label: "Motion transfer…", key: "Shift+M", kinds: SEEN, icon: PersonStanding, tip: "A new draft of Motion transfer with this in its place: a picture is what moves, a video is how it moves (the source video)." },
   upscale: { group: "passes", sub: "passes", label: "Upscale 2x", key: "U", kinds: ["image"], icon: Maximize2, tip: "Upscale 2x: queued at once with the picture's generation parameters." },
   face: { group: "passes", sub: "passes", label: "Face refine", key: "F", kinds: ["image"], icon: Smile, tip: "Face refine: queued at once with the picture's generation parameters." },
   hand: { group: "passes", sub: "passes", label: "Hand refine", key: "H", kinds: ["image"], icon: Hand, tip: "Hand refine: Face refine on the hand detector (hand_yolov8s), at denoise 0.35, crop factor 2, a prompt about hands; queued at once with the picture's generation parameters." },

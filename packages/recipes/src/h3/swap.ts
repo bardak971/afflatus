@@ -1,12 +1,18 @@
 import { defineRecipe, gridAtOrBefore, OWN_MODEL, typedInto, upstream, type BuildContext, type ClipValue, type GraphBuilder, type InputSpec, type Ref, type StartRule, type Variant } from "@afflatus/core";
 import { H3_FPS, H3_GRID, H3_HYBRIDS, SWAP_MODELS } from "./family";
-import { modelOf, namedFor, REF_TURBO_4_STEPS, REF_TURBO_4_VALUES } from "./model";
+import { modelOf, REF_TURBO_4_STEPS, REF_TURBO_4_VALUES } from "./model";
 import { latentUpscaleNeeds } from "./latent-upscale";
 import { upscaleNeeds } from "../video/upscale";
-import { h3Inputs, type H3Video } from "./inputs";
-import { SWAP_TURBO_ROW } from "./turboRow";
+import { H3_SOUND_CHAPTER, h3Inputs, type H3Video } from "./inputs";
+import { SWAP_MODEL_TURBO, SWAP_TURBO_ROW } from "./turboRow";
 /** Said in the "?" of a swap's parts (card #49): the tags are written for them. */
 const PART_NO_TAGS = "No <Video 1> or <Picture 1> to type: Afflatus adds them";
+/**
+ * What happens heads the swap's Prompt card, with the Designer and Snippets, as on every H3 form (card #170, the owner's
+ * "we try whether it looks better", 2026-10-30). False puts it back: Track, the one text that must be written, is then the
+ * form's main text, and the Prompt card has no heading.
+ */
+const SWAP_MAIN_HAPPENS = true;
 import { buildH3, h3Video, refinesOnly, SHOT_WORDS, type H3Extra } from "./video";
 import { saveVideo } from "../shared/out";
 import { rifeNeeds } from "../shared/finish";
@@ -100,8 +106,9 @@ const SWAP_PART = (({ least, most }) => ({ min: least, max: most }))(partBounds(
 /** H3's inputs a swap does not take: its prompt is the caption, its length the source's part, its shape the source's. */
 const NOT_TAKEN = new Set([
   // the model is a reference model, as the LoRA was trained on (swapModel, else the swapUnet slot): a hybrid fine-tune
-  // redrew the room. Whether it is distilled is read from its name, as H3's own
-  "model", "hybrid", "turboIn",
+  // redrew the room. Hybrid stays off the form: the swap runs its own model as a hybrid would, whatever its references, and
+  // "No" would hand the clip to the reference slot. Distilled model is the form's, as on every H3 form (card #170)
+  "model", "hybrid",
   // the size is the swap's own choice (swapSize): the source's, or a height a small phone clip is enlarged to
   "short",
   // the frozen tail is never skipped on a source's windows: the window after would no longer start where its part does
@@ -152,9 +159,9 @@ export const swapInputs: InputSpec[] = [
   { id: "swapStrength", type: "number", label: "Swap LoRA strength", min: 0, max: 2, step: 0.05, default: 1, note: "its author's 1.0; 2 gave artifacts" },
   // the prompt's parts (card #34, the owner's mock of 2026-10-20): each a few words, the prompt written from them by rules
   // (swapFromParts); names mean nothing to H3, so the person in the source is said by how they look
-  { id: "inSource", type: "prompt", weights: false, label: "In the source", style: "sentences", line: true, optional: true, noCast: true, designed: true, placeholder: "the man in the grey hoodie", note: `who the source shows and is replaced, by how they look (a name means nothing to H3). ${PART_NO_TAGS}` },
+  { id: "happens", type: "prompt", weights: false, label: "What happens", style: "sentences", optional: true, noCast: true, designed: true, placeholder: "He dances and steps toward the camera.", note: `in this clip, in the present tense. Each window of a source keeps its own. ${PART_NO_TAGS}`, main: SWAP_MAIN_HAPPENS },
   { id: "look", type: "prompt", weights: false, label: "How they look", style: "sentences", line: true, optional: true, noCast: true, designed: true, placeholder: "a black leather jacket over a white t-shirt", note: `the one who goes in: what of them the picture does not say, or says otherwise (clothes, hair). Shared by a source's windows. ${PART_NO_TAGS}` },
-  { id: "happens", type: "prompt", weights: false, label: "What happens", style: "sentences", optional: true, noCast: true, designed: true, placeholder: "He dances and steps toward the camera.", note: `in this clip, in the present tense. Each window of a source keeps its own. ${PART_NO_TAGS}` },
+  { id: "inSource", type: "prompt", weights: false, label: "In the source", style: "sentences", line: true, optional: true, noCast: true, designed: true, placeholder: "the man in the grey hoodie", note: `who the source shows and is replaced, by how they look (a name means nothing to H3). ${PART_NO_TAGS}` },
   {
     // The whole prompt, shown as it is sent (the owner, 2026-10-18: nothing hidden). It starts as the swap LoRA's caption; a
     // longer one broke 2 swaps of 3 on ref2va (2026-10-12), and the fused turbo needs the person described (§9.10), so it
@@ -193,21 +200,21 @@ export const swapInputs: InputSpec[] = [
     }
     if (spec.id === "references" && spec.type === "references") {
       // one: the LoRA was trained on one <Picture 1>, and with three of the cast's photos H3 took one's room for the scene (2026-10-13)
-      return [{ ...spec, label: "References", max: 1, roles: ["person"], note: "a picture of the person who takes their place: the cast's first (the face). The scene stays the video's: a second photo brought its own room in" }];
+      return [{ ...spec, max: 1, roles: ["person"], note: "a picture of the person who takes their place: the cast's first (the face). The scene stays the video's: a second photo brought its own room in" }];
     }
     return [spec];
   }),
   {
     // 576p: small phone clips swapped at their own 352 px held 0 of 4, at 576p 2 of 4 (a tester's clips, 2026-10-13)
-    id: "swapSize", type: "choice", label: "Resolution", options: [...SWAP_SIZES], default: "576p",
+    id: "swapSize", type: "choice", label: "Resolution", options: [...SWAP_SIZES], default: "576p", section: "out",
     note: "the height it renders at, in the source's shape: 576p by default (a small phone clip swapped better made larger), or the source's own size",
   },
-  { id: "keepSound", type: "toggle", label: "Keep the source's sound", default: true, advanced: true, note: "the file carries the source video's own sound; off, the sound H3 makes" },
+  { id: "keepSound", type: "toggle", label: "Keep the source's sound", default: true, advanced: true, chapter: "sound", note: "the file carries the source video's own sound; off, the sound H3 makes" },
   {
     // H3 moves the mouth to the sound it makes with the frames; without the source's, it drew lips to a sound then thrown
     // away for the source's own (the owner, 2026-10-17: "how his lips move are really awkward"). With it, the new mouth
     // followed the source person's 0.57 against 0.46 over the owner's Bulin 47 window, 0.51 against 0.39 on another mask (§9.11)
-    id: "soundGuide", type: "toggle", label: "Lips follow the source's sound", default: true, advanced: true, showWhen: "keepSound",
+    id: "soundGuide", type: "toggle", label: "Audio guide", default: true, advanced: true, showWhen: "keepSound", chapter: "sound",
     note: "the source's own sound given to H3 as a guide, as Lip sync gives its recording, so that the mouth is drawn to the words heard",
   },
   // ---- the Mask card: who is replaced is clicked on the stage (the source's pick); these are the nodes' own inputs, at the
@@ -242,8 +249,8 @@ export const swapInputs: InputSpec[] = [
   { id: "maxObjects", type: "number", label: "Max objects", min: 1, max: 64, step: 1, default: 8, chapter: "mask", showWhen: "maskOn", note: "SAM3_VideoTrack's max_objects: in a crowd, the one to replace may be past the eighth" },
   { id: "detectInterval", type: "number", label: "Detect interval", min: 1, max: 8, step: 1, default: 1, unit: " frames", chapter: "mask", showWhen: "maskOn", note: "SAM3_VideoTrack's detect_interval: looks for people every this many frames; above 1 faster, less sure in fast motion" },
   // the sampler: below 1 the render keeps more of the source's shapes and motion, the swap weaker
-  { id: "denoise", type: "number", label: "Denoise", min: 0.5, max: 1, step: 0.05, default: 1, note: "BasicScheduler's denoise: below 1 the render stays closer to the source's shapes and motion (fewer limbs drawn past the mask), the swap weaker" },
-  { id: "matchStrength", type: "number", label: "Colour match strength", min: 0, max: 2, step: 0.05, default: 1, advanced: true, note: "ColorTransfer's strength, a window after the first matched to the window before; lower when its colours drift oddly" },
+  { id: "denoise", type: "number", label: "Denoise", min: 0.5, max: 1, step: 0.05, default: 1, advanced: true, section: "speed", note: "BasicScheduler's denoise: below 1 the render stays closer to the source's shapes and motion (fewer limbs drawn past the mask), the swap weaker" },
+  { id: "matchStrength", type: "number", label: "Colour match between windows", min: 0, max: 2, step: 0.05, default: 1, advanced: true, note: "ColorTransfer's strength, a window after the first matched to the window before; lower when its colours drift oddly" },
   // Show the mask (the owner's mock, 2026-10-18): the same build, kept to the tracking, the masks and their picture
   { id: "maskPreview", type: "toggle", label: "Mask preview", default: false, internal: true },
 ];
@@ -328,7 +335,7 @@ export function asClip(input: H3Swap, swapLora: string | null, frames: number, c
   return {
     ...input,
     // "hybrid" so that the clip takes this file whatever its references; a distilled one is known by its name
-    model: unet, hybrid: "Yes", turboIn: "From the name",
+    model: unet, hybrid: "Yes", turboIn: input.turboIn || "From the name",
     short: shortOf(input.swapSize, size),
     description: "", soundscape: "", music: "", subject: "", midAt: 0,
     start: undefined, end: undefined, mid: undefined, next: undefined, voice: undefined,
@@ -369,7 +376,7 @@ export const SWAP_STARTS: StartRule[] = [{
   when: {
     all: [
       { input: "fast", is: true },
-      { not: { name: { input: "swapModel", slot: "swapUnet" }, match: namedFor.turbo.source } },
+      { not: SWAP_MODEL_TURBO },
       REF_TURBO_4_STEPS,
     ],
   },
@@ -477,10 +484,11 @@ export const h3Swap = defineRecipe<H3Swap>({
   inputs: swapInputs,
   guide: SWAP_GUIDE,
   // a character swap's form: the model, its takes, who is replaced and how, then the rest as any form (the owner, 2026-10-18)
-  first: ["model", "takes", "mask"],
+  first: ["model", "takes"],
   // who is replaced and how, apart from the source (the owner, 2026-10-18): the click and Show the mask are the screen's, the
   // rest the nodes' own inputs
-  chapters: [{ id: "mask", label: "Mask", help: "Experimental: the redrawn zone can show around the person (a wavering edge, a re-drawn wall), and a clip continued from a masked one starts from its unpasted latent. Who is replaced and what of the frame H3 redraws: SAM 3 tracks the person clicked on the stage, the Swap Mask grows the zone H3 redraws and the band the render is pasted back over. Show the mask draws them over the source before you render." }],
+  // (under the Inputs tab, with Sound: every H3 form keeps the same six tabs, card #170)
+  chapters: [{ id: "mask", label: "Mask", under: "inputs", help: "Experimental: the redrawn zone can show around the person (a wavering edge, a re-drawn wall), and a clip continued from a masked one starts from its unpasted latent. Who is replaced and what of the frame H3 redraws: SAM 3 tracks the person clicked on the stage, the Swap Mask grows the zone H3 redraws and the band the render is pasted back over. Show the mask draws them over the source before you render." }, H3_SOUND_CHAPTER],
   presets: SWAP_PRESETS,
   starts: SWAP_STARTS,
   needs: ["swapLora", "swapUnet"],
@@ -497,7 +505,7 @@ export const h3Swap = defineRecipe<H3Swap>({
     // Face refine's files with it on: a pod was never sent them, and a Finish › Face refine there decoded the take as it was
     // (the swap's model, the clip's own Face refine runs on, is a need of every swap)
     ...faceRefineNeeds(input, { clip: { follows: true } }),
-    ...(input.fast && !modelOf({ ...input, model: input.swapModel ?? slots.swapUnet, turboIn: "From the name" }, slots).turbo && !slots.refTurbo && !slots.turbo ? ["refTurbo"] : []),
+    ...(input.fast && !modelOf({ ...input, model: input.swapModel ?? slots.swapUnet, turboIn: input.turboIn || "From the name" }, slots).turbo && !slots.refTurbo && !slots.turbo ? ["refTurbo"] : []),
   ],
   // Show the mask runs the tracking and the masks alone (MASK_NODES, the preview node and the video out are optional)
   nodes: (input) => input.maskPreview ? ["LoadVideo", "GetVideoComponents"] : [...new Set([...h3Video.nodes(asClip(input, "swap.safetensors", SWAP_FRAMES, 0, "minimax_h3_ref2va.safetensors")), ...(refinesOnly(input) ? [] : ["LoraLoaderModelOnly"]), ...(input.keepSound ? ["TrimAudioDuration", ...cueMixNodes(input)] : []), ...(input.keepSound && input.soundGuide ? ["MiniMaxH3AddGuide"] : [])])],

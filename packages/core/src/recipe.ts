@@ -247,6 +247,11 @@ export interface Chapter {
   toggle?: string;
   /** What it is for, in the author's words: shown behind a ? beside the title. */
   help?: string;
+  /**
+   * The strip's tab it is reached under, by id ("inputs"): no tab of its own, the tab lit while it is in view. Every H3 form
+   * keeps the same six tabs that way, its job's card (Mask, Motion) and Sound under Inputs (card #170).
+   */
+  under?: string;
 }
 
 export interface Recipe<In = Record<string, unknown>> {

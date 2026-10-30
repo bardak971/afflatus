@@ -47,7 +47,7 @@ export interface RecordingFrames {
 export const H3_RECORDING: RecordingFrames = { fps: H3_FPS, frames: H3_MAX_FRAMES, min: 4, most: 15 };
 
 /**
- * The recording's inputs: the recording and its part, Even out the loudness, and the two toggles a timeline sets for a
+ * The recording's inputs: the recording and its part, Normalize loudness, and the two toggles a timeline sets for a
  * song carried across clips. `shown`: Lip sync's form draws them (the recording is what it is made around); on another
  * form they are the clip's place in the recording, set by the timeline and never drawn (internal). `less`: the number
  * inputs a part is shortened by (Lip sync's moment before the words), placed after its length.
@@ -70,7 +70,7 @@ export function recordingInputs(o: { shown: boolean; less?: InputSpec[]; fit?: R
     { id: "recordingSeconds", type: "number", label: "Recording: length", min: 1, max: 15, step: 0.1, default: 8, unit: " s", showWhen: "recording", ...hidden },
     ...(o.less ?? []),
     {
-      id: "evenLoudness", type: "toggle", label: "Even out the loudness", default: true, showWhen: "recording", advanced: true, ...hidden,
+      id: "evenLoudness", type: "toggle", label: "Normalize loudness", default: true, showWhen: "recording", advanced: true, ...hidden,
       note: "the recording is brought to a usual speaking level (-16 LUFS, EBU R128) by one gain for all of it, the same in every clip: a quiet take guides the mouth weakly",
     },
     // set by a timeline when the next clip's part carries on from this one's end (a song): the clip's tail is the recording

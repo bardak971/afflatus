@@ -296,7 +296,7 @@ const MSR_INPUTS: InputSpec[] = [
   // the MSR LoRA's voice slot is 5 s (its metadata); a person's own part, up to H3's 15 s, is taken and cut there by the guide
   { id: "voiceSeconds", type: "number", label: "Voice sample: length", min: 2, max: 15, step: 0.5, default: 5, unit: " s", showWhen: "voice" },
   {
-    id: "voiceEven", type: "toggle", label: "Even out the voice's loudness", default: true, showWhen: "voice", advanced: true,
+    id: "voiceEven", type: "toggle", label: "Normalize loudness", default: true, showWhen: "voice", advanced: true,
     note: "the part is brought to a usual speaking level (-16 LUFS, measured as EBU R128) before it is used: a quiet sample carries a voice weakly",
   },
 ];
