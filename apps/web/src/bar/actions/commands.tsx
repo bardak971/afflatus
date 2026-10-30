@@ -431,7 +431,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       if (!clip) return [{ label: "No clip selected in an open timeline", disabled: true, run: () => {} }];
       if (c.kind === undefined) return [{ label: `No transition called “${c.words}”`, disabled: true, run: () => {} }];
       // the cut into the selected clip, as its join's choice in the column: on a cut only, and none before the first clip
-      const why = clip.cutIn === "none" ? `clip ${clip.number} is the first: no cut before it` : clip.cutIn === "extends" ? `clip ${clip.number} extends clip ${clip.number - 1}: a transition goes on a cut` : null;
+      const why = clip.cutIn === "none" ? `clip ${clip.number} is the first: no cut before it` : clip.cutIn === "extends" ? `clip ${clip.number} extends clip ${clip.number - 1}: a transition goes on a hard cut` : null;
       const label = c.kind ? `Clip ${clip.number}: ${TRANSITIONS[c.kind].label} on its cut` : `Clip ${clip.number}: plain cut`;
       const same = clip.transition === c.kind;
       return [{

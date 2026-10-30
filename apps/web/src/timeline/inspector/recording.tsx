@@ -136,7 +136,7 @@ export function RecordingPanel(p: RecordingPanelProps) {
           <ClipRows place={place} clock={p.clock} forms={p.forms} onSelectClip={p.onSelectClip} />
         </Section>
 
-        <Section title="Opens from" help="How its first clip starts: carrying on from the clip before it (a seamless join), or on its own from a picture, a cut.">
+        <Section title="Opens from" help="How its first clip starts: carrying on from the clip before it (a seamless join), or on its own from a picture, a hard cut.">
           {p.opens.before === null ? (
             <span className="text-xs text-ink-2">It opens the timeline: clip {first.number} starts from its own first frame (a picture in its form) or from nothing.</span>
           ) : (
@@ -145,7 +145,7 @@ export function RecordingPanel(p: RecordingPanelProps) {
               size="sm"
               value={p.opens.joined}
               onChange={p.opens.onJoined}
-              options={[{ value: "continue", label: `Clip ${p.opens.before} · seamless` }, { value: "cut", label: "A picture · a cut" }]}
+              options={[{ value: "continue", label: `Clip ${p.opens.before} · seamless` }, { value: "cut", label: "A picture · a hard cut" }]}
             />
           )}
           {p.opens.joined === "cut" && p.opens.before !== null && (

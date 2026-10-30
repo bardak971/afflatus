@@ -264,7 +264,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
             <span className="text-xs text-ink-2">Clip {index} changed after this one was rendered, so {before.kind === "still" ? "its first frame is no longer that image" : "the motion jumps between them"}.</span>
             <span className="flex flex-wrap gap-1.5">
               {recipe && <Button size="sm" disabled={Boolean(why) || busy || Boolean(clip.job)} data-tip={why ?? undefined} onClick={() => onRender(count)}>{renderWords}<Estimate ms={takesTotal} /></Button>}
-              <Button size="sm" onClick={() => onPatch({ joined: "cut" })}>Keep as a cut</Button>
+              <Button size="sm" onClick={() => onPatch({ joined: "cut" })}>Keep as a hard cut</Button>
             </span>
           </div>
         )}

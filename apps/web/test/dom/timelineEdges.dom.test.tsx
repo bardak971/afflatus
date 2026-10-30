@@ -72,7 +72,7 @@ describe("the timeline editor's mutations, drawn", () => {
   });
 
   it("says a refused Render in the failure banner, whichever clip is open (card #128)", async () => {
-    const why = "Clip 2 carries on from clip 1, which has no take: render clip 1 first, or make their join a cut.";
+    const why = "Clip 2 carries on from clip 1, which has no take: render clip 1 first, or make their join a hard cut.";
     fakeApi.on("POST /timelines/:id/render", () => refused(why, 400));
     const { now } = rig();
     act(() => now().m.render.mutate({ clips: [clip] }));

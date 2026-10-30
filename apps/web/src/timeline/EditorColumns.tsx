@@ -1,5 +1,6 @@
 import type { ComponentProps } from "react";
 import type { Clip, Timeline, TimelinePatch } from "../api";
+import { Help } from "../ui";
 import { ColumnEdge, FoldButton, FoldedStrip } from "./column";
 import { SHAPES, shapeOf, type Shape } from "./model";
 import type { Plan } from "./attention";
@@ -54,7 +55,7 @@ export function OverviewColumn({ t, clips, checks, width, picked, rendering, onE
       {/* a container: the Overview's rows lay out by the column's width, which can go down to 320 px */}
       <div className="@container/column flex min-h-0 grow flex-col gap-3 overflow-y-auto p-4">
       {/* its name is in the header's field: said here only as the start's invitation */}
-      {!clips.length && <span className="text-page font-bold text-ink">Start your video</span>}
+      {!clips.length && <span className="flex items-center gap-1.5 text-page font-bold text-ink">Start your video<Help title="Start your video" text="Clips play one after the other; each can extend the clip before (seamless): the motion and the voices carry on across the join." /></span>}
       {clips.length ? (
         <Overview
           timeline={t}

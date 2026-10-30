@@ -162,8 +162,8 @@ function joinWords(clip: Clip, take: Take, index: number): string {
   if (take.joinKind === "carried") return "pixel join, sound carried";
   if (take.joinKind === "window") return "window join, crossfaded";
   // Wan without SVI 2.0 Pro there: opened on the clip before's last frame, still
-  if (take.joinKind === "still") return "a cut: SVI's LoRAs aren't here";
-  return clip.joined === "continue" ? `extends clip ${index}` : "cut";
+  if (take.joinKind === "still") return "a hard cut: SVI's LoRAs aren't here";
+  return clip.joined === "continue" ? `extends clip ${index}` : "hard cut";
 }
 
 /** The figures of clip `index` for the hover card; `jump`: how much the picture jumps where it meets the clip before, once measured (×1 = like its own motion). */

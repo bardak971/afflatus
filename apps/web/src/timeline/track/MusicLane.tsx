@@ -60,13 +60,13 @@ export function MusicLane({ timeline, slots, pps, width, selected, over, measure
         type="button"
         onDragOver={onDragOver}
         onContextMenu={(e) => onMusicMenu?.(e)}
-        aria-label="Music: none. Drop an audio file here."
+        aria-label="Music: none. Drop music: it plays under the whole video."
         data-paste="music"
         style={{ left: PAD + 1, top: MUSIC.top, height: MUSIC.height, width: Math.max(140, (slots.length ? slots.at(-1)!.left + slots.at(-1)!.width - PAD : 0) - 2) }}
         className={cx("absolute flex items-center gap-1.5 overflow-hidden rounded border border-dashed border-line-strong px-2 text-left text-body text-ink-3", over && "outline outline-2 outline-accent")}
       >
         <Music size={13} className="relative shrink-0" />
-        <span className="relative truncate">Drop an audio file here to play it under the whole video</span>
+        <span className="relative truncate">Drop music: it plays under the whole video</span>
       </button>
     );
   }

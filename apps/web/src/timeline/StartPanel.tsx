@@ -18,7 +18,6 @@ export function StartPanel({ busy, planning, onPickImage, onPlan, onNewClip }: {
   const [planned, setPlanned] = useState(4);
   return (
     <>
-      <span>A timeline plays clips one after the other. Each clip can extend the previous clip: the motion and the voices continue across the join.</span>
       <span className="font-semibold text-ink">Start from an image</span>
       <span>It becomes the first frame of your video.</span>
       <span><Button onClick={onPickImage} disabled={busy}><ImagePlus size={15} /> Choose an image</Button></span>

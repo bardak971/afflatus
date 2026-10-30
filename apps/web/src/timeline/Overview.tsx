@@ -19,7 +19,7 @@ import { PartHead } from "../recipeForm/Part";
 import { Select } from "../Select";
 import { Button, Chip, CloseButton, cx, Help, SectionTitle, Segmented } from "../ui";
 import { change, past } from "./lookDrift";
-import { attention, attentionLine, canDismiss, dismissKey, fixAll, fixOf, fixWords, planFix, plansToAsk, SHOWS, withPlans, type Act, type Fix, type JoinFigures, type Plan, type Row } from "./attention";
+import { attention, attentionLine, canDismiss, dismissKey, fixAll, fixOf, fixWords, JOIN_HELP, planFix, plansToAsk, SHOWS, withPlans, type Act, type Fix, type JoinFigures, type Plan, type Row } from "./attention";
 
 /** The rows of Needs attention set aside, per timeline, in this browser (see dismissKey). */
 const useDismissed = create<{ by: Record<string, string[]>; set(timeline: string, keys: string[]): void }>()(
@@ -372,7 +372,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
             ) : (
               <>
                 {figured.length > 0 && <Fact label="Joins that hold" value={`${figured.filter((c) => !badJoin(c)).length} of ${figured.length}`} />}
-                {worst && <Fact label="Worst join" value={`clip ${number(worst.id)} · ×${joinsOf.get(worst.id)!.toFixed(1)}`} look={joinsOf.get(worst.id)! > SHOWS} />}
+                {worst && <Fact label="Worst join" value={`clip ${number(worst.id)} · join ×${joinsOf.get(worst.id)!.toFixed(1)}`} look={joinsOf.get(worst.id)! > SHOWS} help={JOIN_HELP} />}
               </>
             )}
             {faced.length > 1 && <Fact label="Faces that hold" value={`${faced.filter(faceHolds).length} of ${faced.length}`} tip="Face Match of the takes that play: a face holds within a fifth of the timeline's closest one" />}
@@ -394,7 +394,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
               const bad = jumped || broke;
               return (
                 <button key={c.id} type="button" onClick={() => onPick(c.id)} data-tip={`Clip ${i + 1}: as it comes in from clip ${i}, with its fade, the picture changes up to ×${figure?.toFixed(1) ?? "?"} its own motion from frame to frame${jumped ? `. Past ×${SHOWS} the join shows` : ""}${carry !== null ? `; where its own frames begin after the run-up, ×${carry.toFixed(1)}${broke ? ": a cut there, the model stepped away from its guide" : ""}` : ""}`} className={cx("rounded-md border px-1.5 py-px font-mono text-xs hover:border-accent", bad ? "border-attention/60 bg-attention-wash text-attention-ink" : "border-line-strong text-ink-2 hover:text-ink")}>
-                  {i + 1}: {figure === undefined ? <span aria-label="measuring" className="m-skeleton inline-block h-3 w-7 align-[-1px] rounded-sm!" /> : figure === null ? "–" : `×${figure.toFixed(1)}`}{broke && ` · end ×${carry.toFixed(1)}`}
+                  clip {i + 1} · join {figure === undefined ? <span aria-label="measuring" className="m-skeleton inline-block h-3 w-7 align-[-1px] rounded-sm!" /> : figure === null ? "–" : `×${figure.toFixed(1)}`}{broke && ` · end ×${carry.toFixed(1)}`}
                 </button>
               );
             })}
@@ -426,10 +426,10 @@ function VoiceMic({ clip, onVoice }: { clip: string; onVoice(clip: string, asset
 }
 
 /** One figure of the facts grid: a dim label over its value (amber when it needs a look); a shape of the value's size while it is not known. */
-function Fact({ label, value, look, tip }: { label: string; value?: string; look?: boolean; tip?: string }) {
+function Fact({ label, value, look, tip, help }: { label: string; value?: string; look?: boolean; tip?: string; /** What its figure measures, behind a ? beside its label. */ help?: string }) {
   return (
     <span className="flex min-w-0 flex-col gap-px" data-tip={tip}>
-      <span className="text-meta text-ink-3">{label}</span>
+      <span className="flex items-center gap-1 text-meta text-ink-3">{label}{help && <Help title={label} text={help} />}</span>
       {value === undefined ? <span className="m-skeleton my-[3px] h-[18px] w-20" /> : <span className={cx("truncate font-mono", look ? "text-attention-ink" : "text-ink")}>{value}</span>}
     </span>
   );
