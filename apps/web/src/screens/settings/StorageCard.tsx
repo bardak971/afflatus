@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api";
 import { useSettings, useStorage } from "../../data";
-import { plural, size } from "../../format";
+import { plural, size, verb } from "../../format";
 import { Button, ButtonLink, cx, ErrorNote, Segmented, TwoStep } from "../../ui";
 import { Block, Card, Row } from "./Rows";
 import { daysSaid, insteadOfWaiting } from "../../keepFor";
@@ -81,7 +81,7 @@ export function StorageCard() {
             <Segmented oneLine label="Keep finished jobs" value={String(jobDays)} options={jobsFor(jobDays)} onChange={(v) => keepFor.mutate({ jobHistoryDays: Number(v) })} />
           </Row>
           {(idle.isError || empty.isError || keepFor.isError) && <Block><ErrorNote>{(idle.error ?? empty.error ?? keepFor.error)?.message}</ErrorNote></Block>}
-          {empty.data?.inUse ? <Block className="text-xs text-ink-2">{plural(empty.data.inUse, "item")} {empty.data.inUse === 1 ? "was" : "were"} left in the bin: a timeline, a person or a waiting job still uses {empty.data.inUse === 1 ? "it" : "them"}.</Block> : null}
+          {empty.data?.inUse ? <Block className="text-xs text-ink-2">{plural(empty.data.inUse, "item")} {verb(empty.data.inUse, "was", "were")} left in the bin: a timeline, a person or a waiting job still uses {verb(empty.data.inUse, "it", "them")}.</Block> : null}
         </Card>
       </div>
       <div className="flex flex-col gap-4">

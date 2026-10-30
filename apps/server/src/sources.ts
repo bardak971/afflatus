@@ -1,7 +1,7 @@
-import { folderOfFileInput, MODEL_EXT } from "@afflatus/core";
+import { folderOfFileInput, MODEL_EXT, squash } from "@afflatus/core";
 import type { FileSource } from "@afflatus/workflows";
 import { envSaid } from "./config";
-import { civitaiGet, KINDS, pretendSites, squash, wordsOf, type ApiFile, type ApiModel, type ApiVersion } from "./civitai";
+import { civitaiGet, KINDS, pretendSites, wordsOf, type ApiFile, type ApiModel, type ApiVersion } from "./civitai";
 
 /**
  * Where a missing model file can be had, worked out before anyone searches. Three places, in order:

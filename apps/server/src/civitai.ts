@@ -1,4 +1,4 @@
-import { MODEL_EXT, modelStem } from "@afflatus/core";
+import { MODEL_EXT, modelStem, squash } from "@afflatus/core";
 import { envSaid } from "./config";
 import { httpError } from "./errors";
 import { fetchPublic } from "./outbound";
@@ -83,7 +83,6 @@ export interface CivitaiFound {
   have?: { folder: string; file: string };
 }
 
-export const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
 /** The words of a file's name: "qwen3vl_4b_fp8_scaled" → qwen3vl, 4b, fp8, scaled. */
 export const wordsOf = (file: string) => [...new Set(modelStem(file).toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 2))];
 
