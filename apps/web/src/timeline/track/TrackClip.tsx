@@ -6,13 +6,14 @@ import { LivePreview } from "../../LivePreview";
 import { Bar, Chip, cx } from "../../ui";
 import { useQueueOf } from "../../screens/studio/queueOf";
 import { useRunningOf } from "../useRunning";
-import { modelsDiffer, TRANSITION_MS, TRANSITIONS, transitionSpan, type Transition } from "@afflatus/core";
+import { cutAtJoinFigure, cutAtJoinSaid, modelsDiffer, TRANSITION_MS, TRANSITIONS, transitionSpan, type Transition } from "@afflatus/core";
 import { canExtend, fileVersion, PAD, pinInputs, pinMirrors, playAt, titleOf, type PinWhere, type Slot, type TimeRange } from "../model";
 import { change, DRIFT } from "../lookDrift";
 import { SWATCH } from "../transitionLook";
 import { flipped, MirrorMark } from "../MirrorMark";
 import { motionAllowed } from "../../useFlip";
 import { HINTS, type PinPlace } from "./peek";
+import { joinMarkOf } from "./joinMark";
 import { ROW, SOUND } from "./rows";
 import type { Motion } from "./useMotionMarks";
 import { edgeGive, resisted } from "./spring";
@@ -405,6 +406,9 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
         const toggles = !opens && c.join !== "stale" && canCarry && Boolean(acts.current.onJoin);
         // extending across two video models: allowed, said by a dot (the face may change there)
         const differ = carries && modelsDiffer(prevRecipe, recipe);
+        // a seamless join whose take cut to another shot where its run-up ends: said by the circle itself (card #161)
+        const mark = joinMarkOf(c, carries);
+        const cutSaid = mark === "cuts" ? cutAtJoinSaid(c.take!.measure!) : null;
         const t = carries ? null : c.transition;
         const span = transitionSpan(t, "cut", prev.lengthMs, c.lengthMs);
         const pps = a().pps;
@@ -444,7 +448,7 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
         const hint = c.join === "stale"
           ? `Clip ${s.index + 1} no longer follows clip ${s.index}`
           : carries
-            ? `${c.join === "fresh" ? "Extends" : "Will extend"} clip ${s.index}${differ ? ": two models, the face may change here" : ""}${opens ? ". Click: open the join" : toggles ? ". Click: make it a cut" : ""}`
+            ? `${c.join === "fresh" ? "Extends" : "Will extend"} clip ${s.index}${cutSaid ? `, but ${cutSaid}` : differ ? ": two models, the face may change here" : ""}${opens ? ". Click: open the join" : toggles ? ". Click: make it a cut" : ""}`
             : `A cut${t ? ` with ${words}` : ""}${opens ? ". Click: open the join" : toggles ? `. Click: extend clip ${s.index}` : recipe && c.kind === "video" ? ": this model cannot extend a clip" : ""}`;
         return (
           <>
@@ -473,17 +477,17 @@ export const TrackClip = memo(function TrackClip({ s, prev, prevRecipe, recipe, 
               onClick={() => (opens ? a().onOpenJoin?.(c) : toggles ? a().onJoin?.(c, c.joined === "continue" ? "cut" : "continue") : a().onSelect(c.id))}
               onDragOver={(e) => a().overJoin(e, s)}
               data-hint={hint}
-              aria-label={c.join === "stale" ? `The join before clip ${s.index + 1} no longer holds` : carries ? `The join before clip ${s.index + 1}: it extends clip ${s.index}${differ ? ", across two models" : ""}` : `The join before clip ${s.index + 1}: a cut${t ? `, ${words}` : ""}`}
+              aria-label={c.join === "stale" ? `The join before clip ${s.index + 1} no longer holds` : carries ? `The join before clip ${s.index + 1}: it extends clip ${s.index}${cutSaid ? `, but the take cuts at the join (${cutAtJoinFigure(c.take!.measure!)})` : differ ? ", across two models" : ""}` : `The join before clip ${s.index + 1}: a cut${t ? `, ${words}` : ""}`}
               style={{ left: s.left - 12, top: ROW.top + ROW.height / 2 - 12 }}
               className={cx(
                 "absolute z-10 flex h-6 w-6 items-center justify-center rounded-full border",
                 (toggles || opens) && "hover:scale-110 hover:border-accent",
                 dropping && "scale-125 border-accent ring-2 ring-accent/40",
-                c.join === "stale" ? "border-attention bg-attention-wash text-attention-ink" : carries ? (c.join === "fresh" ? "border-accent bg-accent-wash text-accent" : "border-dashed border-accent bg-panel text-accent") : "border-line-strong bg-raised text-ink-3",
+                mark === "stale" || mark === "cuts" ? "border-attention bg-attention-wash text-attention-ink" : carries ? (c.join === "fresh" ? "border-accent bg-accent-wash text-accent" : "border-dashed border-accent bg-panel text-accent") : "border-line-strong bg-raised text-ink-3",
               )}
             >
-              {c.join === "stale" ? <TriangleAlert size={11} /> : carries ? <Link2 size={11} /> : <Scissors size={10} />}
-              {differ && c.join !== "stale" && <span aria-hidden className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full border border-panel bg-attention" />}
+              {mark === "stale" || mark === "cuts" ? <TriangleAlert size={11} /> : carries ? <Link2 size={11} /> : <Scissors size={10} />}
+              {differ && mark !== "stale" && mark !== "cuts" && <span aria-hidden className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full border border-panel bg-attention" />}
             </button>
             {/* a clip put in here: shown while the pointer is within 20 px of the join (Track's `near`) or on the "+", the model
                 chosen in the column after, each said beside it as seamless or a cut (the rethink's insert, page 2 of its mock) */}

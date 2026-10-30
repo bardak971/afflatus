@@ -1,4 +1,5 @@
 import type { Asset, Clip, Take } from "../../api";
+import { cutAtJoinFigure, cutsAtJoin } from "@afflatus/core";
 import { seconds, spell } from "../../format";
 import { SHOWS } from "../attention";
 import { driftOf, type Drift } from "../lookDrift";
@@ -179,6 +180,8 @@ export function clipFacts(clip: Clip, index: number, clips: Clip[], jump: number
     if (index > 0) {
       const flows = clip.joined === "continue";
       facts.chips.push({ text: `${joinWords(clip, take, index)}${flows && jump !== null ? ` ×${jump.toFixed(1)}` : ""}`, tone: flows && jump !== null && jump > SHOWS ? "attention" : flows ? "accent" : "neutral" });
+      // a take that cut to another shot where its run-up ends: the join shows whatever its kind says (card #161)
+      if (flows && cutsAtJoin(take.measure)) facts.chips.push({ text: `cut at the join · ${cutAtJoinFigure(take.measure!)}`, tone: "attention" });
       // a join made in the latent: how wide its run-up came out against the latent it was guided by (1.00 = the same)
       if (take.measure?.drift) facts.chips.push({ text: `run-up ×${take.measure.drift.width.toFixed(2)}`, tone: "neutral" });
     }

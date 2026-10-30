@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { frameName, nameOf } from "./autoName";
 import { CutError, filmStrip, frameAt, KEYFRAME_STRIP_MS, linesOf, pausesOf, peekAt, soundSlice, wholeGainOf } from "./cut";
-import { colourNudge, MATCH, type FrameMeans, type Means, measureOf, meansAlong, meansWithin, MOTION_RATE, scenesOf, takeMeasures } from "./measure";
-import { joinJump, lastFrameAt, LEAST_MOTION } from "./joinScore";
+import { colourNudge, MATCH, type FrameMeans, type Means, type Measure, measureOf, meansAlong, meansWithin, MOTION_RATE, scenesOf, takeMeasures } from "./measure";
+import { joinJump, lastFrameAt, LEAST_MOTION, runUpCut } from "./joinScore";
 import { newId, now } from "./db";
 import type { LibraryChange } from "./events";
 import { notFound } from "./errors";
@@ -68,6 +68,31 @@ export class TimelineMedia {
   /** A stored video as ffmpeg is handed it: its path when it is on the disk here, else its bytes. */
   private source(asset: AssetRow) {
     return sourceOf(this.core.storage, asset.file_key);
+  }
+
+  /**
+   * A take that carries on, measured before a cut after its run-up was looked for (card #161): its first second after the
+   * run-up looked at on the model's own frames (its raw file when one was kept), the finding kept with its render's
+   * measure, where the timeline reads it. True when it measured something.
+   */
+  async runUpCut(assetId: string): Promise<boolean> {
+    const { db, storage } = this.core;
+    const row = await db
+      .selectFrom("takes")
+      .innerJoin("assets", "assets.id", "takes.asset_id")
+      .innerJoin("generations", "generations.id", "assets.generation_id")
+      .select(["takes.head_ms as head", "assets.raw_key as raw", "assets.file_key as file", "assets.mime as mime", "generations.id as generation", "generations.measure as measure"])
+      .where("takes.asset_id", "=", assetId)
+      .where("takes.head_ms", ">", 0)
+      .executeTakeFirst();
+    if (!row?.measure || (JSON.parse(row.measure) as Measure).runUpCut !== undefined) return false;
+    const cut = await runUpCut(await sourceOf(storage, row.raw ?? row.file), extOf(row.mime), row.head);
+    if (cut === undefined) return false;
+    // read again just before writing: a figure kept meanwhile stays
+    const now = await db.selectFrom("generations").select("measure").where("id", "=", row.generation).executeTakeFirst();
+    if (!now?.measure) return false;
+    await db.updateTable("generations").set({ measure: JSON.stringify({ ...(JSON.parse(now.measure) as Measure), runUpCut: cut }) }).where("id", "=", row.generation).execute();
+    return true;
   }
 
   /**

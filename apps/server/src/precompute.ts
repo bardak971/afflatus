@@ -1,6 +1,6 @@
 import { type Media } from "./cut";
 import { lookOf, takeMeasures, type Measure } from "./measure";
-import { runUpBreak } from "./joinScore";
+import { runUpBreak, runUpCut } from "./joinScore";
 import type { Db } from "./db";
 import { ffmpegPool } from "./pool";
 import { keptKey, keptMotion, type TimelineMedia } from "./timelineMedia";
@@ -59,7 +59,7 @@ export class Precompute {
 
   constructor(
     private readonly db: Db,
-    private readonly media: Pick<TimelineMedia, "motion" | "strip" | "means" | "joins" | "missing" | "measureTogether">,
+    private readonly media: Pick<TimelineMedia, "motion" | "strip" | "means" | "joins" | "missing" | "measureTogether"> & Partial<Pick<TimelineMedia, "runUpCut">>,
     opts: PrecomputeOptions = {},
   ) {
     this.opts = { settleMs: opts.settleMs ?? 3_000, backfillAfterMs: opts.backfillAfterMs === undefined ? 60_000 : opts.backfillAfterMs, perMinute: opts.perMinute ?? 30, run: opts.run ?? ffmpegPool };
@@ -101,6 +101,20 @@ export class Precompute {
     if (this.stopped) return;
     const timelines = await this.db.selectFrom("timelines").select("id").orderBy("updated_at", "desc").execute();
     for (const t of timelines) this.add(`timeline:${t.id}`, { slow: true, work: () => this.readTimeline(t.id, true) });
+    // the takes that carry on, measured before a cut after their run-up was looked for (card #161): each one looked at
+    const media = this.media;
+    if (!media.runUpCut) return;
+    const runUps = await this.db
+      .selectFrom("takes")
+      .innerJoin("assets", "assets.id", "takes.asset_id")
+      .innerJoin("generations", "generations.id", "assets.generation_id")
+      .select("takes.asset_id as asset")
+      .where("takes.head_ms", ">", 0)
+      .where("generations.measure", "is not", null)
+      .where("generations.measure", "not like", '%"runUpCut"%')
+      .orderBy("takes.created_at", "desc")
+      .execute();
+    for (const r of runUps) this.add(`runup:${r.asset}`, { slow: true, work: () => this.opts.run(() => media.runUpCut!(r.asset).then(() => {}), { last: true }).catch(() => {}) });
   }
 
   /** How many units wait (for tests and the log). */
@@ -267,6 +281,11 @@ export async function measureLanded(
   // a continuation: the step where its run-up ends and its own frames begin, kept with the look. The join figures look at
   // the take-over point, which sits inside the run-up and copies the clip before whatever happens next; a model that steps
   // away from its guide cuts here, and only this figure says so
-  if (look && fromMs > 0) look = { ...look, handover: (await runUpBreak(source, ext, fromMs).catch(() => null)) ?? undefined };
+  if (look && fromMs > 0) {
+    look = { ...look, handover: (await runUpBreak(source, ext, fromMs).catch(() => null)) ?? undefined };
+    // and a hard cut a few frames on, which the step at the join alone does not see (card #161)
+    const cut = await runUpCut(source, ext, fromMs).catch(() => undefined);
+    if (cut !== undefined) look = { ...look, runUpCut: cut };
+  }
   return look;
 }

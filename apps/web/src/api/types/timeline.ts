@@ -78,6 +78,8 @@ export interface Measure {
   drift?: { width: number };
   /** A continuation: how much the picture jumps where the run-up ends and its own frames begin, against its own motion (×1 carries on; past ×3 a cut shows there). */
   handover?: number;
+  /** A continuation: the first hard cut in the first second after its run-up (where it left the clip before for another shot), null when none; absent while not measured. */
+  runUpCut?: { atMs: number; db: number } | null;
 }
 export interface Clip {
   id: string;

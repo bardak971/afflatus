@@ -1,10 +1,11 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { lookOf } from "../src/measure";
-import { runUpBreak } from "../src/joinScore";
+import { runUpBreak, runUpCut } from "../src/joinScore";
+import { cutsAtJoin, RUN_UP_CUT } from "@afflatus/core";
 import { FFMPEG_TIMEOUT, ffmpegMade, ffmpegThere } from "./clipKit";
 
-/** Past this a join shows (the web's SHOWS, attention.ts). */
-const SHOWS_AT = 3;
+/** Past this a join shows: the cut at the join the timeline's circle, the takes and the MCP say (card #161). */
+const SHOWS_AT = RUN_UP_CUT;
 
 /** A test clip of a second (two with a hard cut at one second: the picture inverts there), crisp or blurred and darkened, with a 330 Hz tone or silent, made with ffmpeg. Skipped where ffmpeg is not installed. */
 const makeClip = (opts: { soft?: boolean; tone?: boolean; cut?: boolean }) =>
@@ -53,7 +54,23 @@ describe.skipIf(!ffmpegThere)("the look of a clip", { timeout: FFMPEG_TIMEOUT },
   it("reads a hard cut inside a clip as a run-up end many times its own motion, a smooth moment as about one, and null for a moment past the end", async () => {
     expect(await runUpBreak(cut!, "mp4", 1000)).toBeGreaterThan(3);
     expect(await runUpBreak(crisp!, "mp4", 500)).toBeLessThan(2.5);
+    // said as a cut at the join where it cuts, never where the picture carries on
+    expect(cutsAtJoin({ handover: (await runUpBreak(cut!, "mp4", 1000))! })).toBe(true);
+    expect(cutsAtJoin({ handover: (await runUpBreak(crisp!, "mp4", 500))! })).toBe(false);
     expect(await runUpBreak(crisp!, "mp4", 5000)).toBeNull();
+  });
+
+  it("finds a hard cut on the first frame after a run-up or a few frames on, which the step at the join alone misses (card #161)", async () => {
+    expect(await runUpCut(cut!, "mp4", 1000)).toMatchObject({ atMs: 0, db: expect.any(Number) });
+    // the run-up ending 6 frames before the cut: its own step reads small, the cut is found 250 ms on
+    expect(await runUpBreak(cut!, "mp4", 750)).toBeLessThanOrEqual(SHOWS_AT);
+    const later = await runUpCut(cut!, "mp4", 750);
+    expect(later).toMatchObject({ atMs: 250 });
+    expect(later!.db).toBeLessThan(17);
+    expect(cutsAtJoin({ handover: 1, runUpCut: later })).toBe(true);
+    // a clip that carries on: nothing found
+    expect(await runUpCut(crisp!, "mp4", 300)).toBeNull();
+    expect(cutsAtJoin({ handover: 1, runUpCut: null })).toBe(false);
   });
 
   it("weighs a jump in a still shot against at least LEAST_MOTION: a step of 2 grey levels does not show, one of 12 does", async () => {

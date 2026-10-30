@@ -162,3 +162,42 @@ export async function runUpBreak(bytes: Media, ext: string, headMs: number): Pro
     return Math.round(Math.min(20, meanDiff(before, first) / typical) * 10) / 10;
   });
 }
+
+/** How long after a continuation's run-up a hard cut is looked for (runUpCut): a second of its own frames. */
+export const RUN_UP_CUT_WITHIN = 24;
+
+/** A frame step a hard cut is: under this PSNR (dB, grey 96 × 54), and RUN_UP_CUT_DROP under both the steps around it. */
+const CUT_DB = 17;
+const RUN_UP_CUT_DROP = 6;
+
+/**
+ * The first hard cut in a continuation's first second of its own frames, if there is one: where H3 leaves the clip
+ * before for another shot after its run-up (card #161), at the first new frame (as runUpBreak sees it) or a few frames
+ * later (Oct 27, 10 and 13 frames on, which runUpBreak read ×0.5). A cut is a step between two model frames (24 a second)
+ * under 17 dB PSNR that is at least 6 dB under the steps before and after it: on 8721's 103 H3 joins it found the 9 cuts
+ * seen in their frames and nothing else, where a step weighed against the motion around it mixed cuts and quick moves
+ * between ×3 and ×7. `atMs`: after the run-up's end; `db`: the step's PSNR. null: none; undefined: a frame could not be read.
+ */
+export async function runUpCut(bytes: Media, ext: string, headMs: number): Promise<{ atMs: number; db: number } | null | undefined> {
+  return inTemp(async (dir) => {
+    const file = await onDisk(dir, `in.${ext}`, bytes);
+    const step = 1000 / 24;
+    // the two run-up frames before the first new one (the steps before it), and one past the last step weighed
+    const ks = Array.from({ length: RUN_UP_CUT_WITHIN + 4 }, (_, j) => j - 2);
+    const frames = await grayFrames(file, ks.map((k) => headMs + k * step - 5));
+    if (frames.slice(0, 4).some((f) => !f)) return undefined;
+    const psnr = (a: Uint8Array, b: Uint8Array) => {
+      let sum = 0;
+      for (let i = 0; i < a.length; i++) sum += (a[i]! - b[i]!) ** 2;
+      return sum === 0 ? 99 : 10 * Math.log10((255 * 255) / (sum / a.length));
+    };
+    // into[j]: the step into frame ks[j] from the one before it
+    const into = frames.map((f, j) => (j && f && frames[j - 1] ? psnr(frames[j - 1]!, f) : null));
+    for (let j = 2; j < into.length - 1; j++) {
+      const [before, at, after] = [into[j - 1], into[j], into[j + 1]];
+      if (at == null || before == null || after == null) continue;
+      if (at < CUT_DB && at < before - RUN_UP_CUT_DROP && at < after - RUN_UP_CUT_DROP) return { atMs: Math.round(ks[j]! * step), db: Math.round(at * 10) / 10 };
+    }
+    return null;
+  });
+}
