@@ -96,13 +96,18 @@ export const GGUF_LISTS: Readonly<Record<string, string>> = { diffusion_models: 
  * A model folder's files as a machine has them, its .gguf files too (GGUF_LISTS): what tells whether a file is there (a job's
  * files on a machine, a pod's, a download come in, a set's files). Not a loader's choices: those are the loader's own list.
  * The GGUF pack's list is there only with the pack, so one that does not answer adds nothing; the folder's own that does
- * not answer throws, as models() does.
+ * not answer throws, as models() does. A file Delete moved is not there: ComfyUI lists it when a junction in a model folder
+ * reaches the set-aside folder or a bin above it (`a1111/.afflatus-set-aside/loras/x.safetensors`), and a check by its
+ * name took it for the file in its place (card #185).
  */
 export async function filesIn(client: Pick<ComfyClient, "models">, folder: string): Promise<string[]> {
   const gguf = GGUF_LISTS[folder];
   const [own, more] = await Promise.all([client.models(folder), gguf ? client.models(gguf).catch(() => [] as string[]) : []]);
-  return [...own, ...more];
+  return [...own, ...more].filter((f) => !movedAway(f));
 }
+
+/** Whether a file ComfyUI lists is in the set-aside folder (the server's modelBin.ts ASIDE_DIR) or a drive's Recycle Bin. */
+const movedAway = (file: string) => file.split(/[\\/]/).some((part) => /^(\.afflatus-set-aside|\$recycle\.bin)$/i.test(part));
 type FamilyStatus = Scan["families"][number];
 
 /**

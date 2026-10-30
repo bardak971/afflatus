@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { stat, unlink } from "node:fs/promises";
+import { realpath, stat, unlink } from "node:fs/promises";
 import { dirname, join, parse, resolve } from "node:path";
 import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -11,8 +11,8 @@ import { FAMILY_BASES } from "./browse";
 import { civitaiGet } from "./civitai";
 import { now, type Tables } from "./db";
 import { httpError } from "./errors";
-import { asideRoot, erase, moveBack, moveNoClobber, moveOut, systemBin, Taken, type BinFinder, type Place } from "./modelBin";
-import { filesIn, HASHED_FOLDERS, type Found } from "./modelHashes";
+import { asideRoot, erase, inBinOrAside, moveBack, moveNoClobber, moveOut, systemBin, Taken, type BinFinder, type Place } from "./modelBin";
+import { filesIn, HASHED_FOLDERS, identityOf, type Found } from "./modelHashes";
 import { insideDir, modelDirsSaid } from "./modelFiles";
 import { nameOf } from "./modelPages";
 import { setsWithFiles } from "./modelSets";
@@ -115,14 +115,15 @@ async function folderDirs(comfyDir: string): Promise<Map<string, string[]>> {
 
 /**
  * A model file of a folder on this computer: its path, refused when the name leads out of the folder, is not a model
- * file's (an extra_model_paths.yaml, a config's .json beside the models), or the file is not there.
+ * file's (an extra_model_paths.yaml, a config's .json beside the models), the file is not there, or it is one Delete moved
+ * already (in a set-aside folder or a bin, reached through a junction): never moved again from there.
  */
 async function pathOf(dirs: Map<string, string[]>, folder: string, file: string): Promise<{ path: string; dir: string; size: number } | null> {
   if (!isModelFile(file)) return null;
   for (const dir of dirs.get(folder) ?? []) {
     const path = insideDir(dir, file);
     const st = path ? await stat(path).catch(() => null) : null;
-    if (path && st?.isFile()) return { path, dir, size: st.size };
+    if (path && st?.isFile() && !inBinOrAside(await realpath(path).catch(() => path))) return { path, dir, size: st.size };
   }
   return null;
 }
@@ -295,8 +296,17 @@ export async function library(s: Lib, machine?: string): Promise<Library> {
   if (!readOnly) {
     const dirs = await folderDirs(settings.comfyDir);
     noFolder = [...dirs.values()].every((d) => !d.length);
-    for (const [folder, list] of dirs) for (const f of (await filesIn(list, folder)).files) listed.push(f);
-    for (const r of await awayRows(s)) listed.push({ folder: r.folder, file: r.file, size: Number(r.size), mtime: null, path: r.path_was, away: r });
+    const away = await awayRows(s);
+    // a file Delete moved, seen where it is now through a junction to a folder above its model folder (filesIn walks
+    // neither the set-aside folder nor a bin, this is the last word): the moved file itself, never a place of its own nor
+    // "a copy that stays", which Empty would erase believing another was kept (card #185)
+    const moved = new Set<string>();
+    for (const r of away) {
+      const st = await stat(r.stored_path, { bigint: true }).catch(() => null);
+      if (st) moved.add((await identityOf(r.stored_path, st)).identity);
+    }
+    for (const [folder, list] of dirs) for (const f of (await filesIn(list, folder)).files) if (!moved.has(f.identity)) listed.push(f);
+    for (const r of away) listed.push({ folder: r.folder, file: r.file, size: Number(r.size), mtime: null, path: r.path_was, away: r });
   } else if (scan?.comfy.online) {
     // another machine: its scan's lists, by what its recipes offer, and its families' files (names only)
     const seen = new Set<string>();
@@ -447,10 +457,18 @@ export async function deleteFiles(s: Lib, ask: DeleteAsk, bin: BinFinder = syste
   const bins = oncePerDrive(bin);
   const here: Found[] = [];
   for (const [folder, list] of dirs) here.push(...(await filesIn(list, folder)).files);
-  // the file on disk each asked one is, and every place it is seen in: the same file through another folder goes with it
-  const identityOfAsked = new Map(here.map((f) => [usedKey(f), f.identity]));
+  // the file on disk each asked one is, and every place it is seen in: the same file through another folder goes with it.
+  // By the path that is moved (pathOf: the first of the folder's directories holding the name), not by the name alone: a
+  // name in two of a folder's directories, two files, took the last one's identity while the first one's file moved
+  const byPath = new Map(here.map((f) => [resolve(f.path), f.identity]));
+  const where = new Map<string, Awaited<ReturnType<typeof pathOf>>>();
+  for (const f of ask.files) if (!where.has(usedKey(f))) where.set(usedKey(f), await pathOf(dirs, f.folder, f.file));
+  const identityOfAsked = (f: { folder: string; file: string }) => {
+    const at = where.get(usedKey(f));
+    return at ? byPath.get(resolve(at.path)) : undefined;
+  };
   const placesOf = (identity: string | undefined) => (identity ? here.filter((x) => x.identity === identity) : []);
-  const going = new Set(ask.files.map((f) => identityOfAsked.get(usedKey(f))).filter((x): x is string => Boolean(x)));
+  const going = new Set(ask.files.map(identityOfAsked).filter((x): x is string => Boolean(x)));
   // a preset or a set names a file by its name: a copy of it left in another sub-folder still has what it needs, when it
   // is another file on disk that stays (not one asked, not the same file seen through another folder)
   const staying = new Set<string>();
@@ -461,7 +479,7 @@ export async function deleteFiles(s: Lib, ask: DeleteAsk, bin: BinFinder = syste
   const movedNow = new Set<string>();
   for (const f of ask.files) {
     const name = baseName(f.file);
-    const identity = identityOfAsked.get(usedKey(f));
+    const identity = identityOfAsked(f);
     if (identity && movedNow.has(identity)) continue;
     const places = placesOf(identity);
     const keys = places.length ? places.map(fileKey) : [fileKey(f)];
@@ -470,7 +488,7 @@ export async function deleteFiles(s: Lib, ask: DeleteAsk, bin: BinFinder = syste
       done.left.push({ file: name, why: `${blocking[0]!.kind === "preset" ? "the preset" : "the model set"} ${blocking[0]!.name} needs it` });
       continue;
     }
-    const at = await pathOf(dirs, f.folder, f.file);
+    const at = where.get(usedKey(f));
     if (!at) {
       done.left.push({ file: name, why: isModelFile(f.file) ? "it is not in ComfyUI's folders any more" : "it is not a model file" });
       continue;

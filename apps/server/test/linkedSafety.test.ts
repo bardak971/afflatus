@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { sql } from "kysely";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { makePng } from "@afflatus/comfy/testing";
-import { newId, now, OWNER } from "../src/db";
+import { newId, now, openSqlite, OWNER } from "../src/db";
 import { slug } from "@afflatus/core";
 import { isNetworkPath, whyNotLinkableOnDisk } from "../src/linked";
 import { installNodePack } from "../src/nodePack";
@@ -18,7 +18,7 @@ import { get, makeApp, post, type TestApp } from "./helpers";
  * for the paths named in `denied` (readdir answers EACCES) and `busy` (rm answers EBUSY), as a permission change or an
  * open file would.
  */
-const fsTrap = vi.hoisted(() => ({ denied: new Set<string>(), busy: new Set<string>(), stats: [] as string[] }));
+const fsTrap = vi.hoisted(() => ({ denied: new Set<string>(), busy: new Set<string>(), crash: new Set<string>(), stats: [] as string[] }));
 vi.mock("node:fs/promises", async (original) => {
   const real = await original<typeof import("node:fs/promises")>();
   const refuse = (code: string) => Object.assign(new Error(`${code}: refused for the test`), { code });
@@ -28,6 +28,8 @@ vi.mock("node:fs/promises", async (original) => {
   }) as typeof real.readdir;
   const rm = (async (path: string, opts?: unknown) => {
     if (fsTrap.busy.has(String(path))) throw refuse("EBUSY");
+    // Afflatus stopping just after the file left its folder: the rm done, and nothing after it ever run
+    if (fsTrap.crash.has(String(path))) return real.rm(path, opts as never).then(() => new Promise<never>(() => {}));
     return real.rm(path, opts as never);
   }) as typeof real.rm;
   // every stat counted, for the orphan sweep that reads the times of only the files no item names
@@ -44,6 +46,7 @@ const picture = (shade = 30) => Buffer.from(makePng(16, 24, [10, 20, shade], [40
 beforeEach(async () => {
   fsTrap.denied.clear();
   fsTrap.busy.clear();
+  fsTrap.crash.clear();
   dir = mkdtempSync(join(tmpdir(), "afflatus-linked-"));
   writeFileSync(join(dir, "one.png"), picture(31));
   mkdirSync(join(dir, "day 1"));
@@ -166,6 +169,37 @@ describe("a linked folder read when the disk misbehaves", () => {
     // read again: still one item for it, not two
     await scan(root.id);
     expect((await all()).filter((a) => a.key.endsWith("one.png"))).toHaveLength(1);
+  });
+
+  it("loses nothing when Afflatus stops just after a file taken to the bin left its folder: the row named the bin's copy first", async () => {
+    // a database on disk, opened again by a second start as Afflatus's own is
+    const data = mkdtempSync(join(tmpdir(), "afflatus-crash-"));
+    const file = join(data, "afflatus.db");
+    const first = await makeApp({ db: openSqlite(file, { inline: true }), dir: join(data, "files") });
+    const root = (await post(first.app, "/api/folders/link", { path: dir, name: "Shoots" })).json() as { id: string };
+    const one = (await first.db.selectFrom("assets").selectAll().where("name", "=", "one.png").executeTakeFirstOrThrow());
+    const bytes = readFileSync(join(dir, "one.png"));
+    fsTrap.crash.add(join(dir, "one.png"));
+    void first.app.inject({ method: "DELETE", url: `/api/assets/${one.id}` });
+    await vi.waitUntil(() => !existsSync(join(dir, "one.png")));
+    // the first one's database let go, as a stopped process's is
+    await first.app.close();
+    await first.services.close();
+    // started again over what the first one left, its folder read again: the file is in the bin, never forgotten
+    const again = await makeApp({ db: openSqlite(file, { inline: true }), dir: join(data, "files") });
+    try {
+      expect((await post(again.app, `/api/folders/${root.id}/scan`, {})).statusCode).toBe(200);
+      const row = await again.db.selectFrom("assets").selectAll().where("id", "=", one.id).executeTakeFirstOrThrow();
+      expect(row).toMatchObject({ linked_path: join(dir, "one.png"), file_key: `assets/${one.id.slice(0, 2)}/${one.id}.png` });
+      expect(row.deleted_at).not.toBeNull();
+      // the orphan sweep finds the bin's copy named; Restore puts the file back where it was, the same bytes
+      await sweepOrphans(again.db, again.services.storage, Date.now() + 2 * 24 * 3600_000);
+      expect((await post(again.app, `/api/assets/${one.id}/restore`, {})).statusCode).toBe(200);
+      expect(readFileSync(join(dir, "one.png")).equals(bytes)).toBe(true);
+    } finally {
+      await again.close();
+      rmSync(data, { recursive: true, force: true });
+    }
   });
 });
 
