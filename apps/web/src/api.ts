@@ -350,7 +350,8 @@ export const api = {
   /** A token made elsewhere, pasted: kept only when the ComfyUI lets it in. */
   machineToken: (id: string, token: string) => call<{ ok: true; tokenEnd: string }>("POST", `/machines/${encodeURIComponent(id)}/token`, { token }),
   /** The token itself, asked for on purpose (Copy token). */
-  copyMachineToken: (id: string) => call<{ token: string }>("POST", `/machines/${encodeURIComponent(id)}/token/copy`, {}),
+  /** A sign-in of the last 10 minutes, or the password with it (`current`). */
+  copyMachineToken: (id: string, current?: string) => call<{ token: string }>("POST", `/machines/${encodeURIComponent(id)}/token/copy`, current ? { current } : {}),
   /** The user's pods on RunPod, read with the key: which expose ComfyUI, which are added already. */
   runpodPods: (o?: Asked) => call<{ pods: RunpodPod[] }>("GET", "/runpod/pods", undefined, o?.signal),
   /** The GPUs a pod can be deployed on now, on that cloud: price, and where they are free. */

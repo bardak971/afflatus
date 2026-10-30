@@ -27,7 +27,7 @@ function plainAway(url: string): boolean {
 }
 
 /**
- * A change that loosens a lock (Unlock, "No token needed from this PC" on): the server holds it behind a sign-in of the last
+ * A change that loosens a lock (Unlock, "No token needed from this PC" on, the token copied): the server holds it behind a sign-in of the last
  * 10 minutes (access.ts mayChange); without one, the password is asked and the call made again with it.
  */
 async function withPassword<T>(run: (current?: string) => Promise<T>): Promise<T> {
@@ -52,7 +52,7 @@ export function useAccessActions(id: string, label: string, probe: MachineProbe 
   const told = () => {
     for (const queryKey of [queryKeys.machines(), queryKeys.settings(), queryKeys.queue(), queryKeys.setup()]) void client.invalidateQueries({ queryKey });
   };
-  const copyToken = useMutation({ mutationFn: () => api.copyMachineToken(id), onSuccess: ({ token }) => copy(token) });
+  const copyToken = useMutation({ mutationFn: () => withPassword((current) => api.copyMachineToken(id, current)), onSuccess: ({ token }) => copy(token) });
   const renew = useMutation({ mutationFn: (local: boolean) => api.lockMachine(id, { renew: true, local }), onSuccess: told });
   const unlock = useMutation({ mutationFn: () => withPassword((current) => api.unlockMachine(id, current)), onSuccess: told });
   const access = probe?.access;
