@@ -55,8 +55,8 @@ describe.skipIf(!ffmpegThere)("the look of a clip", { timeout: FFMPEG_TIMEOUT },
     expect(await runUpBreak(cut!, "mp4", 1000)).toBeGreaterThan(3);
     expect(await runUpBreak(crisp!, "mp4", 500)).toBeLessThan(2.5);
     // said as a cut at the join where it cuts, never where the picture carries on
-    expect(cutsAtJoin({ handover: (await runUpBreak(cut!, "mp4", 1000))! })).toBe(true);
-    expect(cutsAtJoin({ handover: (await runUpBreak(crisp!, "mp4", 500))! })).toBe(false);
+    expect(cutsAtJoin({ recipe: "h3.video", measure: { handover: (await runUpBreak(cut!, "mp4", 1000))! } })).toBe(true);
+    expect(cutsAtJoin({ recipe: "h3.video", measure: { handover: (await runUpBreak(crisp!, "mp4", 500))! } })).toBe(false);
     expect(await runUpBreak(crisp!, "mp4", 5000)).toBeNull();
   });
 
@@ -67,10 +67,10 @@ describe.skipIf(!ffmpegThere)("the look of a clip", { timeout: FFMPEG_TIMEOUT },
     const later = await runUpCut(cut!, "mp4", 750);
     expect(later).toMatchObject({ atMs: 250 });
     expect(later!.db).toBeLessThan(17);
-    expect(cutsAtJoin({ handover: 1, runUpCut: later })).toBe(true);
+    expect(cutsAtJoin({ recipe: "h3.video", measure: { handover: 1, runUpCut: later } })).toBe(true);
     // a clip that carries on: nothing found
     expect(await runUpCut(crisp!, "mp4", 300)).toBeNull();
-    expect(cutsAtJoin({ handover: 1, runUpCut: null })).toBe(false);
+    expect(cutsAtJoin({ recipe: "h3.video", measure: { handover: 1, runUpCut: null } })).toBe(false);
   });
 
   it("weighs a jump in a still shot against at least LEAST_MOTION: a step of 2 grey levels does not show, one of 12 does", async () => {

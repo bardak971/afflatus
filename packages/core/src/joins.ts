@@ -178,10 +178,24 @@ export interface RunUpMeasure {
 }
 
 /**
- * Whether a take cuts at its join with the clip before: a hard cut found within a second after its run-up, or the step
- * where its run-up ends measured past RUN_UP_CUT (a take measured before the cut was looked for has only that).
+ * The renders a cut at the join is told of (cutsAtJoin) and looked for after the run-up (the server's runUpCut): H3's alone
+ * (its recipes' ids start so), whose model frames are 24 a second as both of the server's run-up steps go, and on whose joins
+ * their thresholds were read. On Wan's 16 frames a second two steps fell on one frame (99 dB), so a quick move read as a cut;
+ * LTX's 25 now and then (0.8.3 review). Another family's run-up end is still shown as its figure (Look's ×N), as in 0.8.2.
  */
-export const cutsAtJoin = (m: RunUpMeasure | null | undefined): boolean => Boolean(m?.runUpCut) || (m?.handover != null && m.handover > RUN_UP_CUT);
+export const RUN_UP_CUT_RECIPES = "h3.";
+export const cutLookedFor = (recipeId: string | null | undefined): boolean => Boolean(recipeId?.startsWith(RUN_UP_CUT_RECIPES));
+
+/**
+ * Whether a take cuts at its join with the clip before: an H3 take (cutLookedFor) with a hard cut found within a second
+ * after its run-up, or the step where its run-up ends measured past RUN_UP_CUT (a take measured before the cut was looked for
+ * has only that). `recipe`: the one the take was rendered with (none for a take not rendered here: nothing is said).
+ */
+export const cutsAtJoin = (take: { measure?: RunUpMeasure | null; recipe?: string | null } | null | undefined): boolean => {
+  const m = take?.measure;
+  if (!m || !cutLookedFor(take.recipe)) return false;
+  return Boolean(m.runUpCut) || (m.handover != null && m.handover > RUN_UP_CUT);
+};
 
 /** The figure a cut at the join is said with: where it cuts, else how much the run-up's end jumps. */
 export const cutAtJoinFigure = (m: RunUpMeasure) => (m.runUpCut ? (m.runUpCut.atMs ? `${(m.runUpCut.atMs / 1000).toFixed(2)} s in` : "first frame") : `×${(m.handover ?? 0).toFixed(1)}`);

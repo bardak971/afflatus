@@ -166,15 +166,6 @@ export async function runUpBreak(bytes: Media, ext: string, headMs: number): Pro
 /** How long after a continuation's run-up a hard cut is looked for (runUpCut): a second of its own frames. */
 export const RUN_UP_CUT_WITHIN = 24;
 
-/**
- * The renders a cut after the run-up is looked for in (runUpCut): H3's alone (its recipes' ids start so), whose model frames
- * are 24 a second as the detector steps by, and on whose joins its thresholds were read. On Wan's 16 frames a second two of
- * its steps fell on one frame (99 dB), so the guard around a step always held and a quick move read as a cut; LTX's 25 now
- * and then (0.8.3 review). Another family's measured before is left unread (timelineViews) and never looked for again.
- */
-export const RUN_UP_CUT_RECIPES = "h3.";
-export const cutLookedFor = (recipeId: string | null | undefined): boolean => Boolean(recipeId?.startsWith(RUN_UP_CUT_RECIPES));
-
 /** A frame step a hard cut is: under this PSNR (dB, grey 96 × 54), and RUN_UP_CUT_DROP under both the steps around it. */
 const CUT_DB = 17;
 const RUN_UP_CUT_DROP = 6;

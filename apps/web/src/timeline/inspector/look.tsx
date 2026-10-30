@@ -72,7 +72,7 @@ export function LookTable({ timeline, index, take, onSelectClip }: { timeline: T
         <span className="grow" />
         {/* at most the head's width, the words cut short there: the full warning is its tip */}
         {warning && <Chip tone="attention" className="max-w-full font-mono" tip={warning}><span className="min-w-0 truncate">{warning}</span></Chip>}
-        {cutsAtJoin(m) && <Chip tone="attention" className="font-mono" tip={`Seamless, but ${cutAtJoinSaid(m)}.`}>cut at the join · {cutAtJoinFigure(m)}</Chip>}
+        {cutsAtJoin(take) && <Chip tone="attention" className="font-mono" tip={`Seamless, but ${cutAtJoinSaid(m)}.`}>cut at the join · {cutAtJoinFigure(m)}</Chip>}
         </div>
       <div className="px-3 pt-1.5 pb-1 text-xs">
         <div className={cx("grid items-center gap-x-2.5", grid)}>

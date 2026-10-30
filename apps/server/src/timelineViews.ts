@@ -2,10 +2,9 @@ import type { Measure } from "./measure";
 import type { Db } from "./db";
 import type { Look } from "./entities";
 import { assetView } from "./media";
-import type { InputSpec, Recipe } from "@afflatus/core";
+import { cutLookedFor, type InputSpec, type Recipe } from "@afflatus/core";
 import { carried, EXPORT_JOB, FROM_PREVIOUS, lengthOnGrid, seamless, visible, type Placed, type Taken, type TimelineRow } from "./timelineModel";
 import { sourceOfRow } from "./timelineSource";
-import { cutLookedFor } from "./joinScore";
 
 /** What a timeline's view is made of besides its clips' order and lengths: its takes as the browser gets them, its jobs, its header. */
 

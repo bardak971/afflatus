@@ -1,6 +1,7 @@
 import { type Media } from "./cut";
 import { lookOf, takeMeasures, type Measure } from "./measure";
-import { cutLookedFor, RUN_UP_CUT_RECIPES, runUpBreak, runUpCut } from "./joinScore";
+import { cutLookedFor, RUN_UP_CUT_RECIPES } from "@afflatus/core";
+import { runUpBreak, runUpCut } from "./joinScore";
 import type { Db } from "./db";
 import { ffmpegPool } from "./pool";
 import { keptKey, keptMotion, type TimelineMedia } from "./timelineMedia";
