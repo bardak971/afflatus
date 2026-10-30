@@ -1,6 +1,6 @@
 import { defineRecipe, gridAtOrBefore, OWN_MODEL, typedInto, upstream, type BuildContext, type ClipValue, type GraphBuilder, type InputSpec, type Ref, type StartRule, type Variant } from "@afflatus/core";
 import { H3_FPS, H3_GRID, H3_HYBRIDS, SWAP_MODELS } from "./family";
-import { modelOf, namedFor } from "./model";
+import { modelOf, namedFor, REF_TURBO_4_STEPS, REF_TURBO_4_VALUES } from "./model";
 import { latentUpscaleNeeds } from "./latent-upscale";
 import { upscaleNeeds } from "../video/upscale";
 import { h3Inputs, type H3Video } from "./inputs";
@@ -180,7 +180,8 @@ export const swapInputs: InputSpec[] = [
     // the model's own shifts (MiniMaxH3SigmaShift's defaults), as the swap was tested, not H3's full-step 11 / 4
     if (spec.id === "shiftVideo" && spec.type === "number") return [{ ...spec, default: 12, note: "12, the model's own, as the swaps were tested. Higher gives the first steps more weight (the whole picture and the motion), lower the last ones (detail)" }];
     if (spec.id === "shiftAudio" && spec.type === "number") return [{ ...spec, default: 3, note: "3, the model's own, as the swaps were tested" }];
-    if (spec.id === "fast" && spec.type === "toggle") return [{ ...spec, note: "8 steps with the turbo LoRA: not tested with the swap LoRA, whose author ran full steps" }];
+    // Turbo says what it says on every H3 form (card #191): its own note ("8 steps… not tested with the swap LoRA") was wrong
+    // since the swaps ran Turbo (MiniMax's 4-step reference LoRA at 4 steps, SWAP_STARTS; the fused turbo model as it is)
     // the swap's own model (the owner, 2026-10-29, card #159): one model in memory, where the fused turbo beside it was a
     // second one every job loaded again
     if (spec.id === "faceRefineModel" && spec.type === "model") return [{ ...spec, default: OWN_MODEL }];
@@ -369,10 +370,10 @@ export const SWAP_STARTS: StartRule[] = [{
     all: [
       { input: "fast", is: true },
       { not: { name: { input: "swapModel", slot: "swapUnet" }, match: namedFor.turbo.source } },
-      { name: { slot: "refTurbo" }, match: "(^|[^0-9])4[ _-]?steps?([^a-z]|$)" },
+      REF_TURBO_4_STEPS,
     ],
   },
-  values: { turboSteps: 4, shiftVideo: 6, shiftAudio: 3 },
+  values: REF_TURBO_4_VALUES,
 }];
 
 /** What the masked swap adds to H3's graph: core's SAM 3 track, noise mask and AV latent nodes, the node pack's Swap Mask. */

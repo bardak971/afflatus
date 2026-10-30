@@ -1,6 +1,6 @@
-import type { AddedLora, InputSpec, StartCondition } from "@afflatus/core";
+import type { AddedLora, InputSpec, StartCondition, StartRule } from "@afflatus/core";
 import { UPSCALE } from "../video/upscale";
-import { namedFor } from "./model";
+import { namedFor, REF_TURBO_4_STEPS, REF_TURBO_4_VALUES } from "./model";
 
 /**
  * Turbo's LoRA as a row of H3's LoRA list (card #160): its file and its weight, inputs of their own drawn in that row. Left
@@ -70,6 +70,23 @@ export const MOTION_TURBO_ROW = row({
   when: { any: [{ all: [AFTER_SWAP, { not: SWAP_MODEL_TURBO }] }, { all: [{ not: AFTER_SWAP }, MOTION_VIDEO.when] }] },
   slots: [{ slot: "refTurbo", when: { any: [AFTER_SWAP, MOTION_VIDEO.slots[0]!.when!] } }, { slot: "turbo" }],
 });
+
+/**
+ * Where a Motion transfer starts Turbo's steps and shifts (card #191): wherever its Turbo row takes MiniMax's reference turbo
+ * LoRA (MOTION_TURBO_ROW's own conditions, so the two cannot part) and that LoRA is made for 4 steps, 4 at 6 / 3. H3's starts
+ * saw only a cast picture: a window carrying on, given the frame before as its picture, ran the 4-step LoRA at 8 steps, 12 / 3,
+ * and a window after a swap with no cast picture too.
+ */
+export const MOTION_STARTS: StartRule[] = [{
+  when: {
+    all: [
+      { input: "fast", is: true },
+      { any: [{ all: [AFTER_SWAP, { not: SWAP_MODEL_TURBO }] }, { all: [{ not: AFTER_SWAP }, MOTION_VIDEO.slots[0]!.when!, { not: REF_DISTILLED }] }] },
+      REF_TURBO_4_STEPS,
+    ],
+  },
+  values: REF_TURBO_4_VALUES,
+}];
 
 /** A form's LoRA list with Turbo's row in it. */
 export const withTurboRow = (inputs: InputSpec[], added: AddedLora): InputSpec[] =>

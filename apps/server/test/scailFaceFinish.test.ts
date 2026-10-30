@@ -121,8 +121,9 @@ describe.skipIf(!ffmpegThere)("Finish › Face refine on a SCAIL-2 take at 24 fp
     // listed only where the scan has no file for a slot (its optional face segmenter): 16 listings before, for two finishes
     expect(asked.filter((c) => /^GET \/models\/(diffusion_models|text_encoders|vae)$/.test(c))).toEqual([]);
     expect(asked.filter((c) => c.startsWith("GET /models/")).length).toBeLessThanOrEqual(4);
-    // the take's frames each time; the Picture the render sent already is not sent again (4 uploads before)
-    expect(asked.filter((c) => c === "POST /upload/image")).toHaveLength(2);
+    // the take's frames once, under their content's name as the Picture: the second finish of the same take sends nothing,
+    // and the Picture the render sent already is not sent again (4 uploads before)
+    expect(asked.filter((c) => c === "POST /upload/image")).toHaveLength(1);
   });
 
   it("on a lone ComfyUI without its pack and no Manager to install it: it goes, and fails saying what to install, rather than wait for good", async () => {

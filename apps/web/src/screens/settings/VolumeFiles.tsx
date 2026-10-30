@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, RefreshCw, Trash2 } from "lucide-react";
 import { api, type VolumeFile, type VolumeFilesView } from "../../api";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "../../Dialog";
-import { gb, plural, usd, when } from "../../format";
+import { gb, plural, usd, verb, when } from "../../format";
 import { Keys } from "../../Keys";
 import { queryKeys } from "../../queryKeys";
 import { useSayFailed } from "../../sayFailed";
@@ -226,7 +226,7 @@ export function VolumeFiles({ volume, name, folder: askedFolder, pickUnused = fa
               <span>{v.why}</span>
             ) : old.length ? (
               <>
-                <span>{plural(old.length, "file")} no render used in {UNUSED_DAYS} days {old.length === 1 ? "holds" : "hold"} <b className="text-ink">{gb(bytesOf(old))}</b>.</span>
+                <span>{plural(old.length, "file")} no render used in {UNUSED_DAYS} days {verb(old.length, "holds", "hold")} <b className="text-ink">{gb(bytesOf(old))}</b>.</span>
                 <Button size="sm" onClick={() => setPicked(new Set(old.map((f) => f.key)))}>Select them</Button>
               </>
             ) : (

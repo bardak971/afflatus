@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addedRows, dryContext, OWN_MODEL, parseInput, type InputSpec, type Recipe } from "@afflatus/core";
+import { addedRows, dryContext, lorasOverSaid, OWN_MODEL, parseInput, ruledDefaults, type InputSpec, type Recipe } from "@afflatus/core";
 import { recipeById, recipes } from "../src/index";
 
 /** Card #160: every LoRA Afflatus adds by itself is a row of the LoRA list, with its file and its weight. */
@@ -191,6 +191,87 @@ describe("a row is shown exactly when the recipe puts its LoRA on (card #160)", 
       // the grid holds both: rows shown, and none
       expect(shown, "rows shown somewhere").toBeGreaterThan(0);
       if (lists.some((l) => l.added!.some((a) => a.toggle))) expect(shown, "and nowhere else").toBeLessThan(built);
+    });
+  }
+});
+
+describe("a row at 0 and the six places (card #189)", () => {
+  const withRows = recipes.filter((r) => r.inputs.some((i) => i.type === "loras" && i.added?.length));
+  it("takes 0 on every row's weight, as the row offers it (not loaded)", () => {
+    for (const r of withRows) {
+      for (const list of r.inputs.filter((i) => i.type === "loras" && i.added?.length)) {
+        for (const a of list.type === "loras" ? list.added! : []) {
+          const spec = r.inputs.find((i) => i.id === a.weight);
+          expect(spec?.type === "number" && spec.min <= 0, `${r.id} · ${a.weight}`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("Wan: the high-noise turbo row at 0 puts no loader on, the low-noise one still on, Turbo's steps kept", () => {
+    const wan = recipeById("wan.video")!;
+    const v = wan.variants.find((x) => x.name === "Turbo with the high-noise LoRA eased")!;
+    const input = parseInput(wan, { ...(v.input as object), turboStrength: 0 }) as Record<string, unknown>;
+    const graph = wan.build(input as never, dryContext({ slots: v.slots ?? {}, uploads: v.uploads ?? {}, media: v.media ?? {} })).graph as Graph;
+    const files = of(graph, "LoraLoaderModelOnly").map((n) => String(n.inputs.lora_name));
+    expect(files).not.toContain(v.slots!.i2vTurboHigh);
+    expect(files).toContain(v.slots!.i2vTurboLow);
+  });
+
+  it("counts Turbo's row among the six, a hand row of its file once", () => {
+    const list = lorasSpec(video);
+    const six = Array.from({ length: 6 }, (_, i) => ({ file: `zz-test-${i}.safetensors`, weight: 0.5 }));
+    const input = (values: Record<string, unknown>) => parseInput(video, { description: "a", start: "p1", ...values }) as unknown as Record<string, unknown>;
+    expect(lorasOverSaid([list], input({ fast: true, loras: six }), slots)).toMatch(/LoRAs: 7 LoRAs, 6 at most \(Turbo takes a place/);
+    expect(lorasOverSaid([list], input({ fast: true, loras: six.slice(1) }), slots)).toBeNull();
+    expect(lorasOverSaid([list], input({ fast: false, loras: six }), slots)).toBeNull();
+    // the turbo file added by hand is Turbo's row: one place
+    expect(lorasOverSaid([list], input({ fast: true, loras: [...six.slice(1), { file: TURBO, weight: 0.8 }] }), slots)).toBeNull();
+  });
+});
+
+/**
+ * Card #191: MiniMax's 4-step reference turbo LoRA runs at 4 steps, 6 / 3, wherever the Turbo row puts it on: the form's
+ * starts and the row say the same, over every H3 form, a cast picture or none, a window carrying on or not, after a swap.
+ */
+describe("Turbo's steps start where the row's LoRA is made for them (card #191)", () => {
+  const REF4 = "minimax_h3_ref2v_turbo_4steps.safetensors";
+  it("Turbo's toggle says the same on the four forms (Swap's said 8 steps, untested with its LoRA)", () => {
+    const note = (id: string) => recipeById(id)!.inputs.find((i) => i.id === "fast")?.note;
+    for (const id of ["h3.lipsync", "h3.swap", "h3.motion"]) expect(note(id), id).toBe(note("h3.video"));
+  });
+  for (const id of ["h3.video", "h3.lipsync", "h3.swap", "h3.motion"]) {
+    it(id, () => {
+      const r = recipeById(id)!;
+      const has = new Set(r.inputs.map((i) => i.id));
+      const list = lorasSpec(r);
+      let four = 0;
+      let checked = 0;
+      for (const v of r.variants) {
+        for (const references of [[], person]) for (const previous of [undefined, { asset: "w1" }]) for (const model of [undefined, "SomeoneH3_hybridV3.safetensors"]) for (const swapModel of [undefined, "zz_swap_plain.safetensors"]) {
+          const over = Object.fromEntries(Object.entries({ fast: true, references, previous, model, swapModel }).filter(([k, x]) => x !== undefined && has.has(k)));
+          for (const extra of [{}, { refUnet: undefined }]) {
+            const all: Record<string, string> = { ...slots, ...(v.slots ?? {}), refTurbo: REF4 };
+            if ("refUnet" in extra) delete all.refUnet;
+            let input: Record<string, unknown>;
+            try {
+              input = parseInput(r, { ...(v.input as object), ...over }) as unknown as Record<string, unknown>;
+            } catch {
+              continue;
+            }
+            // what samples nothing (a Finish › Face refine, a swap's mask shown alone) runs no steps: no row, the starts unread
+            if (input.faceRefineOnly || input.maskPreview) continue;
+            checked++;
+            const row = addedRows(list, input, all)[0];
+            const started = ruledDefaults(r.starts, input, all);
+            const on4 = row?.file === REF4;
+            if (on4) four++;
+            expect(started.turboSteps === 4, `${v.name} · ${JSON.stringify(over)} · refUnet ${all.refUnet ? "there" : "none"}`).toBe(on4);
+          }
+        }
+      }
+      expect(checked).toBeGreaterThan(0);
+      expect(four).toBeGreaterThan(0);
     });
   }
 });

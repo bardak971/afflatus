@@ -2,6 +2,7 @@ import type { InfiniteData, QueryClient } from "@tanstack/react-query";
 import { api, type Asset } from "./api";
 import { itemsWord } from "./assetCache";
 import { ask } from "./Confirm";
+import { verb } from "./format";
 import { insteadOfWaiting } from "./keepFor";
 import { useBanners } from "./store";
 import { queryKeys } from "./queryKeys";
@@ -26,7 +27,7 @@ const BIN = { id: "bin", inUse: true };
 export async function eraseNow(client: QueryClient, ids: string[]): Promise<boolean> {
   if (!ids.length) return false;
   const what = ids.length === 1 ? "it" : `these ${ids.length} items`;
-  if (!(await ask({ title: ids.length === 1 ? "Delete it now?" : `Delete ${ids.length} items now?`, text: `${what[0]!.toUpperCase()}${what.slice(1)} ${ids.length === 1 ? "is" : "are"} erased now, files and all, instead of ${insteadOfWaiting()}. This cannot be undone.`, yes: "Delete" }))) return false;
+  if (!(await ask({ title: ids.length === 1 ? "Delete it now?" : `Delete ${ids.length} items now?`, text: `${what[0]!.toUpperCase()}${what.slice(1)} ${verb(ids.length, "is", "are")} erased now, files and all, instead of ${insteadOfWaiting()}. This cannot be undone.`, yes: "Delete" }))) return false;
   try {
     let erased = 0;
     let used = 0;

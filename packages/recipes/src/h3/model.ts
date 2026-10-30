@@ -1,4 +1,4 @@
-import { wanted, type BuildContext, type GraphBuilder, type Ref, type StartRule } from "@afflatus/core";
+import { wanted, type BuildContext, type GraphBuilder, type Ref, type StartCondition, type StartRule } from "@afflatus/core";
 import { addedLora, applyLoras, livePreview, putAdded } from "../shared/model";
 import { loadUnet } from "../shared/unet";
 import { UPSCALE } from "../video/upscale";
@@ -41,6 +41,10 @@ export const turboNeeds = (input: H3Video, slots: Record<string, string> = {}): 
  * the cast) on MiniMax's reference model, a model that is not a hybrid, takes that model's own turbo LoRA when it is
  * there, and MiniMax's is made for 4 steps at 6 / 3. The render runs what the form says (loadH3Model).
  */
+/** MiniMax's reference turbo LoRA made for 4 steps, by its name (H3's, Swap's and Motion transfer's starts). */
+export const REF_TURBO_4_STEPS: StartCondition = { name: { slot: "refTurbo" }, match: "(^|[^0-9])4[ _-]?steps?([^a-z]|$)" };
+/** What it is made for: 4 steps at 6 / 3. */
+export const REF_TURBO_4_VALUES = { turboSteps: 4, shiftVideo: 6, shiftAudio: 3 };
 export const H3_STARTS: StartRule[] = [{
   when: {
     all: [
@@ -49,10 +53,10 @@ export const H3_STARTS: StartRule[] = [{
       { any: [{ input: "hybrid", is: "No" }, { all: [{ input: "hybrid", is: "From the name" }, { not: { name: { input: "model", slot: "unet" }, match: namedFor.hybrid.source } }] }] },
       // a distilled reference model takes no LoRA at all
       { not: { name: { slot: "refUnet" }, match: namedFor.turbo.source } },
-      { name: { slot: "refTurbo" }, match: "(^|[^0-9])4[ _-]?steps?([^a-z]|$)" },
+      REF_TURBO_4_STEPS,
     ],
   },
-  values: { turboSteps: 4, shiftVideo: 6, shiftAudio: 3 },
+  values: REF_TURBO_4_VALUES,
 }];
 
 /**
