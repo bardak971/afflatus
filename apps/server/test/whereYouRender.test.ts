@@ -249,6 +249,7 @@ describe("a family's official file missing on the user's own ComfyUI", () => {
   it("does not hold a job on a lone ComfyUI for a file only its workflow's author gives an address for, downloads off", async () => {
     fake = await startFakeComfy({ catalog: referenceCatalog(), models: { checkpoints: ["illustrious.safetensors"], upscale_models: [] } });
     t = await makeApp({ comfyUrl: fake.url });
+    await writeSettings(t.db, { downloadModels: false });
     // the address an imported workflow's author gives for its checkpoint (Recipe.files), not a family's official file
     const recipe = t.services.registry.recipe(RECIPE)! as { files?: unknown };
     const files = recipe.files;
@@ -286,8 +287,9 @@ describe("a family's official file missing on the user's own ComfyUI", () => {
 
   it("is downloaded on a press even with downloads and lookups off: the press is the consent", async () => {
     t = await makeApp();
-    const settings = await readSettings(t.db);
-    expect(settings).toMatchObject({ downloadModels: false, civitaiLookups: false });
+    // as an install from before 0.8.4 keeps them (migration 0101); a new one has both on (card #166)
+    await writeSettings(t.db, { downloadModels: false, civitaiLookups: false });
+    expect(await readSettings(t.db)).toMatchObject({ downloadModels: false, civitaiLookups: false });
     const url = t.services.registry.family("sdxl")!.slots.find((s) => s.get?.file === SDXL_BASE)!.get!.url;
     const official = await post(t.app, "/api/downloads", { file: SDXL_BASE, folder: "checkpoints", url });
     expect(official.json().error ?? "").not.toMatch(/turned off/);

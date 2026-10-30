@@ -63,6 +63,7 @@ describe("a version's name, apart from its precision", () => {
 
 describe("newer versions on Civitai", () => {
   it("does nothing while lookups are off; then matches a file by its fingerprint, asks the model page once, and says which version is newer", async () => {
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { civitaiLookups: false } });
     expect((await post(t.app, "/api/models/updates/check", {})).json()).toMatchObject({ items: [], lookups: false });
     expect(asked).toEqual([]);
     await t.app.inject({ method: "PUT", url: "/api/settings", payload: { civitaiLookups: true } });

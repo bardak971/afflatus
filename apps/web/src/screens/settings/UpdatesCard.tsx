@@ -7,6 +7,7 @@ import { dateTime, dayOf, fileLabel, plural } from "../../format";
 import { Dialog, DialogHead, DIALOG } from "../../Dialog";
 import { Button, cx, ErrorNote, SearchField, Segmented, Toggle } from "../../ui";
 import { Block, Card, Row } from "./Rows";
+import { LookupsOff } from "./CivitaiCard";
 import { queryKeys } from "../../queryKeys";
 
 /** Newer versions of the models here, on Civitai: a check on request, and once a day when asked for. Its own card, wide: the list can be long. */
@@ -48,10 +49,8 @@ export function UpdatesCard() {
   return (
     <Card setting="models.updates" title="Newer versions on Civitai" status={on && newer.length > 0 ? <span className="font-mono text-xs text-accent">{newer.length} newer</span> : undefined}>
       {!on ? (
-        // the switch itself, here too: a check asks Civitai, which only this switch allows
-        <Row label="Search Hugging Face and Civitai" sub="needed to check" help="A check asks Civitai, which only this switch allows. The same switch as in Missing models.">
-          <Toggle bare on={on} onChange={(v) => save.mutate({ civitaiLookups: v })} label="Search Hugging Face and Civitai for missing models" />
-        </Row>
+        // a check asks Civitai on Afflatus's own, which only that switch allows: its state, and the way to it (one switch, card #166)
+        <Block><LookupsOff why="nothing is checked" /></Block>
       ) : (
         <>
           <Row label="Check once a day" help="A file is known to Civitai by its hash: the fingerprint a LoRA's trainer wrote in it, or the SHA-256 of the file, computed here once for files on this disk (a few per check). The hash says which file you have, and that is what is sent. A version that differs from yours only by its precision (int4, int8, fp8…) is a variant, not a newer version. Nothing is fetched or replaced by itself.">

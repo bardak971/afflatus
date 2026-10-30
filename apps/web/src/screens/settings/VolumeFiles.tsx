@@ -248,7 +248,7 @@ export function VolumeFiles({ volume, name, folder: askedFolder, pickUnused = fa
  */
 function DeleteFiles({ view, files, onDone, onClose }: { view: VolumeFilesView; files: VolumeFile[]; onDone(gone: string[]): void; onClose(): void }) {
   const client = useQueryClient();
-  const sayFailed = useSayFailed({ href: "/settings/rented", go: "Open Rented GPUs" });
+  const sayFailed = useSayFailed({ href: "/settings/rented", go: "Open Settings › Rented GPUs" });
   const del = useMutation({
     mutationFn: () => api.deleteVolumeFiles(view.volume.id, files.map((f) => f.key)),
     onSuccess: (r) => {

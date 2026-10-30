@@ -34,8 +34,8 @@ export function useQueueVariation(into?: { draft?: string; folder?: string }) {
     },
     onSuccess: (label) => {
       void client.invalidateQueries({ queryKey: queryKeys.queue() });
-      say({ id: `queued:${Date.now()}`, tone: "good", title: `${label} queued`, href: "/queue", go: "Open queue" });
+      say({ id: `queued:${Date.now()}`, tone: "good", title: `${label} queued`, href: "/queue", go: "Open the Queue" });
     },
-    onError: (err, job) => say(failedBanner({ id: "queued", href: "/settings", go: "Open settings" }, `${job.label} could not be queued`, err)),
+    onError: (err, job) => say(failedBanner({ id: "queued", href: "/settings", go: "Open Settings" }, `${job.label} could not be queued`, err)),
   });
 }

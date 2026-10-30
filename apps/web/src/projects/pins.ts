@@ -28,7 +28,7 @@ export function usePins() {
   const client = useQueryClient();
   const settings = useSettings();
   const projects = useProjects();
-  const failed = useSayFailed({ id: "pins", go: "Open the Studio" });
+  const failed = useSayFailed({ id: "pins", href: "/", go: "Open the Studio" });
   const ids = livePins(settings.data?.pinnedProjects ?? [], projects.data?.items);
   const save = (next: string[]) => {
     const was = client.getQueryData<Settings>(queryKeys.settings());

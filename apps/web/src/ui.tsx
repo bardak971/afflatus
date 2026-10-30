@@ -731,6 +731,17 @@ export function ErrorNote({ children, tone = "warn" }: { children: ReactNode; to
 }
 
 /**
+ * A failure said where it happened: what did not happen, in bold ("Not rendered"), then the error's own words (the
+ * server's, written to say what to do), and the way to it when there is one (`children`). In place of a bare
+ * `{x.error.message}`, which said a refusal with no title (card #177); `inline`: a line of text in a row, not a note.
+ */
+export function Failed({ what, error, inline, children }: { what: string; error: unknown; inline?: boolean; children?: ReactNode }) {
+  const words = error instanceof Error ? error.message : String(error);
+  const said = <><span className="font-semibold">{what}</span>: {words}{children ? <> {children}</> : null}</>;
+  return inline ? <span role="alert" className="min-w-0 text-xs text-warn-ink">{said}</span> : <ErrorNote>{said}</ErrorNote>;
+}
+
+/**
  * A button that asks once more before it does something that cannot simply be undone: pressed, it
  * becomes a word about what happens, the button that does it, and a way back. Left alone for a few
  * seconds, it folds back, unless it `stay`s (a delete: the question waits for an answer rather than

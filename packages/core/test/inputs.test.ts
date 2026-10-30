@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isShown, pickChoice, RANDOM_SEED, schemaFor, type InputSpec } from "../src";
+import { isShown, parseInput, pickChoice, RANDOM_SEED, schemaFor, type InputSpec } from "../src";
 
 const specs: InputSpec[] = [
   { id: "prompt", type: "prompt", label: "Tags", style: "tags" },
@@ -124,5 +124,25 @@ describe("a saved file this ComfyUI does not have at all", () => {
   });
   it("a setting that is not a file still starts on one this ComfyUI has", () => {
     expect(pickChoice({ id: "s", type: "choice", label: "Sampler", options: { node: "KSampler", input: "sampler_name" }, default: "gone" } as never, ["euler", "heun"])).toBe("euler");
+  });
+});
+
+describe("a form refused by its schema", () => {
+  const recipe = { inputs: [
+    { id: "description", type: "prompt", label: "What happens", style: "sentences" },
+    { id: "source", type: "image", role: "source", label: "Source picture" },
+    { id: "steps", type: "number", label: "Steps", min: 1, max: 50, default: 20 },
+  ] as InputSpec[] } as Parameters<typeof parseInput>[0];
+  const refusal = (raw: unknown) => { try { parseInput(recipe, raw); } catch (err) { return err as Error & { statusCode?: number }; } return null; };
+
+  it("is said by its fields' labels, as a 400, never in zod's words (card #165)", () => {
+    const empty = refusal({ description: "", source: "a1" });
+    expect(empty?.message).toBe("What happens is empty");
+    expect(empty?.statusCode).toBe(400);
+    expect(refusal({ description: "A boat." })?.message).toBe("Source picture is missing");
+    expect(refusal({ source: "a1" })?.message).toBe("What happens is empty");
+    expect(refusal({ description: "A boat.", source: "a1", steps: 90 })?.message).toMatch(/^Steps: too big/);
+    expect(refusal({ description: "A boat.", source: "a1", nope: 1 })?.message).toBe('the form has no "nope"');
+    expect(refusal({ description: "A boat.", source: "a1" })).toBeNull();
   });
 });

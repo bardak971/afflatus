@@ -101,7 +101,7 @@ describe("SCAIL-2 · Motion transfer", () => {
   });
 
   it("refuses without a picture or a driving video", () => {
-    expect(() => scailMotion.build(parseInput(scailMotion, { driving: { asset: "v1" } }), dryContext({ slots, uploads: { driving: "d.mp4" } }))).toThrow(/picture/);
+    expect(() => scailMotion.build(parseInput(scailMotion, { driving: { asset: "v1" } }), dryContext({ slots, uploads: { driving: "d.mp4" } }))).toThrow(/[Pp]icture/);
     // without a driving video the form is not valid: parseInput refuses it before any build
     expect(() => parseInput(scailMotion, { picture: "p1" })).toThrow();
   });

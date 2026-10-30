@@ -14,15 +14,15 @@ const video = (name = "", over: Record<string, unknown> = {}) => newAssetRow({
 
 describe("the names given", () => {
   it("say the timeline, clip and take; a draft's label and its number; never longer than 80 characters", () => {
-    expect(takeName("Harbor walk", 2, 3)).toBe("Harbor walk · c2 · t3");
-    expect(takeName("", 1, 1)).toBe("Timeline · c1 · t1");
-    expect(finishedName("Harbor walk · c2 · t3")).toBe("Harbor walk · c2 · t3 · finished");
-    expect(finishedName("Harbor walk · c2 · t3 · finished")).toBe("Harbor walk · c2 · t3 · finished");
+    expect(takeName("Harbor walk", 2, 3)).toBe("Harbor walk · Clip 2 · take 3");
+    expect(takeName("", 1, 1)).toBe("Timeline · Clip 1 · take 1");
+    expect(finishedName("Harbor walk · Clip 2 · take 3")).toBe("Harbor walk · Clip 2 · take 3 · finished");
+    expect(finishedName("Harbor walk · Clip 2 · take 3 · finished")).toBe("Harbor walk · Clip 2 · take 3 · finished");
     expect(numbered("Harbor walk", 1)).toBe("Harbor walk 01");
     expect(numbered("Harbor walk", 100)).toBe("Harbor walk 100");
     const long = takeName("a very long timeline name ".repeat(6), 12, 4);
     expect(long.length).toBeLessThanOrEqual(80);
-    expect(long.endsWith("… · c12 · t4")).toBe(true);
+    expect(long.endsWith("… · Clip 12 · take 4")).toBe(true);
     expect(numbered("word ".repeat(40), 7).length).toBeLessThanOrEqual(80);
     expect(capName("x".repeat(200)).length).toBe(80);
     // a draft: its name, else the first words of its title or prompt, else its recipe
@@ -33,14 +33,14 @@ describe("the names given", () => {
   });
 
   it("say what was made from a named item after it: finished and how much bigger, a frame and when, a range, its sound", () => {
-    expect(finishedName("Big Air · c2 · t5", 2)).toBe("Big Air · c2 · t5 · finished ×2");
-    expect(finishedName("Big Air · c2 · t5", 1)).toBe("Big Air · c2 · t5 · finished");
-    expect(finishedName("Big Air · c2 · t5", 1.9999)).toBe("Big Air · c2 · t5 · finished ×2");
+    expect(finishedName("Big Air · Clip 2 · take 5", 2)).toBe("Big Air · Clip 2 · take 5 · finished ×2");
+    expect(finishedName("Big Air · Clip 2 · take 5", 1)).toBe("Big Air · Clip 2 · take 5 · finished");
+    expect(finishedName("Big Air · Clip 2 · take 5", 1.9999)).toBe("Big Air · Clip 2 · take 5 · finished ×2");
     // a finish of a finish, named by older code with its route: said finished once
-    expect(finishedName("Big Air · c2 · t5 · finished ×2 (SeedVR2)", 2)).toBe("Big Air · c2 · t5 · finished ×2");
+    expect(finishedName("Big Air · Clip 2 · take 5 · finished ×2 (SeedVR2)", 2)).toBe("Big Air · Clip 2 · take 5 · finished ×2");
     expect(finishedName("", 2)).toBe("video · finished ×2");
-    expect(frameName("Big Air · c2 · t5", 3_240)).toBe("Big Air · c2 · t5 · frame 0:03.2");
-    expect(frameName("Big Air · c2 · t5")).toBe("Big Air · c2 · t5 · frame");
+    expect(frameName("Big Air · Clip 2 · take 5", 3_240)).toBe("Big Air · Clip 2 · take 5 · frame 0:03.2");
+    expect(frameName("Big Air · Clip 2 · take 5")).toBe("Big Air · Clip 2 · take 5 · frame");
     expect(fromName("walk.mp4", " · 0:01–0:02")).toBe("walk · 0:01–0:02");
     expect(fromName("v0.2 test", " · 0:01–0:02")).toBe("v0.2 test · 0:01–0:02");
     expect(soundName("walk.mp4")).toBe("walk · audio");
@@ -97,14 +97,14 @@ describe("the name an item is shown under when its own says nothing", () => {
     const rows = (await db.selectFrom("assets").select(["id", "name", "kind", "origin", "generation_id", "source_id", "source_range"]).execute()) as NamedRow[];
     const shown = Object.fromEntries(await shownNames(db, rows));
     expect(shown).toEqual({
-      v1: "Big Air · c2 · t1", v2: "Big Air · c2 · t2",
-      v3: "Big Air · c2 · t1 · finished ×2", v4: "Big Air · c2 · t2 · finished ×2",
-      cut: "Big Air · c2 · t1 · 0:01–0:02", cut2: "Big Air · c2 · t2 · 0:00.5–0:01.5",
-      frame: "Big Air · c2 · t1 · frame", sound: "Big Air · c2 · t1 · audio", mirror: "Big Air · c2 · t1 · frame, mirrored",
+      v1: "Big Air · Clip 2 · take 1", v2: "Big Air · Clip 2 · take 2",
+      v3: "Big Air · Clip 2 · take 1 · finished ×2", v4: "Big Air · Clip 2 · take 2 · finished ×2",
+      cut: "Big Air · Clip 2 · take 1 · 0:01–0:02", cut2: "Big Air · Clip 2 · take 2 · 0:00.5–0:01.5",
+      frame: "Big Air · Clip 2 · take 1 · frame", sound: "Big Air · Clip 2 · take 1 · audio", mirror: "Big Air · Clip 2 · take 1 · frame, mirrored",
       p1: "two gulls on a mooring", p2: "two gulls on a mooring",
     });
     // what is made next from one goes by the same name; one's own name as it is
-    expect(await nameOf(db, rows.find((r) => r.id === "v1")!)).toBe("Big Air · c2 · t1");
+    expect(await nameOf(db, rows.find((r) => r.id === "v1")!)).toBe("Big Air · Clip 2 · take 1");
     expect(await nameOf(db, rows.find((r) => r.id === "own")!)).toBe("my favourite");
     expect(await nameOf(db, rows.find((r) => r.id === "up")!)).toBe("");
     // nothing was written
@@ -134,9 +134,9 @@ describe("a take placed on a clip", () => {
       return { take, name: (await t.db.selectFrom("assets").select("name").where("id", "=", row.id).executeTakeFirstOrThrow()).name };
     };
     const one = await place();
-    expect(one.name).toBe("Harbor walk · c2 · t1");
-    expect((await place()).name).toBe("Harbor walk · c2 · t2");
-    expect((await place("", one.take)).name).toBe("Harbor walk · c2 · t1 · finished");
+    expect(one.name).toBe("Harbor walk · Clip 2 · take 1");
+    expect((await place()).name).toBe("Harbor walk · Clip 2 · take 2");
+    expect((await place("", one.take)).name).toBe("Harbor walk · Clip 2 · take 1 · finished");
     expect((await place("my favourite.mp4")).name).toBe("my favourite.mp4");
   });
 });

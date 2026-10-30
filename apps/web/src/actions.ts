@@ -5,6 +5,7 @@ import { projectForNew } from "./project";
 import { api, type Asset, type Opened } from "./api";
 import { useTimelines } from "./data";
 import { useSayFailed } from "./sayFailed";
+import { settingHref } from "./screens/settings/settingsIndex";
 import { useBanners } from "./store";
 import { queryKeys } from "./queryKeys";
 import { timelineOf, type TimelineOf } from "./timelineOf";
@@ -47,7 +48,7 @@ export function useOpenInComfy<T>(request: (v: T) => Promise<Opened>, opts: { on
         const r = await request(v);
         const to = comfyHref(r.url);
         if (tab) tab.location.href = to.href;
-        if (to.crossSite) say({ id: `comfy-site:${Date.now()}`, tone: "bad", title: "ComfyUI may refuse that tab (403)", text: "ComfyUI only opens pages asked for by its own site, and Afflatus is on another one. Start ComfyUI with --enable-cors-header to allow it, or open ComfyUI from the address bar.", href: "/settings", go: "Open settings" });
+        if (to.crossSite) say({ id: `comfy-site:${Date.now()}`, tone: "bad", title: "ComfyUI may refuse that tab (403)", text: "ComfyUI only opens pages asked for by its own site, and Afflatus is on another one. Start ComfyUI with --enable-cors-header to allow it, or open ComfyUI from the address bar.", href: "/settings", go: "Open Settings" });
         return r;
       } catch (err) {
         tab?.close();
@@ -64,7 +65,7 @@ export function useOpenInComfy<T>(request: (v: T) => Promise<Opened>, opts: { on
  * so the tab lands logged in and the token is never in its address.
  */
 export function useOpenComfyUI() {
-  const failed = useSayFailed();
+  const failed = useSayFailed({ id: "open-comfy", href: settingHref("comfy.machines"), go: "Open Settings › ComfyUI" });
   return useOpenInComfy((machine: string) => api.openMachine(machine).then(({ url }): Opened => ({ url, direct: true })), { onError: (err) => failed("Could not open ComfyUI")(err) });
 }
 
@@ -122,7 +123,7 @@ export function useAddToTimeline(asset: Asset, opts: { onSuccess?(target: Target
  * first frame of a clip 1 to render, its form open on it. Then the editor.
  */
 export function useStartTimeline(opts: { onSuccess?(target: Target): void } = {}) {
-  const failed = useSayFailed({ id: "timeline" });
+  const failed = useSayFailed({ id: "timeline", href: "/timelines", go: "Open the Timelines" });
   return useTimelineOf((asset: Asset): TimelineOf => ({ assets: [asset], firstAsClip: true }), {
     onSuccess: (target) => opts.onSuccess?.(target),
     onError: failed("Could not start the timeline"),
@@ -132,7 +133,7 @@ export function useStartTimeline(opts: { onSuccess?(target: Target): void } = {}
 /** One item to the end of a given timeline (a menu's recent timelines); remembered as the last one, said in a banner. */
 export function useAddTo() {
   const say = useBanners((b) => b.push);
-  const failed = useSayFailed({ id: "add" });
+  const failed = useSayFailed({ id: "add", href: "/timelines", go: "Open the Timelines" });
   return useTimelineOf((v: { asset: Asset; timeline: Target }): TimelineOf => ({ assets: [v.asset], into: v.timeline }), {
     onSuccess: (timeline, { asset }) => say({ id: `add:${Date.now()}`, tone: "good", title: `Added to ${timeline.name}`, text: asset.kind === "image" ? "At the end, as a still." : "At the end.", href: `/timelines/${timeline.id}`, go: "Open the timeline" }),
     onError: failed("Could not add it"),
@@ -141,7 +142,7 @@ export function useAddTo() {
 
 /** A new timeline of several items, in the order given: videos as clips, pictures as stills (as the Add dialog makes them). Then the editor. */
 export function useMakeTimelineOf(opts: { onSuccess?(target: Target): void } = {}) {
-  const failed = useSayFailed({ id: "timeline" });
+  const failed = useSayFailed({ id: "timeline", href: "/timelines", go: "Open the Timelines" });
   return useTimelineOf((assets: Asset[]): TimelineOf => ({ assets }), {
     onSuccess: (target) => opts.onSuccess?.(target),
     onError: failed("Could not start the timeline"),

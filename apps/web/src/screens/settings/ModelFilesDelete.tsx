@@ -27,7 +27,7 @@ function sayDone(done: ModelDeleteDone, to: "bin" | "aside", undo: () => void) {
 export function DeleteDialog({ files, all, bin, since, onClose, onDone }: { files: ModelFile[]; all: ModelFile[]; bin: boolean; since: string | null; onClose(): void; onDone(ids: string[]): void }) {
   const client = useQueryClient();
   const [to, setTo] = useState<"bin" | "aside">(bin ? "bin" : "aside");
-  const said = useSayFailed({ id: "model-files", href: "/settings/model-files", go: "Settings › Model files" });
+  const said = useSayFailed({ id: "model-files", href: "/settings/model-files", go: "Open Settings › Model files" });
   // a preset or a set names a file by its name: a copy of it staying in another sub-folder still has what it needs. A row
   // is one file on disk with all its places: the places of one deleted are never a copy that stays
   const placesOf = (f: ModelFile) => [f, ...f.also];

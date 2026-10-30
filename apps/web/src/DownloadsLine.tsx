@@ -65,7 +65,7 @@ const whatOf = (d: Download) => (d.title && d.title !== nameOf(d) && d.title !==
 /** Cancelling, moving and clearing, said when the server refuses. */
 function useLineOps() {
   const client = useQueryClient();
-  const sayFailed = useSayFailed({ id: "downloads" });
+  const sayFailed = useSayFailed({ id: "downloads", href: settingHref("models.downloads"), go: "Open the downloads" });
   const again = () => client.invalidateQueries({ queryKey: queryKeys.downloads() });
   return {
     stop: useMutation({ mutationFn: (id: string) => api.stopDownload(id), onError: sayFailed("Not cancelled"), onSettled: again }),
@@ -266,7 +266,7 @@ export function DownloadsCard({ machine }: { machine?: string }) {
   const where = useWhere();
   const settings = useSettings().data;
   const client = useQueryClient();
-  const sayFailed = useSayFailed({ id: "download-place" });
+  const sayFailed = useSayFailed({ id: "download-place", href: settingHref("models.downloads"), go: "Open the downloads" });
   const reset = useMutation({
     mutationFn: (c: { machine: string; folder: string }) => api.setDownloadPlace({ ...c, path: null }),
     onError: sayFailed("The place was not reset"),
@@ -323,7 +323,7 @@ export function GoesTo({ folder, className }: { folder: string; className?: stri
   const machine = useContext(DownloadTo);
   const places = usePlaces();
   const client = useQueryClient();
-  const sayFailed = useSayFailed({ id: "download-place" });
+  const sayFailed = useSayFailed({ id: "download-place", href: settingHref("models.downloads"), go: "Open the downloads" });
   const [at, setAt] = useState<ReturnType<typeof menuAt> | null>(null);
   const set = useMutation({
     mutationFn: (path: string | null) => api.setDownloadPlace({ ...(machine ? { machine } : {}), folder, path }),

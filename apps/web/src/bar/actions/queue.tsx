@@ -13,7 +13,7 @@ export function jobActions(x: BarCtx, it: Item): Action[] {
   // a row that only types `!` ("N failed in the queue") names no job: it has nothing to act on
   if (!it.job) return [];
   const { job, state } = it.job;
-  const toQueue: Action = { label: "Open queue", icon: <ListOrdered size={14} />, run: () => x.go("/queue") };
+  const toQueue: Action = { label: "Open the Queue", icon: <ListOrdered size={14} />, run: () => x.go("/queue") };
   const toDraft: Action[] = job.draftId ? [{ label: "Open its draft", icon: <PenLine size={14} />, run: () => x.openDraft(job.draftId!) }] : [];
   if (state === "running") {
     const seed = (job as { seed?: number | null }).seed ?? null;
@@ -38,7 +38,7 @@ export function jobActions(x: BarCtx, it: Item): Action[] {
   const memory = memoryThatRanOut(job.error);
   const fix = memory ? lighter(recipe, job.input) : null;
   const stretch = memory ? shorterStretch(recipe, job.input) : null;
-  const retry = (input?: Record<string, unknown>) => x.jobs.again.mutate({ id: job.id, input }, { onSuccess: () => { x.jobs.dismiss.mutate(job.id); good(`${job.label} queued again`, undefined, "/queue", "Open queue"); } });
+  const retry = (input?: Record<string, unknown>) => x.jobs.again.mutate({ id: job.id, input }, { onSuccess: () => { x.jobs.dismiss.mutate(job.id); good(`${job.label} queued again`, undefined, "/queue", "Open the Queue"); } });
   return [
     toQueue,
     { label: "Render again", icon: <RotateCcw size={14} />, note: "the same job, unchanged", run: () => retry() },

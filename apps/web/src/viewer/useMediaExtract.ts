@@ -32,7 +32,7 @@ export function useMediaExtract({ asset, trim, player, onOpened }: { asset: Asse
     },
     onSuccess: (queued) => {
       void client.invalidateQueries({ queryKey: queryKeys.queue() });
-      say({ id: `cut:${Date.now()}`, tone: "good", title: `Copying ${plural(queued, "shot")} to your library`, text: "In the queue; it needs no GPU. Each shot shows in the library as its own video when it is done.", href: "/queue", go: "Open queue" });
+      say({ id: `cut:${Date.now()}`, tone: "good", title: `Copying ${plural(queued, "shot")} to your library`, text: "In the queue; it needs no GPU. Each shot shows in the library as its own video when it is done.", href: "/queue", go: "Open the Queue" });
     },
   });
   // (the library refreshes on the server's own word, its `library` event)
@@ -89,13 +89,13 @@ export function useMediaExtract({ asset, trim, player, onOpened }: { asset: Asse
       void client.invalidateQueries({ queryKey: queryKeys.queue() });
       // Trim stays open: the next action may follow on the same range
       if (v.action === "slow") {
-        say({ id: `cut:${Date.now()}`, tone: "good", title: `Slowing the range ×${v.factor ?? 2}`, text: `${r.engine === "rife" ? "RIFE on the GPU, through the queue." : "ffmpeg's motion interpolation on the processor: slow, minutes for a few seconds. For RIFE on the GPU, put a RIFE model in ComfyUI's models/frame_interpolation folder with the frame interpolation nodes."} The new video, its sound slowed with it, shows in the library when it is done.`, href: "/queue", go: "Open queue" });
+        say({ id: `cut:${Date.now()}`, tone: "good", title: `Slowing the range ×${v.factor ?? 2}`, text: `${r.engine === "rife" ? "RIFE on the GPU, through the queue." : "ffmpeg's motion interpolation on the processor: slow, minutes for a few seconds. For RIFE on the GPU, put a RIFE model in ComfyUI's models/frame_interpolation folder with the frame interpolation nodes."} The new video, its sound slowed with it, shows in the library when it is done.`, href: "/queue", go: "Open the Queue" });
         return;
       }
       // (a sound is cut the same way: Trim on a sound, trim/AudioTrim.tsx)
       const what = asset.kind === "audio" ? "sound" : "video";
       if (v.action === "split" || v.action === "remove") follow(r.of, v.range, r.id);
-      say({ id: `cut:${Date.now()}`, tone: "good", title: v.action === "copy" ? "Copying the range to your library" : v.action === "split" ? `Splitting the ${what}` : "Removing the range", text: `In the queue; it needs no GPU. The new ${what}${v.action === "split" ? "s show" : " shows"} in the library when it is done${v.action === "copy" ? "" : `; this one goes to the bin then, and the viewer goes on to ${v.action === "split" ? "the range" : "the new one"}`}.`, href: "/queue", go: "Open queue" });
+      say({ id: `cut:${Date.now()}`, tone: "good", title: v.action === "copy" ? "Copying the range to your library" : v.action === "split" ? `Splitting the ${what}` : "Removing the range", text: `In the queue; it needs no GPU. The new ${what}${v.action === "split" ? "s show" : " shows"} in the library when it is done${v.action === "copy" ? "" : `; this one goes to the bin then, and the viewer goes on to ${v.action === "split" ? "the range" : "the new one"}`}.`, href: "/queue", go: "Open the Queue" });
     },
   });
   return { scenes, everyScene, saveFrame, takeSound, silence, cutRange, mirror };

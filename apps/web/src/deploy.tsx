@@ -49,7 +49,7 @@ export const lastSaid = (last: DeployAsk, name?: string) => [name ?? shortGpu(la
 export function useDeployAgain() {
   const last = useSettings().data?.lastDeploy ?? null;
   const client = useQueryClient();
-  const sayFailed = useSayFailed({ id: "deploy-again", href: "/settings/rented", go: "Open Rented GPUs" });
+  const sayFailed = useSayFailed({ id: "deploy-again", href: "/settings/rented", go: "Open Settings › Rented GPUs" });
   const run = useMutation({
     mutationFn: async () => {
       if (!last) return null;

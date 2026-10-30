@@ -5,7 +5,7 @@ import { useLocation } from "wouter";
 import { api, type ComfyProbe } from "../../api";
 import { useSettings } from "../../data";
 import { queryKeys } from "../../queryKeys";
-import { Button, cx, ErrorNote, fieldClass } from "../../ui";
+import { Button, cx, Failed, fieldClass } from "../../ui";
 import { RentRow } from "./RentedCard";
 import { Block, Card, Row } from "./Rows";
 
@@ -59,8 +59,8 @@ export function NoComfyCard() {
         {(find.data || find.isError || add.isError) && (
           <Block className="text-xs text-ink-2">
             {find.data && (found ? <span>Found ComfyUI {found.version}{found.device ? ` · ${shortGpu(found.device)}` : ""} at {found.url}</span> : <span>Nothing answers at {find.data.tried.map((t) => t.replace(/^https?:\/\//, "")).join(" or ")}.</span>)}
-            {find.isError && <ErrorNote>{find.error.message}</ErrorNote>}
-            {add.isError && <ErrorNote>{add.error.message}</ErrorNote>}
+            {find.isError && <Failed what="No ComfyUI was looked for" error={find.error} />}
+            {add.isError && <Failed what="Your ComfyUI was not added" error={add.error} />}
           </Block>
         )}
         <Row label="Not installed yet">

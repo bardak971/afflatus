@@ -6,7 +6,7 @@ import { civitaiExact } from "../../findModels/store";
 import { fileLabel, plural, size } from "../../format";
 import { CivitaiMatch, civitaiSays, civitaiTip, DownloadRow, HfMatch } from "../../GetFile";
 import { Select } from "../../Select";
-import { Button, cx, Help } from "../../ui";
+import { Button, cx, Failed, Help } from "../../ui";
 import { useGetFile } from "../../useGetFile";
 import { searchLinks } from "./parts";
 import type { Mapping } from "./useMapping";
@@ -116,8 +116,8 @@ export function MissingFile({ f, m, hints, where }: { f: MissingFileOf; m: Mappi
               </>
             )}
           </span>
-          {start.isError && <span className="text-xs text-warn-ink">{start.error.message}</span>}
-          {find.isError && <span className="text-xs text-warn-ink">{find.error.message}</span>}
+          {start.isError && <Failed inline what="Not downloaded" error={start.error} />}
+          {find.isError && <Failed inline what="Not searched" error={find.error} />}
           {find.data && !find.data.items.length && !find.data.exact.length && (
             <span className="text-xs text-ink-2">No match for that filename ({find.data.asked.join(", ")} {find.data.asked.length === 1 ? "was" : "were"} asked). It may be under another name.</span>
           )}

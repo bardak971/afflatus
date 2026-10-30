@@ -1,7 +1,7 @@
 import type { FrameGrid } from "./frameGrid";
 import type { LintInput, PromptLine } from "./promptLint";
 import type { BuiltGraph } from "./graph";
-import { chosenDefaults, schemaFor, withoutOldZeros, type InputSpec, type StartRule } from "./inputs";
+import { chosenDefaults, saidRefusal, schemaFor, withoutOldZeros, type InputSpec, type StartRule } from "./inputs";
 import { folderOfFileInput, type ModelLine } from "./models";
 import type { WrongFile } from "./modelSet";
 
@@ -382,7 +382,10 @@ export const typedInto = (recipe: Pick<Recipe<any>, "partsStartOn">, text: unkno
 export function parseInput<In>(recipe: Recipe<In>, raw: unknown): In {
   // read as today first: a job queued or a take made before an input changed meaning holds its older id (card #141)
   const given = raw && typeof raw === "object" && !Array.isArray(raw) ? withoutOldZeros(recipe.inputs, raw as Record<string, unknown>) : null;
-  const parsed = schemaFor(recipe.inputs).parse(given ?? raw) as Record<string, unknown>;
+  const checked = schemaFor(recipe.inputs).safeParse(given ?? raw);
+  // refused in the form's own words, as a 400 the page shows under Render: never zod's "description: Too small" (card #165)
+  if (!checked.success) throw Object.assign(new Error(saidRefusal(recipe.inputs, checked.error.issues, given ?? raw)), { statusCode: 400 });
+  const parsed = checked.data as Record<string, unknown>;
   // what was left out starts where the choices made move it, as the form starts it (Turbo on: the turbo LoRA's shifts);
   // an older draft's 0 for "the recipe picks it" counts as left out
   const moved = Object.entries(chosenDefaults(recipe.inputs, parsed)).filter(([id]) => given?.[id] === undefined);

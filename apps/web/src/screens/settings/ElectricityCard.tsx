@@ -18,7 +18,7 @@ export function KwhForm({ onDone }: { onDone?(): void }) {
   const saved = settings.data?.costs ?? { kwhPrice: null, currency: "€" };
   const [price, setPrice] = useState<string | null>(null);
   const [currency, setCurrency] = useState<string | null>(null);
-  const failed = useSayFailed({ id: "costs-kwh", href: "/queue?view=costs", go: "Open Costs" });
+  const failed = useSayFailed({ id: "costs-kwh", href: "/queue?view=costs", go: "Open Queue › Costs" });
   const save = useMutation({
     mutationFn: (costs: { kwhPrice: number | null; currency: string }) => api.saveSettings({ costs }),
     onSuccess: (s) => {

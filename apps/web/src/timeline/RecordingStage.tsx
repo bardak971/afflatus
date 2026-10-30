@@ -212,7 +212,7 @@ export const RecordingStage = forwardRef<PlayerHandle, {
         </span>
         {take && under && <span className="rounded-chip border border-line-strong bg-ground/80 px-2 py-1">take {number(under)} under the sound</span>}
       </div>
-      <span className="absolute top-3 right-4 z-10 max-w-[40%] truncate rounded-chip bg-ground/80 px-2 py-1 font-mono text-xs text-ink-2">{recording.name}</span>
+      <span className="absolute top-3 right-4 z-10 max-w-[40%] truncate rounded-chip bg-ground/80 px-2 py-1 font-mono text-xs text-ink-2" data-tip={recording.name}>{recording.name}</span>
 
       {/* cut off at the stage's sides (what lies outside the stretch shown), not above or below: the marks reach past the waveform */}
       <div className="relative mx-9 mt-24 mb-6 min-h-24 grow basis-0" style={{ clipPath: "inset(-2.75rem 0 -1.5rem 0)" }}>

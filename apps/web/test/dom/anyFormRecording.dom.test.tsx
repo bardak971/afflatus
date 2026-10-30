@@ -143,7 +143,7 @@ describe("a recording's clips in any H3 form (card #72)", () => {
     // its Duration greyed with its part's length; What happens in positive words; Music asked to stay empty
     await user.click(screen.getByRole("button", { name: "Output: unfold" }));
     expect(await screen.findByText("5.5 s, its part · set here")).toBeTruthy();
-    expect((screen.getByLabelText("What happens") as HTMLTextAreaElement).placeholder).toBe("She listens, eyes closed, her mouth closed, swaying slowly to the music.");
+    expect((screen.getByLabelText("What happens") as HTMLTextAreaElement).placeholder).toBe("e.g. She listens, eyes closed, her mouth closed, swaying slowly to the music.");
     // the chapters' unfolding let finish: cut short by the test's end, happy-dom rejects it
     await act(() => new Promise((done) => setTimeout(done, 400)));
   });

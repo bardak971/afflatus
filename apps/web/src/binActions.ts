@@ -21,7 +21,8 @@ function readAgain(client: QueryClient) {
 
 const say = (tone: "good", title: string, text?: string) => useBanners.getState().push({ id: `bin:${Date.now()}`, tone, title, ...(text ? { text } : {}) });
 /** Where a failure of the bin is said to be put right: the library, a 409 titled "Still in use" (failedBanner). */
-const BIN = { id: "bin", inUse: true };
+// said over the bin's strip, where it was asked from
+const BIN = { id: "bin", inUse: true, here: true } as const;
 
 /** The items of the bin erased now, files and all, once asked. Answers whether it was done. */
 export async function eraseNow(client: QueryClient, ids: string[]): Promise<boolean> {

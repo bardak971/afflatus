@@ -14,7 +14,7 @@ import { useCopied, useMedia, useSecond } from "../../hooks";
 import { busyOutside, machineLabel, machineState, OUTSIDE_TIP, outsideSaid, rateParts, rentedSaid } from "../../machines";
 import { useQueueOps } from "../../queueOps";
 import { queryKeys } from "../../queryKeys";
-import { Button, ButtonLink, Chip, cx, ErrorNote, fieldClass, IconButton, Segmented } from "../../ui";
+import { Button, ButtonLink, Chip, cx, ErrorNote, Failed, fieldClass, IconButton, Segmented } from "../../ui";
 import { AccessRow, useAccessActions } from "./AccessRow";
 import { useRentedOps } from "../../rentedOps";
 import { useSayFailed } from "../../sayFailed";
@@ -130,7 +130,7 @@ export function AddMachineCard() {
       {(exposed || save.isError) && (
         <Block>
           {exposed && <ErrorNote>A public address over plain http: anyone who finds it can run code on that ComfyUI. Reach it through Tailscale or an SSH tunnel, or put it behind a proxy that asks for a password.</ErrorNote>}
-          {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
+          {save.isError && <Failed what="Not saved" error={save.error} />}
         </Block>
       )}
     </Card>
@@ -319,8 +319,8 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
       {/* a rented pod that is not running does not answer: its head says so, not a failure here */}
       {(test.isError || save.isError || (failing && (!rented || (state?.rented?.status === "RUNNING" && !state.rented.booting))) || (!rented && publicPlainHttp(machine.url))) && (
         <Block>
-          {test.isError && <ErrorNote>{test.error.message}</ErrorNote>}
-          {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
+          {test.isError && <Failed what="It could not be tested" error={test.error} />}
+          {save.isError && <Failed what="Not saved" error={save.error} />}
           {/* not answering is amber, as everywhere a machine is away: it often comes back by itself; locked against
               Afflatus's token stays red, Afflatus cannot call it */}
           {failing?.error && !state?.rented?.booting && <ErrorNote tone={failing.access.state === "wrong" ? "warn" : "attention"}>{failing.error}</ErrorNote>}
@@ -340,7 +340,7 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
       {!rented && <PacksRow machine={machine} label={label} put={put} />}
       {rented && <RentedRows machine={machine} state={state} put={(r) => put({ rented: r })} ops={rentedOps} remove={() => removeRented.mutate()} />}
       <AccessRow id={machine.id} label={label} probe={probe} url={machine.url} rented={rented} compact />
-      {(access.failed || removeRented.isError) && <Block>{access.failed && <ErrorNote>{access.failed.message}</ErrorNote>}{removeRented.isError && <ErrorNote>{removeRented.error.message}</ErrorNote>}</Block>}
+      {(access.failed || removeRented.isError) && <Block>{access.failed && <Failed what="Its access was not changed" error={access.failed} />}{removeRented.isError && <Failed what="Not removed" error={removeRented.error} />}</Block>}
       {/* the token's end at the foot of one of your own (a pod's foot is its address and Terminate) */}
       {!rented && probe?.tokenEnd && (
         <div className="flex items-center gap-3 bg-raised px-gutter py-2.5 text-xs">

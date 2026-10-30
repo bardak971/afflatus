@@ -6,7 +6,7 @@ import { lazyPart, loadModelMenu } from "./lazyParts";
 import { create } from "zustand";
 import { api, type RecipeInfo } from "./api";
 import { useQueue, useRecipes, useSetup } from "./data";
-import { lacksOnlyFiles, picksUnlisted } from "./officialFiles";
+import { lacksOnlyFiles, missingFileOf, picksUnlisted } from "./officialFiles";
 import { cx } from "./ui";
 import { queryKeys } from "./queryKeys";
 import { useSettled } from "./hooks";
@@ -95,7 +95,7 @@ export function StripPlace() {
   return (
     <span
       className={cx(stripGhost, "min-w-0 hover:bg-transparent")}
-      data-tip={place === "unfiled" ? "Not in a project and no folder open: outputs land in the Inbox. Pick a project in the rail, or open a folder, to file them." : place.path ? `Outputs land in this folder. Kept outputs become files in ${place.path}` : "Outputs land in this folder: the one that is open, or the project's root."}
+      data-tip={place === "unfiled" ? "Not in a project and no folder open: outputs land in the Inbox. Pick a project in the rail, or open a folder, to file them." : place.path ? `Outputs land in ${place.name}. Kept outputs become files in ${place.path}` : `Outputs land in ${place.name}: the folder that is open, or the project's root.`}
     >
       <Folder size={13} className="shrink-0" />
       <span className="max-w-48 truncate font-semibold text-ink">{place === "unfiled" ? "Inbox" : place.name}</span>
@@ -223,11 +223,13 @@ function OfForm({ recipe, input, look }: OpenForm) {
   // there is nothing to load before its Download. Matched as the field and the server match it (picksUnlisted).
   const status = setup.data?.recipes.find((r) => r.id === recipe.id);
   const family = recipes.data?.families.find((f) => f.id === recipe.family);
-  const absent = Boolean(status) && (lacksOnlyFiles(status, recipe, family) || picksUnlisted(status!, recipe, whole, true));
+  // named, and only for a file the render uses (card #176: "Model not here yet" stood over a form that rendered, for a
+  // file of a switch left off)
+  const absent = status && (lacksOnlyFiles(status, recipe, family) || picksUnlisted(status, recipe, whole, true)) ? missingFileOf(status, recipe, family, whole) : null;
   if (absent && !running && !waiting) {
     return (
-      <span className={cx(stripGhost, "min-w-0 hover:bg-transparent")} data-tip="A model file this form uses is not on ComfyUI yet: its Download is under the model field, and the render waits for it. There is nothing to load before then.">
-        <Light on={false} /> <span className="truncate">Model not here yet</span>
+      <span className={cx(stripGhost, "min-w-0 hover:bg-transparent")} data-tip={`${absent.file} (${absent.what}) is not on ComfyUI yet: the render downloads it first, or waits for it. There is nothing to load before then.`}>
+        <Light on={false} /> <span className="truncate">{absent.what} not here yet</span>
       </span>
     );
   }
@@ -274,7 +276,7 @@ function OfForm({ recipe, input, look }: OpenForm) {
           </button>
         </>
       )}
-      {load.isError && <span className="max-w-64 truncate text-warn-ink" data-tip={load.error.message}>{load.error.message}</span>}
+      {load.isError && <span className="max-w-64 truncate text-warn-ink" data-tip={`Not loaded: ${load.error.message}`}>{`Not loaded: ${load.error.message}`}</span>}
     </span>
   );
 }

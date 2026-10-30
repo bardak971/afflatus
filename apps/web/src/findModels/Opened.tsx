@@ -5,7 +5,7 @@ import { api, type BrowseCard, type BrowseFile } from "../api";
 import { compact, plural, shortDate, size } from "../format";
 import { queryKeys } from "../queryKeys";
 import { Select } from "../Select";
-import { Button, Checkbox, Chip, CloseButton, cx, ErrorNote, Help } from "../ui";
+import { Button, Checkbox, Chip, CloseButton, cx, Failed, Help } from "../ui";
 import { askPaid, PAID_HELP, paidWords } from "./paid";
 import { pickedOf, useFolders, type PickedFile } from "./store";
 
@@ -69,7 +69,7 @@ export function Opened({ card, picked, onPick, onClose }: { card: BrowseCard; pi
             </span>
           )}
           {repo.isPending && card.site === "huggingface" && !card.versions.length && <span className="text-xs text-ink-3">Reading its files…</span>}
-          {repo.isError && <ErrorNote>{repo.error.message}</ErrorNote>}
+          {repo.isError && <Failed what="The repository could not be opened" error={repo.error} />}
           {version && (
             // narrow (a laptop's width, beside Picked), a file's folder and size go under its name: beside it, the name had 15 px
             <div className="@container/files flex flex-col rounded-xl border border-line">

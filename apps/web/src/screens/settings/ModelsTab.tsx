@@ -9,7 +9,7 @@ import { lacksOnlyFiles } from "../../officialFiles";
 import { machineLabel } from "../../machines";
 import { DownloadTo, NO_ROUTE, useDownloads } from "../../useGetFile";
 import { settingHref } from "./settingsIndex";
-import { Button, buttonClass, Chip, CloseButton, cx, ErrorNote, Help, Toggle } from "../../ui";
+import { Button, buttonClass, Chip, CloseButton, cx, Failed, Help, Toggle } from "../../ui";
 import { Block, Card } from "./Rows";
 import { FamilyBody, FamilyFetch, useFamilyFetch } from "./ModelsFamily";
 import { ModelFilesLine } from "./ModelFilesTab";
@@ -234,7 +234,7 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
         {!machine && !settings.data.allFamilies && off.length > 0 && <AllOnHint off={off.length} />}
         {!machine && <ModelFilesLine />}
         {setup.data && !pod && downloads.data?.via === "none" && <NoRouteLine where={where} />}
-        {setup.isError && <Block><ErrorNote>{setup.error.message}</ErrorNote></Block>}
+        {setup.isError && <Block><Failed what="ComfyUI's models could not be read" error={setup.error} /></Block>}
         {setup.data && !setup.data.comfy.online && where && <Block className="text-ink-2">{where} does not answer: what it has is not known now.</Block>}
         {setup.data && !on.length && (
           <Block className="flex-row items-center gap-1.5 text-ink-2">
@@ -252,7 +252,7 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
           </button>
         )}
         {offOpen && off.map(row)}
-        {save.isError && <Block><ErrorNote>{save.error.message}</ErrorNote></Block>}
+        {save.isError && <Block><Failed what="Not saved" error={save.error} /></Block>}
       </Card>
     </DownloadTo.Provider>
   );

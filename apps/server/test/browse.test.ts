@@ -330,10 +330,10 @@ describe("find models", () => {
     expect(asked).toEqual([]);
   });
 
-  it("asks no site with lookups off", async () => {
+  it("searches with lookups off too: opening Find models is the user asking (card #166)", async () => {
     await writeSettings(t.db, { civitaiLookups: false });
-    expect((await get(t.app, "/api/browse/civitai")).statusCode).toBe(409);
-    expect(asked).toEqual([]);
+    expect((await get(t.app, "/api/browse/civitai")).statusCode).toBe(200);
+    expect(asked.length).toBeGreaterThan(0);
   });
 
   it("makes a 450-wide thumbnail of a picture, and a still of a video", () => {

@@ -13,7 +13,7 @@ const CSV_HELP =
  * the server's csvExports.ts), saved under the name it gives. Off while the window has nothing in it.
  */
 export function ExportCsv({ path, fallbackName, disabled }: { path: string; fallbackName: string; disabled?: boolean }) {
-  const failed = useSayFailed({ id: "queue", href: "/queue", go: "Open queue" });
+  const failed = useSayFailed({ id: "queue", href: "/queue", go: "Open the Queue" });
   const [busy, setBusy] = useState(false);
   const save = () => {
     setBusy(true);

@@ -57,11 +57,10 @@ export async function downloadTarget(s: Services, settings: Settings, id: string
 export async function beginDownload(s: Services, from: FastifyRequest | string, b: DownloadBody): Promise<DownloadView> {
   const settings = await readSettings(s.db);
   // a family's official file, its Download pressed (a form, a Queue row, Settings › Models): the press is the consent, and the
-  // address is the family's own, not a lookup. Anything else needs downloads and lookups turned on
+  // address is the family's own, not a lookup. Anything else needs downloads turned on; "Search Hugging Face and Civitai"
+  // covers only what Afflatus asks on its own, and a Download (a file Find models showed, a link pasted) is the user asking (card #166)
   const official = isOfficialFile(s.registry.families(), b);
-  if (!official && !settings.downloadModels) throw bad("Downloading into ComfyUI is turned off. Turn it on in Settings.");
-  // "Lookups off" means Afflatus never contacts Civitai or Hugging Face, which is where model files come from
-  if (!official && !settings.civitaiLookups) throw bad("Looking up models online is turned off. Turn on “Search Hugging Face and Civitai” in Settings › Models to fetch model files.");
+  if (!official && !settings.downloadModels) throw bad("Downloading into ComfyUI is turned off. Turn on “Download missing models” in Settings › Models.");
   if (!b.civitai === !b.url) throw bad("a source is needed: a Civitai version or a URL");
   const { comfy, dir, machine } = await downloadTarget(s, settings, b.machine);
   const self = typeof from === "string" ? from : selfUrl(from);

@@ -9,7 +9,7 @@ import { queryKeys } from "../queryKeys";
 import { useSayFailed } from "../sayFailed";
 import { useCapsSave } from "../rentCaps";
 import { GetFfmpeg } from "../GetFfmpeg";
-import { Button, Chip, cx, ErrorNote, fieldClass } from "../ui";
+import { Button, Chip, cx, ErrorNote, Failed, fieldClass } from "../ui";
 import { ComfyCheckLines, tooOldFamilies } from "./settings/ComfyCheck";
 import { INSTALLS } from "./settings/NoComfyCard";
 import { CAP_DAY_WHY, CAP_MONTH_WHY, CapBox } from "./settings/RentedCard";
@@ -90,7 +90,7 @@ const foundSaid = (p: ComfyProbe, torch = torchBuild(p.pytorch)) => (
 export function FirstLaunch() {
   const settings = useSettings();
   const save = useSave();
-  const sayFailed = useSayFailed({ id: "first-launch" });
+  const sayFailed = useSayFailed({ id: "first-launch", here: true });
   const find = useQuery({ queryKey: ["first-launch", "find"], queryFn: () => api.findComfy(), staleTime: Infinity, retry: false });
   const health = useQuery({ queryKey: queryKeys.health(), queryFn: () => api.health(), staleTime: Infinity });
   const ffmpeg = health.data?.checks.find((c) => c.id === "ffmpeg");
@@ -263,7 +263,15 @@ export function FirstLaunch() {
           )}
         </Ask>
 
-        {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
+        {save.isError && <Failed what="Not saved" error={save.error} />}
+        {/* what a new install's defaults do with the user's files, said once before Done (card #166): both on unless turned off */}
+        {answered && settings.data && (
+          <span className="text-ink-3">
+            {settings.data.civitaiLookups ? "Models: your model files' hashes are sent to Civitai and Hugging Face to recognise them, and Find models searches there. " : "Models: Civitai and Hugging Face are asked only when you open Find models. "}
+            {settings.data.downloadModels ? "A download is always asked first, with its size. " : "Nothing downloads into ComfyUI. "}
+            Both are switches in Settings › Models.
+          </span>
+        )}
         {answered && (
           <div className="mt-1 flex items-center gap-3">
             <span className="grow text-ink-3">

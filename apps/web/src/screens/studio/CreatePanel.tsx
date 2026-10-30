@@ -16,7 +16,7 @@ import { CastPictures } from "../../castPictures";
 import { CardPrompt, PartHead } from "../../recipeForm/Part";
 import { appendTo } from "../../promptText";
 import { useBanners, usePanelWidth } from "../../store";
-import { ErrorNote, ScrollColumn, PanelEdge } from "../../ui";
+import { Failed, PanelEdge, ScrollColumn } from "../../ui";
 import { useFormTarget } from "../../formTarget";
 import { DraftHeader } from "./DraftHeader";
 import { GenerateBar } from "./GenerateBar";
@@ -169,7 +169,7 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
       <DraftHeader d={d} draft={draft} titleOf={titleOf} onClose={onClose} />
 
       <ScrollColumn className="flex flex-col gap-2 px-3 pt-2 pb-3">
-        {recipes.isError && <ErrorNote>{recipes.error.message}</ErrorNote>}
+        {recipes.isError && <Failed what="The models could not be listed" error={recipes.error} />}
         {/* saved and saving are a mark in the header (DraftHeader); a failure says why here, with the way to try again */}
         {d.saving === "failed" && (
           <span role="alert" className="flex items-center gap-2 px-1 text-xs text-warn-ink">

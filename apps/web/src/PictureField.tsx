@@ -15,7 +15,7 @@ import { useSettled } from "./hooks";
 import { projectForNew, useProject } from "./project";
 import { clock } from "./format";
 import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_VIDEO, LEAN_MOTION, useDropZone } from "./dragging";
-import { Button, CloseButton, cx, Empty, ErrorNote, NumberBox, Help, Note, SearchField, Segmented } from "./ui";
+import { Button, CloseButton, cx, Empty, ErrorNote, Failed, Help, Note, NumberBox, SearchField, Segmented } from "./ui";
 import { LoadMore } from "./LoadMore";
 import { AudioPlayer } from "./AudioPlayer";
 import { firstPart, SoundRange, useSoundMarks } from "./SoundRange";
@@ -157,8 +157,8 @@ export function Picker({ title, kind = "image", kit, room = 1, onPick, onPicks, 
         </header>
         <div className="flex min-h-0 grow flex-col gap-3 overflow-y-auto p-5">
           {wrong && <ErrorNote>{wrong}</ErrorNote>}
-          {upload.error && <ErrorNote>{upload.error.message}</ErrorNote>}
-          {assets.isError && <ErrorNote>{assets.error.message}</ErrorNote>}
+          {upload.error && <Failed what="Not added" error={upload.error} />}
+          {assets.isError && <Failed what="The library could not be read" error={assets.error} />}
           <LoadMore more={Boolean(assets.hasPreviousPage)} busy={assets.isFetchingPreviousPage || assets.isFetchingNextPage} onMore={() => void assets.fetchPreviousPage()} />
           {assets.isSuccess && !items.length && !sounding.length && (
             <Empty title={q ? "Nothing matches" : `No ${WORD[kind]}s yet`} help={q ? undefined : `Bring one in with "From your computer" or Ctrl+V${kind === "audio" ? "." : ", or make one in Studio."}`} />

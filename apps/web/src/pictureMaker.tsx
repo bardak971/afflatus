@@ -108,7 +108,7 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
   const change = usePictureSets((s) => s.set);
   const recipes = useRecipes();
   const entities = useEntities();
-  const failed = useSayFailed({ id: "picture-maker" });
+  const failed = useSayFailed({ id: "picture-maker", here: true });
   const [adding, setAdding] = useState(false);
   /** A made picture shown large (a click on it); Use picks it. */
   const [looking, setLooking] = useState<string | null>(null);

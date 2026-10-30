@@ -10,7 +10,7 @@ import { clock, plural, when } from "./format";
 import { useProject } from "./project";
 import { Select } from "./Select";
 import { useBanners, useStudio } from "./store";
-import { Button, ErrorNote, SearchField } from "./ui";
+import { Button, Failed, SearchField } from "./ui";
 import { foldersOf } from "./screens/library/tree";
 
 /** Which timeline an item goes to the end of: one of the project's, or a new one. */
@@ -38,7 +38,7 @@ export function AddToTimeline({ asset, onClose }: { asset: Asset; onClose(): voi
   return (
     <Dialog label="Add to a timeline" onClose={onClose} z="z-50" className={DIALOG}>
         <DialogHead icon={<ListPlus size={16} />} title="Add to a timeline" sub={asset.kind === "image" ? "The image goes at the end, as a still you can animate or hold" : "The video goes at the end, as a clip of its own"} onClose={onClose} />
-        {add.isError && <ErrorNote>{add.error.message}</ErrorNote>}
+        {add.isError && <Failed what="Not added to the timeline" error={add.error} />}
         <div className="flex gap-2">
           <SearchField autoFocus data-search="add-timeline" value={typed} onChange={setTyped} label="Search timelines" className="grow" inputClassName="text-sm" />
           <div className="w-44 shrink-0">

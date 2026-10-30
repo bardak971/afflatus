@@ -59,7 +59,7 @@ describe("the design budget", () => {
   it("counts what the kit or a token does, written by hand in the web app", () => {
     const line = '<button className="h-7 w-7 rounded-[10px] text-[11px] tracking-[0.08em] z-[70] bg-white"><X size={14} /></button>';
     expect(one("apps/web/src/x.tsx", line)).toEqual({
-      "font-size": 1, radius: 1, "z-index": 1, tracking: 1, "raw-colour": 1, "close-icon": 1, "pulse-spin": 0, "icon-button": 1, "animate-motion": 0,
+      "font-size": 1, radius: 1, "z-index": 1, tracking: 1, "raw-colour": 1, "close-icon": 1, "pulse-spin": 0, "icon-button": 1, "bare-error": 0, "animate-motion": 0,
     });
     expect(one("apps/web/src/x.tsx", '<span className="animate-spin" /><div className="animate-pulse bg-[#ff0000]" />')).toMatchObject({ "pulse-spin": 2, "raw-colour": 1 });
     // the tokens themselves are not counted
@@ -69,6 +69,10 @@ describe("the design budget", () => {
     expect(one("apps/web/src/ui.tsx", '<button className="size-8"><X /></button> animate-spin')).toMatchObject({ "close-icon": 0, "icon-button": 0, "pulse-spin": 0 });
     expect(one("apps/web/src/screens/queue/CostsChart.tsx", 'fill="[#ff8800]"')["raw-colour"]).toBe(0);
     expect(Object.values(one("apps/server/src/x.ts", "text-[11px] z-[9]")).every((n) => n === 0)).toBe(true);
+  });
+  it("counts an error's message shown bare, not one said with what failed, a template's or a tip's (card #177)", () => {
+    expect(one("apps/web/src/x.tsx", "{save.isError && <ErrorNote>{save.error.message}</ErrorNote>}<span>{err.message}</span>{access.failed?.message}")["bare-error"]).toBe(3);
+    expect(one("apps/web/src/x.tsx", '<Failed what="Not saved" error={save.error} /><span data-tip={load.error.message}>{`Not loaded: ${load.error.message}`}</span>')["bare-error"]).toBe(0);
   });
   it("counts a script animation only in a file that never asks motionAllowed", () => {
     expect(one("apps/web/src/x.ts", "el.animate([{ opacity: 0 }], 100); row.animate?.([], 1);")["animate-motion"]).toBe(2);

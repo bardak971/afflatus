@@ -21,4 +21,13 @@ describe("Generate waits for the inputs a recipe cannot do without", () => {
     expect(inputMissing(recipe([{ id: "start", type: "image", role: "start", label: "Start frame", optional: true }]), {})).toBeNull();
     expect(inputMissing(undefined, {})).toBeNull();
   });
+
+  it("a text the recipe cannot do without, left empty, is asked for as the clip inspector asks (card #165)", () => {
+    const h3 = recipe([{ id: "description", type: "prompt", label: "What happens", placeholder: "She walks…" }, { id: "music", type: "prompt", label: "Music", optional: true }]);
+    expect(inputMissing(h3, { description: "  " })).toBe("Write what happens first.");
+    expect(inputMissing(h3, { description: "A boat." })).toBeNull();
+    // a text with a default of its own falls back on it; an imported workflow's example does not
+    expect(inputMissing(recipe([{ id: "prompt", type: "prompt", label: "Prompt", default: "a cat" }]), { prompt: "" })).toBeNull();
+    expect(inputMissing(recipe([{ id: "prompt", type: "prompt", label: "Prompt", default: "a cat", example: true }]), { prompt: "" })).toBe("Write prompt first.");
+  });
 });

@@ -10,9 +10,10 @@ import { dayOf, plural, size, when } from "../../format";
 import { queryKeys } from "../../queryKeys";
 import { useSayFailed } from "../../sayFailed";
 import { useBanners } from "../../store";
-import { Button, Checkbox, Chip, CloseButton, cx, ErrorNote, Help, SearchField, Segmented, Spinner, TwoStep } from "../../ui";
+import { Button, Checkbox, Chip, CloseButton, cx, Failed, Help, SearchField, Segmented, Spinner, TwoStep } from "../../ui";
 import { ModelFileDetail, Picture } from "./ModelFileDetail";
 import { DeleteDialog } from "./ModelFilesDelete";
+import { UnseenFolder, useComfyListed } from "./unseenFolder";
 import { AddingStrip, useDropFiles } from "./ModelFilesDrop";
 import { BANDS, figures, idleFiles, KIND_PLURAL, KINDS, lastSaid, nameOf, NO_FILTER, shown, type Filters, type SortKey } from "./modelFilesView";
 
@@ -76,7 +77,7 @@ export function ModelFilesTab() {
   const [asking, setAsking] = useState<ModelFile[] | null>(null);
   const [emptying, setEmptying] = useState(false);
   const drop = useDropFiles(lib.data);
-  const said = useSayFailed({ id: "model-files", href: "/settings/model-files", go: "Settings › Model files" });
+  const said = useSayFailed({ id: "model-files", href: "/settings/model-files", go: "Open Settings › Model files" });
   const readAgain = () => void client.invalidateQueries({ queryKey: queryKeys.modelInfo.all() });
   const back = useMutation({ mutationFn: api.putBackModelFiles, onSuccess: (r) => r.left.length && useBanners.getState().push({ id: `model-files:${Date.now()}`, tone: "bad", title: `${plural(r.left.length, "file")} not put back`, text: r.left.map((l) => `${l.file}: ${l.why}`).join(" · ") }), onError: said("Could not put them back"), onSettled: readAgain });
   const empty = useMutation({ mutationFn: api.emptyModelFiles, onSuccess: (r) => useBanners.getState().push({ id: `model-files:${Date.now()}`, tone: "good", title: `Erased for good · ${plural(r.erased, "file")} · ${size(r.bytes)}` }), onError: said("Could not empty them"), onSettled: () => { setEmptying(false); readAgain(); } });
@@ -85,10 +86,13 @@ export function ModelFilesTab() {
   const now = Date.now();
   const rows = useMemo(() => (l ? shown(l, f, now) : []), [l, f, now]);
   const figs = useMemo(() => (l ? figures(l, f.family, now) : null), [l, f.family, now]);
-  if (lib.isError) return <ErrorNote>{lib.error.message}</ErrorNote>;
+  const listed = useComfyListed();
+  if (lib.isError) return <Failed what="The model files could not be read" error={lib.error} />;
   if (!l || !figs) return <div className="flex items-center gap-2 text-ink-3"><Spinner /> Reading ComfyUI's model folders…</div>;
 
   const ro = l.readOnly;
+  // nothing read in this PC's folder while its ComfyUI lists files: the folder is the wrong one, or cannot be read
+  const unseen = !ro && !l.noFolder && !l.files.length && listed > 0;
   const live = rows.filter((x) => !x.removed);
   const picked = l.files.filter((x) => sel.has(x.id) && !x.removed);
   const pickedBytes = picked.reduce((n, x) => n + (x.size ?? 0), 0);
@@ -220,7 +224,17 @@ export function ModelFilesTab() {
             const gone = Boolean(x.removed);
             return (
               <div key={x.id} className="border-b border-line/60 last:border-b-0">
-                <div role="row" onClick={(e) => (e.shiftKey && !ro && !gone ? toggle(x.id, true) : setOpen(isOpen ? null : x.id))} className={cx(GRID, "min-h-[52px] cursor-pointer px-[18px] py-1.5 hover:bg-hover", sel.has(x.id) && "bg-accent-wash/40", isOpen && "bg-raised", gone && "opacity-60")}>
+                {/* reached by Tab and opened by Enter or Space as by a click (card #178: a keyboard could not open a file's detail) */}
+                <div
+                  role="row" tabIndex={0} aria-expanded={isOpen} aria-label={nameOf(x)}
+                  onClick={(e) => (e.shiftKey && !ro && !gone ? toggle(x.id, true) : setOpen(isOpen ? null : x.id))}
+                  onKeyDown={(e) => {
+                    if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
+                    e.preventDefault();
+                    setOpen(isOpen ? null : x.id);
+                  }}
+                  className={cx(GRID, "min-h-[52px] cursor-pointer px-[18px] py-1.5 outline-none hover:bg-hover focus-visible:inset-ring-2 focus-visible:inset-ring-accent/50", sel.has(x.id) && "bg-accent-wash/40", isOpen && "bg-raised", gone && "opacity-60")}
+                >
                   <span onClickCapture={(e) => { e.stopPropagation(); if (!ro && !gone) toggle(x.id, e.shiftKey); }}>
                     <Checkbox checked={sel.has(x.id)} disabled={ro || gone} label={`Select ${nameOf(x)}`} onChange={() => {}} />
                   </span>
@@ -258,8 +272,8 @@ export function ModelFilesTab() {
           {rows.length > 600 && <div className="px-[18px] py-3 text-body text-ink-3">{rows.length - 600} more: narrow the list with the search or the filters.</div>}
           {!rows.length && (
             <div className="flex flex-col items-center gap-2 px-[18px] py-10 text-center">
-              <h3 className="text-title font-semibold">{l.files.length ? "No file matches" : "No model file in ComfyUI's model folders"}</h3>
-              <p className="text-body text-ink-2">{l.files.length ? `Nothing${f.q ? ` named "${f.q}"` : ""} with these filters.` : "Fetch a family's files or any model with Find models, or drop model files here: each goes to its kind's folder."}</p>
+              <h3 className="text-title font-semibold">{l.files.length ? "No file matches" : unseen ? "Afflatus cannot see ComfyUI's model files" : "No model file in ComfyUI's model folders"}</h3>
+              <p className="text-body text-ink-2">{l.files.length ? `Nothing${f.q ? ` named "${f.q}"` : ""} with these filters.` : unseen ? <UnseenFolder listed={listed} /> : "Fetch a family's files or any model with Find models, or drop model files here: each goes to its kind's folder."}</p>
               {l.files.length > 0 && <Button size="sm" onClick={() => { go("/settings/model-files"); setF({ ...NO_FILTER, sort: f.sort }); }}>Show every file</Button>}
             </div>
           )}

@@ -205,6 +205,7 @@ describe("a model file's page and words", () => {
     expect(await refused(look, "set_model_words", { folder: "loras", file: "zz-test-lamp.safetensors", words: "zz glow" })).toMatch(/Manage/);
     expect((await ok(look, "model_page", { folder: "loras", file: "zz-test-none.safetensors" })).header).toBeNull();
     // looking it up with lookups off asks no site
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { civitaiLookups: false } });
     expect((await ok(look, "model_page", { folder: "loras", file: "zz-test-lamp.safetensors", find: true })).lookups).toMatch(/off/);
     await look.close();
     const manage = await connect(["look", "manage"]);

@@ -78,7 +78,7 @@ function HuntCard({ hunt, now, anchor, onClose }: { hunt: HuntSummary; now: numb
   const view = useQuery({ queryKey: queryKeys.hunt(), queryFn: ({ signal }) => api.hunt({ signal }) }).data;
   const st = view?.hunt ?? null;
   const pick = firstPick(view?.ranking);
-  const failed = useSayFailed({ id: "hunt", href: "/queue", go: "Open queue" });
+  const failed = useSayFailed({ id: "hunt", href: "/queue", go: "Open the Queue" });
   const cancel = useMutation({ mutationFn: () => cancelHunt(client), onSuccess: onClose, onError: failed("Could not cancel the hunt") });
   const where = st?.dataCenter ? ` in ${st.dataCenter}` : "";
   const line = hunt.status === "deploying"
