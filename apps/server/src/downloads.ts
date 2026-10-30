@@ -10,7 +10,7 @@ import { civitaiSites } from "./civitai";
 import type { Comfy } from "./comfy";
 import { httpError } from "./errors";
 import { fileName } from "./media";
-import { assertRoom, BAD_NAME, comfyBase, comfyFolderPaths, fetchToFile, freeBytes, modelRoot, NOT_MODELS, type OtherRoute, placeIn, REFUSED, Refused, shownPlace } from "./modelDownload";
+import { assertRoom, BAD_NAME, comfyBase, comfyFolderPaths, fetchToFile, freeBytes, modelRoot, NOT_MODELS, type OtherRoute, placeIn, Refused, refusalOf, shownPlace } from "./modelDownload";
 import { olderThan } from "./version";
 import { assertPublicUrl, cannotReach, fetchFailure, fetchPublic } from "./outbound";
 import { renameOver } from "./storage";
@@ -227,7 +227,8 @@ export function directOk(address: string): boolean {
  * a redirect to a signed link on their file servers, which holds no key and lasts an hour or so. The redirects are read,
  * not followed into the file: a page of theirs that sends it on to another of their pages is asked again (the key only to
  * the host first asked), and the first link on a file server is the one. Null when the source answers otherwise, or the
- * link would carry a secret: then the pack fetches through Afflatus, as before.
+ * link would carry a secret: then the pack fetches through Afflatus, as before. A Refused, with the site's reason, when
+ * it refuses the download itself (401 or 403): a rented GPU, which only takes such a link, is told why.
  */
 export async function signedLink(source: string, headers: Record<string, string>, fetcher: typeof fetch = fetch): Promise<string | null> {
   const first = new URL(source).host;
@@ -237,6 +238,14 @@ export async function signedLink(source: string, headers: Record<string, string>
     const res = await fetcher(at, { method: "HEAD", headers: { "User-Agent": "afflatus", ...(new URL(at).host === first ? headers : {}) }, redirect: "manual", signal: AbortSignal.timeout(15_000) });
     await res.body?.cancel().catch(() => {});
     const location = res.headers.get("location");
+    // refused: asked again in full, as a HEAD has no body to say why (Civitai's Early Access, a key it refuses), and said
+    // at once if the answer is the same; a host that refuses only HEADs (a signed link of another site) is fetched as before
+    if (res.status === 401 || res.status === 403) {
+      const again = await fetcher(at, { headers: { "User-Agent": "afflatus", ...(new URL(at).host === first ? headers : {}) }, redirect: "manual", signal: AbortSignal.timeout(15_000) });
+      if (again.status === 401 || again.status === 403) throw new Refused(await refusalOf(again, at, new URL(at).host === first ? headers : {}));
+      await again.body?.cancel().catch(() => {});
+      return null;
+    }
     if (res.status >= 300 && res.status < 400 && location) {
       const next = new URL(location, at);
       if (!directOk(next.href) || secrets.some((s) => next.href.includes(s))) return null;
@@ -895,7 +904,11 @@ export class Downloads {
   private async runPack(d: Download): Promise<void> {
     try {
       const version = await d.comfy.client.packVersion().catch(() => null);
-      const signed = version && !olderThan(version, PACK_SIGNED) ? await this.signer(d.source, d.headers).catch(() => null) : null;
+      const signed = version && !olderThan(version, PACK_SIGNED) ? await this.signer(d.source, d.headers).catch((err: unknown) => {
+        // the source refused it (paid, a key refused): said as it is, not as "no link of its own"
+        if (err instanceof Refused) throw err;
+        return null;
+      }) : null;
       d.signed = Boolean(signed);
       if (!signed && d.directOnly) throw new Error(NO_DIRECT);
       // the place chosen for the folder, to a pack that takes one (an older one keeps to ComfyUI's first path)
@@ -1010,9 +1023,9 @@ export class Downloads {
     }
     const type = res.headers.get("content-type") ?? "";
     if (!res.ok || !res.body || /text\/html|application\/json/.test(type)) {
-      await res.body?.cancel().catch(() => {});
       const refused = res.status === 401 || res.status === 403 || /text\/html/.test(type);
-      const said = refused ? REFUSED : `The site answered ${res.status}.`;
+      if (!refused) await res.body?.cancel().catch(() => {});
+      const said = refused ? await refusalOf(res, d.source, d.headers) : `The site answered ${res.status}.`;
       // a 5xx or a 429 may pass, the pack asks again; anything else is the end of it, and the pack is told so with
       // the site's own 4xx (a 502 would have it try four times more)
       const final = d.via === "manager" || (res.status < 500 && res.status !== 429);

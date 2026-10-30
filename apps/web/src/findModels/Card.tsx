@@ -1,8 +1,9 @@
 import { memo, useState } from "react";
-import { Check, Download, Heart, Lock, Plus } from "lucide-react";
+import { Check, Coins, Download, Heart, Lock, Plus } from "lucide-react";
 import type { BrowseCard } from "../api";
 import { compact, plural, shortDate, size } from "../format";
 import { Chip, cx, IconButton } from "../ui";
+import { PAID_HELP, paidWords } from "./paid";
 
 /**
  * A card's picture, faded in over a neutral block of its size when it comes (one that never comes leaves the block, the
@@ -77,6 +78,8 @@ export const Card = memo(function Card({ card, picked, onOpen, onQuick }: { card
             {card.have && <span className="rounded-md bg-shade/80 px-1.5 py-0.5 text-micro font-bold text-good">on this PC</span>}
             {inSet && <span className="rounded-md bg-shade/80 px-1.5 py-0.5 text-micro font-bold text-warn-ink">in set "{inSet}"</span>}
             {card.update && <span className="rounded-md bg-shade/80 px-1.5 py-0.5 text-micro font-bold text-accent">{card.update.latest} out · you have {card.update.have}</span>}
+            {/* the version the + picks (its newest): Civitai sells it, said before it is picked (asked then too) */}
+            {card.versions[0]?.paid && <span data-tip={PAID_HELP} className="flex items-center gap-1 rounded-md bg-shade/80 px-1.5 py-0.5 text-micro font-bold text-warn-ink"><Coins size={10} /> {paidWords(card.versions[0].paid)}</span>}
             {card.gated && <span className="flex items-center gap-1 rounded-md bg-shade/80 px-1.5 py-0.5 text-micro font-bold text-warn-ink"><Lock size={10} /> gated</span>}
           </span>
         </span>

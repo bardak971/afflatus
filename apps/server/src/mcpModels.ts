@@ -98,7 +98,7 @@ function cardSaid(c: BrowseCard) {
     site: c.site, id: c.id, name: c.name, type: c.type, base: c.base, creator: c.creator, downloads: c.downloads, page: c.page,
     ...(c.fits ? { fits: c.fits } : {}), ...(c.have ? { have: true } : {}), ...(c.update ? { update: c.update } : {}), ...(c.gated ? { gated: true } : {}),
     licence: c.licence,
-    ...(c.versions.length ? { versions: c.versions.slice(0, 3).map((v) => ({ id: v.id, name: v.name, base: v.base, ...(v.trainedWords.length ? { trainedWords: v.trainedWords.slice(0, 12) } : {}), files: v.files.slice(0, 6).map(fileSaid) })) } : {}),
+    ...(c.versions.length ? { versions: c.versions.slice(0, 3).map((v) => ({ id: v.id, name: v.name, base: v.base, ...(v.paid ? { paid: v.paid } : {}), ...(v.trainedWords.length ? { trainedWords: v.trainedWords.slice(0, 12) } : {}), files: v.files.slice(0, 6).map(fileSaid) })) } : {}),
     ...(c.modelFiles !== undefined ? { modelFiles: c.modelFiles } : {}),
   };
 }
@@ -107,7 +107,7 @@ const findModels = tool({
   name: "find_models",
   scope: "look",
   title: "Find models",
-  description: "Find models as the app's Find models does. `civitai`: Civitai's models for words, types (LORA, Checkpoint…), base models and order, a page at a time (`cursor`). `huggingface`: Hugging Face's repositories (ComfyUI's single files, LoRAs, or anything), then `repo` lists one repository's model files with their sizes and SHA-256. `yours`: the user's presets, families' usual files and model files on this PC. `lacks`: what a draft or a form lacks to render (its family's files, the files and node packs it names), with each usual file's address. Civitai and Hugging Face need Search Hugging Face and Civitai on in Settings › Models. Each file says its folder and size; download fetches it.",
+  description: "Find models as the app's Find models does. `civitai`: Civitai's models for words, types (LORA, Checkpoint…), base models and order, a page at a time (`cursor`). `huggingface`: Hugging Face's repositories (ComfyUI's single files, LoRAs, or anything), then `repo` lists one repository's model files with their sizes and SHA-256. `yours`: the user's presets, families' usual files and model files on this PC. `lacks`: what a draft or a form lacks to render (its family's files, the files and node packs it names), with each usual file's address. Civitai and Hugging Face need Search Hugging Face and Civitai on in Settings › Models. Each file says its folder and size; download fetches it. A version with `paid` is sold on Civitai (Early Access, Buzz; `until` when it ends, null for good): its download is refused until the user unlocks it on its page, so say so before fetching it.",
   input: {
     site: z.enum(["civitai", "huggingface", "repo", "yours", "lacks"]),
     q: z.string().max(200).optional().describe("Words (civitai, huggingface, yours); a repository owner/name (repo)."),

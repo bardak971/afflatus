@@ -4,6 +4,7 @@ import { access, constants, mkdir, open, realpath, rename, rm, stat, statfs } fr
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 import { basename, dirname, isAbsolute, join, posix, relative, win32 } from "node:path";
+import { civitaiSites } from "./civitai";
 import { isNetworkPath } from "./linked";
 import { modelDirs } from "./modelFiles";
 import { cannotReach, failCode, fetchFailure, fetchPublic } from "./outbound";
@@ -21,11 +22,50 @@ import type { ComfyClient } from "@afflatus/comfy";
 /** A failure that trying again would not change: the site refused, the disk is full, the file is wrong. */
 export class Refused extends Error {}
 
-export const REFUSED = "The site refused the download. For Civitai, save a key in Settings (Finding missing files): some files need an account.";
+export const REFUSED = "The site refused the download. For Civitai, save a key in Settings › Models › Civitai API key: some files need an account.";
 /** Hugging Face's refusal of a gated file: an account that accepted the model's licence, through its token, is what it wants. */
-export const REFUSED_HF = "Hugging Face refused the download: the file is gated. Accept the model's licence on its Hugging Face page, signed in with the account whose token is in Settings (Finding missing files), and give the token read access to gated repositories.";
+export const REFUSED_HF = "Hugging Face refused the download: the file is gated. Accept the model's licence on its Hugging Face page, signed in with the account whose token is in Settings › Models › Hugging Face token, and give the token read access to gated repositories.";
+/** Civitai refusing the key itself: a 401 although one was sent. */
+export const KEY_REFUSED = "Civitai refused the API key (expired, revoked or mistyped): save a new one in Settings › Models › Civitai API key.";
 /** What a refusal is said as: Hugging Face's gated files get their own words. */
 export const refusedSaid = (source: string): string => (/^https:\/\/(huggingface\.co|hf\.co)\//i.test(source) ? REFUSED_HF : REFUSED);
+
+/** A version Civitai sells (Early Access, paid for with Buzz), as its 403 says it: `{"error":"Early Access","message":"…use Buzz…"}`. */
+const PAID_WORDS = /early access|buzz|purchase/i;
+/** A Civitai download address's version: `/api/download/models/<version>`. */
+const versionOf = (url: string) => Number(/\/api\/download\/models\/(\d+)/.exec(url)?.[1] ?? 0);
+
+/** A paid version's words: until when when Civitai says so (Early Access ends, the version is free then), and its page. */
+export const paidSaid = (page: string | null, until?: string | null): string =>
+  `This version is paid on Civitai (Early Access${until ? ` until ${until.slice(0, 10)}` : ""}): unlock it with Buzz on its page${page ? ` (${page})` : ""}, or pick another version.`;
+
+/**
+ * Why a site refused a download (a 401 or a 403, or a sign-in page), in the words that say what to do. Civitai says its
+ * own reason in a small JSON body, read here: a paid version (Early Access) is not a missing key, and a key it refuses
+ * is not one never saved (card #163: a saved, valid key was told to save one). Anything else, as before. The body is
+ * read or let go here, either way.
+ */
+export async function refusalOf(res: Response, source: string, headers: Record<string, string> = {}): Promise<string> {
+  const civitai = civitaiSites().some((site) => source.toLowerCase().startsWith(`${site.toLowerCase()}/`));
+  if (!civitai) {
+    await res.body?.cancel().catch(() => {});
+    return refusedSaid(source);
+  }
+  const body = /json/.test(res.headers.get("content-type") ?? "") ? ((await res.json().catch(() => null)) as { error?: unknown; message?: unknown } | null) : (await res.body?.cancel().catch(() => {}), null);
+  const said = [body?.error, body?.message].filter((x): x is string => typeof x === "string").join(": ").slice(0, 240);
+  const keyed = Object.keys(headers).some((h) => h.toLowerCase() === "authorization");
+  const version = versionOf(source);
+  if (PAID_WORDS.test(said)) {
+    const origin = new URL(source).origin;
+    // when Early Access ends is on the version, not in the refusal: asked once, a moment at most, and left out when it does not come
+    const v = version ? await fetchPublic(`${origin}/api/v1/model-versions/${version}`, { headers: { "User-Agent": "afflatus", ...headers }, signal: AbortSignal.timeout(5000) }, civitaiSites())
+      .then((r) => (r.ok ? (r.json() as Promise<{ paidAccess?: { endsAt?: string | null } | null }>) : null)).catch(() => null) : null;
+    return paidSaid(version ? `${origin}/model-versions/${version}` : null, v?.paidAccess?.endsAt);
+  }
+  if (res.status === 401) return keyed ? KEY_REFUSED : REFUSED;
+  if (res.status === 403 && said) return `Civitai refused the download (${said}).`;
+  return REFUSED;
+}
 
 /** A size in words: "7.3 GB", "48 MB"; a few bytes are "1 MB", none are "0 MB". */
 export const sizeText = (n: number) => (n >= 2 ** 30 ? `${(n / 2 ** 30).toFixed(1)} GB` : `${n > 0 ? Math.max(1, Math.round(n / 2 ** 20)) : 0} MB`);
@@ -134,8 +174,9 @@ export async function fetchToFile(o: FetchTo): Promise<{ bytes: number; sha256: 
           throw new Error(`the site answered ${res.status}`);
         }
         if (!res.ok || !res.body || /text\/html|application\/json/.test(type)) {
+          if (res.status === 401 || res.status === 403 || /text\/html/.test(type)) throw new Refused(await refusalOf(res, o.source, o.headers));
           await res.body?.cancel().catch(() => {});
-          throw new Refused(res.status === 401 || res.status === 403 || /text\/html/.test(type) ? refusedSaid(o.source) : `The site answered ${res.status}.`);
+          throw new Refused(`The site answered ${res.status}.`);
         }
         const range = res.status === 206 ? /^bytes (\d+)-\d+\/(\d+|\*)$/.exec(res.headers.get("content-range") ?? "") : null;
         if (res.status === 206 && range && Number(range[1]) === have) {

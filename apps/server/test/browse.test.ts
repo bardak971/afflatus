@@ -259,18 +259,35 @@ describe("find models", () => {
     expect(pages.size).toBe(1);
   });
 
+  it("marks a version Civitai sells (paidAccess): for good, until its Early Access ends, and free once it has (card #163)", () => {
+    const k = { bySha: new Map(), byName: new Map(), inSets: new Map(), versions: new Map(), bases: new Map(), places: [] };
+    const v = civModel.modelVersions[0]!;
+    const card = civitaiCard({
+      ...civModel,
+      modelVersions: [
+        { ...v, id: 1, paidAccess: { permanent: true, endsAt: null } },
+        { ...v, id: 2, paidAccess: { permanent: false, endsAt: "2099-01-01T00:00:00.000Z" } },
+        { ...v, id: 3, paidAccess: { permanent: false, endsAt: "2020-01-01T00:00:00.000Z" } },
+        { ...v, id: 4, paidAccess: null },
+        { ...v, id: 5 },
+      ],
+    } as never, k);
+    expect(card.versions.map((x) => x.paid ?? null)).toEqual([{ until: null }, { until: "2099-01-01T00:00:00.000Z" }, null, null, null]);
+  });
+
   it("keeps of a Civitai page only what its cards read: the same cards, without descriptions and every version's pictures", () => {
     const big = {
       ...civModel, description: "<p>" + "x".repeat(50_000) + "</p>", nsfwLevel: 3, tags: ["style"],
       modelVersions: [
         { ...civModel.modelVersions[0]!, description: "y".repeat(10_000), images: Array.from({ length: 20 }, (_, i) => ({ url: `https://image.civitai.com/x/${i}/original=true/1.jpeg`, type: "image", meta: { prompt: "z".repeat(2000) } })) },
-        { ...civModel.modelVersions[0]!, id: 771, name: "v1", images: [{ url: "https://image.civitai.com/x/old/original=true/1.jpeg", type: "image" }] },
+        { ...civModel.modelVersions[0]!, id: 771, name: "v1", paidAccess: { permanent: false, endsAt: "2099-01-01T00:00:00.000Z" }, images: [{ url: "https://image.civitai.com/x/old/original=true/1.jpeg", type: "image" }] },
       ],
     };
     const page = { items: [big], metadata: { nextCursor: "c2", totalItems: 9 } };
     const kept = civitaiKept(JSON.parse(JSON.stringify(page)))!;
     const k = { bySha: new Map(), byName: new Map(), inSets: new Map(), versions: new Map(), bases: new Map(), places: [] };
     expect(civitaiCard(kept.items![0]!, k)).toEqual(civitaiCard(big as never, k));
+    expect(civitaiCard(kept.items![0]!, k).versions.map((v) => v.paid)).toEqual([undefined, { until: "2099-01-01T00:00:00.000Z" }]);
     expect(kept.metadata).toEqual({ nextCursor: "c2" });
     expect(JSON.stringify(kept).length).toBeLessThan(JSON.stringify(page).length / 20);
   });

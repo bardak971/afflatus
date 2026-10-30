@@ -434,6 +434,11 @@ export interface BrowseVersion {
   publishedAt: string | null;
   trainedWords: string[];
   files: BrowseFile[];
+  /**
+   * Civitai sells it (Early Access, paid with Buzz): its download is refused, whatever the key, until it is unlocked on
+   * its page. `until`: when Early Access ends and it is free; null, paid for good.
+   */
+  paid?: { until: string | null };
 }
 
 /** A model of Civitai or a repository of Hugging Face, as the browser shows it. */
