@@ -116,6 +116,9 @@ interface Sent {
   media: Record<string, MediaFacts>;
   warnings: string[];
 }
+/** A file into ComfyUI (ComfyClient.upload) under the name given. */
+export type Send = (bytes: Uint8Array | Blob, ext: string, opts?: { into?: "input"; name?: string }) => Promise<string>;
+
 /** What each uploader works with. `recipe`: the one the job runs; `finishedFrom`: the take a finish job finishes */
 interface Up {
   recipe: Recipe<any>;
@@ -130,19 +133,22 @@ interface Up {
   sent: Sent;
   /** Stop pressed while the job gets ready: what is being cut or sent is dropped, and nothing more goes to ComfyUI. */
   signal?: AbortSignal;
-  /** A file into ComfyUI (ComfyClient.upload), dropped at a Stop: its bytes, or a stored file streamed from the disk (`sendable`). */
-  upload(bytes: Uint8Array | Blob, ext: string, opts?: { into?: "input"; name?: string }): Promise<string>;
-  /** A picture into ComfyUI under a name its content gives, sent to that machine once (see `submit`). */
-  picture(bytes: Uint8Array, ext: string, opts?: { into?: "input" }): Promise<string>;
+  /**
+   * A file into ComfyUI under a name its content gives, sent to that machine once (sentOnce), dropped at a Stop: its bytes,
+   * or a stored file streamed from the disk (`sendable`).
+   */
+  upload(bytes: Uint8Array | Blob, ext: string, opts?: { into?: "input" }): Promise<string>;
+  /** A file into ComfyUI under the name given, whether or not it was sent before. */
+  send: Send;
   /** The latents named where the machine saved them (sendLatent), each with how to send it after all. */
   resend: Array<{ name: string; send: () => Promise<string> }>;
 }
 
 /**
- * How long a picture sent under its content's name is taken to be still in ComfyUI: its input folder is cleaned of what
+ * How long a file sent under its content's name is taken to be still in ComfyUI: its input folder is cleaned of what
  * Afflatus left there a day ago (cleanComfy), and its temp folder empties when it starts again (Comfy.uploaded is forgotten then).
  */
-const PICTURE_KEPT_MS = 6 * 60 * 60_000;
+const SENT_KEPT_MS = 6 * 60 * 60_000;
 
 /** A stored file as it goes up to ComfyUI: streamed from where it is on the disk, else its bytes (a bucket). */
 async function sendable(storage: Storage, key: string): Promise<Uint8Array | Blob> {
@@ -156,10 +162,11 @@ async function sendable(storage: Storage, key: string): Promise<Uint8Array | Blo
  * pod's GPU waited (2026-10-22); else sent. Null when it is not stored. A name ComfyUI no longer finds (started again unseen,
  * its temp folder emptied) is sent after all when the prompt is refused for it (see submit).
  */
-async function sendLatent({ comfy, storage, upload, resend }: Up, key: string): Promise<string | null> {
+async function sendLatent({ comfy, storage, upload, send, resend }: Up, key: string): Promise<string | null> {
   const there = comfy.kept.get(key);
-  if (there && Date.now() - there.at < PICTURE_KEPT_MS) {
-    resend.push({ name: there.name, send: async () => upload(await sendable(storage, key), "safetensors") });
+  if (there && Date.now() - there.at < SENT_KEPT_MS) {
+    // sent for sure, under its content's name: ComfyUI was found to have lost what it had, a name noted as sent included
+    resend.push({ name: there.name, send: async () => { const file = await sendable(storage, key); return send(file, "safetensors", { name: await contentName(file, "safetensors") }); } });
     return there.name;
   }
   const saved = await sendable(storage, key).catch(() => null);
@@ -201,12 +208,12 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
     if (dry) refuseGap(dry.graph, gaps);
   }
 
-  // pictures, videos and sounds the recipe takes are uploaded to ComfyUI's temp folder under fresh names. They go up at
-  // once: the time any of them is on its way is /metrics' "uploads"
+  // pictures, videos and sounds the recipe takes are uploaded to ComfyUI's temp folder under names their content gives. They
+  // go up at once: the time any of them is on its way is /metrics' "uploads"
   let sending = 0;
   let onTheWay = 0;
   let since = 0;
-  const upload: Up["upload"] = async (bytes, ext, opts = {}) => {
+  const send: Send = async (bytes, ext, opts = {}) => {
     going(signal);
     if (onTheWay++ === 0) since = performance.now();
     try {
@@ -222,13 +229,14 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
       }
     }
   };
-  // a picture goes up under a name its content gives, once to each machine: the same picture in every window of a motion
-  // transfer (55 % of what a window sent) went up again each time, while the pod's GPU waited. Sent again under the same
-  // name when ComfyUI turns out not to have it any more (see below)
+  // a file goes up under a name its content gives, once to each machine: the same picture in every window of a motion
+  // transfer (55 % of what a window sent) went up again each time, while the pod's GPU waited; a video or sound under a
+  // fresh name made ComfyUI encode it again for a take with the same inputs. Sent again under the same name when ComfyUI
+  // turns out not to have it any more (see below)
   const again: Array<() => Promise<string>> = [];
-  const picture: Up["picture"] = (bytes, ext, opts = {}) => pictureOnce(comfy, bytes, ext, upload, again, opts);
+  const upload: Up["upload"] = (bytes, ext, opts = {}) => sentOnce(comfy, bytes, ext, send, again, opts);
   const resend: Up["resend"] = [];
-  const up: Up = { recipe, db, storage, comfy, input, catalog, finishedFrom: row.finished_from, mirror: plan?.mirror ?? [], sent: { uploads: {}, media: {}, warnings: [] }, signal, upload, picture, resend };
+  const up: Up = { recipe, db, storage, comfy, input, catalog, finishedFrom: row.finished_from, mirror: plan?.mirror ?? [], sent: { uploads: {}, media: {}, warnings: [] }, signal, upload, send, resend };
   // what the media cost beside sending them (cutting a clip's frames, reading a picture): /metrics' "cuts"
   const media0 = performance.now();
   // every input's files are made and sent at once; what each says is kept in the form's order, and of the inputs that
@@ -336,7 +344,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   const asked = { preview: "latent2rgb" as const, promptId: resume.promptId, outputs: results };
   resume.promptId = await comfy.client.submit(prompt.graph, asked).catch(async (err: unknown) => {
     if (!(err instanceof ComfyError)) throw err;
-    // a picture this machine had from an earlier job is no longer there (ComfyUI started again unseen, its input folder
+    // a file this machine had from an earlier job is no longer there (ComfyUI started again unseen, its input folder
     // cleaned): sent again under the same name, the graph stays the same, and the prompt goes once more
     const pictures = again.length > 0 && /afflatus_[0-9a-f]{32}/.test(err.message);
     // a latent named where this machine saved it, no longer there: sent after all, and named as sent in the graph
@@ -359,16 +367,31 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
 }
 
 /**
- * A picture sent to a ComfyUI under a name its content gives, once (Comfy.uploaded): the same picture in every window of a
- * motion transfer, or every take of a timeline finished with one photo, goes up once. One taken as there already is sent
- * again under the same name by `again`, when ComfyUI refuses the prompt for want of it (resentFor).
+ * A file's name on a ComfyUI: the first 128 bits of its SHA-256, which no two files Afflatus sends share, short enough to
+ * read in ComfyUI's log. A file on the disk (a Blob) is hashed as it is read, never held whole.
  */
-export function pictureOnce(comfy: Comfy, bytes: Uint8Array, ext: string, upload: Up["upload"], again: Array<() => Promise<string>>, opts: { into?: "input" } = {}): Promise<string> {
-  const name = `afflatus_${createHash("sha256").update(bytes).digest("hex").slice(0, 32)}.${ext}`;
+export async function contentName(file: Uint8Array | Blob, ext: string): Promise<string> {
+  const hash = createHash("sha256");
+  if (file instanceof Blob) for await (const chunk of file.stream()) hash.update(chunk);
+  else hash.update(file);
+  return `afflatus_${hash.digest("hex").slice(0, 32)}.${ext}`;
+}
+
+/**
+ * A file sent to a ComfyUI under a name its content gives, once (Comfy.uploaded): a picture, a video, a sound, a latent. The
+ * same picture in every window of a motion transfer, or every take of a timeline finished with one photo, goes up once; the
+ * same video, sound or cut a take before had is named as it was, so ComfyUI's cache keeps what it made of it (H3's encode of
+ * a swap's references, up to 90 s, 2026-10-30). Never sent again while it is there: LoadVideo and the latent loaders know
+ * a file by its time on the disk, which a second sending changes. One taken as there already is sent again under the same
+ * name by `again`, when ComfyUI refuses the prompt for want of it (resentFor). Two jobs sending the same file at once
+ * share one sending: the name is noted as it starts.
+ */
+export async function sentOnce(comfy: Comfy, file: Uint8Array | Blob, ext: string, upload: Send, again: Array<() => Promise<string>>, opts: { into?: "input" } = {}): Promise<string> {
+  const name = await contentName(file, ext);
   const key = `${opts.into ?? "temp"}/${name}`;
-  const send = () => upload(bytes, ext, { ...opts, name });
+  const send = () => upload(file, ext, { ...opts, name });
   const kept = comfy.uploaded.get(key);
-  if (kept && Date.now() - kept.at < PICTURE_KEPT_MS) {
+  if (kept && Date.now() - kept.at < SENT_KEPT_MS) {
     again.push(send);
     return kept.name.catch(send);
   }
@@ -381,7 +404,7 @@ export function pictureOnce(comfy: Comfy, bytes: Uint8Array, ext: string, upload
 }
 
 /**
- * Whether ComfyUI refused a prompt for a picture pictureOnce took as there already (ComfyUI started again unseen, its input
+ * Whether ComfyUI refused a prompt for a file sentOnce took as there already (ComfyUI started again unseen, its input
  * folder cleaned): then those pictures were sent again under the same names, and the prompt can go once more.
  */
 export async function resentFor(err: unknown, again: ReadonlyArray<() => Promise<string>>, signal?: AbortSignal): Promise<boolean> {
@@ -425,7 +448,7 @@ async function uploadImage(up: Up, spec: InputSpec, value: string): Promise<void
   // a pinned frame mirrored at render time is flipped on its way up, as a PNG of the same size: the library's file stays as it is
   const flipped = up.mirror.includes(spec.id) ? await mirrorPicture(bytes, "horizontal") : null;
   if (up.mirror.includes(spec.id) && !flipped) throw new Error(`the ${spec.label.toLowerCase()} could not be mirrored: sharp could not read it`);
-  sent.uploads[spec.id] = flipped ? await up.picture(flipped, "png", intoInput ? { into: "input" } : {}) : await up.picture(bytes, extOf(asset.mime), intoInput ? { into: "input" } : {});
+  sent.uploads[spec.id] = flipped ? await up.upload(flipped, "png", intoInput ? { into: "input" } : {}) : await up.upload(bytes, extOf(asset.mime), intoInput ? { into: "input" } : {});
   const size = asset.width && asset.height ? { width: asset.width, height: asset.height } : await readPicture(bytes);
   sent.media[spec.id] = { width: size?.width ?? 0, height: size?.height ?? 0 };
   if (spec.type === "image" && spec.role === "mask") {
@@ -665,7 +688,7 @@ async function finishLatent(
 }
 
 /** Each reference picture (or video: its first three seconds, small, with its sound) goes up under "<input>.<n>", in the order they were given. */
-async function uploadReferences({ db, storage, upload, picture, signal, sent }: Up, spec: InputSpec, refs: ReferenceValue[]): Promise<void> {
+async function uploadReferences({ db, storage, upload, signal, sent }: Up, spec: InputSpec, refs: ReferenceValue[]): Promise<void> {
   if (spec.type !== "references") return;
   const ids = [...new Set(refs.map((r) => r.asset))];
   const rows = ids.length ? await db.selectFrom("assets").select(["id", "file_key", "mime", "width", "height", "kind"]).where("id", "in", ids).execute() : [];
@@ -685,7 +708,7 @@ async function uploadReferences({ db, storage, upload, picture, signal, sent }: 
       sent.media[`${spec.id}.${i}`] = { width: clip.width, height: clip.height, frames: clip.frames, fps: 24, hasSound: clip.hasSound };
       return;
     }
-    sent.uploads[`${spec.id}.${i}`] = await picture(await storage.get(asset.file_key), extOf(asset.mime));
+    sent.uploads[`${spec.id}.${i}`] = await upload(await storage.get(asset.file_key), extOf(asset.mime));
     sent.media[`${spec.id}.${i}`] = { width: asset.width ?? 0, height: asset.height ?? 0 };
   }));
 }

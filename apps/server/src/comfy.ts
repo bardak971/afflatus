@@ -34,9 +34,10 @@ export class Comfy {
   private nextScan: Promise<Scan> | null = null;
   private lastCatalog: { at: number; value: Promise<NodeCatalog>; failed?: true } | null = null;
   /**
-   * The pictures sent to this ComfyUI under a name their content gives, by folder and content hash (queueSubmit's picture
-   * upload): the same picture in every window of a motion transfer goes up once. Forgotten when ComfyUI starts again (it
-   * empties its temp folder then) and with everything else it is told.
+   * The files sent to this ComfyUI under a name their content gives (pictures, videos, sounds, latents), by folder and name
+   * (queueSubmit's sentOnce): the same picture in every window of a motion transfer goes up once, the same video a take
+   * before had keeps ComfyUI's cache of it. Forgotten when ComfyUI starts again (it empties its temp folder then) and with
+   * everything else it is told.
    */
   readonly uploaded = new Map<string, { at: number; name: Promise<string> }>();
   /**
