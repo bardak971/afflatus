@@ -163,6 +163,8 @@ export class Queue {
   onOutside: ((machine: string, outside: { running: number; pending: number } | null) => void) | null = null;
   /** The machines a ComfyUI gone mid-render was said of, until they answer again: said once, however it is found out. */
   private goneSaid = new Set<string>();
+  /** Since when each machine has not answered the status poll, in a row (noteReachable). */
+  private silentSince = new Map<string, number>();
   /**
    * Told when a rented pod's ComfyUI is found started again without the render it ran (an older pod image, whose ComfyUI was
    * the container itself: its death restarted it, and said nothing): rentedFollow terminates the pod as a crash, with why.
@@ -1670,19 +1672,27 @@ export class Queue {
   }
 
   /** What the page's status poll (events.ts) found of the ComfyUIs: whether any answered (queueOffline.ts), and each machine's own answer. */
-  noteReachable(ok: boolean, each: ReadonlyMap<string, boolean> = new Map()): void {
+  noteReachable(ok: boolean, each: ReadonlyMap<string, boolean> = new Map(), now = Date.now()): void {
     // each machine's own answer: a paused or idle machine is asked nothing by the queue, and was shown online after its
     // ComfyUI had stopped (and away after it was back, until a job went to it)
     let changed = false;
     for (const lane of this.machineLanes()) {
       const answered = each.get(lane.id);
-      if (answered === undefined || lane.reachable === answered) continue;
-      changed = true;
-      if (answered) this.back(lane);
-      else {
-        lane.reachable = false;
-        if (lane.running?.gpu) this.sayGone(lane, null);
+      if (answered === undefined) continue;
+      if (answered) {
+        this.silentSince.delete(lane.id);
+        if (lane.reachable === true) continue;
+        changed = true;
+        this.back(lane);
+        continue;
       }
+      if (!this.silentSince.has(lane.id)) this.silentSince.set(lane.id, now);
+      if (lane.reachable !== false) {
+        changed = true;
+        lane.reachable = false;
+      }
+      // said offline once silent this long while it renders, not at one answer missed (goneAfterMs)
+      if (lane.running?.gpu && now - this.silentSince.get(lane.id)! >= (this.opts.goneAfterMs ?? 30_000)) this.sayGone(lane, null);
     }
     this.offline.noteReachable(ok);
     if (changed) {

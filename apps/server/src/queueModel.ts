@@ -152,6 +152,12 @@ export interface QueueOptions {
   filesRetryMs?: number;
   /** At most how often the running render's step count is saved on its job (Resume.stepsDone); 5 s when left out. */
   stepsSaveMs?: number;
+  /**
+   * How long a machine's ComfyUI stays silent to the open pages' status poll, while it renders, before it is said offline
+   * (Notify comfyGone); 30 s when left out. One answer missed is no news: a ComfyUI loading a model, or on a PC paging,
+   * can take more than the poll's 5 s to answer and render on (the owner's Swap, 2026-10-30).
+   */
+  goneAfterMs?: number;
 }
 export const DEFAULT_QUEUE_OPTIONS: QueueOptions = {
   offlineRetryMs: 15_000,

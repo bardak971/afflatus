@@ -190,9 +190,20 @@ describe("what the queue tells", () => {
     await until(() => texts().some((x) => x.startsWith("<b>Stuck: ")));
     expect(texts().filter((x) => x.startsWith("<b>Stuck: "))).toHaveLength(1);
     expect(texts().find((x) => x.startsWith("<b>Stuck: "))).toMatch(/No step, node or preview for \d+ s on ComfyUI\. It runs on/);
-    t.services.queue.noteReachable(true, new Map([["m1", true]]));
-    t.services.queue.noteReachable(false, new Map([["m1", false]]));
-    t.services.queue.noteReachable(true, new Map([["m1", true]]));
+    const q = t.services.queue;
+    q.noteReachable(true, new Map([["m1", true]]));
+    // one answer missed, or silent under 30 s: no news (a ComfyUI loading a model, a PC paging, answers late and renders on)
+    q.noteReachable(false, new Map([["m1", false]]), 1_000);
+    q.noteReachable(false, new Map([["m1", false]]), 20_000);
+    q.noteReachable(true, new Map([["m1", true]]), 22_000);
+    q.noteReachable(false, new Map([["m1", false]]), 24_000);
+    q.noteReachable(false, new Map([["m1", false]]), 50_000);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(texts().filter((x) => x.startsWith("<b>ComfyUI is offline"))).toHaveLength(0);
+    // silent 30 s in a row while it renders: said, once
+    q.noteReachable(false, new Map([["m1", false]]), 54_000);
+    q.noteReachable(false, new Map([["m1", false]]), 60_000);
+    q.noteReachable(true, new Map([["m1", true]]), 62_000);
     await until(() => texts().some((x) => x.startsWith("<b>ComfyUI is offline")));
     expect(texts().filter((x) => x.startsWith("<b>ComfyUI is offline"))).toHaveLength(1);
     expect(await statusOf(id)).toBe("running");
