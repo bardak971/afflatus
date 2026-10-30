@@ -4,6 +4,9 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Fixed
+- **Settings › Model files took one file seen through two folders for two copies, and deleting the "extra" one deleted the only one.** When extra_model_paths.yaml lists the same folder twice (A1111's Stable-diffusion as checkpoints and its sub-folder as diffusion_models), or models/unet is read as diffusion_models, the same file on disk showed in two places with the same sha256: counted twice, called a copy of itself, picked by Select the copies, and let go by Delete as "a copy of it stays". A file is now told by the file on disk itself (its volume and file index), not its path or hash: it is listed once with the other places it is seen in, its size counted once, hashed once, never its own copy; Delete moves it once and says the other places it went from, and keeps it when a preset or model set names it in the other place. Copies are other files on disk with the same sha256, as before. Empty now lists what it erases, each file with its size, and says which ones are the only copy left, the button saying how much is erased for good. A folder linked into a model folder (a junction) is now walked, as ComfyUI does.
+
 ## [0.8.3] - 2026-10-30
 
 Seamless joins that say when they cut (a reference picture's continuation told its run-up, in positive words), the Face refine and upscale models chosen per clip (one model in memory on Swap), every LoRA a render loads shown in the LoRA list with its weight, Swap's windows all swaps, and no more "ComfyUI is offline" for one late answer.

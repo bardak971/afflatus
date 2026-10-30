@@ -64,6 +64,9 @@ export interface Filters {
 
 export const NO_FILTER: Omit<Filters, "sort"> = { family: null, q: "", kind: "all", idle: "any", copies: false, noMatch: false };
 
+/** What "also seen as" means, for its "?". */
+export const ALSO_HELP = "One file on disk that ComfyUI reaches through two folders: extra_model_paths.yaml lists the same folder twice (or a folder and its sub-folder), or models/unet, which ComfyUI reads as diffusion_models. It is listed once, its size counted once, and it is never taken for a copy of itself: Delete moves it once, from every place it is seen in.";
+
 /** A file's name as the table says it: where it was found, else its file name without its folder or extension. */
 export const nameOf = (f: ModelFile) => f.name ?? (f.file.split("/").pop() ?? f.file).replace(/\.[a-z0-9]+$/i, "");
 
@@ -73,9 +76,9 @@ export function shown(lib: ModelLibrary, o: Filters, now = Date.now()): ModelFil
   const out = lib.files.filter((f) => {
     if (o.family && !f.families.includes(o.family)) return false;
     if (o.kind !== "all" && f.kind !== o.kind) return false;
-    if (o.copies && !f.copies.length) return false;
+    if (o.copies && (f.removed || !f.copies.length)) return false;
     if (o.noMatch && f.match !== "none") return false;
-    if (q && !`${f.folder}/${f.file} ${f.name ?? ""} ${f.version ?? ""} ${f.base ?? ""}`.toLowerCase().includes(q)) return false;
+    if (q && !`${f.folder}/${f.file} ${f.also.map((a) => `${a.folder}/${a.file}`).join(" ")} ${f.name ?? ""} ${f.version ?? ""} ${f.base ?? ""}`.toLowerCase().includes(q)) return false;
     if (o.idle === "any") return true;
     if (o.idle === "30" || o.idle === "90") return idleDays(f, lib.since, now) > Number(o.idle);
     return bandOf(f, lib.since, now) === o.idle;

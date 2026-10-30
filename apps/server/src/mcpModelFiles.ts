@@ -15,7 +15,7 @@ const modelFiles = tool({
   name: "model_files",
   scope: "look",
   title: "Model files",
-  description: "Every model file in ComfyUI's model folders on this PC, as Settings › Model files lists it (in GB): its folder and kind, its name and base model where Civitai, Hugging Face or its header say them, how many Afflatus jobs loaded it and when last (renders made straight in ComfyUI are not seen: say \"not used by Afflatus since\", never \"unused\"), its takes, the presets and model sets that need it, and its extra copies (same sha256). `machine`: another machine's files, names only, from its last scan. `notUsedDays`: only those no Afflatus job loaded for that long. Biggest first. Deleting model files cannot be done through MCP: the user does it in Settings › Model files.",
+  description: "Every model file in ComfyUI's model folders on this PC, as Settings › Model files lists it (in GB): its folder and kind, its name and base model where Civitai, Hugging Face or its header say them, how many Afflatus jobs loaded it and when last (renders made straight in ComfyUI are not seen: say \"not used by Afflatus since\", never \"unused\"), its takes, the presets and model sets that need it, its extra copies (same sha256 in another file on disk), and alsoSeenAs: the same file on disk seen through another folder (a folder extra_model_paths.yaml lists twice), which is not a copy. `machine`: another machine's files, names only, from its last scan. `notUsedDays`: only those no Afflatus job loaded for that long. Biggest first. Deleting model files cannot be done through MCP: the user does it in Settings › Model files.",
   input: {
     machine: z.string().optional().describe("A machine's id (list_machines); left out: this PC."),
     notUsedDays: z.number().int().min(1).max(3650).optional().describe("Only files no Afflatus job loaded for at least this many days."),
@@ -34,6 +34,7 @@ const modelFiles = tool({
         folder: f.folder, file: f.file, kind: f.kind, gb: gbOf(f.size), ...(f.name ? { name: f.name } : {}), ...(f.base ? { base: f.base } : {}),
         uses: f.uses, ...(f.approx ? { usesApprox: true } : {}), lastUsed: f.last, takes: f.takes,
         ...(f.needs.length ? { neededBy: f.needs.map((n) => `${n.kind} ${n.name}`) } : {}), ...(f.copies.length ? { copies: f.copies.map((c) => c.split("|").slice(1).join("|")) } : {}),
+        ...(f.also.length ? { alsoSeenAs: f.also.map((x) => `${x.folder}/${x.file}`) } : {}),
       })),
       ...(lib.away.files ? { away: { files: lib.away.files, gb: gbOf(lib.away.bin + lib.away.aside), said: "Deleted in Settings › Model files and not emptied yet: put back or emptied there." } } : {}),
     };

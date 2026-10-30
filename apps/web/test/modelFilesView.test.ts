@@ -10,7 +10,7 @@ const GB = 2 ** 30;
 
 const file = (id: string, o: Partial<ModelFile> = {}): ModelFile => ({
   id, folder: "loras", file: `${id}.safetensors`, kind: "LoRA", size: GB, mtime: NOW - 400 * DAY, sha256: null, name: null, version: null, base: null,
-  picture: null, link: null, match: "none", uses: 0, last: null, approx: false, months: {}, takes: 0, copies: [], needs: [], families: [], path: null, removed: null, ...o,
+  picture: null, link: null, match: "none", uses: 0, last: null, approx: false, months: {}, takes: 0, copies: [], also: [], needs: [], families: [], path: null, removed: null, ...o,
 });
 
 const libOf = (since: string | null, files: ModelFile[]): ModelLibrary => ({
