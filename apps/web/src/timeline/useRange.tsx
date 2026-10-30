@@ -131,7 +131,7 @@ export function useRange({ id, clips, durationMs, clock, playhead, player, playi
         const parts = "clips" in r ? r.clips : [];
         if (parts[0]) on.select(parts[0]);
         const engine = "engine" in r ? r.engine : "ffmpeg";
-        on.say({ id: `slow:${Date.now()}`, tone: "good", title: `Slow motion ×${ask.slow} in the queue`, text: `${parts.length > 1 ? `${parts.length} parts are clips of their own now; each slowed video` : "The part is a clip of its own now; the slowed video"} arrives as a take and plays, with its sound slowed. ${engine === "rife" ? "RIFE on the GPU." : "ffmpeg on the processor: slow, minutes for a few seconds."}`, href: "/queue", go: "Open queue" });
+        on.say({ id: `slow:${Date.now()}`, tone: "good", title: `Slow motion ×${ask.slow} in the queue`, text: `${parts.length > 1 ? `${parts.length} parts are clips of their own now; each slowed video` : "The part is a clip of its own now; the slowed video"} arrives as a take and plays, with its sound slowed. ${engine === "rife" ? "RIFE on the GPU." : "ffmpeg on the processor: slow, minutes for a few seconds."}`, href: "/queue", go: "Open the Queue" });
         return;
       }
       const action = ask;
@@ -158,7 +158,7 @@ export function useRange({ id, clips, durationMs, clock, playhead, player, playi
         // the designer writes the return towards the clip under In
         on.writeBetween({ clip: r.clip, force: false, arrive: r.arrive });
       } else if (action === "remove") setRange(null);
-      else if (action === "copy") on.say({ id: `copy:${Date.now()}`, tone: "good", title: "Copying the range to your library", text: "One video of that part of the timeline, without the music. It runs in the queue.", href: "/queue", go: "Open queue" });
+      else if (action === "copy") on.say({ id: `copy:${Date.now()}`, tone: "good", title: "Copying the range to your library", text: "One video of that part of the timeline, without the music. It runs in the queue.", href: "/queue", go: "Open the Queue" });
     },
   });
   // a clip of a recording or the source it takes off whole cuts its part out of it, as a clip removed does: said first

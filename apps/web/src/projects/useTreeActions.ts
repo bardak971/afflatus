@@ -32,7 +32,7 @@ export function useTreeActions() {
     for (const queryKey of [queryKeys.projects.all(), queryKeys.timelines.all(), queryKeys.drafts.lists(), queryKeys.folders(), queryKeys.assets.all()]) void client.invalidateQueries({ queryKey });
   };
   // a 409 is the server saying what still uses it (a timeline's clip, a person of the Prompt kit): said as such
-  const failed = useSayFailed({ id: "tree", go: "Open the Studio", inUse: true });
+  const failed = useSayFailed({ id: "tree", href: "/", go: "Open the Studio", inUse: true });
   /** Runs one change; false when it failed (said in a banner). */
   const run = async (title: string, work: () => Promise<unknown>) => {
     try {

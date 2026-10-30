@@ -7,7 +7,7 @@ import { FileState, GoesTo } from "./DownloadsLine";
 import { useQueue } from "./data";
 import { about, fileLabel, siteName, size } from "./format";
 import { machineName, severalMachines } from "./machines";
-import { Bar, buttonClass, CloseButton, cx } from "./ui";
+import { Bar, buttonClass, CloseButton, cx, Failed } from "./ui";
 import { coming } from "./downloadLine";
 import { count, useDownloads, useGetFile, type Find } from "./useGetFile";
 import { queryKeys } from "./queryKeys";
@@ -72,7 +72,7 @@ export function DownloadRow({ d, named }: { d: Download; named?: boolean }) {
         />
       )}
       {named && <span className="font-semibold break-all">{fileLabel(d.file)} <span className="font-normal text-ink-2">into {d.folder}{on ? ` on ${on}` : ""}</span></span>}
-      {stop.isError && <span className="text-xs text-warn-ink">{stop.error.message}</span>}
+      {stop.isError && <Failed inline what="Not stopped" error={stop.error} />}
       <span className={cx("text-xs", d.status === "error" ? "text-warn-ink" : d.status === "done" ? "text-good" : "text-ink-2")}>
         {says(d)}
         {/* ComfyUI-Manager reading Hugging Face itself says nothing of its bytes until the file is there */}
@@ -188,10 +188,10 @@ export function GetFile({ file, folder, url, civitai, pick, hints, auto, buttons
         )}
       </span>
       {fetching && caution && !mine && (url || civitai) && <span className="text-xs text-warn-ink">{caution}</span>}
-      {start.isError && <span>{start.error.message}</span>}
+      {start.isError && <Failed inline what="Not downloaded" error={start.error} />}
       {mine && !state && <DownloadRow d={mine} />}
       {state?.note && coming(state) && <span className={cx("text-xs", /may fail/.test(state.note) ? "text-warn-ink" : "text-ink-3")}>{state.note}</span>}
-      {find.isError && <span>{find.error.message}</span>}
+      {find.isError && <Failed inline what="Not searched" error={find.error} />}
       {find.data && find.data.exact.length > 0 && (
         <>
           <span className="font-semibold text-good">Exact filename match on Hugging Face.</span>

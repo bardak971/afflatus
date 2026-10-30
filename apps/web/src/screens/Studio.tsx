@@ -7,7 +7,7 @@ import { Keys } from "../Keys";
 import { useProject } from "../project";
 import { useKeysHere } from "../keys/here";
 import { displayOf, useBanners, useHandover, useOpenDraft, usePanelWidth, useStudio, type Scope } from "../store";
-import { cx, Empty, ErrorNote } from "../ui";
+import { cx, Empty, Failed } from "../ui";
 import { Viewer } from "../viewer/LazyViewer";
 import { useTileMenu } from "../TileMenu";
 import { FolderPanel, Tile } from "./Library";
@@ -121,7 +121,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
     void api.asset(shown).then((a) => setOpen((was) => {
       if (was?.id === a.id) requestAnimationFrame(() => setOpen(a));
       return was?.id === a.id ? null : a;
-    })).catch((err: unknown) => say(failedBanner({ id: "shown" }, "The item that was dropped could not be opened", err)));
+    })).catch((err: unknown) => say(failedBanner({ id: "shown", href: "/", go: "Open the library" }, "The item that was dropped could not be opened", err)));
   }, [shown, hand, say]);
   // the address says which it is: the timelines live at /timelines, the media at /, so the rail's two entries always land somewhere
   const filters = useLibraryFilters({ place, view, draftId, initialKind: onTimelines ? "timeline" : "all", onKind: (k) => { if ((k === "timeline") !== Boolean(onTimelines)) go(k === "timeline" ? "/timelines" : "/", { replace: true }); } });
@@ -254,7 +254,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
               : <DraftResults folder={folder?.id} empty={items.length && !visible.length ? groupedEmpty : undefined} list={{ items: visible, hasNextPage: Boolean(assets.hasNextPage), more: () => void assets.fetchNextPage(), hasPreviousPage: Boolean(assets.hasPreviousPage), newer: () => void assets.fetchPreviousPage(), loading: assets.isFetchingNextPage || assets.isFetchingPreviousPage, ready: assets.isSuccess, failed: assets.isError }} title={reach === "recent" ? "All recent" : placeName} />
           ) : (
             <>
-              {assets.isError && <ErrorNote>{assets.error.message}</ErrorNote>}
+              {assets.isError && <Failed what="The library could not be read" error={assets.error} />}
               {place.type === "bin" && <BinStrip />}
               {showTimelines && <Suspense fallback={null}><TimelineCards timelines={shownTimelines} ready={timelines.isSuccess} place={place} size={view.timelineSize ?? "M"} searched={Boolean(q)} /></Suspense>}
               {!showTimelines && assets.isSuccess && !items.length && !running && (

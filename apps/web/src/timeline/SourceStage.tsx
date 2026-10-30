@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type KeyboardEvent as KeyEvent, type MouseEvent } from "react";
 import { fileUrl, type Asset, type RemovedPart } from "../api";
 import { clock } from "../format";
 import type { PlayerHandle } from "./Player";
@@ -175,6 +175,24 @@ export const SourceStage = forwardRef<PlayerHandle, {
     if (x < 0 || x > 1 || y < 0 || y > 1) return;
     onPick?.({ x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000 });
   };
+  // the keyboard's way to pick (card #178: the click was the only one): a crosshair the arrows move over the picture, a
+  // twentieth of it a press (Shift: a fifth), from the person picked before or the middle; Enter or Space picks there
+  const [aim, setAim] = useState<{ x: number; y: number } | null>(null);
+  const aimed = aim ?? pick ?? { x: 0.5, y: 0.5 };
+  const aimKeys = (e: KeyEvent<HTMLDivElement>) => {
+    const step = e.shiftKey ? 0.2 : 0.05;
+    const move = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+    if (move) {
+      e.preventDefault();
+      e.stopPropagation();
+      const keep = (v: number) => Math.round(Math.min(1, Math.max(0, v)) * 1000) / 1000;
+      return setAim({ x: keep(aimed.x + move[0]!), y: keep(aimed.y + move[1]!) });
+    }
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    e.stopPropagation();
+    onPick?.(aimed);
+  };
   return (
     <div ref={box} data-stage className="relative flex min-h-0 grow items-center justify-center bg-stage">
       {/* design: the letterbox is black whatever the theme, as the video's own bars are */}
@@ -211,11 +229,21 @@ export const SourceStage = forwardRef<PlayerHandle, {
             <span className="rounded-md bg-ground/85 px-1.5 py-0.5 text-xs font-semibold">Replaced</span>
           </span>
         )}
-        {picking && <div aria-label="Click the person to replace" className="absolute inset-0 cursor-crosshair" onClick={clicked} />}
+        {picking && (
+          // focused as picking starts (a mode the user asked for, Esc leaves it): the arrows aim at once, the mouse still clicks anywhere
+          <div role="button" tabIndex={0} autoFocus aria-label="Click the person to replace, or aim with the arrow keys and press Enter" className="group/aim absolute inset-0 cursor-crosshair outline-none" onClick={clicked} onKeyDown={aimKeys}>
+            <span
+              aria-hidden
+              className="pointer-events-none absolute hidden size-7 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-accent ring-4 ring-accent/30 group-focus-visible/aim:block"
+              style={{ left: at.left + aimed.x * pw, top: at.top + aimed.y * ph }}
+            />
+          </div>
+        )}
       </div>
       {picking ? (
         <span className="absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-accent bg-ground/90 px-3 py-1 text-xs whitespace-nowrap">
           <span className="font-semibold">Click the person to replace</span>
+          <span className="text-ink-2">or arrows, then Enter</span>
           <span className="text-ink-2">on the stretch's first frame, {clock(fromMs, { decimals: 1 })}</span>
           <kbd className="rounded border border-line px-1.5 font-mono text-meta text-ink-2">Esc</kbd>
         </span>

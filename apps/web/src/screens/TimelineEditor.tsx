@@ -13,7 +13,7 @@ import { MusicPanel } from "../timeline/inspector/music";
 import { Player } from "../timeline/Player";
 import { MediaOverlay } from "../timeline/MediaOverlay";
 import { Track } from "../timeline/Track";
-import { ErrorNote } from "../ui";
+import { Failed } from "../ui";
 import { FinishDialog } from "../timeline/Finish";
 import { Viewer } from "../viewer/LazyViewer";
 import { ContextMenu, headLine } from "../ContextMenu";
@@ -48,7 +48,7 @@ function Editor({ id }: { id: string }) {
   if (timeline.isError) {
     return (
       <div className="flex grow flex-col items-start gap-3 p-8">
-        <ErrorNote>{timeline.error.message}</ErrorNote>
+        <Failed what="The timeline could not be opened" error={timeline.error} />
         <Link href="/timelines" className="underline">Back to the timelines</Link>
       </div>
     );

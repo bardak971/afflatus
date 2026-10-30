@@ -74,7 +74,7 @@ export function useKindActions({ importInto }: { importInto?(t: Target): void } 
   const setProject = useProject((s) => s.set);
   const openNew = useOpenNewDraft();
   const say = useBanners((b) => b.push);
-  const failed = useSayFailed({ id: "kind-actions", go: "Open the Studio" });
+  const failed = useSayFailed({ id: "kind-actions", href: "/", go: "Open the Studio" });
   const allProjects = useProjects().data?.items ?? [];
   const projects = allProjects.filter((p) => !p.archivedAt);
   const folders = useFolders().data?.items ?? [];

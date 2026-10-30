@@ -209,7 +209,7 @@ export function commandRow(x: CommandCtx, c: Command, recipe?: RecipeInfo, prese
     spending: x.spending ? [`Spending today ${usd(x.spending.today)}${x.spending.caps.day ? ` of ${usd(x.spending.caps.day)}` : ""}`, `${spendingSaid(x.spending)} · Queue › Costs`] : ["Costs", "Where the money went: the rented GPUs and this PC's electricity · Queue › Costs"],
     "sign-out": ["Sign out", upper(signOutBlock(x.access)) ?? "This browser · the sign-in page comes next"],
     "sign-out-everywhere": ["Sign out everywhere…", x.access?.locked ? "Every device, this one too · each needs the password again · asked first" : "No password is set: nothing to sign out of"],
-    "find-models": [c.cmd === "find-models" && c.words ? `Find models: “${c.words}”` : "Find models…", x.lookups ? "Civitai, Hugging Face and yours · to download onto this PC" : "Turn on Search Hugging Face and Civitai (Settings › Models) first"],
+    "find-models": [c.cmd === "find-models" && c.words ? `Find models: “${c.words}”` : "Find models…", "Civitai, Hugging Face and yours · to download onto this PC"],
     picked: ["Picked models", x.picked?.count ? `${plural(x.picked.count, "file")}${x.picked.bytes ? ` · ${size(x.picked.bytes)}` : ""} · onto this PC, asked first` : "Nothing picked yet: Tab › Add to Picked on a model of civitai: or hf:"],
     "get-missing": ["Get missing files", x.missing ? (x.missing.files ? `${x.missing.recipe} · ${plural(x.missing.files, "file")} missing · looked up, then asked` : `${x.missing.recipe} has every file it needs`) : "The open form's missing model files"],
     "model-updates": ["Model updates", x.lookups ? "Newer versions of your models on Civitai · asked now, then the list" : "Turn on Search Hugging Face and Civitai (Settings › Models) first"],

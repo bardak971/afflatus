@@ -33,7 +33,6 @@ import { useFormTarget } from "../formTarget";
 import { browseRows, browseValueRows, downloadRows, isLink, linkRows } from "./modelRows";
 import { parseBrowse, siteQuery } from "./browseSearch";
 import { nameOf } from "../fields/Loras";
-import { settingHref } from "../screens/settings/settingsIndex";
 import { useDebounced } from "../hooks";
 import { isRenderSearch, parseSearch } from "./search";
 import { filterOf, keyRows, loosened, promptRows, resultSections, valueRows, type SearchData } from "./searchRows";
@@ -45,8 +44,6 @@ const NO_RECIPES: RecipeInfo[] = [];
 const NO_HISTORY: PromptHistoryItem[] = [];
 const NO_FAMILIES: FamilyInfo[] = [];
 const NO_BROWSE_FAMILIES: BrowseBases["families"] = [];
-/** Civitai and Hugging Face asked for with lookups off: the row that leads to the switch. */
-const lookupsOff: Item = { key: "link:off", kind: "nav", label: "Search Hugging Face and Civitai is off", meta: "Turn it on to search or read a link · Settings › Models", group: "Go to", verb: "open", p: prepare("lookups off"), nav: { href: settingHref("server.civitaiLookups") } };
 
 /** How long a row stays selected before its preview is drawn: arrowing fast loads nothing. */
 const DWELL_MS = 80;
@@ -288,18 +285,19 @@ export function useBarData({ open, mode, text, line, ranks, picked, learn, found
     };
   }, [places]);
 
-  // Civitai and Hugging Face (modelRows.ts): a pasted link read into its files, with lookups on; newer versions of the
-  // LoRAs and models a value row names; the model downloads in `!`
+  // Civitai and Hugging Face (modelRows.ts): a pasted link read into its files, and a search typed, whatever "Search Hugging
+  // Face and Civitai" says (typed, it is the user asking: card #166); newer versions of the LoRAs and models a value row
+  // names, with lookups on (an update check is the switch's); the model downloads in `!`
   const linkTyped = open && mode === "all" && isLink(line) ? line.trim() : null;
   const siteAsk = useMemo(() => (browse && !browse.typing ? siteQuery(browse, browseFamilies) : null), [browse, browseFamilies]);
   const siteAsked = useDebounced(siteAsk, 300, true, null);
   const siteCards = useQuery({
     queryKey: siteAsked?.site === "civitai" ? queryKeys.browse.civitai({ bar: siteAsked }) : queryKeys.browse.huggingFace({ bar: siteAsked }),
     queryFn: ({ signal }) => (siteAsked!.site === "civitai" ? api.browseCivitai(siteAsked as Extract<typeof siteAsked, { site: "civitai" }>, { signal }) : api.browseHuggingFace(siteAsked as Extract<typeof siteAsked, { site: "huggingface" }>, { signal })),
-    enabled: lookups && Boolean(siteAsked) && (siteAsked?.site !== "civitai" || Boolean(browseBases)), staleTime: 5 * 60_000, placeholderData: keepPreviousData, retry: false,
+    enabled: Boolean(siteAsked) && (siteAsked?.site !== "civitai" || Boolean(browseBases)), staleTime: 5 * 60_000, placeholderData: keepPreviousData, retry: false,
   });
   const linkQ = useDebounced(linkTyped ?? "", 200, Boolean(linkTyped), "");
-  const card = useQuery({ queryKey: queryKeys.browse.link(linkQ), queryFn: () => api.browseLink(linkQ), enabled: lookups && Boolean(linkQ) && linkQ === linkTyped, staleTime: 5 * 60_000, retry: false });
+  const card = useQuery({ queryKey: queryKeys.browse.link(linkQ), queryFn: () => api.browseLink(linkQ), enabled: Boolean(linkQ) && linkQ === linkTyped, staleTime: 5 * 60_000, retry: false });
   const modelUpdates = useQuery({ queryKey: queryKeys.modelUpdates(), queryFn: api.modelUpdates, enabled: searching && lookups, staleTime: 5 * 60_000 }).data;
   const newer = useMemo(() => {
     const by = new Map((modelUpdates?.items ?? []).filter((u) => u.newer).map((u) => [nameOf(u.file), u]));
@@ -310,14 +308,12 @@ export function useBarData({ open, mode, text, line, ranks, picked, learn, found
   const sections: Section[] = useMemo(() => {
     if (!open) return [];
     if (browse) {
-      if (!lookups) return [{ group: "Model link", rows: [lookupsOff] }];
       if (browse.typing) return browseValueRows(line, browse, browseFamilies);
       const out = browseRows(browse, siteCards.data?.items.slice(0, 20), browseFamilies);
       if (siteCards.error) out[0]!.rows.splice(1, 0, { key: "find-error", kind: "command", label: `${browse.site === "civitai" ? "Civitai" : "Hugging Face"} did not answer`, meta: siteCards.error instanceof Error ? siteCards.error.message : "", group: "Filters", verb: "—", p: prepare("error") });
       return out;
     }
     if (linkTyped) {
-      if (!lookups) return [{ group: "Model link", rows: [lookupsOff] }];
       if (card.data && linkQ === linkTyped) return [{ group: "Model link", rows: linkRows(card.data.card) }];
       const said = card.error ? (card.error instanceof Error ? card.error.message : "It reads as no model.") : "Reading the link…";
       return [{ group: "Model link", rows: [{ key: "link:none", kind: "command", label: card.error ? "Not a model this bar can read" : said, meta: card.error ? said : "Civitai or Hugging Face asked", group: "Model link", verb: "wait", p: prepare(said) }] }];
@@ -359,7 +355,7 @@ export function useBarData({ open, mode, text, line, ranks, picked, learn, found
     }
     return prefix ? [{ group: "Filters", rows: keyRows(line, prefix) }, ...rows] : rows;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the rows are worked out from what they show; the helpers read here are new at every render
-  }, [open, mode, text, base, ranks, learn, queueFull, settingRows, estimateSaid, entities.data, recipeItems, presetItems, navRows, selectedClip, keysHere, barKey, templates, commandCtx, sParsed, searchFilter, typingKey, guessing, line, browse, browseFamilies, siteCards.data, siteCards.error, linkTyped, linkQ, lookups, card.data, card.error, newer, downloadList, queueNames, used, familyInfo, drafts, places, prompts, found.data, count.data, loosen.data, placeOf]);
+  }, [open, mode, text, base, ranks, learn, queueFull, settingRows, estimateSaid, entities.data, recipeItems, presetItems, navRows, selectedClip, keysHere, barKey, templates, commandCtx, sParsed, searchFilter, typingKey, guessing, line, browse, browseFamilies, siteCards.data, siteCards.error, linkTyped, linkQ, card.data, card.error, newer, downloadList, queueNames, used, familyInfo, drafts, places, prompts, found.data, count.data, loosen.data, placeOf]);
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 
   // the search's tokens as chips in the input: a key, a guessed model, a key left out, one that names nothing

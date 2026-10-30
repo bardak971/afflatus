@@ -160,6 +160,7 @@ describe("looking for a missing file on Civitai", () => {
   });
 
   it("is never done unless it was turned on, then sends the file's name only", async () => {
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { civitaiLookups: false } });
     const off = await get(t.app, "/api/civitai/find?file=loras/soft_light-v2.safetensors");
     expect(off.statusCode).toBe(400);
     expect(asked).toEqual([]);
@@ -190,6 +191,7 @@ describe("looking for a missing file on Civitai", () => {
     const say = (payload: unknown) => t.app.inject({ method: "PUT", url: "/api/models/loras/page", payload: payload as object });
 
     // not turned on: nothing is asked, and the answer says why
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { civitaiLookups: false } });
     expect(await find("styles\\Soft_Light-v2.safetensors")).toEqual({ page: null, candidates: [], lookups: false });
     expect(asked).toEqual([]);
 

@@ -23,7 +23,7 @@ export const TOOK_CELL = "@max-[420px]/history:hidden";
 /** What is done with a finished job: again, back to its draft, out of the list. What fails is said in a banner. */
 export function useJobActions() {
   const client = useQueryClient();
-  const failed = useSayFailed({ id: "history", href: "/queue", go: "Open queue" });
+  const failed = useSayFailed({ id: "history", href: "/queue", go: "Open the Queue" });
   const again = useMutation({ mutationFn: (v: { id: string; input?: Record<string, unknown> }) => api.retryJob(v.id, v.input), onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.queue() }), onError: failed("Could not queue it again") });
   // one job or a batch's row: one request, and the jobs taken out of the history as loaded (as the end of a job puts
   // them in, readHistoryHead) rather than every loaded page read again

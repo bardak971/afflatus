@@ -21,7 +21,7 @@ import { queryKeys } from "./queryKeys";
 import { Select } from "./Select";
 import { useSayFailed } from "./sayFailed";
 import { useBanners } from "./store";
-import { Button, Checkbox, Chip, cx, ErrorNote, Help, IconButton, SearchField, Segmented, Spinner } from "./ui";
+import { Button, Checkbox, Chip, cx, ErrorNote, Failed, Help, IconButton, SearchField, Segmented, Spinner } from "./ui";
 
 /** What a first deploy opens with: Afflatus's image, Secure Cloud, no volume, terminated after 10 min idle. */
 const FIRST: Omit<DeployAsk, "gpu"> = { cloud: "SECURE", template: "afflatus", volume: "", disk: 120, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15, set: "", files: [], leaveOut: [], accept: [], again: false, makeRoom: true, cuda: "13.0", cudaOnce: false };
@@ -93,7 +93,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
       shown.current = false;
     };
   }, []);
-  const sayFailed = useSayFailed({ id: "deploy", href: "/settings/rented", go: "Open Rented GPUs" });
+  const sayFailed = useSayFailed({ id: "deploy", href: "/settings/rented", go: "Open Settings › Rented GPUs" });
   const say = useBanners((b) => b.push);
   const [want, setWant] = useState<DeployAsk>(() => settings.data?.lastDeploy ?? { ...FIRST, gpu: "" });
   const set = (change: Partial<DeployAsk>) => setWant((w) => ({ ...w, ...change }));
@@ -310,7 +310,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
           </span>
           {/* one height whatever the cloud, the stock or the answer: the dialog does not move under the pointer */}
           <div role="radiogroup" aria-label="GPU" className="flex h-[300px] flex-col overflow-y-auto rounded-xl border border-line">
-            {gpus.isError && <div className="p-3"><ErrorNote>{gpus.error.message}</ErrorNote></div>}
+            {gpus.isError && <div className="p-3"><Failed what="RunPod's GPUs could not be listed" error={gpus.error} /></div>}
             {gpus.isPending && <span className="px-3 py-2.5 text-xs text-ink-3">Asking RunPod…</span>}
             {gpus.isSuccess && !offers.length && <span className="px-3 py-2.5 text-xs text-ink-2">{words.length && gpus.data?.gpus.some((g) => placesOf(g).length) ? `No GPU in stock matches “${q}”.` : `Nothing in stock ${volume ? `in ${volume.dataCenter}, where the volume is` : "on this cloud"} now. RunPod's stock moves by the minute: this list is read again every 15 s.`}</span>}
             {offers.length > 0 && (
@@ -440,9 +440,9 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
         )}
         {imageMissing && <ErrorNote>{want.template === "afflatus" ? "The Afflatus image is not published yet, or not public: RunPod could not pull it. Deploy with RunPod's ComfyUI meanwhile." : "RunPod's ComfyUI image cannot be pulled from Docker Hub now."}</ErrorNote>}
         {want.template === "runpod" && <ErrorNote>RunPod's ComfyUI has no Afflatus pack: it is not locked, so anyone who finds its address can run work on it, and nothing stops it if this PC goes silent.</ErrorNote>}
-        {deploy.isError && <ErrorNote>{deploy.error.message}</ErrorNote>}
-        {huntGo.isError && <ErrorNote>{huntGo.error.message}</ErrorNote>}
-        {saveNext.isError && <ErrorNote>{saveNext.error.message}</ErrorNote>}
+        {deploy.isError && <Failed what="Not deployed" error={deploy.error} />}
+        {huntGo.isError && <Failed what="The GPU hunt did not start" error={huntGo.error} />}
+        {saveNext.isError && <Failed what="Next deploy was not saved" error={saveNext.error} />}
       </div>
       {/* the note takes what width there is and wraps; the buttons keep their place (they never move under the pointer) */}
       <div className="-mx-5 -mb-5 mt-1 flex items-center gap-3 border-t border-line px-5 py-3.5">

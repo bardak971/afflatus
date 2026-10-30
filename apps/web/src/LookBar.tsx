@@ -11,7 +11,7 @@ import { ContextMenu, groups, headLine, type MenuItem } from "./ContextMenu";
 import { kitHref } from "./screens/kit/link";
 import { outfitsOf } from "./screens/kit/shared";
 import { Select } from "./Select";
-import { cx, Help } from "./ui";
+import { cx, Failed, Help } from "./ui";
 import { queryKeys } from "./queryKeys";
 
 const none: Look = { cast: [], style: null, snippets: [] };
@@ -148,7 +148,7 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
       {showing && active && recipe && (
         <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-raised p-2.5 text-xs">
           {sent.isLoading && <span className="text-ink-2">Composing…</span>}
-          {sent.isError && <span className="text-warn-ink">{sent.error.message}</span>}
+          {sent.isError && <Failed inline what="Not sent" error={sent.error} />}
           {sent.data && (
             <>
               {main && <span><span className="text-ink-2">{main.label}: </span><Marked text={String(sent.data.input[main.id] ?? "")} added={sent.data.added.words} /></span>}

@@ -38,6 +38,6 @@ describe("a body cut off on its way", () => {
     cutOff(new TypeError("terminated"), 500);
     const err = await api.queue().catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiError);
-    expect(err).toMatchObject({ status: 500, message: "the server answered 500" });
+    expect(err).toMatchObject({ status: 500, message: "Something went wrong on the server (500): the console Afflatus runs in says what." });
   });
 });

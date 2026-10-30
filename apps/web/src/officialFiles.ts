@@ -1,4 +1,4 @@
-import { sameFile } from "@afflatus/core";
+import { isShown, sameFile, type InputSpec } from "@afflatus/core";
 import type { FamilyInfo, RecipeInfo, RecipeStatus } from "./api";
 
 /** A family's official file, with its size when the server knows it. */
@@ -78,3 +78,20 @@ export const picksUnlisted = (status: Pick<RecipeStatus, "options">, recipe: Pic
     const listed = status.options[x.id];
     return listed ? !sameFile(listed, value) : unlistedLacks;
   });
+
+/**
+ * The first model file a form renders with that its ComfyUI does not have yet, named as the status bar says it ("Turbo
+ * LoRA not here yet", card #176): a model input in play whose pick is not listed (one a switch left off loads nothing, and
+ * is not counted), else a family file the recipe needs that has an official download. Null when nothing it uses is missing.
+ */
+export function missingFileOf(status: Pick<RecipeStatus, "options" | "missingSlots">, recipe: Pick<RecipeInfo, "inputs">, family: FamilyInfo | undefined, values: Record<string, unknown>): { what: string; file: string } | null {
+  const specs = recipe.inputs as readonly InputSpec[];
+  for (const x of specs) {
+    const value = values[x.id];
+    if (x.type !== "model" || typeof value !== "string" || !value || !isShown(x, values, specs)) continue;
+    const listed = status.options[x.id];
+    if (!listed || !sameFile(listed, value)) return { what: x.label, file: value };
+  }
+  const slot = status.missingSlots.map((id) => family?.slots?.find((s) => s.id === id)).find((s) => s?.get);
+  return slot?.get ? { what: slot.label ?? slot.get.file, file: slot.get.file } : null;
+}

@@ -127,7 +127,9 @@ export function PromptField({ spec, id, value, values, onChange, bare }: { spec:
         id={id}
         rows={spec.line ? 1 : spec.optional && !spec.example ? 2 : 4}
         value={value}
-        placeholder={spec.placeholder}
+        // a text the form cannot do without shows its example as one ("e.g. …", in italics): written out bare, it read as
+        // text already there and the first render was sent empty (card #165)
+        placeholder={spec.placeholder && !spec.optional ? `e.g. ${spec.placeholder}` : spec.placeholder}
         onChange={(e) => onChange(e.target.value)}
         onSelect={snippetKeys.onSelect}
         onKeyDown={(e) => {
@@ -143,7 +145,7 @@ export function PromptField({ spec, id, value, values, onChange, bare }: { spec:
           // once the new text is in the box, the tag is selected again: the next press goes on from it
           requestAnimationFrame(() => el.setSelectionRange(next.start, next.end));
         }}
-        className={cx(field, "py-2.5 leading-normal", spec.optional && !spec.example ? "text-body" : "text-sm")}
+        className={cx(field, "py-2.5 leading-normal placeholder:italic", spec.optional && !spec.example ? "text-body" : "text-sm")}
       />
       {snippetKeys.list}
       {/* the main prompt in its card, whose head has no ?: the keys it takes in a corner of its own, out of the way of

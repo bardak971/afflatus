@@ -183,7 +183,7 @@ describe("an imported workflow", () => {
     const { id } = await importWan();
     const res = await post(t.app, "/api/jobs", { recipe: id, input: { seconds: 500 } });
     expect(res.statusCode).toBe(400);
-    expect(res.json().error).toContain("seconds");
+    expect(res.json().error).toMatch(/^Length: too big/);
   });
 
   it("can be read back whole (to edit or share), changed, and removed", async () => {
@@ -297,7 +297,7 @@ describe("a workflow imported from the editor's own file", () => {
     // and a job without the picture is refused with a reason, before anything is queued
     const res = await post(t.app, "/api/jobs", { recipe: saved.id, input: {} });
     expect(res.statusCode).toBe(400);
-    expect(res.json().error).toContain("startImage");
+    expect(res.json().error).toBe("Image is missing");
   });
 
   it("sends the picture the user gave, on a ComfyUI that lists its input pictures", async () => {

@@ -118,7 +118,7 @@ export class TimelineMedia {
     if (thumb) await storage.put(thumbKey(id), thumb);
     const size = pngSize(bytes);
     const at = now();
-    // "Big Air · c2 · t5 · frame 0:03.2": after the name the video goes by (worked out from where it came from when it has none)
+    // "Big Air · Clip 2 · take 5 · frame 0:03.2": after the name the video goes by (worked out from where it came from when it has none)
     const source = await nameOf(db, video);
     const folder = await folderForMade(db, video, timeline);
     // the same frame asked for twice at once (two clips rendered from it): the second finds the first's row, the same picture

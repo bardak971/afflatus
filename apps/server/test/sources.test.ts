@@ -69,6 +69,7 @@ describe("sources for a workflow's missing files", () => {
   };
 
   it("asks nothing while lookups are off", async () => {
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { civitaiLookups: false } });
     const by = await inspect();
     expect(Object.keys(by)).toHaveLength(4);
     expect(Object.values(by).every((s) => s === null)).toBe(true);

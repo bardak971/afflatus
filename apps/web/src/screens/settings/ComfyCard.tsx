@@ -4,7 +4,7 @@ import { api } from "../../api";
 import { useSettings, useSetup } from "../../data";
 import { gb } from "../../format";
 import { Slider } from "../../Slider";
-import { Button, ButtonLink, cx, ErrorNote, fieldClass } from "../../ui";
+import { Button, ButtonLink, cx, ErrorNote, Failed, fieldClass } from "../../ui";
 import { Block, Card, Fact, Row, Status } from "./Rows";
 import { queryKeys } from "../../queryKeys";
 import { useSayFailed } from "../../sayFailed";
@@ -140,13 +140,13 @@ export function ComfyCard() {
         <Slider label="Minutes without a render before ComfyUI's models are unloaded" value={stopOf(minutes)} min={0} max={UNLOAD.length - 1} box={false} format={(i) => unloadSaid(UNLOAD[i]!)} onChange={(i) => setMinutes(UNLOAD[i]!)} onCommit={(i) => unload.mutate(UNLOAD[i]!)} className="max-w-[320px] grow" />
         <span className="w-16 shrink-0 text-right font-mono text-xs text-ink">{unloadSaid(minutes)}</span>
       </Row>
-      {unload.isError && <Block><ErrorNote>{unload.error.message}</ErrorNote></Block>}
+      {unload.isError && <Block><Failed what="Not unloaded" error={unload.error} /></Block>}
     </Card>
   );
   // the machines not read yet, or not read at all: nothing said of them (the "no ComfyUI" cards flashed while they loaded,
   // and stood in for a failure to read them)
   // a read again that failed keeps the settings in hand (React Query keeps its data): the card stays, the note only with none
-  if (!settings.data) return settings.isError ? <ErrorNote>The settings could not be read: {settings.error.message}</ErrorNote> : null;
+  if (!settings.data) return settings.isError ? <Failed what="The settings could not be read" error={settings.error} /> : null;
   // no ComfyUI of the user's own (a rented-only start, none added yet): its question, the pods below, nothing offline
   if (!machines.some((m) => !m.rented)) {
     return (
@@ -185,7 +185,7 @@ export function ComfyCard() {
         </Row>
         {(test.isError || comfy?.online === false) && (
           <Block>
-            {test.isError && <ErrorNote>{test.error.message}</ErrorNote>}
+            {test.isError && <Failed what="ComfyUI could not be tested" error={test.error} />}
             {comfy?.online === false && <ErrorNote>{comfy.error}</ErrorNote>}
           </Block>
         )}
@@ -201,7 +201,7 @@ export function ComfyCard() {
           <input id="comfy-dir" value={dir} onChange={(e) => setDir(e.target.value)} placeholder="D:\ComfyUI  —  empty when ComfyUI runs elsewhere" spellCheck={false} className={cx("h-10 min-w-0 grow font-mono text-xs", fieldClass)} />
           <Button onClick={() => saveDir.mutate()} disabled={saveDir.isPending || dir.trim() === (settings.data?.comfyDir ?? "")}>Save</Button>
         </Row>
-        {saveDir.isError && <Block><ErrorNote>{saveDir.error.message}</ErrorNote></Block>}
+        {saveDir.isError && <Block><Failed what="The folder was not saved" error={saveDir.error} /></Block>}
         <NodePackRow />
         {machines[0] && <PacksRow machine={machines[0]} label="your ComfyUI" put={(change) => saveMachines.mutate(machines.map((m, i) => (i === 0 ? { ...m, ...change } : m)))} />}
         {machines[0] && <AccessRow id={machines[0].id} label="ComfyUI" probe={probes.data?.find((p) => p.id === machines[0]!.id)} url={machines[0].url} />}

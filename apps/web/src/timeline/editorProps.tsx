@@ -247,7 +247,7 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
       api.upload(file, { folder: t.folderId ?? undefined, project: t.projectId ?? null, reuse })
         .then((a) => ({ id: a.id, kind: a.kind }))
         .catch((err: unknown) => {
-          e.say(failedBanner({ id: "upload" }, `${file.name} could not be added`, err));
+          e.say(failedBanner({ id: "upload", here: true }, `${file.name} could not be added`, err));
           return null;
         }),
     onPin: (clip, where, asset, atS) => {

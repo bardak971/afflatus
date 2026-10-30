@@ -392,7 +392,8 @@ export function AgentsBlock() {
         )}
       </div>
       <TasksSetting lit={settingLit} />
-      <form onSubmit={make} className="mx-gutter mb-2.5 flex flex-wrap items-center gap-2 rounded-control border border-dashed border-line-strong p-2">
+      {/* the box shows where the typing goes, as a search field does: its input is bare inside it (card #178) */}
+      <form onSubmit={make} className="mx-gutter mb-2.5 flex flex-wrap items-center gap-2 rounded-control border border-dashed border-line-strong p-2 has-[input:focus-visible]:border-solid has-[input:focus-visible]:border-accent has-[input:focus-visible]:shadow-[0_0_0_3px_var(--color-accent-wash)]">
         <input aria-label="New token's name" placeholder="New token's name (Claude Code, laptop…), optional" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} className="min-w-[120px] grow bg-transparent px-1 text-body text-ink outline-none placeholder:text-ink-3" />
         <Segmented<McpStart> size="sm" label="Its scopes to start with" value={start} options={STARTS} onChange={setStart} />
         <Button size="sm" tone="primary" type="submit" disabled={run.isPending}>Create token</Button>

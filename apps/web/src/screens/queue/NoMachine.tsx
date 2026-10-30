@@ -18,7 +18,7 @@ import { SecretField } from "../settings/SecretField";
 export function NoMachine({ waiting }: { waiting: number }) {
   const settings = useSettings();
   const client = useQueryClient();
-  const sayFailed = useSayFailed({ id: "no-machine", href: "/settings/rented", go: "Open Rented GPUs" });
+  const sayFailed = useSayFailed({ id: "no-machine", href: "/settings/rented", go: "Open Settings › Rented GPUs" });
   const save = useMutation({
     mutationFn: (patch: Parameters<typeof api.saveSettings>[0]) => api.saveSettings(patch),
     onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved),

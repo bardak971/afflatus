@@ -25,7 +25,7 @@ export function useGenerate({ recipe, draft, defaults, folder, d, blocked }: {
 }) {
   const client = useQueryClient();
   const queue = useQueue();
-  const sayFailed = useSayFailed({ id: "seed-moved", go: "Open the Studio" });
+  const sayFailed = useSayFailed({ id: "seed-moved", href: "/", go: "Open the Studio" });
   const send = useMutation({
     /** `on`: a machine to render on this once (the command bar's "generate on"); left out, the draft's own pick, else Auto. */
     mutationFn: async (on?: string) => {

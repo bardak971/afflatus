@@ -9,7 +9,7 @@ import { ViaChip } from "./modelFilesUi";
 import { queryKeys } from "./queryKeys";
 import { useSayFailed } from "./sayFailed";
 import { Select } from "./Select";
-import { Button, Checkbox, CloseButton, cx, fieldClass, Help } from "./ui";
+import { Button, Checkbox, CloseButton, cx, Failed, fieldClass, Help } from "./ui";
 
 const WHY_MODELS = "What the pod gets once it is up, straight from Hugging Face or Civitai (a file no site is known for is sent from this PC). Your waiting jobs' files come first, in the order the queue needs them: a job starts as soon as its own files are there. A job whose file you untick stays home. Fetching is billed GPU time: the time and price are measured on your own deploys (the speeds of each source), or not said. A file fetched never keeps the pod: with nothing to render it goes idle and ends on time.";
 
@@ -201,7 +201,7 @@ export function DeployModels({ want, set, rate, gpu, onPicked }: { want: DeployA
           </div>
         </div>
       )}
-      {view.isError && <span className="text-xs text-warn-ink">{view.error.message}</span>}
+      {view.isError && <Failed inline what="Its files could not be read" error={view.error} />}
     </section>
   );
 }

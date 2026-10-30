@@ -5,7 +5,7 @@ import { api, type Machine, type Scan } from "../../api";
 import { useRecipes, useSettings } from "../../data";
 import { familyOnFor, machineLabel } from "../../machines";
 import { Select } from "../../Select";
-import { cx, ErrorNote, Help, Segmented, Toggle } from "../../ui";
+import { cx, Failed, Help, Segmented, Toggle } from "../../ui";
 import { Block, Card } from "./Rows";
 import { ModelsCard } from "./ModelsTab";
 import { queryKeys } from "../../queryKeys";
@@ -157,7 +157,7 @@ function AllGrid({ machines, scans, onOpen }: { machines: Machine[]; scans: Arra
           })}
         </div>
       </div>
-      {save.isError && <Block><ErrorNote>{save.error.message}</ErrorNote></Block>}
+      {save.isError && <Block><Failed what="Not saved" error={save.error} /></Block>}
     </Card>
   );
 }

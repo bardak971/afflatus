@@ -33,7 +33,7 @@ export function useItemMenu({ onView, onStudio }: { onView(asset: Asset): void; 
     onSuccess: (t, v) => {
       say({ id: `tree-add:${Date.now()}`, tone: "good", title: `${v.assets.length} added to ${t.name}`, text: "At the end, in the order they show.", href: `/timelines/${t.id}`, go: "Open the timeline" });
     },
-    onError: (err) => say(failedBanner({ id: "tree-add", href: "/timelines", go: "Open timelines" }, "Could not add them", err)),
+    onError: (err) => say(failedBanner({ id: "tree-add", href: "/timelines", go: "Open the Timelines" }, "Could not add them", err)),
   });
   /** The menu of several picked items: the item's list's order (itemActions.tsx), only what works on many. */
   const many = (assets: Asset[], more: { moveTo: MenuItem[]; bin(): void }): MenuItem[] => {

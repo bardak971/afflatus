@@ -120,6 +120,22 @@ describe("locking a ComfyUI", () => {
     expect(fake.lock).toBeNull();
   });
 
+  it("copying the token needs a sign-in of the last 10 minutes or the password, on this computer too (card #187)", async () => {
+    const PASSWORD = "correct horse battery";
+    await post(t.app, "/api/machines/m1/lock", {});
+    const token = await tokenOf();
+    const set = await t.app.inject({ method: "POST", url: "/api/session/password", payload: { password: PASSWORD } });
+    const cookie = [set.headers["set-cookie"]].flat().map((c) => String(c).split(";")[0]).join("; ");
+    await t.db.updateTable("sessions").set({ created_at: new Date(Date.now() - 11 * 60_000).toISOString() }).execute();
+    const copy = (payload: object) => t.app.inject({ method: "POST", url: "/api/machines/m1/token/copy", headers: { cookie }, payload });
+    const old = await copy({});
+    expect(old.statusCode).toBe(403);
+    expect(old.json()).toMatchObject({ needPassword: true });
+    expect(old.body).not.toContain(token);
+    expect((await copy({ current: "wrong one" })).statusCode).toBe(403);
+    expect((await copy({ current: PASSWORD })).json()).toEqual({ token });
+  });
+
   it("opens ComfyUI's page with a one-time code when locked, as it is when not", async () => {
     expect((await post(t.app, "/api/machines/m1/open", {})).json()).toEqual({ url: fake.url });
     await post(t.app, "/api/machines/m1/lock", {});

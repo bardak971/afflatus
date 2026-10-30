@@ -58,9 +58,9 @@ export function useGetFile({ file, folder, url, civitai, pick, hints, auto, sour
   // no lookup is made): what a greyed file in a form, a waiting job and Settings › Models offer, by the server's own test
   const recipes = useRecipes();
   const official = isOfficialFile(recipes.data?.families ?? [], { url, file });
-  // anything else needs downloads and lookups both on, as the server does (fetchFile.ts beginDownload): with lookups off its
-  // Download only met a refusal
-  const fetching = ((Boolean(settings.data?.downloadModels) && lookups) || official) && Boolean(folder);
+  // anything else needs downloads on, as the server does (fetchFile.ts beginDownload): the press is the user asking, whatever
+  // "Search Hugging Face and Civitai" says (card #166)
+  const fetching = (Boolean(settings.data?.downloadModels) || official) && Boolean(folder);
   const find = useMutation({ mutationFn: () => api.civitaiFind(file, folder, hints) });
   const start = useMutation({
     mutationFn: (from: From) => api.startDownload({ file, folder: folder!, ...from, ...("civitai" in from && pick ? { pick } : {}), ...(machine ? { machine } : {}) }),

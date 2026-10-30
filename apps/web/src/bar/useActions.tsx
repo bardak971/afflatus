@@ -96,7 +96,7 @@ export function useBarActions({ subject, about, aim, settingCtx, onCopied, flash
   const timelineMenu = item.timeline;
   const formTarget = useFormTarget((st) => st.target);
   const openWorkflow = useOpenInComfy((w: { id: string; title: string }) => api.openWorkflow(w.id), {
-    onSuccess: (r, w) => good(`${w.title} is in ComfyUI`, r.direct ? undefined : `Saved as ${r.path ?? "a workflow"}: in ComfyUI, open the Workflows sidebar (W) and pick it under "afflatus".`, "/workflows", "Open Workflows"),
+    onSuccess: (r, w) => good(`${w.title} is in ComfyUI`, r.direct ? undefined : `Saved as ${r.path ?? "a workflow"}: in ComfyUI, open the Workflows sidebar (W) and pick it under "afflatus".`, "/workflows", "Open the Workflows"),
     onError: (err) => failed("Could not open it in ComfyUI")(err),
   });
   const openComfy = useOpenComfyUI();
@@ -116,7 +116,7 @@ export function useBarActions({ subject, about, aim, settingCtx, onCopied, flash
   };
   const kinds = useKindActions({ importInto });
 
-  const failed = useSayFailed({ id: "bar", go: "Open the Studio" });
+  const failed = useSayFailed({ id: "bar", href: "/", go: "Open the Studio" });
   const good = (title: string, text?: string, href = "/", goTo = "Open the Studio") => say({ id: `bar:${Date.now()}`, tone: "good", title, text, href, go: goTo });
 
   const openDraft = (id: string) => {
@@ -143,7 +143,7 @@ export function useBarActions({ subject, about, aim, settingCtx, onCopied, flash
     const up = jobs.filter((j) => waiting.includes(j));
     if (up.length) client.setQueryData(queryKeys.queue(), await api.queueOrder(atTop(waiting, up)));
     const n = jobs.length;
-    good(`${plural(n, "clip")} of ${t.name} queued at the top`, up.length < n ? `${n - up.length === 1 ? "One is" : `${n - up.length} are`} rendering already.` : "Ahead of everything else that waits.", "/queue", "Open queue");
+    good(`${plural(n, "clip")} of ${t.name} queued at the top`, up.length < n ? `${n - up.length === 1 ? "One is" : `${n - up.length} are`} rendering already.` : "Ahead of everything else that waits.", "/queue", "Open the Queue");
   };
 
   const x: BarCtx = {

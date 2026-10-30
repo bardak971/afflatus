@@ -153,7 +153,7 @@ export async function changeAssets(client: QueryClient, c: AssetChange, opts: Ch
       const refused = bannerId("refused");
       for (const id of c.ids) refusedFor.set(id, refused);
       // the failure's own banner (a 409 titled "Still in use"), with Retry
-      say({ ...failedBanner({ id: refused, once: true, inUse: true }, refusedTitle(c), err), action: { label: "Retry", run: () => void changeAssets(client, c, opts) } });
+      say({ ...failedBanner({ id: refused, once: true, inUse: true, href: "/", go: "Open the library" }, refusedTitle(c), err), action: { label: "Retry", run: () => void changeAssets(client, c, opts) } });
       return false;
     }
     return true;

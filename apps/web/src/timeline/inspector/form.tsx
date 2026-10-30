@@ -212,7 +212,7 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
         {main && (
           <label className="flex flex-col gap-1.5">
             <span className="text-xs font-semibold">What happens <span className="font-normal text-ink-2">· between the two</span></span>
-            <AutoText rows={3} value={written} disabled={writing} placeholder={main.type === "prompt" ? main.placeholder ?? "What happens in this stretch" : ""} onChange={(e) => onInputs({ ...stored, [main.id]: e.target.value })} className={cx(fieldClass, "w-full py-2 disabled:opacity-60")} />
+            <AutoText rows={3} value={written} disabled={writing} placeholder={main.type === "prompt" ? (main.placeholder ? `e.g. ${main.placeholder}` : "What happens in this stretch") : ""} onChange={(e) => onInputs({ ...stored, [main.id]: e.target.value })} className={cx(fieldClass, "w-full py-2 placeholder:italic disabled:opacity-60")} />
           </label>
         )}
         <div className="flex flex-wrap items-center gap-2 text-xs">

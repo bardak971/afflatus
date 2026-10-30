@@ -218,6 +218,10 @@ export function registerLock(app: FastifyInstance, s: Services): void {
     const machine = (await readSettings(s.db)).machines.find((m) => m.id === id);
     if (!machine) throw httpError("there is no ComfyUI with that id", 404);
     if (!machine.token) throw httpError("This ComfyUI has no token: it is not locked by this Afflatus.", 409);
+    // the token opens that ComfyUI as unlocking does: a sign-in of the last 10 minutes, or the password (card #187)
+    const { current } = z.object({ current: z.string().max(200).optional() }).parse(req.body ?? {});
+    await s.access.mayChange(req.access.session, current, ip(req));
+    await s.access.audit(`ComfyUI ${id}: its token copied, from ${ip(req)}`);
     return { token: machine.token };
   });
 

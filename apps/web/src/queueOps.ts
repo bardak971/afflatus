@@ -15,7 +15,7 @@ import { queryKeys } from "./queryKeys";
 export function useQueueOps() {
   const client = useQueryClient();
   const say = useBanners((b) => b.push);
-  const failed = useSayFailed({ id: "queue", href: "/queue", go: "Open queue" });
+  const failed = useSayFailed({ id: "queue", href: "/queue", go: "Open the Queue" });
   const settle = (q: QueueStatus) => client.setQueryData(queryKeys.queue(), q);
   const pause = useMutation({ mutationFn: (machine?: string) => api.pause(machine), onSuccess: settle, onError: failed("Could not pause the queue") });
   // while a GPU hunt holds the renders for its GPU, a Resume of the home machines it paused asks first: the hunt ends, or
@@ -43,7 +43,7 @@ export function useQueueOps() {
   const unload = useMutation({
     mutationFn: (machine?: string) => api.freeMemory(machine),
     onSuccess: () => {
-      say({ id: `free:${Date.now()}`, tone: "good", title: "Models unloaded", text: "The next render loads what it needs again.", href: "/queue", go: "Open queue" });
+      say({ id: `free:${Date.now()}`, tone: "good", title: "Models unloaded", text: "The next render loads what it needs again.", href: "/queue", go: "Open the Queue" });
       void client.invalidateQueries({ queryKey: queryKeys.queue() });
     },
     onError: failed("Could not unload the models"),
@@ -58,8 +58,8 @@ export function useQueueOps() {
       return scan;
     },
     onSuccess: (scan) => {
-      if (scan.comfy.online) say({ id: `comfy:${Date.now()}`, tone: "good", title: "ComfyUI answers", text: scan.comfy.url, href: "/queue", go: "Open queue" });
-      else say({ id: `comfy:${Date.now()}`, tone: "bad", title: "ComfyUI does not answer", text: scan.comfy.error, href: "/settings", go: "Open settings" });
+      if (scan.comfy.online) say({ id: `comfy:${Date.now()}`, tone: "good", title: "ComfyUI answers", text: scan.comfy.url, href: "/queue", go: "Open the Queue" });
+      else say({ id: `comfy:${Date.now()}`, tone: "bad", title: "ComfyUI does not answer", text: scan.comfy.error, href: "/settings", go: "Open Settings" });
     },
     onError: failed("Could not reach ComfyUI"),
     onSettled: () => {

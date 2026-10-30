@@ -130,7 +130,7 @@ export function Banners() {
           const f = folds.current.failed;
           add(f, j);
           // one failure says its error; several send to the Queue, where each one's is
-          push({ id: "jobs:failed", tone: "bad", title: foldTitle(f, "failed"), text: f.count === 1 ? j.error ?? undefined : foldText(f), href: "/queue", go: "Open queue" });
+          push({ id: "jobs:failed", tone: "bad", title: foldTitle(f, "failed"), text: f.count === 1 ? j.error ?? undefined : foldText(f), href: "/queue", go: "Open the Queue" });
         }
         // a model loaded ahead has nothing to show: the form says it is loaded
         else if (j.kind === "load") continue;
@@ -152,7 +152,7 @@ export function Banners() {
             useHandover.getState().set({ show: from });
             if (path !== "/" && path !== "/create") go("/");
           } } } : {};
-          push({ id: "jobs:done", tone: "good", title: foldTitle(f, "done"), text: foldText(f), ...compare, ...(there || compare.action ? {} : allExports ? { href: "/timelines", go: "Open timelines" } : { href: "/", go: "Open library" }) });
+          push({ id: "jobs:done", tone: "good", title: foldTitle(f, "done"), text: foldText(f), ...compare, ...(there || compare.action ? {} : allExports ? { href: "/timelines", go: "Open the Timelines" } : { href: "/", go: "Open the library" }) });
         }
       }
     }

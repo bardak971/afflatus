@@ -270,6 +270,12 @@ export const DESIGN_RULES: DesignRule[] = [
     count: (f, t) => (KIT.test(f) ? 0 : t.split("\n").filter((l) => /<button\b/.test(l) && /className=.*\b(?:size-\d|h-\d+(?:\.\d)?\s+w-\d)/.test(l)).length),
   },
   {
+    id: "bare-error",
+    why: "an error's message shown bare ({x.error.message}), with no word of what failed: use <Failed what=\"Not saved\" error={…} /> (ui.tsx), or useSayFailed/failedBanner with its place (card #177)",
+    // an expression child or a value of its own, not a template's ${…} nor an attribute (a tip may repeat what is said beside it)
+    count: (f, t) => (KIT.test(f) ? 0 : matches(/(?<![$=]\s*)\{(?:[A-Za-z_][\w.?!]*)?(?:error|Error|err|failed)\??\.message\}/g, t)),
+  },
+  {
     id: "animate-motion",
     why: "an animation from script (.animate()) in a file that never asks motionAllowed: ask it first",
     count: (_f, t) => (/\bmotionAllowed\b/.test(t) ? 0 : matches(/\.animate\??\.?\(/g, t)),

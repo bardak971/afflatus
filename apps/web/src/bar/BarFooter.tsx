@@ -32,8 +32,8 @@ export function BarFooter({ verb, off, second, acting, preview, flash, bar, onMo
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line bg-ground/40 px-[18px] py-2.5 text-xs whitespace-nowrap text-ink-2">
       <span className="flex items-center gap-1.5"><Keys keys="↑ ↓" /> move</span>
-      <span className="flex min-w-0 items-center gap-1.5"><Keys keys="Enter" /> <span className="max-w-[260px] truncate">{verb}{off && <span className="text-ink-3">: {off}</span>}</span></span>
-      {second && <span className="flex min-w-0 items-center gap-1.5"><Keys keys="Ctrl+Enter" /> <span className="max-w-[170px] truncate">{second}</span></span>}
+      <span className="flex min-w-0 items-center gap-1.5"><Keys keys="Enter" /> <span className="max-w-[260px] truncate" data-tip={off ? `${verb}: ${off}` : verb}>{verb}{off && <span className="text-ink-3">: {off}</span>}</span></span>
+      {second && <span className="flex min-w-0 items-center gap-1.5"><Keys keys="Ctrl+Enter" /> <span className="max-w-[170px] truncate" data-tip={second}>{second}</span></span>}
       <span className="flex items-center gap-1.5"><Keys keys="Tab" /> {acting ? "back" : "actions"}</span>
       <span className="flex items-center gap-1.5"><Keys keys="Shift" /> preview{preview ? "" : " (off)"}</span>
       <span className="grow" />

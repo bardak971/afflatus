@@ -98,7 +98,7 @@ function Trail({ steps, crumbs, onStep }: { steps: Asset[]; crumbs: Record<strin
           {/* the › goes with the step before it: a line that wraps starts on a step */}
           {i < steps.length - 1
             ? <><button type="button" data-tip={`Back to ${label(x, i)}`} onClick={() => onStep(i)} className="flex h-6 min-w-0 max-w-[150px] items-center rounded-md border border-line bg-raised px-2 font-semibold text-ink-2 hover:border-line-strong hover:bg-hover hover:text-ink"><span className="truncate">{label(x, i)}</span></button><span aria-hidden className="text-ink-3">›</span></>
-            : <span aria-current="page" className="max-w-[150px] truncate px-0.5 font-semibold text-ink">{label(x, i)}</span>}
+            : <span aria-current="page" className="max-w-[150px] truncate px-0.5 font-semibold text-ink" data-tip={label(x, i)}>{label(x, i)}</span>}
         </span>
       ))}
     </nav>
