@@ -12,7 +12,7 @@ import { civitaiGet } from "./civitai";
 import { now, type Tables } from "./db";
 import { httpError } from "./errors";
 import { asideRoot, erase, moveBack, moveNoClobber, moveOut, systemBin, Taken, type BinFinder, type Place } from "./modelBin";
-import { filesIn, HASHED_FOLDERS } from "./modelHashes";
+import { filesIn, HASHED_FOLDERS, type Found } from "./modelHashes";
 import { insideDir, modelDirsSaid } from "./modelFiles";
 import { nameOf } from "./modelPages";
 import { setsWithFiles } from "./modelSets";
@@ -65,8 +65,16 @@ export interface LibraryFile {
   months: Record<string, number>;
   /** Takes and pictures made with it, in the library. */
   takes: number;
-  /** The other files here with the same hash. */
+  /**
+   * The other files here with the same hash: other files on disk, never the same file seen through another folder (`also`).
+   * For a file Delete moved, the ones still here: none, and Empty erases its only copy.
+   */
   copies: string[];
+  /**
+   * The same file on disk seen in other places too: a folder extra_model_paths.yaml lists twice, or under two names
+   * ComfyUI reads as one folder (models/unet is diffusion_models). Listed once; Delete moves it once, from all of them.
+   */
+  also: Array<{ folder: string; file: string }>;
   needs: Need[];
   /** The families it is a file of: a slot's file here, or used by its renders. */
   families: string[];
@@ -237,6 +245,38 @@ export async function settlePending(s: Pick<Services, "db">): Promise<void> {
   }
 }
 
+/**
+ * One row per file on disk: the places that are the same file (its identity) folded into the one Afflatus used most (else
+ * the first found), the others said in its `also`; their uses, takes, needs and families added to it. Its size counts once.
+ */
+function oneRowEach(rows: Array<{ f: LibraryFile; identity: string | undefined }>): LibraryFile[] {
+  const groups = new Map<string, LibraryFile[]>();
+  const out: LibraryFile[] = [];
+  for (const { f, identity } of rows) {
+    if (!identity || f.removed) out.push(f);
+    else if (groups.has(identity)) groups.get(identity)!.push(f);
+    else {
+      groups.set(identity, [f]);
+      out.push(f);
+    }
+  }
+  return out.map((f) => {
+    const same = [...groups.values()].find((g) => g[0] === f);
+    if (!same || same.length < 2) return f;
+    const [main, ...rest] = [...same].sort((a, b) => b.uses - a.uses);
+    const months = { ...main!.months };
+    for (const x of rest) for (const [m, n] of Object.entries(x.months)) months[m] = (months[m] ?? 0) + n;
+    const needs = [...main!.needs];
+    for (const x of rest) for (const n of x.needs) if (!needs.some((y) => y.kind === n.kind && y.id === n.id)) needs.push(n);
+    const lasts = same.map((x) => x.last).filter((x): x is string => Boolean(x)).sort();
+    return {
+      ...main!, also: rest.map((x) => ({ folder: x.folder, file: x.file })), months, needs,
+      uses: same.reduce((n, x) => n + x.uses, 0), takes: same.reduce((n, x) => n + x.takes, 0), last: lasts.at(-1) ?? null, approx: same.some((x) => x.approx),
+      families: [...new Set(same.flatMap((x) => x.families))], sha256: same.find((x) => x.sha256)?.sha256 ?? null,
+    };
+  });
+}
+
 /** The library of a machine: this computer's folders (`machine` left out or one of hereIds), else another machine's scan. */
 export async function library(s: Lib, machine?: string): Promise<Library> {
   const settings = await readSettings(s.db);
@@ -249,7 +289,7 @@ export async function library(s: Lib, machine?: string): Promise<Library> {
   const families = scan?.families ?? [];
   const hashStatus = await s.hashes.status();
   /** A file listed: here (with its path), moved away by Delete (its row), or another machine's (its name only). */
-  type Listed = { folder: string; file: string; size: number | null; mtime: number | null; path: string | null; away?: Awaited<ReturnType<typeof awayRows>>[number] };
+  type Listed = { folder: string; file: string; size: number | null; mtime: number | null; path: string | null; identity?: string; away?: Awaited<ReturnType<typeof awayRows>>[number] };
   const listed: Listed[] = [];
   let noFolder = false;
   if (!readOnly) {
@@ -304,15 +344,15 @@ export async function library(s: Lib, machine?: string): Promise<Library> {
       id: f.away ? `removed:${f.away.id}` : k, folder: f.folder, file: f.file, kind: kindOfFolder(f.folder), size: f.size, mtime: f.mtime, sha256: h?.sha256 ?? null,
       name: cv?.model_name ?? (page?.title || null) ?? info?.title ?? null, version: cv?.version_name ?? null, base: cv?.base || h?.civitai_base || info?.base || null, picture: cv?.picture ?? null,
       link, match: f.away ? "none" : match, uses: u?.count ?? 0, last: u?.last ?? null, approx: u?.approx ?? false, months: u?.months ?? {},
-      takes: (u?.generations ?? []).reduce((n, g) => n + (takes.get(g) ?? 0), 0), copies: [], needs: needs.get(key) ?? [], families: [...fams], path: f.path,
+      takes: (u?.generations ?? []).reduce((n, g) => n + (takes.get(g) ?? 0), 0), copies: [], also: [], needs: needs.get(key) ?? [], families: [...fams], path: f.path,
       removed: f.away ? { id: f.away.id, place: f.away.place, at: f.away.removed_at, batch: f.away.batch } : null,
     };
   };
-  const files = listed.map(describe);
-  // the same hash twice: the same file, kept twice
+  const files = oneRowEach(listed.map((f) => ({ f: describe(f), identity: f.identity })));
+  // the same hash in two files on disk: the same model, kept twice
   const bySha = new Map<string, LibraryFile[]>();
   for (const f of files) if (f.sha256 && !f.removed) bySha.set(f.sha256, [...(bySha.get(f.sha256) ?? []), f]);
-  for (const same of bySha.values()) if (same.length > 1) for (const f of same) f.copies = same.filter((x) => x !== f).map((x) => x.id);
+  for (const f of files) f.copies = (f.sha256 ? bySha.get(f.sha256) ?? [] : []).filter((x) => x !== f).map((x) => x.id);
   const away = { bin: 0, aside: 0, files: 0 };
   for (const f of files) if (f.removed) {
     away[f.removed.place] += f.size ?? 0;
@@ -388,6 +428,8 @@ export interface DeleteDone {
   aside: Array<{ file: string; why: string }>;
   /** Files left in place, and why (needed, in use, gone, a move that failed). */
   left: Array<{ file: string; why: string }>;
+  /** Files moved that were seen through other folders too (one file on disk): gone from those places as well. */
+  also: Array<{ file: string; as: string[] }>;
 }
 
 /**
@@ -403,15 +445,27 @@ export async function deleteFiles(s: Lib, ask: DeleteAsk, bin: BinFinder = syste
   const families = (await (await s.comfy()).scanKept()?.catch(() => null))?.families ?? [];
   const needs = await needsOf(s, families);
   const bins = oncePerDrive(bin);
-  // a preset or a set names a file by its name: a copy of it left in another sub-folder still has what it needs
-  const asked = new Set(ask.files.map(usedKey));
+  const here: Found[] = [];
+  for (const [folder, list] of dirs) here.push(...(await filesIn(list, folder)).files);
+  // the file on disk each asked one is, and every place it is seen in: the same file through another folder goes with it
+  const identityOfAsked = new Map(here.map((f) => [usedKey(f), f.identity]));
+  const placesOf = (identity: string | undefined) => (identity ? here.filter((x) => x.identity === identity) : []);
+  const going = new Set(ask.files.map((f) => identityOfAsked.get(usedKey(f))).filter((x): x is string => Boolean(x)));
+  // a preset or a set names a file by its name: a copy of it left in another sub-folder still has what it needs, when it
+  // is another file on disk that stays (not one asked, not the same file seen through another folder)
   const staying = new Set<string>();
-  for (const [folder, list] of dirs) for (const f of (await filesIn(list, folder)).files) if (!asked.has(usedKey(f))) staying.add(fileKey(f));
+  for (const f of here) if (!going.has(f.identity)) staying.add(fileKey(f));
   const batch = randomUUID();
-  const done: DeleteDone = { batch, moved: 0, bytes: 0, aside: [], left: [] };
+  const done: DeleteDone = { batch, moved: 0, bytes: 0, aside: [], left: [], also: [] };
+  /** The files on disk this Delete moved already: asked again through another of their places, they are not moved twice. */
+  const movedNow = new Set<string>();
   for (const f of ask.files) {
     const name = baseName(f.file);
-    const blocking = staying.has(fileKey(f)) ? [] : (needs.get(fileKey(f)) ?? []).filter((n) => n.kind !== "family");
+    const identity = identityOfAsked.get(usedKey(f));
+    if (identity && movedNow.has(identity)) continue;
+    const places = placesOf(identity);
+    const keys = places.length ? places.map(fileKey) : [fileKey(f)];
+    const blocking = keys.every((k) => staying.has(k)) ? [] : keys.flatMap((k) => (staying.has(k) ? [] : needs.get(k) ?? [])).filter((n) => n.kind !== "family");
     if (blocking.length && !ask.anyway) {
       done.left.push({ file: name, why: `${blocking[0]!.kind === "preset" ? "the preset" : "the model set"} ${blocking[0]!.name} needs it` });
       continue;
@@ -423,7 +477,8 @@ export async function deleteFiles(s: Lib, ask: DeleteAsk, bin: BinFinder = syste
     }
     // asked again for each file, just before it moves: a job sent meanwhile counts
     const busy = await inUse(s);
-    if (busy.names.has(fileKey(f)) || busy.used.has(usedKey(f))) {
+    const all = places.length ? places : [f];
+    if (all.some((p) => busy.names.has(fileKey(p)) || busy.used.has(usedKey(p)))) {
       done.left.push({ file: name, why: "a job waiting or running uses it" });
       continue;
     }
@@ -455,6 +510,9 @@ export async function deleteFiles(s: Lib, ask: DeleteAsk, bin: BinFinder = syste
       if (m.place === "bin") bins.took(at.path, at.size);
       done.moved++;
       done.bytes += at.size;
+      if (identity) movedNow.add(identity);
+      const others = places.filter((p) => usedKey(p) !== usedKey(f)).map((p) => `${p.folder}/${p.file}`);
+      if (others.length) done.also.push({ file: name, as: others });
       if (m.why !== null) done.aside.push({ file: name, why: m.why });
     } catch (err) {
       // not moved (the move refused, or its row not written): no row left behind for it

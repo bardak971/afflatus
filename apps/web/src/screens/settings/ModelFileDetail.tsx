@@ -6,7 +6,7 @@ import { useCopied } from "../../hooks";
 import { queryKeys } from "../../queryKeys";
 import { Thumb } from "../../Thumb";
 import { Button, Chip, cx, Help } from "../../ui";
-import { lastSaid, nameOf } from "./modelFilesView";
+import { ALSO_HELP, lastSaid, nameOf } from "./modelFilesView";
 
 /**
  * A model file's picture: its Civitai cover when it has one, "HF" for a Hugging Face file (the site has no pictures for its
@@ -65,7 +65,8 @@ export function ModelFileDetail({ f, lib, onDelete, onPutBack }: { f: ModelFile;
         <dt className="text-ink-3">Uses by Afflatus</dt>
         <dd className="flex items-center">{f.uses ? `${f.approx ? "≈" : ""}${plural(f.uses, "job")} · last ${ls.text}` : <span className="text-attention-ink" data-tip={ls.tip}>{ls.text}</span>}<Spark months={f.months} /></dd>
         {f.sha256 && <><dt className="text-ink-3">sha256</dt><dd className="truncate font-mono text-xs text-ink-3" data-tip={f.sha256}>{f.sha256.slice(0, 16)}…</dd></>}
-        {copies.length > 0 && <><dt className="text-ink-3">Same file</dt><dd className="flex flex-col gap-0.5">{copies.map((c) => <span key={c} className="truncate font-mono text-xs">{c}</span>)}</dd></>}
+        {f.also.length > 0 && <><dt className="text-ink-3">Also seen as</dt><dd className="flex flex-col gap-0.5">{f.also.map((a) => <span key={`${a.folder}/${a.file}`} className="truncate font-mono text-xs">{a.folder}/{a.file}</span>)}<span className="flex items-center text-xs text-ink-3">the same file on disk, not a copy<Help text={ALSO_HELP} /></span></dd></>}
+        {copies.length > 0 && <><dt className="text-ink-3">{f.removed ? "Copies still here" : "Copies"}</dt><dd className="flex flex-col gap-0.5">{copies.map((c) => <span key={c} className="truncate font-mono text-xs">{c}</span>)}</dd></>}
       </dl>
       <div className="flex flex-col gap-4 @max-[1000px]:col-span-2">
         <section className="flex flex-col gap-2">

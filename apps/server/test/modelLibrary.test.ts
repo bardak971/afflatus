@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { PassThrough } from "node:stream";
 import { sql } from "kysely";
@@ -256,5 +256,84 @@ describe("what the review asked to hold (card #155)", () => {
     const out = await deleteFiles(t.services, { files: [{ folder: "vae", file: "zz-test-vae.safetensors" }], to: "aside" }, fake);
     expect(out).toMatchObject({ moved: 0, left: [{ why: "a job waiting or running uses it" }] });
     expect(existsSync(vae())).toBe(true);
+  });
+});
+
+describe("one file seen through two folders (card #164)", () => {
+  /**
+   * The owner's extra_model_paths.yaml as on 2026-10-30, in the test's folder: A1111's Stable-diffusion as checkpoints and
+   * its Krea2 sub-folder as diffusion_models, and A1111's models/unet named as diffusion_models with forward slashes
+   * where ComfyUI reads its own models/unet as diffusion_models too. Each is one file on disk seen in two places.
+   */
+  const KREA = "zz-test-krea.safetensors";
+  const UNET = "zz-test-unet.safetensors";
+  beforeEach(() => {
+    mkdirSync(join(home, "a1111", "Stable-diffusion", "Krea2"), { recursive: true });
+    mkdirSync(join(home, "models", "unet"), { recursive: true });
+    writeFileSync(join(home, "a1111", "Stable-diffusion", "Krea2", KREA), Buffer.alloc(5000, 7));
+    writeFileSync(join(home, "models", "unet", UNET), Buffer.alloc(6000, 8));
+    const base = home.replace(/\\/g, "/");
+    writeFileSync(join(home, "extra_model_paths.yaml"), [
+      "a1111:", `  base_path: ${base}/a1111`, "  checkpoints: Stable-diffusion",
+      "a1111_diffusion_models:", `  base_path: ${base}/a1111`, "  diffusion_models: Stable-diffusion/Krea2",
+      "a1111_unet:", `  base_path: ${base}`, "  diffusion_models: models/unet", "",
+    ].join("\n"));
+  });
+  const rowsOf = (l: Library, name: string) => l.files.filter((f) => !f.removed && (f.file.endsWith(name) || (f.also ?? []).some((a) => a.file.endsWith(name))));
+
+  it("lists it once with its places, never as its own copy; hashes it once; a real copy (another file, same bytes) stays a copy", async () => {
+    await t.services.hashes.run();
+    const l = await lib();
+    const krea = rowsOf(l, KREA);
+    expect(krea).toHaveLength(1);
+    expect([`${krea[0]!.folder}/${krea[0]!.file}`, ...krea[0]!.also.map((a) => `${a.folder}/${a.file}`)].sort()).toEqual([`checkpoints/Krea2/${KREA}`, `diffusion_models/${KREA}`]);
+    expect(krea[0]!.copies).toEqual([]);
+    expect(krea[0]!.sha256).toMatch(/^[0-9A-F]{64}$/);
+    const unet = rowsOf(l, UNET);
+    expect(unet).toHaveLength(1);
+    expect(unet[0]!.copies).toEqual([]);
+    // its size counts once in the whole
+    expect(l.files.filter((f) => !f.removed).reduce((n, f) => n + (f.size ?? 0), 0)).toBe(4000 + 300 + 300 + 200 + 5000 + 6000);
+    // both places know its hash, the second given it without reading the file again (the same hashed_at moment's row)
+    const rows = await t.db.selectFrom("model_hashes").selectAll().where("file", "in", [`Krea2/${KREA}`, KREA]).execute();
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.sha256).toBe(rows[1]!.sha256);
+    // the two LoRAs are two files with the same bytes: copies of each other
+    expect(byFile(l, "zz-test-copy.safetensors")!.copies).toEqual(["loras|style/zz-test-a.safetensors"]);
+    expect(byFile(l, "zz-test-copy.safetensors")!.also).toEqual([]);
+  });
+
+  it("Delete never takes it for its own copy: a model set naming it in the other place stops it; moved once, said from every place", async () => {
+    await post(t.app, "/api/model-sets", { name: "zz-test set", presets: [], files: [{ folder: "diffusion_models", file: KREA }] });
+    const kept = await deleteFiles(t.services, { files: [{ folder: "checkpoints", file: `Krea2/${KREA}` }], to: "aside" }, fake);
+    expect(kept).toMatchObject({ moved: 0, left: [{ file: KREA, why: "the model set zz-test set needs it" }] });
+    expect(existsSync(join(home, "a1111", "Stable-diffusion", "Krea2", KREA))).toBe(true);
+    // both places asked (as a "Select" of both rows on an older page did): one move, not a second "not there any more"
+    const gone = await deleteFiles(t.services, { files: [{ folder: "checkpoints", file: `Krea2/${KREA}` }, { folder: "diffusion_models", file: KREA }], to: "aside", anyway: true }, fake);
+    expect(gone).toMatchObject({ moved: 1, bytes: 5000, left: [], also: [{ file: KREA, as: [`diffusion_models/${KREA}`] }] });
+    const l = await lib();
+    expect(rowsOf(l, KREA)).toEqual([]);
+    expect(l.files.filter((f) => f.removed)).toHaveLength(1);
+  });
+
+  it("Empty's list says a file with no other copy left as the only copy; one whose copy stays names it", async () => {
+    await t.services.hashes.run();
+    await deleteFiles(t.services, { files: [{ folder: "diffusion_models", file: UNET }, { folder: "loras", file: "zz-test-copy.safetensors" }], to: "aside" }, fake);
+    const away = (await lib()).files.filter((f) => f.removed);
+    expect(away.map((f) => [f.file, f.copies]).sort()).toEqual([["zz-test-copy.safetensors", ["loras|style/zz-test-a.safetensors"]], [UNET, []]]);
+  });
+
+  it("is one file through a junction too (a folder linked into another)", async () => {
+    if (process.platform !== "win32") return;
+    const real = join(home, "lora-store");
+    mkdirSync(real);
+    writeFileSync(join(real, "zz-test-linked.safetensors"), Buffer.alloc(700, 9));
+    symlinkSync(real, join(home, "models", "loras", "linked"), "junction");
+    writeFileSync(join(home, "extra_model_paths.yaml"), ["store:", `  base_path: ${home.replace(/\\/g, "/")}`, "  loras: lora-store", ""].join("\n"));
+    const l = await lib();
+    const rows = rowsOf(l, "zz-test-linked.safetensors");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.also).toHaveLength(1);
+    expect(rows[0]!.copies).toEqual([]);
   });
 });

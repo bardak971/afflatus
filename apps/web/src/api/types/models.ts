@@ -521,7 +521,10 @@ export interface ModelFile {
   approx: boolean;
   months: Record<string, number>;
   takes: number;
+  /** Other files on disk with the same sha256; for a file Delete moved, the ones still here (none: Empty erases its only copy). */
   copies: string[];
+  /** The same file on disk seen through other folders (a folder extra_model_paths.yaml lists twice): not a copy. */
+  also: Array<{ folder: string; file: string }>;
   needs: ModelNeed[];
   families: string[];
   path: string | null;
@@ -549,4 +552,6 @@ export interface ModelDeleteDone {
   bytes: number;
   aside: Array<{ file: string; why: string }>;
   left: Array<{ file: string; why: string }>;
+  /** Files moved that were seen through other folders too: gone from those places as well. */
+  also: Array<{ file: string; as: string[] }>;
 }

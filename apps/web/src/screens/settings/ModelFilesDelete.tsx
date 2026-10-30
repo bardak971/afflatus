@@ -16,6 +16,7 @@ function sayDone(done: ModelDeleteDone, to: "bin" | "aside", undo: () => void) {
   const where = to === "bin" ? "the Recycle Bin" : "the set-aside folder";
   if (done.moved) push({ id: `model-files:${done.batch}`, tone: "good", title: `${plural(done.moved, "file")} moved to ${where} · ${size(done.bytes)}`, text: "The space comes back once they are emptied (Settings › Model files).", go: "Undo", act: undo });
   if (done.aside.length && to === "bin") push({ id: `model-files:aside:${done.batch}`, tone: "good", title: `${plural(done.aside.length, "file")} went to the set-aside folder instead`, text: done.aside.map((a) => `${a.file}: ${a.why}`).join(" · ") });
+  if (done.also.length) push({ id: `model-files:also:${done.batch}`, tone: "good", title: `${plural(done.also.length, "file")} also seen through another folder, moved once`, text: done.also.map((a) => `${a.file}: also seen as ${a.as.join(", ")}`).join(" · ") });
   if (done.left.length) push({ id: `model-files:left:${done.batch}`, tone: "bad", title: `${plural(done.left.length, "file")} left in place`, text: done.left.map((a) => `${a.file}: ${a.why}`).join(" · ") });
 }
 
@@ -27,12 +28,14 @@ export function DeleteDialog({ files, all, bin, since, onClose, onDone }: { file
   const client = useQueryClient();
   const [to, setTo] = useState<"bin" | "aside">(bin ? "bin" : "aside");
   const said = useSayFailed({ id: "model-files", href: "/settings/model-files", go: "Settings › Model files" });
-  // a preset or a set names a file by its name: a copy of it staying in another sub-folder still has what it needs
-  const staying = new Set(all.filter((f) => !f.removed && !files.includes(f)).map((f) => fileKey(f)));
+  // a preset or a set names a file by its name: a copy of it staying in another sub-folder still has what it needs. A row
+  // is one file on disk with all its places: the places of one deleted are never a copy that stays
+  const placesOf = (f: ModelFile) => [f, ...f.also];
+  const staying = new Set(all.filter((f) => !f.removed && !files.includes(f)).flatMap((f) => placesOf(f).map(fileKey)));
   // of a needed file asked twice or more (its copies), one is enough to keep: the one used most
   const needy: ModelFile[] = [];
   for (const f of [...files].sort((a, b) => b.uses - a.uses)) {
-    if (staying.has(fileKey(f)) || !f.needs.some((n) => n.kind !== "family") || needy.some((x) => fileKey(x) === fileKey(f))) continue;
+    if (placesOf(f).every((p) => staying.has(fileKey(p))) || !f.needs.some((n) => n.kind !== "family") || needy.some((x) => fileKey(x) === fileKey(f))) continue;
     needy.push(f);
   }
   const rest = files.filter((f) => !needy.includes(f));
@@ -73,7 +76,10 @@ export function DeleteDialog({ files, all, bin, since, onClose, onDone }: { file
       <div className="flex max-h-[260px] flex-col overflow-y-auto rounded-lg border border-line">
         {files.map((f) => (
           <div key={f.id} className={cx("grid grid-cols-[minmax(0,1fr)_auto_76px] gap-3 border-b border-line/60 px-3 py-1.5 last:border-b-0", needy.includes(f) && "bg-attention-wash/50")}>
-            <span className="truncate font-mono text-xs">{f.folder}/{f.file}</span>
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate font-mono text-xs">{f.folder}/{f.file}</span>
+              {f.also.length > 0 && <span className="truncate text-xs text-ink-3" data-tip={f.also.map((a) => `${a.folder}/${a.file}`).join(", ")}>the same file, also seen as {f.also.map((a) => `${a.folder}/${a.file}`).join(", ")}: gone from there too</span>}
+            </span>
             <span className="text-xs text-ink-3">{lastSaid(f, since, (iso) => dayOf(iso, now), (iso) => when(iso, now)).text}</span>
             <span className="text-right font-mono text-xs">{f.size === null ? "—" : size(f.size)}</span>
           </div>

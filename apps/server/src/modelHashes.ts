@@ -1,4 +1,4 @@
-import { readdir, stat } from "node:fs/promises";
+import { readdir, realpath, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { Worker } from "node:worker_threads";
 import { civitaiGet, civitaiVersionsByHash, type ApiVersion } from "./civitai";
@@ -76,14 +76,31 @@ export interface HashStatus {
   error: string | null;
 }
 
-interface Found {
+export interface Found {
   folder: string;
   /** As ComfyUI lists it: its sub-folder and name, with forward slashes. */
   file: string;
   path: string;
   size: number;
   mtime: number;
+  /** The file on disk itself (identityOf): two places with the same one are one file, not a copy of it. */
+  identity: string;
 }
+
+/**
+ * Which file on disk a path is, whatever folder it is reached through: its volume and file index (`dev` and `ino`, read
+ * as bigints, which NTFS fills on Windows as other systems do), else, on a file system that gives no index, its real path.
+ * extra_model_paths.yaml may list one folder twice (the owner's named A1111's Stable-diffusion for checkpoints and its
+ * Krea2 sub-folder for diffusion_models), and ComfyUI reads models/unet as diffusion_models: the same file then shows in
+ * two places with the same sha256, and taken for two copies one was deleted as the "extra" one (card #164, 85 GB lost).
+ */
+export function identityOf(path: string, st: { dev: bigint; ino: bigint }): Promise<string> {
+  if (st.ino !== 0n) return Promise.resolve(`${st.dev}:${st.ino}`);
+  return realpath(path).then((p) => `path:${process.platform === "win32" ? p.toLowerCase() : p}`, () => `path:${path}`);
+}
+
+/** A bigint stat's date as a plain stat's `Math.round(mtimeMs)`: kept dates and the pod's check compare with that one. */
+const msOf = (ns: bigint) => Math.round(Number(ns / 1000n) / 1000);
 
 /**
  * The model files under a folder's directories, sub-folders included, and whether every directory of it could be read: a
@@ -101,10 +118,13 @@ export async function filesIn(dirs: string[], folder: string): Promise<{ files: 
     }
     for (const e of entries) {
       const path = join(dir, e.name);
-      if (e.isDirectory()) await walk(root, path, depth + 1);
+      // a folder linked in (a junction, a directory symlink) is walked as ComfyUI walks it (os.walk, followlinks): what it
+      // holds may be listed elsewhere too, one file on disk then seen in two places (identity). A link to a file is not
+      // followed: moving it would move the link, not the file
+      if (e.isDirectory() || (e.isSymbolicLink() && (await stat(path).catch(() => null))?.isDirectory())) await walk(root, path, depth + 1);
       else if (e.isFile() && MODEL_EXT.test(e.name)) {
-        const st = await stat(path).catch(() => null);
-        if (st) out.push({ folder, file: relative(root, path).replace(/\\/g, "/"), path, size: st.size, mtime: Math.round(st.mtimeMs) });
+        const st = await stat(path, { bigint: true }).catch(() => null);
+        if (st) out.push({ folder, file: relative(root, path).replace(/\\/g, "/"), path, size: Number(st.size), mtime: msOf(st.mtimeNs), identity: await identityOf(path, st) });
       }
     }
   };
@@ -202,11 +222,25 @@ export class ModelHashes {
       const k = have.get(keyOf(f.folder, f.file));
       return !k || Number(k.size) !== f.size || Number(k.mtime) !== f.mtime;
     }).sort((a, b) => a.size - b.size);
+    // one file on disk seen in two places (a folder listed twice) is read once: its hash, known in one place and the same
+    // size and date there, goes to the other
+    type Known = { sha256: string; civitai_version: number | null; hf_url: string | null; matched_at: string | null };
+    const known = new Map<string, Known>();
+    for (const f of all) {
+      const k = have.get(keyOf(f.folder, f.file));
+      if (k && Number(k.size) === f.size && Number(k.mtime) === f.mtime) known.set(f.identity, { sha256: k.sha256, civitai_version: k.civitai_version === null ? null : Number(k.civitai_version), hf_url: k.hf_url, matched_at: k.matched_at });
+    }
     // the hashing's thread, for this pass only
     let worker: Worker | null = null;
     try {
       for (const f of todo) {
         if (this.stopped) return;
+        const same = known.get(f.identity);
+        if (same) {
+          const row = { size: f.size, mtime: f.mtime, hashed_at: now(), ...same };
+          await this.s.db.insertInto("model_hashes").values({ folder: f.folder, file: f.file, ...row }).onConflict((oc) => oc.columns(["folder", "file"]).doUpdateSet(row)).execute();
+          continue;
+        }
         // a file just found gone with the same size and time: the same file renamed or moved, its hash and match kept
         // rather than a checkpoint read again in full
         const moved = !have.has(keyOf(f.folder, f.file)) ? gone.findIndex((g) => Number(g.size) === f.size && Number(g.mtime) === f.mtime) : -1;
@@ -223,6 +257,7 @@ export class ModelHashes {
         }
         const sha256 = await this.hashOf(worker, f);
         if (!sha256 || this.stopped) continue;
+        known.set(f.identity, { sha256, civitai_version: null, hf_url: null, matched_at: null });
         const row = { size: f.size, mtime: f.mtime, sha256, hashed_at: now(), civitai_version: null, hf_url: null, matched_at: null };
         await this.s.db.insertInto("model_hashes").values({ folder: f.folder, file: f.file, ...row }).onConflict((oc) => oc.columns(["folder", "file"]).doUpdateSet(row)).execute();
       }

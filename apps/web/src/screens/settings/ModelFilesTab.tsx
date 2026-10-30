@@ -16,10 +16,40 @@ import { DeleteDialog } from "./ModelFilesDelete";
 import { AddingStrip, useDropFiles } from "./ModelFilesDrop";
 import { BANDS, figures, idleFiles, KIND_PLURAL, KINDS, lastSaid, nameOf, NO_FILTER, shown, type Filters, type SortKey } from "./modelFilesView";
 
+/**
+ * What Empty would erase, asked before it does: each file with its size, and the ones of which no other copy stays here
+ * said first, as such (no other file on disk with their sha256; one not hashed has no copy known). A file seen through two
+ * folders went away whole: nothing of it stays in the other place.
+ */
+function EmptyAsk({ files, from }: { files: ModelFile[]; from: string }) {
+  const only = files.filter((f) => !f.copies.length);
+  const sorted = [...only, ...files.filter((f) => f.copies.length)];
+  const bytes = (fs: ModelFile[]) => fs.reduce((n, f) => n + (f.size ?? 0), 0);
+  return (
+    <div className="flex flex-col gap-2 border-b border-line bg-attention-wash/40 px-[18px] py-2.5 text-body">
+      <span>
+        <b>{plural(files.length, "file")} · {size(bytes(files))}</b> erased for good from {from}.
+        {only.length > 0 && <> <b className="text-attention-ink">{only.length === files.length ? (files.length === 1 ? "It is the only copy" : "Each is the only copy") : `${only.length} of them ${only.length === 1 ? "is the only copy" : "are the only copy"}`}</b> <span className="text-attention-ink">({size(bytes(only))}): no other file with the same sha256 stays here.</span></>}
+      </span>
+      <div className="flex max-h-[220px] flex-col overflow-y-auto rounded-lg border border-line bg-panel">
+        {sorted.map((f) => (
+          <div key={f.id} className={cx("grid grid-cols-[minmax(0,1fr)_minmax(0,auto)_76px] gap-3 border-b border-line/60 px-3 py-1.5 last:border-b-0", !f.copies.length && "bg-attention-wash/50")}>
+            <span className="truncate font-mono text-xs" data-tip={`${f.folder}/${f.file}`}>{f.folder}/{f.file}</span>
+            {f.copies.length
+              ? <span className="truncate text-xs text-ink-3" data-tip={f.copies.map((c) => c.replace("|", "/")).join(", ")}>a copy stays: {f.copies[0]!.replace("|", "/")}</span>
+              : <span className="text-xs font-semibold text-attention-ink">{f.sha256 ? "the only copy" : "the only copy known (not hashed)"}</span>}
+            <span className="text-right font-mono text-xs">{f.size === null ? "—" : size(f.size)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** The list of a machine, read again on the server's "models" event (a file hashed, matched, added or moved). */
 export const useModelFiles = (machine?: string) => useQuery({ queryKey: queryKeys.modelInfo.files(machine), queryFn: ({ signal }) => api.modelFiles(machine, { signal }), staleTime: 30_000 });
 
-const HELP = "Every file in ComfyUI's model folders on this PC (extra_model_paths.yaml's folders too): since when it is here, how often Afflatus's jobs loaded it, what was made with it, and what needs it. Afflatus sees only its own jobs: a render made straight in ComfyUI is not counted, so check before deleting a file you use there.";
+const HELP = "Every file in ComfyUI's model folders on this PC (extra_model_paths.yaml's folders too; one file that two of them reach is listed once, with its places): since when it is here, how often Afflatus's jobs loaded it, what was made with it, and what needs it. Afflatus sees only its own jobs: a render made straight in ComfyUI is not counted, so check before deleting a file you use there.";
 const USES_HELP = "Afflatus jobs that loaded this file, counted from the graph each job sent to ComfyUI. ≈: some were counted from a job made before Afflatus kept each job's files, its helper files (VAE, text encoder…) read from today's recipe. Renders made straight in ComfyUI are not counted.";
 
 /** The table's columns, folding as the card narrows: the base and what was made at 1240 px, the date and what needs it at 1000. */
@@ -44,11 +74,12 @@ export function ModelFilesTab() {
   const [sel, setSel] = useState<Set<string>>(new Set());
   const last = useRef<string | null>(null);
   const [asking, setAsking] = useState<ModelFile[] | null>(null);
+  const [emptying, setEmptying] = useState(false);
   const drop = useDropFiles(lib.data);
   const said = useSayFailed({ id: "model-files", href: "/settings/model-files", go: "Settings › Model files" });
   const readAgain = () => void client.invalidateQueries({ queryKey: queryKeys.modelInfo.all() });
   const back = useMutation({ mutationFn: api.putBackModelFiles, onSuccess: (r) => r.left.length && useBanners.getState().push({ id: `model-files:${Date.now()}`, tone: "bad", title: `${plural(r.left.length, "file")} not put back`, text: r.left.map((l) => `${l.file}: ${l.why}`).join(" · ") }), onError: said("Could not put them back"), onSettled: readAgain });
-  const empty = useMutation({ mutationFn: api.emptyModelFiles, onSuccess: (r) => useBanners.getState().push({ id: `model-files:${Date.now()}`, tone: "good", title: `Erased for good · ${plural(r.erased, "file")} · ${size(r.bytes)}` }), onError: said("Could not empty them"), onSettled: readAgain });
+  const empty = useMutation({ mutationFn: api.emptyModelFiles, onSuccess: (r) => useBanners.getState().push({ id: `model-files:${Date.now()}`, tone: "good", title: `Erased for good · ${plural(r.erased, "file")} · ${size(r.bytes)}` }), onError: said("Could not empty them"), onSettled: () => { setEmptying(false); readAgain(); } });
 
   const l = lib.data;
   const now = Date.now();
@@ -119,7 +150,7 @@ export function ModelFilesTab() {
             <Figure big={size(figs.total.bytes)} said={`in ${plural(figs.total.files, "file")}${familyName ? ` of ${familyName}` : ""}`} />
             <Figure big={size(figs.idle.bytes)} tone="attention" said={<>{idleWords(figs.idle.never, l.since, day)} · {plural(figs.idle.files.length, "file")} <Help text={idleHelp(figs.idle.never, l.since, day)} /></>}
               acts={[{ label: "Select them", on: () => setSel(new Set(figs.idle.files.map((x) => x.id))), off: !figs.idle.files.length }, { label: "Show them", on: () => set({ idle: figs.idle.filter }) }]} />
-            <Figure big={size(figs.extra.bytes)} said={<>in {plural(figs.extra.files.length, "extra copy", "extra copies")} of the same file <Help text="The same sha256 in two places: the same file twice. Select the copies keeps the one Afflatus used most and selects the others." /></>}
+            <Figure big={size(figs.extra.bytes)} said={<>in {plural(figs.extra.files.length, "extra copy", "extra copies")} of the same file <Help text="The same sha256 in two files on disk: the same model kept twice. One file ComfyUI reaches through two folders (extra_model_paths.yaml listing a folder twice) is not a copy: it is listed once, with its places. Select the copies keeps the one Afflatus used most and selects the others." /></>}
               acts={[{ label: "Select the copies", on: () => setSel(new Set(figs.extra.files.map((x) => x.id))), off: !figs.extra.files.length }, { label: "Show them", on: () => set({ copies: true }) }]} />
             <Figure big={plural(figs.noMatch, "file")} said={<>with no match on Civitai or Hugging Face <Help text="Matched by sha256 on Civitai, by name and hash on Hugging Face. No match: trained or merged here, renamed and re-saved, or taken down." /></>}
               acts={[{ label: "Show them", on: () => set({ noMatch: true }) }]} />
@@ -133,9 +164,12 @@ export function ModelFilesTab() {
             <Help text={`They stay listed, greyed, until they are put back or emptied. Put back returns each one to its own folder.${away.bin ? ` In the Recycle Bin: ${size(away.bin)} (Windows' own Restore puts them back too, and Windows erases the oldest of the bin when it fills).` : ""}${away.aside ? ` In the set-aside folder (.afflatus-set-aside, beside the model folders): ${size(away.aside)}.` : ""} Empty erases them for good; agents (MCP) cannot.`} />
             <span className="grow" />
             <Button size="sm" disabled={back.isPending} onClick={() => back.mutate({ ids: l.files.filter((x) => x.removed).map((x) => x.removed!.id) })}>Put all back</Button>
-            <TwoStep label={`Empty · ${size(away.bin + away.aside)}`} tone="danger" title={`${plural(away.files, "file")} erased for good, from ${away.bin && away.aside ? "the Recycle Bin and the set-aside folder" : away.bin ? "the Recycle Bin" : "the set-aside folder"}`} note="This cannot be undone." yes={`Erase ${size(away.bin + away.aside)}`} busy={empty.isPending} onYes={() => empty.mutate()} />
+            {emptying
+              ? <TwoStep open tone="danger" title="Empty" note="This cannot be undone." yes={`Erase ${size(away.bin + away.aside)} for good`} busy={empty.isPending} onCancel={() => setEmptying(false)} onYes={() => empty.mutate()} />
+              : <Button size="sm" tone="danger" disabled={empty.isPending} onClick={() => setEmptying(true)}>Empty · {size(away.bin + away.aside)}</Button>}
           </div>
         )}
+        {emptying && away.files > 0 && !ro && <EmptyAsk files={l.files.filter((x) => x.removed)} from={away.bin && away.aside ? "the Recycle Bin and the set-aside folder" : away.bin ? "the Recycle Bin" : "the set-aside folder"} />}
         <AddingStrip drop={drop} />
         <div className="flex flex-wrap items-center gap-2 border-b border-line px-[18px] py-2.5">
           {familyName && <Chip size="sm" onRemove={() => go("/settings/model-files")} removeLabel="Every family again">Family: {familyName}</Chip>}
@@ -152,7 +186,7 @@ export function ModelFilesTab() {
               <Segmented size="sm" label="Not used by Afflatus for" value={f.idle === "idle" ? "90" : ["any", "30", "90", "never"].includes(f.idle) ? f.idle : "any"} options={[{ value: "any", label: "any time" }, { value: "30", label: "30+ days" }, { value: "90", label: "90+ days" }, { value: "never", label: "never used" }]} onChange={(idle) => set({ idle: idle as Filters["idle"] })} />
             </span>
           )}
-          {!ro && <Chip size="sm" tone={f.copies ? "accent" : "neutral"} onClick={() => set({ copies: !f.copies })} tip="The files kept twice or more (same sha256)">Copies</Chip>}
+          {!ro && <Chip size="sm" tone={f.copies ? "accent" : "neutral"} onClick={() => set({ copies: !f.copies })} tip="The models kept twice or more: the same sha256 in other files on disk">Copies</Chip>}
         </div>
         <div className={cx("flex min-h-[44px] items-center gap-3 border-b border-line px-[18px] py-1.5", picked.length > 0 && "bg-accent-wash/40")}>
           <Checkbox checked={allOn ? true : live.some((x) => sel.has(x.id)) ? "some" : false} disabled={ro} label={`Select the ${plural(live.length, "file")} shown`} onChange={() => setSel(allOn ? new Set() : new Set(live.map((x) => x.id)))} />
@@ -196,7 +230,8 @@ export function ModelFilesTab() {
                       <span className="truncate font-semibold">{nameOf(x)}</span>
                       {x.version && x.name && <span className="shrink-0 truncate text-xs text-ink-3">{x.version}</span>}
                       {gone && <Chip size="xs" tone="good">{x.removed!.place === "bin" ? "in the bin" : "set aside"}</Chip>}
-                      {!gone && x.copies.length > 0 && <Chip size="xs" tone="attention" tip={`Same file elsewhere: ${x.copies.map((c) => c.replace("|", "/")).join(", ")}`}>copy</Chip>}
+                      {!gone && x.copies.length > 0 && <Chip size="xs" tone="attention" tip={`The same model in another file: ${x.copies.map((c) => c.replace("|", "/")).join(", ")}`}>copy</Chip>}
+                      {!gone && x.also.length > 0 && <Chip size="xs" tip={`The same file on disk, also seen as ${x.also.map((a) => `${a.folder}/${a.file}`).join(", ")}: not a copy (a folder extra_model_paths.yaml lists twice)`}>{x.also.length + 1} places</Chip>}
                       {!gone && x.match === "pending" && !ro && <Chip size="xs" tip="Not hashed yet: its Civitai or Hugging Face match comes once it is">hashing…</Chip>}
                       {!gone && x.match === "none" && <Chip size="xs" tip="No match on Civitai or Hugging Face">no match</Chip>}
                     </span>
