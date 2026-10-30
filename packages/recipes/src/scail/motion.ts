@@ -1,7 +1,8 @@
 import { FACE_NODE, faceScore } from "../shared/face";
-import { defineRecipe, GraphBuilder, type FrameGrid, type Ref, type Variant } from "@afflatus/core";
+import { defineRecipe, GraphBuilder, type FrameGrid, type InputSpec, type Ref, type Variant } from "@afflatus/core";
 import { SCAIL_CARRIED, SCAIL_CHUNK, SCAIL_FPS, SCAIL_H3_GRID } from "./family";
-import { applyLoras, livePreview, loraLoads } from "../shared/model";
+import { addedLora, applyLoras, livePreview, loraLoads, putAdded } from "../shared/model";
+import { addedInputs, intoRow, withRow, type AddedSpec } from "../shared/addedRows";
 import { CORE_VIDEO_OUT, VHS } from "../shared/out";
 import { rifeNeeds, rifeSkippedSaid } from "../shared/finish";
 import {
@@ -25,6 +26,10 @@ export interface ScailMotion extends MotionValues {
   cfg: number;
   poseStrength: number;
   dpoStrength: number;
+  /** SCAIL-2's two LoRAs picked in their rows of the LoRA list (empty: the slots'), and the step-distill one's weight. */
+  dpoLora?: string;
+  turboLora?: string;
+  turboWeight?: number;
   livePreview: boolean;
   /** At 24 fps only: H3's Face refine on SCAIL's own frames. */
   faceRefine?: boolean;
@@ -37,6 +42,26 @@ const ORDERS: Record<string, string> = { "Left to right": "left_to_right", "Bigg
 
 /** The turbo LoRA at the strength ComfyUI's template gives it. */
 const TURBO_STRENGTH = 0.8;
+
+/**
+ * SCAIL-2's two LoRAs, rows of the LoRA list the model needs (card #160): its DPO LoRA, then lightx2v, as the template puts
+ * them on. No way to remove them; at 0 one is not loaded.
+ */
+const SCAIL_DPO_ROW: AddedSpec = {
+  label: "Needed by this model",
+  note: "SCAIL-2's DPO LoRA, as ComfyUI's template runs it: it makes the hands, lips and eyes better. Its authors say to lower it when the driving video's face shows through the picture's person; at 0 it is not loaded. Its file is the one of Settings › Models unless another is picked",
+  file: { id: "dpoLora", label: "DPO LoRA", slot: "dpo", match: ["scail.*dpo"], note: "SCAIL-2's DPO LoRA. Left as it is, the one of Settings › Models" },
+  weight: { id: "dpoStrength", own: true },
+};
+const SCAIL_TURBO_ROW: AddedSpec = {
+  label: "Needed by this model",
+  note: "lightx2v's step-distill LoRA (Wan 2.1): it makes SCAIL-2 run in 6 steps at CFG 1, as ComfyUI's template; 0.8 is the template's. At 0 it is not loaded, and the model then needs its full steps (40 at CFG 5). Its file is the one of Settings › Models unless another is picked",
+  file: { id: "turboLora", label: "Step-distill LoRA", slot: "turbo", match: ["lightx2v.*i2v.*14b"], note: "lightx2v's step-distill LoRA. Left as it is, the one of Settings › Models" },
+  weight: { id: "turboWeight", label: "Step-distill LoRA weight", default: TURBO_STRENGTH, note: "its strength_model: 0.8 as ComfyUI's template. At 0 it is not loaded" },
+};
+/** The form's inputs with the two rows in its LoRA list, the DPO strength drawn as the first's weight. */
+const withScailRows = (inputs: InputSpec[]): InputSpec[] =>
+  [...intoRow(withRow(withRow(inputs, SCAIL_DPO_ROW), SCAIL_TURBO_ROW), { dpoStrength: "loras" }), ...addedInputs(SCAIL_DPO_ROW), ...addedInputs(SCAIL_TURBO_ROW)];
 
 /**
  * SCAIL-2's Motion transfer at a frame rate: its own 16 (on Wan's 4k + 1 frames), or 24 on the counts H3's grid shares with
@@ -58,7 +83,7 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
     // made from a picture and another video; on a timeline, a window of a long source carrying on from the window before (its last frames)
     // on H3's grid, H3's Face refine runs on its own frames: a finish of a take redraws the take's frames (it keeps no latent)
     traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps, frameGrid: o.grid, windows: { most: shape.most, least: shape.least, carried: SCAIL_CARRIED }, ...(o.faceRefine ? { faceRefine: "faceRefine" } : {}) },
-    inputs: [
+    inputs: withScailRows([
       ...motionInputs(shape),
       {
         id: "order", type: "choice", label: "Who moves like whom", options: Object.keys(ORDERS), default: "Left to right",
@@ -84,7 +109,7 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
       previousInput(fps, SCAIL_CARRIED),
       ...motionOutInputs(fps),
       ...(o.faceRefine ? FACE_REFINE_OTHER_INPUTS : []),
-    ],
+    ]),
     needs: ["dpo", "turbo", "clipVision", "sam"],
     // RIFE with "RIFE ×2" on, Face refine's files (H3's, its text encoder and VAEs too) with it on
     needsWith: (input) => [...rifeNeeds(input.smooth), ...(o.faceRefine ? faceRefineNeeds(input, { own: true, picture: Boolean(input.picture) }) : [])],
@@ -128,9 +153,11 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
       // as the template: the DPO LoRA, then lightx2v. The scheduler reads the shifted model: reading the one before it (as the
       // template), the sigmas took the model's own shift (8) and the form's Shift did nothing; its default is that 8
       let model = g.out("UNETLoader", { unet_name: slots.unet, weight_dtype: "default" });
-      if (slots.dpo && input.dpoStrength !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: slots.dpo, strength_model: input.dpoStrength });
-      if (slots.turbo) model = g.out("LoraLoaderModelOnly", { model, lora_name: slots.turbo, strength_model: TURBO_STRENGTH });
-      model = applyLoras(g, model, input.loras);
+      // (each its row's file and weight; the same file by hand is that row, put on once: card #160)
+      const dpo = addedLora(slots.dpo, input.dpoLora, input.dpoStrength, input.loras);
+      const turbo = addedLora(slots.turbo, input.turboLora, input.turboWeight, dpo.loras, TURBO_STRENGTH);
+      model = putAdded(g, putAdded(g, model, dpo), turbo);
+      model = applyLoras(g, model, turbo.loras);
       const sampling = g.out("ModelSamplingSD3", { model, shift: input.shift });
       const shifted = livePreview(g, ctx, sampling, input.livePreview);
       const sigmas = g.out("BasicScheduler", { model: sampling, scheduler: "simple", steps: input.steps, denoise: 1 });
@@ -209,7 +236,7 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
         ...(saved.headMs ? { overlap: { headMs: saved.headMs, tailMs: 0, moving: true } } : {}),
         loads: [
           ...saved.loads, `diffusion_models/${slots.unet}`, `text_encoders/${slots.clip}`, `vae/${slots.vae}`, `clip_vision/${slots.clipVision}`, `checkpoints/${slots.sam}`,
-          ...(slots.dpo ? [`loras/${slots.dpo}`] : []), ...(slots.turbo ? [`loras/${slots.turbo}`] : []), ...loraLoads(input.loras), ...faces.loads,
+          ...(dpo.put ? [`loras/${dpo.lora!.file}`] : []), ...(turbo.put ? [`loras/${turbo.lora!.file}`] : []), ...loraLoads(turbo.loras), ...faces.loads,
         ],
       };
     },

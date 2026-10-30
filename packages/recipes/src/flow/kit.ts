@@ -1,6 +1,7 @@
 import { roundTo, type BuildContext, type GraphBuilder, type InputSpec, type LoraValue, type Preset, type Ref } from "@afflatus/core";
 import { kSample, type DetailSettings } from "../shared/detail";
-import { applyLoras, loraLoads } from "../shared/model";
+import { addedLora, applyLoras, loraLoads, putAdded } from "../shared/model";
+import { addedInputs, addedRow, type AddedSpec } from "../shared/addedRows";
 import { TILE_NODES } from "../shared/tiles";
 import { GGUF_LOADER, loadUnet, unetNodes } from "../shared/unet";
 
@@ -67,6 +68,9 @@ export interface FlowBase {
   loras: LoraValue[];
   fast?: boolean;
   turboSteps?: number;
+  /** Turbo's LoRA picked in its row of the LoRA list (empty: the slot's) and its weight (left out: 1). */
+  turboLora?: string;
+  turboWeight?: number;
   steps: number;
   cfg: number;
   sampler: string;
@@ -97,10 +101,21 @@ export function inpaintPatched(g: GraphBuilder, ctx: BuildContext, spec: FlowSpe
   return { model: g.out("ZImageFunControlnet", { model, model_patch: patch, vae, strength: 1, inpaint_image: picture, mask }), loads: [`model_patches/${file}`] };
 }
 
+/** Turbo's LoRA as a row of the LoRA list (card #160), when the family has one: on a model not made for a few steps as it is. */
+export const flowTurboRow = (spec: FlowSpec): AddedSpec | null => spec.turbo ? {
+  label: "Turbo", toggle: "fast",
+  note: "Turbo's LoRA: Turbo puts it on the model, at the weight set here. Its file is the one of Settings › Models unless another is picked; any LoRA may take its place, at Turbo's steps. Removing the row turns Turbo off",
+  file: { id: "turboLora", label: "Turbo LoRA", slot: spec.turbo.slot, match: [spec.turbo.named.source], note: "the LoRA Turbo puts on the model. Left as it is, the one of Settings › Models" },
+  weight: { id: "turboWeight", label: "Turbo LoRA weight", default: 1, note: "its strength_model: 1 is the LoRA's own. At 0 it is not loaded, Turbo's steps run without it" },
+  when: { not: { name: { input: "model", slot: "unet" }, match: spec.turbo.named.source } },
+} : null;
+
 export function flowKit(spec: FlowSpec) {
+  const row = flowTurboRow(spec);
   /** How it samples: the values of ComfyUI's own template to begin with, each kept per model once saved. */
   const inputs: InputSpec[] = spec.inputs ?? [
-    { id: "loras", type: "loras", label: "LoRAs", max: 6 },
+    { id: "loras", type: "loras", label: "LoRAs", max: 6, ...(row ? { added: [addedRow(row)] } : {}) },
+    ...(row ? addedInputs(row) : []),
     { id: "negative", type: "prompt", label: "Negative prompt", note: spec.negative.note, style: "sentences", optional: true, default: spec.negative.default, advanced: true, perModel: true },
     ...(spec.turbo
       ? ([
@@ -149,12 +164,14 @@ export function flowKit(spec: FlowSpec) {
     const unet = input.model ?? ctx.slots.unet;
     let model: Ref = loadUnet(g, ctx, unet, (precise && input.precision) || "default");
     const made = spec.turbo ? spec.turbo.named.test(unet?.split(/[\\/]/).pop() ?? "") : false;
-    const turboLora = spec.turbo && input.fast && !made ? ctx.slots[spec.turbo.slot] : undefined;
+    // Turbo's row in the LoRA list: its file and weight, the same file by hand put on once (card #160)
+    const added = spec.turbo && input.fast && !made ? addedLora(ctx.slots[spec.turbo.slot], input.turboLora, input.turboWeight, input.loras) : { lora: null, put: false, loras: input.loras };
+    const turboLora = added.lora?.file;
     // a model made for a few steps runs at them whether Turbo is on or not (40 steps at CFG 4 on a Lightning
     // merge comes out burnt). Turbo with a model that is not made for it and no LoRA to make it so: the full steps
     const turbo = Boolean(spec.turbo && (made || (input.fast && turboLora)));
-    if (turboLora) model = g.out("LoraLoaderModelOnly", { model, lora_name: turboLora, strength_model: 1 });
-    model = applyLoras(g, model, input.loras);
+    model = putAdded(g, model, added);
+    model = applyLoras(g, model, added.loras);
     return {
       model,
       clip: spec.encoder.load(g, ctx.slots),
@@ -162,7 +179,7 @@ export function flowKit(spec: FlowSpec) {
       steps: turbo ? input.turboSteps ?? spec.turbo!.steps : input.steps,
       cfg: turbo ? 1 : input.cfg,
       turbo,
-      loads: [`diffusion_models/${unet}`, ...spec.encoder.files(ctx.slots), `vae/${ctx.slots.vae}`, ...(turboLora ? [`loras/${turboLora}`] : []), ...loraLoads(input.loras)],
+      loads: [`diffusion_models/${unet}`, ...spec.encoder.files(ctx.slots), `vae/${ctx.slots.vae}`, ...(added.put ? [`loras/${turboLora}`] : []), ...loraLoads(added.loras)],
     };
   }
   type Loaded = ReturnType<typeof load>;

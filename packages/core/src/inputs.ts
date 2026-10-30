@@ -35,6 +35,11 @@ interface Base {
   section?: "out" | "speed" | "file" | "rare";
   /** A chapter of the recipe's own (an imported workflow's sections): shown there, in the recipe's order, instead of by kind. */
   chapter?: string;
+  /**
+   * The file or the weight of a LoRA the recipe adds itself (AddedLora), drawn as that LoRA's row in this LoRA list (its id)
+   * rather than as a field of its own.
+   */
+  inList?: string;
 }
 
 interface PromptInput extends Base {
@@ -88,12 +93,74 @@ interface ModelInput extends Base {
    * slots' included: each is a model the pass may run on.
    */
   own?: true;
+  /**
+   * Left empty, the recipe takes the file of the first of its slots that suits the clip (AddedLora.slots: H3's reference
+   * turbo LoRA for a reference clip, the usual one otherwise): the form starts empty. Its list is the files named for that use
+   * first (`match`), then every other file of the folder: any may be put in its place.
+   */
+  blank?: true;
 }
 interface LorasInput extends Base {
   type: "loras";
   max: number;
   /** The LoRAs the list starts with (the ones an imported workflow came with). */
   default?: LoraValue[];
+  /** The LoRAs the recipe adds itself (Turbo's, a distilled LoRA), each drawn as a row of its own at the top of the list. */
+  added?: AddedLora[];
+}
+
+/**
+ * A LoRA a recipe puts on the model itself, by a toggle (Turbo) or because the model needs it (LTX's distilled LoRA on a
+ * model that is not distilled): shown as a row of a LoRA list, with its file and its weight, which are inputs of their own
+ * (marked `inList`). A row of the same file added by hand is folded into it: one loader, at the weight typed (addedLora).
+ */
+export interface AddedLora {
+  /** What the row is marked with ("Turbo", "Needed"). */
+  label: string;
+  /** The "?" of the row: what the LoRA does and where its file comes from (the Settings › Models slot). */
+  note: string;
+  /** The toggle that adds it: removing the row turns it off. Left out, the model needs it and the row cannot be removed. */
+  toggle?: string;
+  /** The model input (blank) that picks its file. */
+  file: string;
+  /** The number input that is its weight. */
+  weight: string;
+  /** Where the file comes from while none is picked: the first slot whose condition holds and that has a file. */
+  slots: Array<{ slot: string; when?: StartCondition }>;
+  /** When the recipe really adds it, the toggle on: not on a model made for a few steps as it is. Left out, always. */
+  when?: StartCondition;
+}
+
+/** One LoRA the recipe adds itself, as it will be put on: its row, its file, its weight, and the hand row of the same file folded into it. */
+export interface AddedRow {
+  added: AddedLora;
+  file: string;
+  weight: number;
+  /** The index in the list of a row of the same file added by hand: its weight is the one used (one loader). */
+  hand: number;
+}
+
+/** The same LoRA file, wherever the folder it is in and whichever slash: two loaders of it would put it on twice. */
+export const sameLora = (a: string, b: string) => (a.split(/[\\/]/).pop() ?? a).toLowerCase() === (b.split(/[\\/]/).pop() ?? b).toLowerCase();
+
+/**
+ * The LoRAs a list's recipe adds itself with these values and the files its family uses, as the render puts them on: the
+ * toggle on, the condition holding, and a file there (picked, else its slot's). A row of the same file in the list gives
+ * the weight (an older draft with Turbo on and the turbo LoRA added by hand too, card #160).
+ */
+export function addedRows(spec: InputSpec, values: Record<string, unknown>, slots: Record<string, string>): AddedRow[] {
+  if (spec.type !== "loras" || !spec.added) return [];
+  const list = Array.isArray(values[spec.id]) ? (values[spec.id] as LoraValue[]) : [];
+  return spec.added.flatMap((added) => {
+    if (added.toggle && !values[added.toggle]) return [];
+    if (added.when && !conditionHolds(added.when, values, slots)) return [];
+    const picked = pickedFile(values[added.file]);
+    const file = picked ?? added.slots.map((s) => (!s.when || conditionHolds(s.when, values, slots) ? slots[s.slot] : undefined)).find(Boolean);
+    if (!file) return [];
+    const hand = list.findIndex((l) => sameLora(l.file, file));
+    const typed = Number(values[added.weight]);
+    return [{ added, file, weight: hand >= 0 ? list[hand]!.weight : values[added.weight] !== undefined && Number.isFinite(typed) ? typed : 1, hand }];
+  });
 }
 interface SizeInput extends Base {
   type: "size";
@@ -651,10 +718,10 @@ export interface StartRule {
   values: Record<string, unknown>;
 }
 
-function holds(c: StartCondition, values: Record<string, unknown>, slots: Record<string, string>): boolean {
-  if ("all" in c) return c.all.every((x) => holds(x, values, slots));
-  if ("any" in c) return c.any.some((x) => holds(x, values, slots));
-  if ("not" in c) return !holds(c.not, values, slots);
+export function conditionHolds(c: StartCondition, values: Record<string, unknown>, slots: Record<string, string>): boolean {
+  if ("all" in c) return c.all.every((x) => conditionHolds(x, values, slots));
+  if ("any" in c) return c.any.some((x) => conditionHolds(x, values, slots));
+  if ("not" in c) return !conditionHolds(c.not, values, slots);
   if ("name" in c) {
     const picked = c.name.input ? values[c.name.input] : undefined;
     const file = (typeof picked === "string" && picked) || (c.name.slot ? slots[c.name.slot] : "") || "";
@@ -668,6 +735,6 @@ function holds(c: StartCondition, values: Record<string, unknown>, slots: Record
 /** The starting values the rules whose condition holds give, the first rule first for a setting two give. */
 export function ruledDefaults(rules: readonly StartRule[] | undefined, values: Record<string, unknown>, slots: Record<string, string>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const r of rules ?? []) if (holds(r.when, values, slots)) for (const [k, v] of Object.entries(r.values)) if (!(k in out)) out[k] = v;
+  for (const r of rules ?? []) if (conditionHolds(r.when, values, slots)) for (const [k, v] of Object.entries(r.values)) if (!(k in out)) out[k] = v;
   return out;
 }

@@ -1,5 +1,5 @@
 import { useId } from "react";
-import { pickChoice, RANDOM_SEED, partFit, secondsOf, type PartFit, type ClipValue, type CueValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
+import { addedRows, pickChoice, RANDOM_SEED, partFit, secondsOf, type PartFit, type ClipValue, type CueValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import type { FamilyInfo } from "./api";
 import { useCastPictures, useCastVoice } from "./castPictures";
 import { FileSelect, FOLDER_OF, ModelField } from "./fields/FileSelect";
@@ -64,7 +64,7 @@ function clipSecondsOf(specs: InputSpec[] | undefined, values: Record<string, un
   return null;
 }
 
-export function Field({ spec, value, values, specs, options, family, model, onChange, onValue, main, bare, standard }: {
+export function Field({ spec, value, values, specs, options, setup, family, model, onChange, onValue, main, bare, standard }: {
   spec: InputSpec;
   value: unknown;
   /** The whole form, for a field that goes with another one (the part painted over a picture). */
@@ -73,6 +73,8 @@ export function Field({ spec, value, values, specs, options, family, model, onCh
   specs?: InputSpec[];
   /** What this ComfyUI offers for a model, LoRA or ComfyUI-backed choice input. */
   options: string[] | undefined;
+  /** What this ComfyUI offers for every input of the form, and the files its family's slots use: a LoRA list draws the LoRAs the recipe adds itself by them. */
+  setup?: { options: Record<string, string[]>; slots?: Record<string, string> };
   /** The model family the form is for: LoRAs made for it are listed first. */
   family?: FamilyInfo;
   /** The model file in use: LoRAs made for that very model, or its line, come before the rest of the family's. */
@@ -100,8 +102,11 @@ export function Field({ spec, value, values, specs, options, family, model, onCh
     case "model":
       return <ModelField id={id} spec={spec} value={String(value ?? "")} options={options} family={family} onChange={onChange} />;
 
-    case "loras":
-      return <Loras spec={spec} value={(value as LoraValue[] | undefined) ?? []} options={options ?? []} family={family} model={model} onChange={onChange} main={main} />;
+    case "loras": {
+      // the LoRAs the recipe adds itself (Turbo's), as these values put them on (card #160)
+      const added = spec.added && values && specs && onValue ? { rows: addedRows(spec, values, setup?.slots ?? {}), specs, options: setup?.options ?? {}, values, set: onValue } : undefined;
+      return <Loras spec={spec} value={(value as LoraValue[] | undefined) ?? []} options={options ?? []} family={family} model={model} onChange={onChange} main={main} added={added} />;
+    }
 
     case "size":
       return <SizeField spec={spec} value={(value as SizeValue | undefined) ?? { width: 0, height: 0 }} values={values} onChange={onChange} />;

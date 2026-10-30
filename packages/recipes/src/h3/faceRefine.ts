@@ -1,4 +1,5 @@
 import { OWN_MODEL, packOfNode, wanted, type BuildContext, type GraphBuilder, type InputSpec, type Ref } from "@afflatus/core";
+import { addedLora } from "../shared/model";
 import { loadUnet } from "../shared/unet";
 import { H3_HYBRIDS, SWAP_MODELS } from "./family";
 import type { H3Video } from "./inputs";
@@ -130,9 +131,9 @@ const fileName = (file: string | undefined) => file?.split(/[\\/]/).pop() ?? "";
  * The model an H3 clip is made with, for Face refine to run on (OWN_MODEL): its file, the loader the clip's graph loads it
  * with (none in a build that samples nothing), whether it follows a picture (a reference model or a hybrid: the frames model
  * draws no <Picture 1>), the family slot it is had from when no input names it, and the turbo LoRA it runs with (Turbo on,
- * on a model that is not distilled) and that LoRA's slot.
+ * on a model that is not distilled) at the weight of its row in the LoRA list (card #160), and that LoRA's slot.
  */
-export interface ClipModel { file: string | undefined; loader?: Ref; follows: boolean; slot?: string; turbo?: string; turboSlot?: string }
+export interface ClipModel { file: string | undefined; loader?: Ref; follows: boolean; slot?: string; turbo?: string; turboWeight?: number; turboSlot?: string }
 
 /**
  * The model of an H3 clip as loadH3Model picks it, without loading it: the reference model for a clip made by it, and its
@@ -144,10 +145,12 @@ export function clipModelOf(input: H3Video, slots: Record<string, string> = {}, 
   const file = own ? picked.file : slots.refUnet;
   const distilled = own ? picked.turbo : namedFor.turbo.test(fileName(file));
   const turboSlot = !own && slots.refTurbo ? "refTurbo" : "turbo";
-  const turbo = input.fast && !distilled ? turboPick ?? slots[turboSlot] : undefined;
+  // the file and weight of Turbo's row, as loadH3Model puts it on (not at weight 0)
+  const added = input.fast && !distilled ? addedLora(turboPick ?? slots[turboSlot], input.turboLora, input.turboWeight, input.loras ?? []) : null;
+  const turbo = added?.put ? added.lora : null;
   return {
     file, follows: how.reference || picked.hybrid, slot: own ? (input.model ? undefined : "unet") : "refUnet",
-    ...(turbo ? { turbo } : {}), ...(input.fast && !distilled ? { turboSlot } : {}),
+    ...(turbo ? { turbo: turbo.file, turboWeight: turbo.weight } : {}), ...(input.fast && !distilled ? { turboSlot } : {}),
   };
 }
 
@@ -157,7 +160,7 @@ export function clipModelOf(input: H3Video, slots: Record<string, string> = {}, 
  * unless it follows no picture, then the fused turbo, else the reference model. Steps: the form's when typed, else 4 on a
  * turbo (its name says so, as H3's distilled files are known) and FACE_REFINE_FULL_STEPS on a full model.
  */
-export function faceModelOf(input: Partial<Pick<H3Video, "faceRefineModel" | "faceRefineSteps">>, slots: Record<string, string>, clip?: ClipModel): { file: string | undefined; loader?: Ref; lora?: string; steps: number; said: string | null } {
+export function faceModelOf(input: Partial<Pick<H3Video, "faceRefineModel" | "faceRefineSteps">>, slots: Record<string, string>, clip?: ClipModel): { file: string | undefined; loader?: Ref; lora?: string; loraWeight?: number; steps: number; said: string | null } {
   const asked = input.faceRefineModel;
   const turbo = slots.faceRefineUnet;
   let file = asked && asked !== OWN_MODEL ? asked : turbo;
@@ -178,7 +181,7 @@ export function faceModelOf(input: Partial<Pick<H3Video, "faceRefineModel" | "fa
   const lora = theClips ? clip?.turbo : undefined;
   const typed = (input.faceRefineSteps ?? 0) > 0 ? input.faceRefineSteps! : 0;
   const fast = Boolean(lora) || namedFor.turbo.test(fileName(file));
-  return { file, ...(loader ? { loader } : {}), ...(lora ? { lora } : {}), steps: typed || (fast ? TURBO_STEPS : FACE_REFINE_FULL_STEPS), said };
+  return { file, ...(loader ? { loader } : {}), ...(lora ? { lora, loraWeight: clip?.turboWeight ?? 1 } : {}), steps: typed || (fast ? TURBO_STEPS : FACE_REFINE_FULL_STEPS), said };
 }
 
 /**
@@ -266,7 +269,8 @@ export function faceRefined(
   const picked = faceModelOf(input, slots, at.model);
   let model = picked.loader ?? loadUnet(g, ctx, picked.file);
   if (input.quick) model = g.out("ModelAttentionBackend", { model, attention: "comfy kitchen attention" });
-  if (picked.lora) model = g.out("LoraLoaderModelOnly", { model, lora_name: picked.lora, strength_model: 1 });
+  // (at the weight of Turbo's row, as the clip had it)
+  if (picked.lora) model = g.out("LoraLoaderModelOnly", { model, lora_name: picked.lora, strength_model: picked.loraWeight ?? 1 });
   model = g.out("MiniMaxH3SigmaShift", { model, shift_video: 12, shift_audio: 3 });
   const subject = input.subject?.trim() ? `, ${input.subject.trim().replace(/[.\s]+$/, "")}` : "";
   const r2v = g.add("MiniMaxH3ReferenceToVideo", {

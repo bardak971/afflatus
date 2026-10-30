@@ -1,5 +1,5 @@
 import { wanted, type BuildContext, type GraphBuilder, type Ref, type StartRule } from "@afflatus/core";
-import { applyLoras, livePreview } from "../shared/model";
+import { addedLora, applyLoras, livePreview, putAdded } from "../shared/model";
 import { loadUnet } from "../shared/unet";
 import { UPSCALE } from "../video/upscale";
 import type { H3Video } from "./inputs";
@@ -101,7 +101,7 @@ export type H3Uses = ReturnType<typeof uses>;
  * the attention and precision patches, the turbo LoRA and the user's LoRAs, the sigma shift, and the
  * live preview. With it, what the chain is (turbo or not, with which LoRA) and how many steps it takes.
  */
-export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, picked: H3Model, how: H3Uses, audioVae: Ref, vedaFor?: "reference", turboPick?: string): { model: Ref; turbo: boolean; steps: number; lora: string | undefined; distilled: boolean; unet: string | undefined; loader?: Ref; vedaMissing: "reference" | "t2va" | null } {
+export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, picked: H3Model, how: H3Uses, audioVae: Ref, vedaFor?: "reference", turboPick?: string): { model: Ref; turbo: boolean; steps: number; lora: string | undefined; loraWeight: number; distilled: boolean; unet: string | undefined; loader?: Ref; vedaMissing: "reference" | "t2va" | null } {
   const { slots } = ctx;
   // references: a hybrid model follows them itself, any other hands those clips to MiniMax's reference model
   const own = !how.reference || picked.hybrid;
@@ -116,7 +116,10 @@ export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, 
   const turboFile = turboPick ?? (how.reference && !picked.hybrid ? slots.refTurbo ?? slots.turbo : slots.turbo);
   // a turbo model is made for few steps as it is: the LoRA on top of it would be the same thing twice
   const distilled = own ? picked.turbo : namedFor.turbo.test(unet?.split(/[\\/]/).pop() ?? "");
-  const lora = input.fast && !distilled ? turboFile : undefined;
+  // the file and weight of Turbo's row in the LoRA list (card #160): the slot's at 1 left as they start; the same file in
+  // the user's list is that row, at the weight typed there, put on once
+  const added = input.fast && !distilled ? addedLora(turboFile, input.turboLora, input.turboWeight, input.loras) : { lora: null, put: false, loras: input.loras };
+  const lora = added.lora?.file;
   const turbo = distilled || Boolean(lora);
   // the steps and shifts are the form's, as it shows them: it starts them on what the LoRA in use was trained at (Turbo:
   // 12 / 3; a reference clip on MiniMax's 4-step reference LoRA: 4 steps at 6 / 3, see H3_STARTS)
@@ -128,8 +131,8 @@ export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, 
   }
   if (input.quick) model = g.out("ModelAttentionBackend", { model, attention: "comfy kitchen attention" });
   if (ctx.has("ModelPatchTorchSettings")) model = g.out("ModelPatchTorchSettings", { model, enable_fp16_accumulation: true });
-  if (lora) model = g.out("LoraLoaderModelOnly", { model, lora_name: lora, strength_model: 1 });
-  model = applyLoras(g, model, input.loras);
+  model = putAdded(g, model, added);
+  model = applyLoras(g, model, added.loras);
   model = g.out("MiniMaxH3SigmaShift", { model, shift_video: input.shiftVideo, shift_audio: input.shiftAudio });
   // Veda's sparse attention, last on the model before the sampler as its makers ask: after the LoRAs, and after Comfy Kitchen's
   // attention, which it runs on top of for the layers it leaves full. 32 key tiles kept of each query tile, its default and
@@ -141,5 +144,5 @@ export function loadH3Model(g: GraphBuilder, ctx: BuildContext, input: H3Video, 
   model = livePreview(g, ctx, model, input.livePreview, audioVae);
   // a turbo model with Fast off takes the steps typed (4 to 8 are what it is made for)
   const steps = lora || (distilled && input.fast) ? input.turboSteps : input.steps;
-  return { model, turbo, steps, lora, distilled, unet, loader, vedaMissing: input.veda && !veda ? vedaKind : null };
+  return { model, turbo, steps, lora: added.put ? lora : undefined, loraWeight: added.lora?.weight ?? 1, distilled, unet, loader, vedaMissing: input.veda && !veda ? vedaKind : null };
 }

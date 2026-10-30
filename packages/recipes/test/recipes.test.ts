@@ -556,7 +556,7 @@ describe("h3.video with another H3 model", () => {
     const not = build({ model: "SomeoneH3_hybridTurboV3.safetensors", turboIn: "No", hybrid: "No", ...refs });
     expect(unet(not)).toBe("ref.safetensors");
     expect(loras(not)).toEqual(["t.safetensors"]);
-    expect(h3Video.inputs.filter((i) => i.perModel).map((i) => i.id)).toEqual(["fast", "turboSteps", "steps", "sampler", "scheduler", "shiftVideo", "shiftAudio", "turboIn", "hybrid"]);
+    expect(h3Video.inputs.filter((i) => i.perModel).map((i) => i.id)).toEqual(["fast", "turboSteps", "steps", "sampler", "scheduler", "shiftVideo", "shiftAudio", "turboIn", "hybrid", "turboLora", "turboWeight"]);
   });
 });
 

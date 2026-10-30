@@ -333,7 +333,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
         bare={bare}
         standard={defaults[i.id]}
         // what the screen fills in too (a timeline take's clip before): what one clip holds of a sound counts it
-        spec={i} value={values[i.id]} values={seen} specs={recipe.inputs} options={status?.options[i.id]} family={family} model={inUse}
+        spec={i} value={values[i.id]} values={seen} specs={recipe.inputs} options={status?.options[i.id]} setup={status} family={family} model={inUse}
         onChange={(v) => onChange(i.id, v)}
         onValue={onChange}
         main={mainText?.type === "prompt" ? { text: String(values[mainText.id] ?? ""), style: mainText.style, set: (text) => onChange(mainText.id, text) } : undefined}

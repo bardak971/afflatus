@@ -6,6 +6,7 @@ import { H3_REFERENCES, H3_REFERENCE_VIDEOS } from "./condition";
 import { H3_JOIN_FRAMES, H3_LANDINGS } from "./join";
 import { FACE_REFINE_INPUTS } from "./faceRefine";
 import { CUE_SOUND, H3_CUES } from "./cue";
+import { H3_TURBO_ROW, TURBO_LORA_INPUTS } from "./turboRow";
 
 export interface H3Video extends ColourMatch {
   model?: string;
@@ -42,6 +43,9 @@ export interface H3Video extends ColourMatch {
   shape: SizeValue;
   short: number;
   fast: boolean;
+  /** Turbo's LoRA picked in its row of the LoRA list (empty: the slot's) and its weight (left out: 1). */
+  turboLora?: string;
+  turboWeight?: number;
   turboSteps: number;
   steps: number;
   sampler: string;
@@ -270,6 +274,7 @@ export const h3Inputs: InputSpec[] = [
   { id: "cacheEnd", type: "number", label: "Step cache end", note: "where skipping stops, so that the last steps finish the detail", min: 0.1, max: 1, step: 0.05, default: 0.9, showWhen: "cache", advanced: true },
   { id: "cacheSteps", type: "number", label: "Step cache max skips", note: "how many steps may be skipped one after the other", min: 1, max: 6, step: 1, default: 2, showWhen: "cache", advanced: true },
   { id: "crf", type: "number", label: "CRF", note: "how hard the video file is compressed: lower is better and larger. 19 looks lossless, 23 is the usual quality of the web", min: 0, max: 40, step: 1, default: 19, advanced: true },
-  { id: "loras", type: "loras", label: "LoRAs", max: 6 },
+  { id: "loras", type: "loras", label: "LoRAs", max: 6, added: [H3_TURBO_ROW] },
+  ...TURBO_LORA_INPUTS,
   { id: "seed", type: "seed", label: "Seed" },
 ];

@@ -1,9 +1,10 @@
-import { defineRecipe, GraphBuilder, type BuildContext, type ClipValue, type LoraValue, type Ref, type SizeValue, type Variant } from "@afflatus/core";
+import { defineRecipe, GraphBuilder, type BuildContext, type ClipValue, type LoraValue, type Ref, type SizeValue, type StartCondition, type Variant } from "@afflatus/core";
 import { WAN_FORM_PIXELS, WAN_FPS, wanCanvas, wanFrames } from "./family";
 import { UPSCALE_OPTIONAL, upscaleInputs, upscaleNeeds, upscaleNodes } from "../video/upscale";
 import { colourMatched, COLOUR_MATCH_INPUTS, COLOUR_MATCH_NODES, finishFrames, openingStart, rifeNeeds, rifeRuns, rifeSkippedSaid, type ColourMatch } from "../shared/finish";
 import { previousFrames } from "../motion/driving";
-import { applyLoras, livePreview, loraLoads } from "../shared/model";
+import { addedLora, applyLoras, livePreview, loraLoads, putAdded } from "../shared/model";
+import { addedInputs, addedRow, type AddedSpec } from "../shared/addedRows";
 import { faster, SPEED_INPUTS, speedNodes, type SpeedSettings } from "../shared/speed";
 import { loadUnet, unetNodes } from "../shared/unet";
 import { CORE_VIDEO_OUT, VHS } from "../shared/out";
@@ -40,6 +41,10 @@ export interface WanVideo extends ColourMatch, Partial<Recording> {
   fast: boolean;
   turboSteps: number;
   turboStrength: number;
+  /** Turbo's two LoRAs picked in their rows of the LoRA lists (empty: the slots'), and the low-noise one's weight (left out: 1). */
+  turboLora?: string;
+  turboLoraLow?: string;
+  turboWeightLow?: number;
   turboHybrid: boolean;
   nag: boolean;
   nagScale: number;
@@ -68,6 +73,49 @@ export interface WanVideo extends ColourMatch, Partial<Recording> {
 /** What a fine-tune is, as far as its file name says: merges made for a few steps are named for it, or are known ones. */
 // The fine-tune lines: "Lightspeed" is distilled, "TrueVision" is made for the full steps (20 to 30 at CFG 3.5), so the maker's name alone says nothing
 const namedTurbo = /turbo|distill|lightning|lightx2v|lightspeed|rapid|smoothmix|(^|[^a-z0-9])\d+[ _-]?steps?/i;
+
+/**
+ * Turbo's two rows, one in each LoRA list (card #160), as wanLoad puts them on: Turbo on, a high-noise model that is not made
+ * for a few steps (modelsOf: the one picked when it is made for the clip's way or does not say, else the way's usual file),
+ * and both files there (picked, else the way's slots). The high one's weight is the high-noise turbo strength it always had.
+ */
+const WORDS: StartCondition = { all: [{ not: { input: "start", filled: true } }, { not: { input: "end", filled: true } }, { not: { input: "previous", filled: true } }] };
+const PICKED_FITS: StartCondition = {
+  all: [{ input: "model", filled: true }, {
+    any: [
+      { all: [WORDS, { not: { name: { input: "model" }, match: "i2v|img2vid|image.?to.?video|flf2v" } }] },
+      { all: [{ not: WORDS }, { any: [{ name: { input: "model" }, match: "i2v|img2vid|image.?to.?video|flf2v" }, { not: { name: { input: "model" }, match: "t2v|txt2vid|text.?to.?video" } }] }] },
+    ],
+  }],
+};
+const TURBO_NAMED = namedTurbo.source;
+const HIGH_DISTILLED: StartCondition = {
+  any: [{ input: "turboIn", is: "Yes" }, {
+    all: [{ not: { input: "turboIn", is: "No" } }, {
+      any: [
+        { all: [PICKED_FITS, { name: { input: "model" }, match: TURBO_NAMED }] },
+        { all: [{ not: PICKED_FITS }, WORDS, { name: { slot: "t2vHigh" }, match: TURBO_NAMED }] },
+        { all: [{ not: PICKED_FITS }, { not: WORDS }, { name: { slot: "i2vHigh" }, match: TURBO_NAMED }] },
+      ],
+    }],
+  }],
+};
+const hasFile = (input: string, words: string, picture: string): StartCondition =>
+  ({ any: [{ name: { input }, match: "." }, { all: [WORDS, { name: { slot: words }, match: "." }] }, { all: [{ not: WORDS }, { name: { slot: picture }, match: "." }] }] });
+const WAN_TURBO_WHEN: StartCondition = { all: [{ not: HIGH_DISTILLED }, hasFile("turboLora", "t2vTurboHigh", "i2vTurboHigh"), hasFile("turboLoraLow", "t2vTurboLow", "i2vTurboLow")] };
+const WAN_TURBO_NOTE = "Turbo's lightx2v LoRA on this half of the model: Turbo puts the two on, one in each list, as Settings › Models has them for the clip's way (i2v, or t2v from words alone) unless others are picked; any LoRA may take its place, at Turbo's steps. Removing the row turns Turbo off";
+const WAN_TURBO_HIGH: AddedSpec = {
+  label: "Turbo", toggle: "fast", note: WAN_TURBO_NOTE, when: WAN_TURBO_WHEN,
+  file: { id: "turboLora", label: "Turbo LoRA (high noise)", slot: "i2vTurboHigh", match: ["(lightx2v|lightning).*high|high.*(lightx2v|lightning)"], note: "the lightx2v LoRA Turbo puts on the high-noise model. Left as it is, the one of Settings › Models for the clip's way" },
+  weight: { id: "turboStrength", own: true },
+  slots: [{ slot: "t2vTurboHigh", when: WORDS }, { slot: "i2vTurboHigh", when: { not: WORDS } }],
+};
+const WAN_TURBO_LOW: AddedSpec = {
+  list: "lorasLow", label: "Turbo", toggle: "fast", note: WAN_TURBO_NOTE, when: WAN_TURBO_WHEN,
+  file: { id: "turboLoraLow", label: "Turbo LoRA (low noise)", slot: "i2vTurboLow", match: ["(lightx2v|lightning).*low|low.*(lightx2v|lightning)"], note: "the lightx2v LoRA Turbo puts on the low-noise model. Left as it is, the one of Settings › Models for the clip's way" },
+  weight: { id: "turboWeightLow", label: "Low-noise turbo", default: 1, note: "the turbo LoRA's strength on the low-noise model: 1 is the LoRA's own. At 0 it is not loaded" },
+  slots: [{ slot: "t2vTurboLow", when: WORDS }, { slot: "i2vTurboLow", when: { not: WORDS } }],
+};
 
 /** Which way the clip is made: from words alone (the words-to-video models), or opening / ending on a picture (a clip it carries on from is one). */
 const uses = (input: WanVideo) => ({ words: !input.start && !input.end && !input.previous, both: Boolean(input.end) });
@@ -154,7 +202,14 @@ type WanModels = ReturnType<typeof modelsOf> & { high: string; low: string };
  * clip takes the full steps.
  */
 function wanLoad(g: GraphBuilder, ctx: BuildContext, input: WanVideo, picked: WanModels, svi: { high: string; low: string } | null) {
-  const turboLoras = input.fast && !picked.distilled && picked.turboHigh && picked.turboLow ? { high: picked.turboHigh, low: picked.turboLow } : null;
+  // the files and weights of Turbo's rows in the two LoRA lists (card #160): the slots' at the high-noise turbo strength and
+  // 1 left as they start; the same file by hand in a list is that row, at the weight typed there, put on once
+  const high = addedLora(picked.turboHigh, input.turboLora, input.turboStrength, input.loras);
+  const low = addedLora(picked.turboLow, input.turboLoraLow, input.turboWeightLow, input.lorasLow);
+  const turboOn = input.fast && !picked.distilled && Boolean(high.lora && low.lora);
+  const none = (loras: LoraValue[]) => ({ lora: null, put: false, loras });
+  const added = turboOn ? { high, low } : { high: none(input.loras), low: none(input.lorasLow) };
+  const turboLoras = turboOn ? { high: high.lora!.file, low: low.lora!.file, put: { high: high.put, low: low.put } } : null;
   const turbo = input.fast && (picked.distilled || Boolean(turboLoras));
   // the form's shift: 8 at full steps (the template's), and Turbo starts it on 5, what the lightx2v LoRAs are made for
   const shift = input.shift;
@@ -164,15 +219,15 @@ function wanLoad(g: GraphBuilder, ctx: BuildContext, input: WanVideo, picked: Wa
    * The model with its LoRAs, and the same model with the user's LoRAs but without the turbo one (for the hybrid pass). SVI 2.0
    * Pro's LoRA, for a clip that carries on through it, goes on first, under the turbo one and on the hybrid pass's model too.
    */
-  const load = (file: string, sviLora: string | undefined, turboLora: string | undefined, strength: number, loras: LoraValue[]) => {
+  const load = (file: string, sviLora: string | undefined, turbo: ReturnType<typeof addedLora>) => {
     const unet = loadUnet(g, ctx, file);
     const base = sviLora ? g.out("LoraLoaderModelOnly", { model: unet, lora_name: sviLora, strength_model: 1 }) : unet;
-    const boosted = applyLoras(g, turboLora ? g.out("LoraLoaderModelOnly", { model: base, lora_name: turboLora, strength_model: strength }) : base, loras);
-    return { model: finish(boosted), plain: turboLora && input.turboHybrid ? finish(applyLoras(g, base, loras)) : null };
+    const boosted = applyLoras(g, putAdded(g, base, turbo), turbo.loras);
+    return { model: finish(boosted), plain: turbo.lora && input.turboHybrid ? finish(applyLoras(g, base, turbo.loras)) : null };
   };
-  const high = load(picked.high, svi?.high, turboLoras?.high, input.turboStrength, input.loras);
-  const low = load(picked.low, svi?.low, turboLoras?.low, 1, input.lorasLow).model;
-  return { high: high.model, plain: high.plain, low, turbo, turboLoras, shift };
+  const highModel = load(picked.high, svi?.high, added.high);
+  const lowModel = load(picked.low, svi?.low, added.low).model;
+  return { high: highModel.model, plain: highModel.plain, low: lowModel, turbo, turboLoras, loras: { high: added.high.loras, low: added.low.loras }, shift };
 }
 
 /**
@@ -350,7 +405,8 @@ export const wanVideo = defineRecipe<WanVideo>({
     },
     { id: "turboSteps", type: "number", label: "Turbo steps", note: "4 is what the turbo LoRAs are made for; some fine-tunes ask for 6 or 8", min: 2, max: 12, step: 1, default: 4, showWhen: "fast", advanced: true, perModel: true },
     {
-      id: "turboStrength", type: "number", label: "High-noise turbo", min: 0.2, max: 1.2, step: 0.05, default: 1, showWhen: "fast", advanced: true, perModel: true,
+      // (drawn as the weight of Turbo's row in the high-noise LoRA list, card #160)
+      id: "turboStrength", type: "number", label: "High-noise turbo", min: 0.2, max: 1.2, step: 0.05, default: 1, showWhen: "fast", advanced: true, perModel: true, inList: "loras",
       note: "the turbo LoRA's strength on the high-noise model. 1 is the LoRAs' own. 0.6 to 0.8 on the high-noise half brings back motion the 4-step LoRA flattens; the low-noise half stays at 1",
     },
     {
@@ -394,8 +450,9 @@ export const wanVideo = defineRecipe<WanVideo>({
       note: "Wan makes 16 pictures for a second of motion. Another figure plays the same pictures faster or slower: 24 makes the motion quicker and the clip shorter. Doubled when Smooth is on. Under a recording, 16: the clip lasts as long as its part",
     },
     { id: "crf", type: "number", label: "CRF", note: "how hard the video file is compressed: lower is better and larger. 19 looks lossless, 23 is the usual quality of the web", min: 0, max: 40, step: 1, default: 19, advanced: true },
-    { id: "loras", type: "loras", label: "LoRAs (high noise)", max: 6, note: "Wan LoRAs come in two files: the HIGH one here" },
-    { id: "lorasLow", type: "loras", label: "LoRAs (low noise)", max: 6, note: "and the LOW one here. A LoRA in one file goes in both" },
+    { id: "loras", type: "loras", label: "LoRAs (high noise)", max: 6, note: "Wan LoRAs come in two files: the HIGH one here", added: [addedRow(WAN_TURBO_HIGH)] },
+    { id: "lorasLow", type: "loras", label: "LoRAs (low noise)", max: 6, note: "and the LOW one here. A LoRA in one file goes in both", added: [addedRow(WAN_TURBO_LOW)] },
+    ...addedInputs(WAN_TURBO_HIGH), ...addedInputs(WAN_TURBO_LOW),
     { id: "seed", type: "seed", label: "Seed" },
     // a clip under a recording it plays over (card #82): its place in the recording, set by the timeline, never drawn
     ...recordingInputs({ shown: false, fit: WAN_RECORDING, note: "the recording the clip is under: Wan makes no sound, its part is the clip's sound" }),
@@ -473,6 +530,7 @@ export const wanVideo = defineRecipe<WanVideo>({
     const audio = laid ? laid.sound(g, null, { head: svi ? SVI_HEAD : 0, frames: svi ? frames - SVI_DROPPED : frames }) : undefined;
     const made = finishFrames(g, ctx, colourMatched(g, ctx, own, openingStart(input), fps), input, { frame: { width, height }, rife: input.smooth, fps, ...(audio ? { audio } : {}) });
     const lorasOf = (turboLora: string | undefined, loras: LoraValue[]) => [...(turboLora ? [`loras/${turboLora}`] : []), ...loraLoads(loras)];
+    const put = models.turboLoras?.put;
     const said = [
       rifeSkippedSaid(input.smooth, ctx),
       carry && !carry.svi ? carry.why : null,
@@ -500,7 +558,7 @@ export const wanVideo = defineRecipe<WanVideo>({
         ...made.loads,
         `diffusion_models/${picked.high}`, `diffusion_models/${picked.low}`, `text_encoders/${slots.clip}`, `vae/${slots.vae}`,
         ...(svi ? [`loras/${svi.high}`, `loras/${svi.low}`] : []),
-        ...lorasOf(models.turboLoras?.high, input.loras), ...lorasOf(models.turboLoras?.low, input.lorasLow),
+        ...lorasOf(put?.high ? models.turboLoras!.high : undefined, models.loras.high), ...lorasOf(put?.low ? models.turboLoras!.low : undefined, models.loras.low),
       ],
     };
   },

@@ -91,7 +91,9 @@ function groupOf(i: InputSpec): Group {
 export function matchesQuery(i: InputSpec, q: string): boolean {
   if (!q) return true;
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-  return matchesText(`${i.label} ${i.id}${i.type === "number" ? ` ${i.unit ?? ""}` : ""}`, q) || (Boolean(i.note) && words.every((w) => i.note!.toLowerCase().includes(w)));
+  // a LoRA list is found by the rows of the LoRAs its recipe adds itself too ("turbo")
+  const rows = i.type === "loras" && i.added ? ` ${i.added.map((a) => `${a.label} ${a.file} ${a.weight}`).join(" ")}` : "";
+  return matchesText(`${i.label} ${i.id}${i.type === "number" ? ` ${i.unit ?? ""}` : ""}${rows}`, q) || (Boolean(i.note) && words.every((w) => i.note!.toLowerCase().includes(w)));
 }
 
 /**
@@ -105,9 +107,12 @@ export function matchesText(text: string, q: string): boolean {
   return words.every((w) => hay.includes(w) || [...hay.matchAll(/(?:^|[\s_\-./()[\]:·,])(\S)/g)].some((m) => m[1] === w[0] && fuzzyScore(w, hay.slice(m.index + m[0].length - 1)) !== null));
 }
 
-/** The two numbers that say which part of a sound (or of a source video) is used: drawn with it, not as fields of their own. */
+/**
+ * The two numbers that say which part of a sound (or of a source video) is used, and the file and weight of a LoRA the recipe
+ * adds itself (drawn as its row of the LoRA list, card #160): drawn with what they go with, not as fields of their own.
+ */
 export const tuckedOf = (recipe: RecipeInfo): Set<string> =>
-  new Set(recipe.inputs.flatMap((i) => ((i.type === "audio" || i.type === "clip") && i.window ? [i.window.start, i.window.seconds] : [])));
+  new Set(recipe.inputs.flatMap((i) => (i.inList ? [i.id] : (i.type === "audio" || i.type === "clip") && i.window ? [i.window.start, i.window.seconds] : [])));
 
 /**
  * Which input goes in which part of a form, with `q` (the search, trimmed) applied: the model and its
