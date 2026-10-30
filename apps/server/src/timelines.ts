@@ -84,6 +84,11 @@ export interface CutOptions {
   fromJob?: string;
   /** Made after a Face refine of the same clip, at this denoise: part of what the finish was, for a redo to compare. */
   faceFirst?: number;
+  /**
+   * That Face refine's model, when the finish picked one over the clip's own form's (card #159): for a redo to compare too,
+   * the cut itself loads no model. Left out when none was picked, so the finishes made before it keep their key (card #190).
+   */
+  faceFirstModel?: string;
   /** The timeline it is cut in, without a clip: its folder is where the new videos land (folderForMade). */
   timeline?: string;
 }

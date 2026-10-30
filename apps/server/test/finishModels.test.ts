@@ -109,3 +109,18 @@ describe("a form's model inputs, as the files a job asks for", () => {
     expect(asked({ upscale: "Latent: re-sampled", upscaleWith: "Plain resize", upscaleLatentModel: "minimax_h3_latent_upscaler_v2.safetensors" })).not.toContain("minimax_h3_latent_upscaler_v2.safetensors");
   });
 });
+
+describe("a LoRA list's six places, Turbo's row among them (card #189)", () => {
+  it("refuses a render with six LoRAs of its own and Turbo on, before any job is queued; takes five, or six with Turbo off", async () => {
+    const render = (values: Record<string, unknown>) => t.app.inject({ method: "POST", url: "/api/jobs", payload: { recipe: "h3.video", input: { description: "a", start: "s1", ...values } } });
+    const six = Array.from({ length: 6 }, (_, i) => ({ file: `zz-test-${i}.safetensors`, weight: 0.5 }));
+    const turbo = { fast: true, turboLora: "zz-test-h3-turbo.safetensors" };
+    const refused = await render({ ...turbo, loras: six });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.body).toMatch(/7 LoRAs, 6 at most \(Turbo takes a place/);
+    expect(await t.db.selectFrom("jobs").select("id").execute()).toEqual([]);
+    expect((await render({ ...turbo, loras: six.slice(1) })).body).not.toMatch(/at most/);
+    expect((await render({ ...turbo, loras: [...six.slice(1), { file: "zz-test-h3-turbo.safetensors", weight: 0.8 }] })).body).not.toMatch(/at most/);
+    expect((await render({ fast: false, loras: six })).body).not.toMatch(/at most/);
+  });
+});

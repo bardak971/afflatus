@@ -1,4 +1,4 @@
-import { carryOver } from "@afflatus/core";
+import { carryOver, squash } from "@afflatus/core";
 import type { FamilyInfo, RecipeInfo } from "./api";
 
 export { carryOver };
@@ -15,8 +15,6 @@ interface ModelGroup {
   /** Its operations: the built-in ones, then the user's workflows. */
   recipes: RecipeInfo[];
 }
-
-const squash = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, "");
 
 /**
  * The models, each with its operations. A workflow imported under the name of a built-in model

@@ -114,7 +114,7 @@ export const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "t
 export const gb = (bytes: number) => `${(bytes / 2 ** 30).toFixed(1)} GB`;
 
 /** A count with its word: "1 take", "3 settings", "2 people" (core's, shared with the server). */
-export { plural } from "@afflatus/core";
+export { plural, verb } from "@afflatus/core";
 
 const PHASES: Record<string, string> = {
   waiting: "Queued on ComfyUI",
