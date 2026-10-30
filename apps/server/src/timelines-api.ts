@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { CUT_WINDOW_MOST, RANDOM_SEED, TRANSITION_KINDS, TRANSITION_MS, hiddenRunUp, movedSeed, resamplesLatent, typedSeed, type InputSpec, type Recipe, type ReferenceValue } from "@afflatus/core";
+import { CUT_WINDOW_MOST, OWN_MODEL, RANDOM_SEED, TRANSITION_KINDS, TRANSITION_MS, hiddenRunUp, movedSeed, resamplesLatent, typedSeed, type InputSpec, type Recipe, type ReferenceValue } from "@afflatus/core";
 import { fromRender, markPng } from "./aiMark";
 import { nameOf } from "./autoName";
 import { VERSION } from "./config";
@@ -156,16 +156,20 @@ export const exportBody = z.strictObject({
   webMb: z.union([z.literal(10), z.literal(25)]).optional(),
 });
 
+/** A finish's model file, never OWN_MODEL: only Face refine runs on the clip's own model. */
+const notOwn = z.string().max(200).refine((v) => v !== OWN_MODEL, { message: `"${OWN_MODEL}" is Face refine's alone: the upscalers take a model file` });
+
 /** How the clips are finished: the route, how much larger, its settings; `redo` finishes again the clips finished already. */
 export const finishBody = z.strictObject({
-  route: z.enum(["seedvr", "latent", "rtx", "model", "face"]), factor: z.number().min(1).max(4), colour: z.enum(["lab", "wavelet", "adain", "none"]).optional(), upscaleModel: z.string().max(200).optional(), seedvrFrames: z.number().int().min(0).max(49).optional(),
+  route: z.enum(["seedvr", "latent", "rtx", "model", "face"]), factor: z.number().min(1).max(4), colour: z.enum(["lab", "wavelet", "adain", "none"]).optional(), upscaleModel: notOwn.optional(), seedvrFrames: z.number().int().min(0).max(49).optional(),
   sharpen: z.number().min(0).max(1).optional(), latentNoise: z.number().min(0.05).max(0.95).optional(), latentSteps: z.number().int().min(1).max(6).optional(),
   faceDenoise: z.number().min(0.3).max(0.6).optional(), face: z.boolean().optional(),
   /**
    * The models a finish runs on (card #159), "" or none for each clip's own: Face refine's (a file, or OWN_MODEL: the clip's own
    * model) over what each clip's form says; H3's latent upscaler and SeedVR2's model over Settings › Models' files.
    */
-  faceModel: z.string().max(200).optional(), latentModel: z.string().max(200).optional(), seedvrModel: z.string().max(200).optional(),
+  // (the clip's own model is Face refine's alone: an upscaler set to it named no file, and failed the job at its submit)
+  faceModel: z.string().max(200).optional(), latentModel: notOwn.optional(), seedvrModel: notOwn.optional(),
   /** Redo the clips finished already: all of them (true), or only those finished with other settings ("changed"). */
   redo: z.union([z.boolean(), z.literal("changed")]).default(false), clips: z.array(z.string()).optional(),
   /** One take to finish (a take's Face pass), in place of the clip's playing one: finished from it, whatever plays. */

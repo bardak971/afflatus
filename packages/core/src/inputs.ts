@@ -146,7 +146,8 @@ export const sameLora = (a: string, b: string) => (a.split(/[\\/]/).pop() ?? a).
 /**
  * The LoRAs a list's recipe adds itself with these values and the files its family uses, as the render puts them on: the
  * toggle on, the condition holding, and a file there (picked, else its slot's). A row of the same file in the list gives
- * the weight (an older draft with Turbo on and the turbo LoRA added by hand too, card #160).
+ * the weight (an older draft with Turbo on and the turbo LoRA added by hand too, card #160); one at 0 is not folded, as the
+ * render does not (addedLora): it stays a row of the list at 0, and this row keeps its own weight.
  */
 export function addedRows(spec: InputSpec, values: Record<string, unknown>, slots: Record<string, string>): AddedRow[] {
   if (spec.type !== "loras" || !spec.added) return [];
@@ -157,7 +158,7 @@ export function addedRows(spec: InputSpec, values: Record<string, unknown>, slot
     const picked = pickedFile(values[added.file]);
     const file = picked ?? added.slots.map((s) => (!s.when || conditionHolds(s.when, values, slots) ? slots[s.slot] : undefined)).find(Boolean);
     if (!file) return [];
-    const hand = list.findIndex((l) => sameLora(l.file, file));
+    const hand = list.findIndex((l) => l.weight !== 0 && sameLora(l.file, file));
     const typed = Number(values[added.weight]);
     return [{ added, file, weight: hand >= 0 ? list[hand]!.weight : values[added.weight] !== undefined && Number.isFinite(typed) ? typed : 1, hand }];
   });
@@ -494,10 +495,14 @@ function schemaOf(spec: InputSpec): z.ZodType {
       const s = z.string().max(20_000);
       return spec.optional ? s.default(spec.default ?? "") : spec.default !== undefined ? s.default(spec.default) : s.min(1);
     }
-    case "model":
+    case "model": {
       // with a slot behind it, leaving it out means the slot's file; so does an empty pick (the form's, its folder holding
       // nothing yet): a Swap motion's first window was refused for the ControlNet only its later windows take
-      return spec.slot ? z.preprocess((v) => (v === "" ? undefined : v), z.string().min(1).optional()) : spec.default ? z.string().min(1).default(spec.default) : z.string().min(1);
+      const s: z.ZodType = spec.slot ? z.preprocess((v) => (v === "" ? undefined : v), z.string().min(1).optional()) : spec.default ? z.string().min(1).default(spec.default) : z.string().min(1);
+      // OWN_MODEL only where the input offers it: elsewhere it is no file, and reached the loader to fail the job at its
+      // submit (a pod's boot paid), as SeedVR2's or the latent upscaler's set to it by an agent
+      return spec.own ? s : s.refine((v) => v !== OWN_MODEL, { message: `"${OWN_MODEL}" is not offered here: this input takes a model file` });
+    }
     case "loras":
       return z
         .array(z.object({ file: z.string().min(1), weight: z.number().min(-4).max(4) }))

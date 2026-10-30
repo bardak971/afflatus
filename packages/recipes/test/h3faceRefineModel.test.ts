@@ -148,6 +148,12 @@ describe("H3 · Face refine model (card #159)", () => {
     expect(facePass(finish.graph)).toMatchObject({ steps: 4, loras: [turbo.refTurbo], loader: { inputs: { unet_name: REF } } });
     expect(finish.built.loads).toContain(`loras/${turbo.refTurbo}`);
     expect(video.needsWith!(parseInput(video, { description: "a", faceRefine: true, references: person, faceRefineModel: OWN_MODEL, fast: true, faceRefineOnly: true }), { ...slots, ...turbo })).toEqual(expect.arrayContaining(["refUnet", "refTurbo"]));
+    // on a fresh pod, with neither turbo LoRA, the reference one it was made with is asked for, never the usual one
+    const fresh = video.needsWith!(parseInput(video, { description: "a", faceRefine: true, references: person, faceRefineModel: OWN_MODEL, fast: true, faceRefineOnly: true }), slots);
+    expect(fresh).toEqual(expect.arrayContaining(["refUnet", "refTurbo"]));
+    expect(fresh).not.toContain("turbo");
+    // (with only the usual one there, the clip ran on it, and that one is kept)
+    expect(video.needsWith!(parseInput(video, { description: "a", faceRefine: true, references: person, faceRefineModel: OWN_MODEL, fast: true, faceRefineOnly: true }), { ...slots, turbo: "minimax_h3_turbo.safetensors" })).toContain("turbo");
     // another file picked runs as it is: no LoRA of the clip's on it
     expect(facePass(build({ fast: true }, { slots: { ...slots, ...turbo } }).graph)).toMatchObject({ steps: 4, loras: [], loader: { inputs: { unet_name: TURBO } } });
   });

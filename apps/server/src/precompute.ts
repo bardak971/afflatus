@@ -1,6 +1,6 @@
 import { type Media } from "./cut";
 import { lookOf, takeMeasures, type Measure } from "./measure";
-import { runUpBreak, runUpCut } from "./joinScore";
+import { cutLookedFor, RUN_UP_CUT_RECIPES, runUpBreak, runUpCut } from "./joinScore";
 import type { Db } from "./db";
 import { ffmpegPool } from "./pool";
 import { keptKey, keptMotion, type TimelineMedia } from "./timelineMedia";
@@ -102,6 +102,7 @@ export class Precompute {
     const timelines = await this.db.selectFrom("timelines").select("id").orderBy("updated_at", "desc").execute();
     for (const t of timelines) this.add(`timeline:${t.id}`, { slow: true, work: () => this.readTimeline(t.id, true) });
     // the takes that carry on, measured before a cut after their run-up was looked for (card #161): each one looked at
+    // (H3's: the detector is made for its frames, cutLookedFor)
     const media = this.media;
     if (!media.runUpCut) return;
     const runUps = await this.db
@@ -110,6 +111,7 @@ export class Precompute {
       .innerJoin("generations", "generations.id", "assets.generation_id")
       .select("takes.asset_id as asset")
       .where("takes.head_ms", ">", 0)
+      .where("generations.recipe_id", "like", `${RUN_UP_CUT_RECIPES}%`)
       .where("generations.measure", "is not", null)
       .where("generations.measure", "not like", '%"runUpCut"%')
       .orderBy("takes.created_at", "desc")
@@ -264,11 +266,12 @@ export class Precompute {
  * editor and the background find them done (its motion, its film strip, its frame means). Eight decodes before, three of
  * them made again by the background once the take was placed. `put` stores a file (the caller's: a failed landing removes
  * what it put). When the one run fails, the look is measured a pass at a time as before and the rest left to the
- * background. `fromMs`: where the take's own part starts (a continuation's run-up before it).
+ * background. `fromMs`: where the take's own part starts (a continuation's run-up before it). `recipe`: the render's, a cut
+ * after the run-up looked for in H3's alone (cutLookedFor).
  */
 export async function measureLanded(
   put: (key: string, bytes: Uint8Array) => Promise<void>, assetId: string, source: Media, ext: string,
-  facts: { durationMs: number; hasSound: boolean }, fromMs = 0,
+  facts: { durationMs: number; hasSound: boolean }, fromMs = 0, recipe?: string,
 ): Promise<Measure | null> {
   const all = await takeMeasures(source, ext, { fromMs, durationMs: facts.durationMs, hasSound: facts.hasSound }).catch(() => null);
   let look = all ? all.look : await lookOf(source, ext, fromMs).catch(() => null);
@@ -284,7 +287,7 @@ export async function measureLanded(
   if (look && fromMs > 0) {
     look = { ...look, handover: (await runUpBreak(source, ext, fromMs).catch(() => null)) ?? undefined };
     // and a hard cut a few frames on, which the step at the join alone does not see (card #161)
-    const cut = await runUpCut(source, ext, fromMs).catch(() => undefined);
+    const cut = cutLookedFor(recipe) ? await runUpCut(source, ext, fromMs).catch(() => undefined) : undefined;
     if (cut !== undefined) look = { ...look, runUpCut: cut };
   }
   return look;

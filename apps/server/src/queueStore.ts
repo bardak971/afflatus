@@ -368,7 +368,7 @@ async function measureStored(
   const headMs = resume.overlap?.headMs ?? 0;
   // the look, and for a continuation where its run-up ends, from one decode of the stored file; its motion, strip and frame
   // means are kept from the same decode, for the timeline editor (measureLanded)
-  const measure = await measureLanded((key, bytes) => storage.put(key, bytes), stored.id, source, stored.ext, stored.facts, headMs).catch(() => null);
+  const measure = await measureLanded((key, bytes) => storage.put(key, bytes), stored.id, source, stored.ext, stored.facts, headMs, recipe.id).catch(() => null);
   if (!measure) return null;
   // a join made in the latent: how wide its regenerated run-up came out against the tail it was guided by, read from the
   // two latents (the clip before's is the one its join took)

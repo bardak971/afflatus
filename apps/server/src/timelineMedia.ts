@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { frameName, nameOf } from "./autoName";
 import { CutError, filmStrip, frameAt, KEYFRAME_STRIP_MS, linesOf, pausesOf, peekAt, soundSlice, wholeGainOf } from "./cut";
 import { colourNudge, MATCH, type FrameMeans, type Means, type Measure, measureOf, meansAlong, meansWithin, MOTION_RATE, scenesOf, takeMeasures } from "./measure";
-import { joinJump, lastFrameAt, LEAST_MOTION, runUpCut } from "./joinScore";
+import { cutLookedFor, joinJump, lastFrameAt, LEAST_MOTION, runUpCut } from "./joinScore";
 import { newId, now } from "./db";
 import type { LibraryChange } from "./events";
 import { notFound } from "./errors";
@@ -81,11 +81,12 @@ export class TimelineMedia {
       .selectFrom("takes")
       .innerJoin("assets", "assets.id", "takes.asset_id")
       .innerJoin("generations", "generations.id", "assets.generation_id")
-      .select(["takes.head_ms as head", "assets.raw_key as raw", "assets.file_key as file", "assets.mime as mime", "generations.id as generation", "generations.measure as measure"])
+      .select(["takes.head_ms as head", "assets.raw_key as raw", "assets.file_key as file", "assets.mime as mime", "generations.id as generation", "generations.measure as measure", "generations.recipe_id as recipe"])
       .where("takes.asset_id", "=", assetId)
       .where("takes.head_ms", ">", 0)
       .executeTakeFirst();
-    if (!row?.measure || (JSON.parse(row.measure) as Measure).runUpCut !== undefined) return false;
+    // (H3's alone: the detector is made for its frames, cutLookedFor)
+    if (!row?.measure || !cutLookedFor(row.recipe) || (JSON.parse(row.measure) as Measure).runUpCut !== undefined) return false;
     const cut = await runUpCut(await sourceOf(storage, row.raw ?? row.file), extOf(row.mime), row.head);
     if (cut === undefined) return false;
     // read again just before writing: a figure kept meanwhile stays
