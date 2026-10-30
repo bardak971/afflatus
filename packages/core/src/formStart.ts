@@ -14,6 +14,8 @@ export function defaultOf(spec: InputSpec, options: string[] | undefined): unkno
     case "prompt": return spec.example ? "" : spec.default ?? "";
     case "model": {
       if (spec.default) return spec.default;
+      // a LoRA the recipe adds itself starts on none: the render takes the slot that suits the clip (AddedLora.slots)
+      if (spec.blank) return "";
       // a model one other setting brings in (SeedVR2's, Face refine's) starts on a file made for it or none (its slot's, when
       // one comes): with none of its kind here, the first of the folder was some other model, sent as SeedVR2's
       const first = options?.[0] ?? "";

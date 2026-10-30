@@ -4,6 +4,7 @@ import { modelOf, namedFor } from "./model";
 import { latentUpscaleNeeds } from "./latent-upscale";
 import { upscaleNeeds } from "../video/upscale";
 import { h3Inputs, type H3Video } from "./inputs";
+import { SWAP_TURBO_ROW } from "./turboRow";
 /** Said in the "?" of a swap's parts (card #49): the tags are written for them. */
 const PART_NO_TAGS = "No <Video 1> or <Picture 1> to type: Afflatus adds them";
 import { buildH3, h3Video, refinesOnly, SHOT_WORDS, type H3Extra } from "./video";
@@ -183,6 +184,8 @@ export const swapInputs: InputSpec[] = [
     // the swap's own model (the owner, 2026-10-29, card #159): one model in memory, where the fused turbo beside it was a
     // second one every job loaded again
     if (spec.id === "faceRefineModel" && spec.type === "model") return [{ ...spec, default: OWN_MODEL }];
+    // Turbo's row, on the swap's own model (card #160)
+    if (spec.id === "loras" && spec.type === "loras") return [{ ...spec, added: [SWAP_TURBO_ROW] }];
     // the window before, on a timeline's source lane: continued in its latent, its last frames (Frames from the clip before) the run-up
     if (spec.id === "previous" && spec.type === "clip") {
       return [{ ...spec, advanced: true, note: "on a timeline's source lane, the window before: its last frames and their sound start this one, so that the person does not jump at the join" }];

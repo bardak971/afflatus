@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, Minus, Pencil, Plus } from "lucide-react";
-import { baseGroup, baseLabel, lineOf, loraFit, modelFit, type InputSpec, type LoraValue } from "@afflatus/core";
+import { baseGroup, baseLabel, lineOf, loraFit, modelFit, sameLora, type AddedRow, type InputSpec, type LoraValue } from "@afflatus/core";
 import { api, type FamilyInfo, type ModelInfo, type ModelWords } from "../api";
 import { useModelInfo, useModelWords } from "../data";
 import { fileLabel } from "../format";
 import { ModelLink } from "../ModelLink";
 import { appendTo, removeFrom, wordsIn } from "../promptText";
 import { Select, type Option } from "../Select";
-import { Chip, CloseButton, cx, fieldClass, NumberBox } from "../ui";
+import { Chip, CloseButton, cx, fieldClass, Help, NumberBox } from "../ui";
 import { Slider } from "../Slider";
 import { useFilePlaces } from "../filePlaces";
-import { fileOption } from "./FileSelect";
+import { fileOption, FileSelect } from "./FileSelect";
 import { Label } from "./Label";
 import { queryKeys } from "../queryKeys";
 import { useCopied } from "../hooks";
@@ -158,7 +158,80 @@ export function useLoraWordsOf(files: string[]) {
 const choicesSeen = new Map<string, { reads: unknown[]; choices: Option[] }>();
 const CHOICES_KEPT = 8;
 
-export function Loras({ spec, value, options, family, model, onChange, main }: {
+/** The LoRAs the recipe adds itself (Turbo's, a distilled LoRA), as the form's values put them on, and how to change them. */
+export interface AddedLoras {
+  rows: AddedRow[];
+  specs: InputSpec[];
+  /** What this ComfyUI offers for each input (a row's file input among them). */
+  options: Record<string, string[]>;
+  values: Record<string, unknown>;
+  set(input: string, value: unknown): void;
+}
+
+/**
+ * A LoRA the recipe adds itself, as a row of the list (card #160): what adds it, its file (those of its slot's kind first, any
+ * LoRA allowed) and its weight. A row of the same file added by hand is shown as this one, at its weight: the first change
+ * moves that weight into the row and takes the hand row out of the list. Its × turns the toggle that adds it off (the file
+ * and weight stay for when it is on again); a LoRA the model needs has none, and at weight 0 it is left out.
+ */
+function AddedRowField({ row, added, list, onList, family }: { row: AddedRow; added: AddedLoras; list: LoraValue[]; onList(value: LoraValue[]): void; family: FamilyInfo | undefined }) {
+  const { added: a } = row;
+  const weightSpec = added.specs.find((s) => s.id === a.weight);
+  const fileSpec = added.specs.find((s) => s.id === a.file);
+  const toggle = a.toggle ? added.specs.find((s) => s.id === a.toggle) : undefined;
+  const limits = weightSpec?.type === "number" ? { min: Math.min(weightSpec.min, 0), max: weightSpec.max, step: weightSpec.step } : { min: -4, max: 4, step: 0.05 };
+  // the hand row of the same file, folded into this one: its weight kept in the row, the row out of the list
+  const fold = () => {
+    if (row.hand < 0) return;
+    added.set(a.weight, row.weight);
+    onList(list.filter((_, j) => j !== row.hand));
+  };
+  const weight = (w: number) => {
+    if (row.hand >= 0) onList(list.filter((_, j) => j !== row.hand));
+    added.set(a.weight, w);
+  };
+  const name = fileLabel(row.file);
+  return (
+    <div data-added={a.label} className="flex flex-col gap-1 rounded-lg border border-line bg-raised py-1.5 pr-1 pl-3">
+      <div className="flex items-center gap-2">
+        <span className="flex shrink-0 items-center gap-1">
+          <Chip size="xs" tone={a.toggle ? "accent" : "neutral"}>{a.label}</Chip>
+          <Help text={a.note} />
+        </span>
+        <div className="min-w-0 grow">
+          <FileSelect
+            id={`added-${a.file}`} label={fileSpec?.label ?? a.label} value={row.file} files={added.options[a.file] ?? [row.file]} folder="loras"
+            match={fileSpec?.type === "model" ? fileSpec.match : undefined} family={family?.id}
+            onChange={(f) => {
+              fold();
+              added.set(a.file, f);
+            }}
+          />
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="min-w-0 grow truncate text-xs text-ink-2">{weightSpec?.label ?? "Weight"}{row.weight === 0 ? " · not loaded" : ""}</span>
+        <Slider label={`Strength of ${name}`} min={limits.min} max={limits.max} step={limits.step} zero={0} box={false} value={Math.max(limits.min, Math.min(limits.max, row.weight))} onChange={weight} className="w-24 shrink-0" />
+        <NumberBox label={`Strength of ${name}, typed`} value={row.weight} min={limits.min} max={limits.max} step={limits.step} onCommit={weight} className="shrink-0 text-xs" />
+        {a.toggle ? (
+          <CloseButton
+            size={28}
+            label={`Remove ${name}: turns ${toggle?.label ?? a.label} off`}
+            onClose={() => {
+              fold();
+              added.set(a.toggle!, false);
+            }}
+          />
+        ) : (
+          // a LoRA the model needs: nothing to remove, its place kept so that the rows line up
+          <span className="w-7 shrink-0" />
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function Loras({ spec, value, options, family, model, onChange, main, added }: {
   spec: Extract<InputSpec, { type: "loras" }>;
   value: LoraValue[];
   options: string[];
@@ -166,10 +239,16 @@ export function Loras({ spec, value, options, family, model, onChange, main }: {
   model: string | undefined;
   onChange(value: LoraValue[]): void;
   main?: MainText;
+  /** The LoRAs the recipe adds itself with these values, drawn first. */
+  added?: AddedLoras;
 }) {
   // what each file says about itself (read once by the server, arriving in the background the first time), and the words kept beside it
   const { known, extra, info, more, failed } = useLoraWordsOf(value.map((v) => v.file));
-  const free = options.filter((o) => !value.some((v) => v.file === o));
+  const rows = added?.rows ?? [];
+  // a hand row of a file the recipe adds itself is shown as that row; and that file is not offered again: it is in the list
+  const folded = new Set(rows.map((r) => r.hand).filter((i) => i >= 0));
+  const free = options.filter((o) => !value.some((v) => v.file === o) && !rows.some((r) => sameLora(r.file, o)));
+  const handCount = value.length - folded.size;
   // where each LoRA is with a pod in the settings: a pod's own says so, and a stopped pod's (or its set's) is offered greyed
   const places = useFilePlaces("loras");
   const set = (i: number, weight: number) => onChange(value.map((v, j) => (j === i ? { ...v, weight } : v)));
@@ -209,9 +288,10 @@ export function Loras({ spec, value, options, family, model, onChange, main }: {
   }, [free.join("|"), known.data, extra.data, family?.id, spec.label, model, places]);
   return (
     <div className="flex flex-col gap-1.5">
-      <Label aside={`${value.length} of ${spec.max}`} note={spec.note}>{spec.label}</Label>
+      <Label aside={`${handCount} of ${spec.max}`} note={spec.note}>{spec.label}</Label>
       {failed && <span className="text-xs text-ink-3">Trigger words could not be looked up: {failed}</span>}
-      {value.map((l, i) => (
+      {added && rows.map((r) => <AddedRowField key={r.added.file} row={r} added={added} list={value} onList={onChange} family={family} />)}
+      {value.map((l, i) => folded.has(i) ? null : (
         <div key={l.file} className="flex flex-col gap-1 rounded-lg border border-line bg-raised py-1.5 pr-1 pl-3">
           <div className="flex items-center gap-2">
             <ModelLink folder="loras" file={l.file} className="min-w-0 grow font-semibold" />
@@ -223,7 +303,7 @@ export function Loras({ spec, value, options, family, model, onChange, main }: {
           <LoraWords file={l.file} info={info[l.file]} more={more[nameOf(l.file)]} main={main} />
         </div>
       ))}
-      {value.length < spec.max && (
+      {handCount < spec.max && (
         <Select
           dashed
           size="sm"

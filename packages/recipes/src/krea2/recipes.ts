@@ -8,6 +8,8 @@ import { flowSharper } from "../flow/sharper";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { redrawInTiles, tileInputs, tileNodes, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import { krea2Kit, krea2Spec } from "./common";
+import { addedLora, putAdded } from "../shared/model";
+import { addedInputs, withRow, type AddedSpec } from "../shared/addedRows";
 
 const files = krea2Spec.files;
 const withStyle = { ...files, styleRef: "krea2_style_reference.safetensors" };
@@ -21,6 +23,8 @@ interface Krea2Picture extends FlowBase, HiresPass, DetailSettings, TileSettings
   prompt: string;
   references: ReferenceValue[];
   referenceStrength: number;
+  /** The style-reference LoRA picked in its row of the LoRA list (empty: the slot's). */
+  styleLora?: string;
   size: SizeValue;
   hires: boolean;
   hiresScale: number;
@@ -31,6 +35,16 @@ interface Krea2Picture extends FlowBase, HiresPass, DetailSettings, TileSettings
 
 /** The style-reference LoRA was trained on one or two pictures: how many reference images the text encoder is shown. */
 const STYLE_IMAGES = 2;
+
+/** The style-reference LoRA, a row of the LoRA list while there are reference images (card #160): no way to remove it, at 0 not loaded. */
+const STYLE_ROW: AddedSpec = {
+  label: "Needed by this model",
+  note: "Krea 2's style-reference LoRA: with reference images, it is what makes the picture follow their style (ComfyUI's image style reference template). At 0 it is not loaded, and the images are read with the prompt alone. Its file is the one of Settings › Models unless another is picked",
+  file: { id: "styleLora", label: "Style reference LoRA", slot: "styleRef", match: ["krea.?2.*style.?ref"], note: "the style-reference LoRA. Left as it is, the one of Settings › Models" },
+  weight: { id: "referenceStrength", own: true },
+  showWhen: "references",
+  when: { input: "references", filled: true },
+};
 
 /**
  * A picture from a prompt, the way ComfyUI's own Krea 2 Turbo template makes it. With reference images
@@ -45,14 +59,15 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
   title: "txt2img",
   summary: "Text to image, from a natural-language prompt, with optional hires fix. With reference images, it follows their style.",
   output: "image",
-  inputs: [
+  inputs: withRow([
     krea2Spec.model,
     { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: krea2Spec.placeholder },
     {
       id: "references", type: "references", label: "Style reference images", max: STYLE_IMAGES, roles: ["style"],
       note: "the look to follow (a drawing style, a colour mood, a kind of photo), not who is in it. Needs the style-reference LoRA.",
     },
-    { id: "referenceStrength", type: "number", label: "Style strength", note: "the weight of the style-reference LoRA", min: 0.1, max: 1.5, step: 0.05, default: 1, showWhen: "references", advanced: true },
+    // (drawn as the weight of the style-reference LoRA's row in the LoRA list, card #160)
+    { id: "referenceStrength", type: "number", label: "Style strength", note: "the weight of the style-reference LoRA. At 0 it is not loaded", min: 0, max: 1.5, step: 0.05, default: 1, showWhen: "references", advanced: true, inList: "loras" },
     { id: "size", type: "size", label: "Size", default: "tall", grid: 16, min: 256, max: 2048, shapes: krea2Spec.shapes },
     ...DETAIL_INPUTS,
     ...krea2Kit.inputs.slice(0, -1),
@@ -66,8 +81,9 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
     { id: "hiresSteps", type: "number", label: "Hires steps", min: 1, max: 60, step: 1, default: krea2Spec.hires!.steps!, showWhen: "hires", advanced: true, perModel: true },
     ...HIRES_PASS_INPUTS,
     ...tileInputs("hires"),
+    ...addedInputs(STYLE_ROW),
     krea2Kit.inputs.at(-1)!,
-  ],
+  ], STYLE_ROW),
   presets: krea2Spec.presets!,
   optionalNodes: DETAIL_OPTIONAL,
   nodes: (input) => [
@@ -81,15 +97,17 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
   build(input, ctx) {
     const { load, shifted, condFrom, sample } = krea2Kit;
     const g = new GraphBuilder();
-    const k = load(g, input, ctx);
+    const styled = input.references.length > 0;
+    // the style-reference LoRA's row: its file and weight, the same file by hand put on once, after the user's (card #160)
+    const style = styled ? addedLora(ctx.slots.styleRef, input.styleLora, input.referenceStrength, input.loras) : { lora: null, put: false, loras: input.loras };
+    const k = load(g, { ...input, loras: style.loras }, ctx);
     const W = roundTo(input.size.width, 16);
     const H = roundTo(input.size.height, 16);
-    const styled = input.references.length > 0;
-    if (styled && !ctx.slots.styleRef) {
+    if (styled && !style.lora) {
       throw new Error("Style reference images need Krea 2's style-reference LoRA: put krea2_style_reference.safetensors in ComfyUI's models/loras folder (it can be downloaded from Settings).");
     }
     let model = k.model;
-    if (styled) model = g.out("LoraLoaderModelOnly", { model, lora_name: ctx.slots.styleRef, strength_model: input.referenceStrength });
+    model = putAdded(g, model, style);
     // the shift typed in, else the model's own; with reference images, the one that follows the size, as ComfyUI's
     // style-reference template sets it
     const styledAt = (m: Ref, width: number, height: number) =>
@@ -110,7 +128,7 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
     const first = sample(g, k, input, styled ? styledAt(model, W, H) : shifted(g, model, input, { width: W, height: H }), cond, empty, ctx.seed, {}, detail);
     let latent = first.latent;
     const passes: Array<typeof first.pass & { pixels?: number }> = [first.pass];
-    const loads = [...k.loads, ...(styled ? [`loras/${ctx.slots.styleRef}`] : [])];
+    const loads = [...k.loads, ...(style.put ? [`loras/${style.lora!.file}`] : [])];
 
     let image: Ref | null = null;
     if (input.hires) {

@@ -1,11 +1,12 @@
-import { defineRecipe, gridAtOrBefore, GraphBuilder, plural, sameFile, type BuildContext, type ClipValue, type CueValue, type InputSpec, type LoraValue, type MediaFacts, type Recipe, type ReferenceRole, type ReferenceValue, type Ref, type SizeValue, type Variant } from "@afflatus/core";
+import { defineRecipe, gridAtOrBefore, GraphBuilder, plural, sameFile, type BuildContext, type ClipValue, type CueValue, type InputSpec, type LoraValue, type MediaFacts, type Recipe, type ReferenceRole, type ReferenceValue, type Ref, type SizeValue, type StartCondition, type Variant } from "@afflatus/core";
 import { LTX_CANVAS_SHORT, LTX_MAX_PIXELS, ltxCanvas, ltxFramesAt, MSR_DETECT } from "./family";
 import { UPSCALE, UPSCALE_OPTIONAL, upscaleInputs, upscaleNeeds, upscaleNodes } from "../video/upscale";
 import { faster, SPEED_INPUTS, speedNodes, type SpeedSettings } from "../shared/speed";
 import { loadUnet, unetNodes } from "../shared/unet";
 import { CORE_VIDEO_OUT, VHS } from "../shared/out";
 import { colourCarried, colourMatched, COLOUR_MATCH_INPUTS, COLOUR_MATCH_NODES, finishFrames, openingStart, rifeNeeds, rifeSkippedSaid, type ColourMatch } from "../shared/finish";
-import { applyLoras, livePreview, loraLoads } from "../shared/model";
+import { addedLora, applyLoras, livePreview, loraLoads } from "../shared/model";
+import { addedInputs, addedRow, type AddedSpec } from "../shared/addedRows";
 import { recordingInputs, recordingNodes, recordingOnClip, type Recording, type RecordingFrames } from "../shared/recording";
 import { CUE_SOUND, cuesFor, H3_CUES, layCues } from "../h3/cue";
 import { FACE_PHOTO, FACE_NODE, facePhotos, faceScore } from "../shared/face";
@@ -354,6 +355,8 @@ export interface LtxVideo extends ColourMatch, Partial<Recording> {
   refineStrength: number;
   refineSteps: number;
   loraStrength: number;
+  /** The distilled LoRA picked in its row of the LoRA list (empty: the slot's). */
+  distilledLora?: string;
   tile: number;
   tileFrames: number;
   crf: number;
@@ -401,6 +404,28 @@ export interface LtxVideo extends ColourMatch, Partial<Recording> {
 /** What a model is, as far as its file name says: the distilled one, or a merge known to be made for a few steps. */
 // The fine-tune lines are named: DragonLeap and SolsticeCoin are distilled (DMD, 8 to 12 steps at CFG 1), GoldenLace is not
 const namedDistilled = /distill|turbo|lightning|lightspeed|dmd|dragonleap|solsticecoin|(^|[^a-z0-9])\d+[ _-]?steps?/i;
+
+/**
+ * The distilled LoRA as a row of the LoRA list (card #160): on a model that is not distilled (modelOf: the one picked, else
+ * the diffusion model's slot, else the one checkpoint), with no way to remove it, its weight the strength it always had.
+ */
+const LTX_DISTILLED_NAME = ((): StartCondition => {
+  const named = namedDistilled.source;
+  return {
+    any: [
+      { all: [{ input: "model", filled: true }, { name: { input: "model" }, match: named }] },
+      { all: [{ not: { input: "model", filled: true } }, { name: { slot: "unet" }, match: "." }, { name: { slot: "unet" }, match: named }] },
+      { all: [{ not: { input: "model", filled: true } }, { not: { name: { slot: "unet" }, match: "." } }, { name: { slot: "checkpoint" }, match: named }] },
+    ],
+  };
+})();
+const LTX_DISTILLED_ROW: AddedSpec = {
+  label: "Needed by this model",
+  note: "the distilled LoRA: on a model that is not distilled (the dev model) it makes LTX's own 8 steps at CFG 1 work; set at 0 it is not loaded, and the dev model then needs its full steps (By steps, CFG 3 to 4). Its file is the one of Settings › Models unless another is picked. A distilled model takes none, and shows no row",
+  file: { id: "distilledLora", label: "Distilled LoRA", slot: "turbo", match: ["ltx.*distilled.*lora"], note: "the distilled LoRA put on a model that is not distilled. Left as it is, the one of Settings › Models" },
+  weight: { id: "loraStrength", own: true },
+  when: { not: { any: [{ input: "turboIn", is: "Yes" }, { all: [{ not: { input: "turboIn", is: "No" } }, LTX_DISTILLED_NAME] }] } },
+};
 
 /**
  * How the model is loaded. In separate files when a diffusion model is picked or found; otherwise (LTX 2.3) from
@@ -489,7 +514,11 @@ function ltxLoad(spec: LtxSpec, g: GraphBuilder, ctx: BuildContext, input: LtxVi
     audioVae = g.out("LTXVAudioVAELoader", { ckpt_name: picked.checkpoint });
     clip = g.out("LTXAVTextEncoderLoader", { text_encoder: slots.clip, ckpt_name: picked.checkpoint, device: "default" });
   }
-  model = applyLoras(g, model, msr?.loras ?? input.loras);
+  // the distilled LoRA's row in the LoRA list (card #160): its file (the slot's left as it is) and weight; the same file
+  // added by hand is that row, at the weight typed there, and at 0 it is not loaded
+  const own = msr?.loras ?? input.loras;
+  const distilledLora = !picked.distilled ? addedLora(slots.turbo, input.distilledLora, input.loraStrength, own, 0.5) : { lora: null, put: false, loras: own };
+  model = applyLoras(g, model, distilledLora.loras);
   // the MSR LoRA through its own loader, which hands its slot embeddings on to the guide (a plain LoRA loader drops them)
   let msrParams: Ref | null = null;
   if (msr) {
@@ -503,11 +532,12 @@ function ltxLoad(spec: LtxSpec, g: GraphBuilder, ctx: BuildContext, input: LtxVi
   const previewed = (m: Ref): Ref => livePreview(g, ctx, m, input.livePreview);
   // the full model: with LTX's own 8 steps the distilled LoRA goes on the whole render at half strength, as
   // ComfyUI's template has it; with By steps the dev model samples on its own schedule and the LoRA refines only
-  const lora = !picked.distilled && slots.turbo ? slots.turbo : undefined;
+  const lora = distilledLora.put ? distilledLora.lora!.file : undefined;
   // the model without the LoRA is only sampled with when there is no LoRA, or By steps is off (the first pass runs on it)
   const plain = lora && byHand ? null : previewed(model);
-  const boosted = lora ? previewed(g.out("LoraLoaderModelOnly", { model, lora_name: lora, strength_model: input.loraStrength })) : plain!;
-  return { model: boosted, first: byHand ? boosted : plain!, clip, vae, audioVae, lora, msrParams };
+  const boosted = lora ? previewed(g.out("LoraLoaderModelOnly", { model, lora_name: lora, strength_model: distilledLora.lora!.weight })) : plain!;
+  // (set at 0 in its row: left out on purpose, not missing)
+  return { model: boosted, first: byHand ? boosted : plain!, clip, vae, audioVae, lora, loraOff: Boolean(distilledLora.lora) && !lora, msrParams };
 }
 
 /** What every pass of a render takes: the model, the conditioning, the sampler, the empty sound, the schedule of the first pass, and the passes so far. */
@@ -1074,7 +1104,8 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
         note: "the start, keyframe and end pictures are compressed like a video frame before the model sees them: a picture that is too clean gives a clip that does not move. 0 leaves them as they are",
       },
       {
-        id: "loraStrength", type: "number", label: "Distilled LoRA strength", min: 0, max: 1.5, step: 0.05, default: 0.5, advanced: true, perModel: true,
+        // (drawn as the weight of the distilled LoRA's row in the LoRA list, card #160)
+        id: "loraStrength", type: "number", label: "Distilled LoRA strength", min: 0, max: 1.5, step: 0.05, default: 0.5, advanced: true, perModel: true, inList: "loras",
         note: "only for a model that is not distilled: how strongly the distilled LoRA is put on it. 0.5 is what ComfyUI's template uses with LTX's own schedule; with By steps the LoRA refines only, at 1 in the template",
       },
       { id: "tile", type: "number", label: "VAE decode tile size", note: `the clip is turned into pictures piece by piece: smaller pieces need less memory and take longer. ${spec.decode.tile} is the template's`, min: 256, max: 2048, step: 32, default: spec.decode.tile, unit: " px", advanced: true },
@@ -1092,7 +1123,8 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       },
       // set by a timeline on every clip, never drawn: whether the clip after carries on in this clip's latent (TimelinePlan.plan)
       { id: "latentAfter", type: "toggle", label: "The clip after carries on in this clip's latent", default: false, internal: true },
-      { id: "loras", type: "loras", label: "LoRAs", max: 6 },
+      { id: "loras", type: "loras", label: "LoRAs", max: 6, added: [addedRow(LTX_DISTILLED_ROW)] },
+      ...addedInputs(LTX_DISTILLED_ROW),
       { id: "seed", type: "seed", label: "Seed" },
     ]),
 
@@ -1187,7 +1219,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       const loaded = ltxLoad(spec, g, ctx, input, picked, held);
       const byHand = input.schedule !== BY_STEPS;
       // a dev model without its distilled LoRA still renders, but less well than asked: said on the job, never silently
-      if (!picked.distilled && !loaded.lora) warnings.push(`${spec.name}'s distilled LoRA is not on this ComfyUI: the dev model ${byHand ? "renders LTX's 8 steps" : "refines"} without it (models/loras; Settings › Models has it). A distilled model needs none: Distilled model › Yes.`);
+      if (!picked.distilled && !loaded.lora && !loaded.loraOff) warnings.push(`${spec.name}'s distilled LoRA is not on this ComfyUI: the dev model ${byHand ? "renders LTX's 8 steps" : "refines"} without it (models/loras; Settings › Models has it). A distilled model needs none: Distilled model › Yes.`);
       const steps = byHand ? LTX_SIGMAS.split(",").length - 1 : input.steps;
       // Lip sync: the scene, then that the person speaks (the recording is what is said); a clip that carries on: that the shot does
       const after = [spec.lipSync ? SPEAKS : "", input.previous ? oneShot(refs, spec.lipSync) : ""].filter(Boolean);

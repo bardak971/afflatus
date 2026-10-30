@@ -1,5 +1,8 @@
 import { defineFamily, defineRecipe, GraphBuilder, REFERENCE_ROLES, type InputSpec, type LoraValue, type Ref, type ReferenceValue } from "@afflatus/core";
 import { flowKit, flowRecipes, type FlowSpec } from "../flow/recipes";
+import { flowTurboRow } from "../flow/kit";
+import { addedInputs, addedRow, type AddedSpec } from "../shared/addedRows";
+import { addedLora, putAdded } from "../shared/model";
 import { loadUnet, unetNodes } from "../shared/unet";
 import { qwenLint } from "../shared/lint";
 
@@ -143,6 +146,8 @@ interface QwenEdit {
   loras: LoraValue[];
   fast: boolean;
   turboSteps: number;
+  turboLora?: string;
+  turboWeight?: number;
   steps: number;
   cfg: number;
   sampler: string;
@@ -152,6 +157,12 @@ interface QwenEdit {
 }
 
 const kit = flowKit(spec);
+/** Edit's Turbo row: the Lightning LoRA made for Edit, on an Edit model whose name does not say it is made for a few steps. */
+const EDIT_TURBO_ROW: AddedSpec = {
+  ...flowTurboRow(spec)!,
+  file: { ...flowTurboRow(spec)!.file, slot: "editTurbo", match: ["qwen.?image.?edit.*lightning"], note: "the LoRA Turbo puts on the model. Left as it is, the one of Settings › Models (the Lightning LoRA made for Edit)" },
+  when: { not: { name: { input: "model", slot: "edit" }, match: lightning.source } },
+};
 /** How many pictures Qwen Image Edit reads next to the instruction: the one that is edited and two more. */
 const EDIT_IMAGES = 3;
 const editModel: InputSpec = {
@@ -182,7 +193,9 @@ export const qwenEdit = defineRecipe<QwenEdit>({
       id: "references", type: "references", label: "Additional images", max: EDIT_IMAGES - 1, roles: [...REFERENCE_ROLES],
       note: "something to take from: a person, a place, clothes, an object, a look. Call them \"image 2\" and \"image 3\" in the instruction",
     },
-    ...kit.inputs.map((i) => (i.id === "steps" ? { ...i, default: 40, note: "40 in ComfyUI's template" } : i.id === "fast" ? { ...i, note: "4 steps at CFG 1, with the Lightning LoRA made for Edit" } : i) as InputSpec),
+    // (Turbo's row in the LoRA list: the Lightning LoRA made for Edit, on an Edit model not made for a few steps, card #160)
+    ...kit.inputs.map((i) => (i.id === "steps" ? { ...i, default: 40, note: "40 in ComfyUI's template" } : i.id === "fast" ? { ...i, note: "4 steps at CFG 1, with the Lightning LoRA made for Edit" }
+      : i.id === "loras" && i.type === "loras" ? { ...i, added: [addedRow(EDIT_TURBO_ROW)] } : i.id === "turboLora" ? addedInputs(EDIT_TURBO_ROW)[0]! : i) as InputSpec),
   ],
   nodes: (input) => [
     ...unetNodes(input.model), "CLIPLoader", "VAELoader", "KSampler", "VAEDecode", "PreviewImage", "LoadImage", "FluxKontextImageScale", "VAEEncode",
@@ -198,14 +211,16 @@ export const qwenEdit = defineRecipe<QwenEdit>({
     const vae = g.out("VAELoader", { vae_name: ctx.slots.vae });
     // the model as ComfyUI's template prepares it: its LoRAs, the shift, the CFG kept in bounds, then the Lightning LoRA
     let model: Ref = loadUnet(g, ctx, unet, input.precision || "default");
-    for (const l of input.loras) if (l.weight !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: l.file, strength_model: l.weight });
+    // a model made for a few steps runs at them whether Turbo is on or not, and takes no Lightning LoRA; Turbo's row gives
+    // its file and weight, the same file by hand put on once (card #160)
+    const made = lightning.test(unet.split(/[\\/]/).pop() ?? "");
+    const added = input.fast && !made ? addedLora(ctx.slots.editTurbo, input.turboLora, input.turboWeight, input.loras) : { lora: null, put: false, loras: input.loras };
+    for (const l of added.loras) if (l.weight !== 0) model = g.out("LoraLoaderModelOnly", { model, lora_name: l.file, strength_model: l.weight });
     if (input.shift > 0) model = g.out("ModelSamplingAuraFlow", { model, shift: input.shift });
     model = g.out("CFGNorm", { model, strength: 1, pre_cfg: false });
-    // a model made for a few steps runs at them whether Turbo is on or not
-    const made = lightning.test(unet.split(/[\\/]/).pop() ?? "");
-    const turboLora = input.fast && !made ? ctx.slots.editTurbo : undefined;
+    const turboLora = added.lora?.file;
     const turbo = made || (input.fast && Boolean(turboLora));
-    if (turboLora) model = g.out("LoraLoaderModelOnly", { model, lora_name: turboLora, strength_model: 1 });
+    model = putAdded(g, model, added);
 
     const picture = g.out("FluxKontextImageScale", { image: g.out("LoadImage", { image: ctx.uploads.source }) });
     const more = Object.fromEntries(input.references.slice(0, EDIT_IMAGES - 1).map((_, i) => [`image${i + 2}`, g.out("LoadImage", { image: ctx.uploads[`references.${i}`] })]));
@@ -225,7 +240,7 @@ export const qwenEdit = defineRecipe<QwenEdit>({
       graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: steps, passes: [{ node: sampled[0], steps }],
       loads: [
         `diffusion_models/${unet}`, `text_encoders/${ctx.slots.clip}`, `vae/${ctx.slots.vae}`,
-        ...(turboLora ? [`loras/${turboLora}`] : []), ...input.loras.filter((l) => l.weight !== 0).map((l) => `loras/${l.file}`),
+        ...(added.put ? [`loras/${turboLora}`] : []), ...added.loras.filter((l) => l.weight !== 0).map((l) => `loras/${l.file}`),
       ],
     };
   },

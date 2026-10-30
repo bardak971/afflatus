@@ -1,6 +1,7 @@
 import { defineRecipe, GraphBuilder, roundTo, type Recipe, type Ref } from "@afflatus/core";
 import { FACTOR_INPUT, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_PREFER, type RefineColourMatch, type UpscaleSettings } from "../sdxl/common";
 import { redrawInTiles, tileInputs, tilePass, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
+import { rowsWhile } from "../shared/addedRows";
 import { photo, SAME_PICTURE, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
 
 export interface FlowSharper extends FlowBase, UpscaleSettings, TileSettings, RefineColourMatch { source: string; prompt: string; upscaler: string; refine: boolean; strength: number }
@@ -33,7 +34,8 @@ export function flowSharper(spec: FlowSpec, kit: FlowKit): Recipe<FlowSharper> {
       { id: "strength", type: "number", label: "Denoising strength", min: 0.05, max: 0.6, step: 0.01, default: 0.25, showWhen: "refine", advanced: true, section: "out" },
       REFINE_COLOUR_MATCH_INPUT,
       ...tileInputs("refine"),
-      ...inputs,
+      // (Turbo's LoRA is put on only with the img2img pass: without it no model is loaded)
+      ...rowsWhile(inputs, { input: "refine", is: true }),
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),
     nodes: () => ["LoadImage", "UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "PreviewImage"],

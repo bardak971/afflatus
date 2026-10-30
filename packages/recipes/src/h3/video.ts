@@ -277,7 +277,7 @@ export function withShot<T extends { shot?: string; description: string }>(input
 /** A Finish › Face refine: the take's own latent decoded as it is and only its faces redrawn, nothing of the clip sampled. */
 export const refinesOnly = (input: Pick<H3Video, "faceRefineOnly" | "upscale">) => Boolean(input.faceRefineOnly) && input.upscale !== UPSCALE.latent;
 /** The model chain of a build that samples nothing (refinesOnly): nothing loaded, and nothing reads it. */
-const NO_MODEL: ReturnType<typeof loadH3Model> = { model: ["", 0], turbo: false, steps: 0, lora: undefined, distilled: false, unet: undefined, vedaMissing: null };
+const NO_MODEL: ReturnType<typeof loadH3Model> = { model: ["", 0], turbo: false, steps: 0, lora: undefined, loraWeight: 1, distilled: false, unet: undefined, vedaMissing: null };
 
 /** The H3 clip's graph, shared by the recipes made on it. */
 export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}): BuiltGraph {
@@ -305,12 +305,12 @@ export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   const audioVae = g.out("VAELoader", { vae_name: slots.audioVae });
   const vae = g.out("VAELoader", { vae_name: slots.videoVae });
   // (the model is read below only where something is sampled: the clip, the latent re-sample)
-  const { model, turbo, steps, lora, unet, loader, vedaMissing } = modelless ? NO_MODEL : loadH3Model(g, ctx, input, picked, how, audioVae, extra.vedaFor, extra.turbo);
+  const { model, turbo, steps, lora, loraWeight, unet, loader, vedaMissing } = modelless ? NO_MODEL : loadH3Model(g, ctx, input, picked, how, audioVae, extra.vedaFor, extra.turbo);
   // the clip's model as Face refine may run on it (OWN_MODEL): its loader where the clip loads it, else its file alone (a
   // Finish › Face refine, which samples nothing, loads only that)
   // (and its turbo LoRA, the one the clip ran with, which Face refine keeps on it)
   const asPicked = clipModelOf(input, slots, how, extra.turbo);
-  const clipModel: ClipModel = loader ? { follows: asPicked.follows, file: unet, loader, ...(lora ? { turbo: lora } : {}) } : asPicked;
+  const clipModel: ClipModel = loader ? { follows: asPicked.follows, file: unet, loader, ...(lora ? { turbo: lora, turboWeight: loraWeight } : {}) } : asPicked;
   const { positive, latent, previous, plain, clip } = conditionFor(g, ctx, input, how, join, { width, height, vae, audioVae }, extra.prompt, more);
 
   // a finish samples nothing: the patch (and the pose it reads) is left out of it

@@ -87,14 +87,24 @@ export function inputSaid(spec: InputSpec, options?: string[]) {
     ...(spec.chapter ? { chapter: spec.chapter } : {}),
     ...(spec.perModel ? { perModel: true } : {}),
     ...(spec.showWhen ? { showWhen: spec.showWhen } : {}),
+    // the file or weight of a LoRA the recipe adds itself, drawn as its row of that LoRA list (card #160)
+    ...(spec.inList ? { rowOf: spec.inList } : {}),
   };
   switch (spec.type) {
     case "prompt":
       return { ...common, style: spec.style, ...(spec.optional ? { optional: true } : {}), ...(spec.line ? { line: true } : {}), ...(spec.example ? { example: spec.default } : spec.default ? { default: spec.default } : {}), ...(spec.weights === false ? { weights: false } : {}) };
     case "model":
-      return { ...common, folder: spec.folder, ...(spec.slot ? { optional: true, leftOut: "the family's usual file" } : {}), ...(spec.default ? { default: spec.default } : {}) };
+      return { ...common, folder: spec.folder, ...(spec.slot ? { optional: true, leftOut: spec.blank ? "the file of the family's slot that suits the clip (Settings › Models)" : "the family's usual file" } : {}), ...(spec.default ? { default: spec.default } : {}) };
     case "loras":
-      return { ...common, max: spec.max, ...(spec.default?.length ? { default: spec.default } : {}) };
+      return {
+        ...common, max: spec.max, ...(spec.default?.length ? { default: spec.default } : {}),
+        // the LoRAs the recipe puts on itself, each a row of this list: its file and weight are inputs of their own; the same
+        // file given in the list is that row, put on once at the weight given in the list
+        ...(spec.added?.length ? {
+          addedByRecipe: spec.added.map((a) => ({ label: a.label, file: a.file, weight: a.weight, ...(a.toggle ? { toggle: a.toggle } : { needed: true }), note: a.note })),
+          addedSaid: "the same file in this list is that LoRA, loaded once at the weight given here",
+        } : {}),
+      };
     case "size":
       return { ...common, shapes: spec.shapes, default: spec.default, grid: spec.grid, min: spec.min, max: spec.max, ...(spec.ratioOnly ? { ratioOnly: true } : {}), ...(spec.maxPixels ? { maxPixels: spec.maxPixels } : {}) };
     case "number":

@@ -2,6 +2,7 @@ import { defineRecipe, gridAtOrBefore, type BuildContext, type BuiltGraph, type 
 import { H3_MOTION_GUIDE } from "./guide";
 import { H3_FPS, H3_GRID } from "./family";
 import { H3_NO_TAGS, h3Inputs, type H3Video } from "./inputs";
+import { MOTION_TURBO_ROW, withTurboRow } from "./turboRow";
 import { buildH3, h3Video, SHOT_WORDS } from "./video";
 import { H3_CONTINUATION_NODES, H3_SEAM, H3_TRIM } from "./join";
 import { H3_STARTS, modelOf, referenceNeeds, turboNeeds, vedaNeeds } from "./model";
@@ -122,7 +123,8 @@ const inputs: InputSpec[] = [
   },
   // H3's colour match pulls towards the first frame: here the picture
   // H3's Model is this form's own: a window after a swap shows the swap's in its place (the one it runs on)
-  ...h3Inputs.filter((spec) => !NOT_TAKEN.has(spec.id)).flatMap((spec): InputSpec[] => (spec.showWhen === "start" ? [{ ...spec, showWhen: "picture" }] : spec.id === "model" ? [{ ...spec, showWhen: OWN_MODEL }, SWAP_MODEL] : [spec])),
+  // (Turbo's row in the LoRA list on whichever model the window runs on, card #160)
+  ...withTurboRow(h3Inputs, MOTION_TURBO_ROW).filter((spec) => !NOT_TAKEN.has(spec.id)).flatMap((spec): InputSpec[] => (spec.showWhen === "start" ? [{ ...spec, showWhen: "picture" }] : spec.id === "model" ? [{ ...spec, showWhen: OWN_MODEL }, SWAP_MODEL] : [spec])),
   { id: "keepSound", type: "toggle", label: "Keep the source's sound", default: true, advanced: true, note: "the file carries the driving video's own sound over its part; off, the sound H3 makes" },
   {
     id: "soundGuide", type: "toggle", label: "Lips follow the source's sound", default: true, advanced: true, showWhen: "keepSound",
