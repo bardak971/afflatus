@@ -378,3 +378,22 @@ describe("migration 0093, Wan's Hybrid turbo off where a model's saved settings 
     await db.destroy();
   });
 });
+
+describe("migration 0101, Search Hugging Face and Civitai and Download missing models kept off where they were", () => {
+  const values = async (db: ReturnType<typeof openSqlite>) =>
+    Object.fromEntries((await db.selectFrom("settings").select(["key", "value"]).where("key", "in", ["civitaiLookups", "downloadModels"]).execute()).map((r) => [r.key, r.value]));
+
+  it("writes both off in an install that holds anything, keeps a value saved on purpose, and leaves a new install to the new default", async () => {
+    const used = openSqlite(":memory:");
+    await migrate(used, "0099_model_files");
+    await used.insertInto("settings").values({ key: "downloadModels", value: "true", updated_at: new Date().toISOString() }).execute();
+    expect(await migrate(used)).toContain("0101_lookups_kept");
+    expect(await values(used)).toEqual({ civitaiLookups: "false", downloadModels: "true" });
+    await used.destroy();
+
+    const fresh = openSqlite(":memory:");
+    await migrate(fresh);
+    expect(await values(fresh)).toEqual({});
+    await fresh.destroy();
+  });
+});

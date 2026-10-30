@@ -4,7 +4,7 @@ import { ContextMenu, headLine } from "./ContextMenu";
 import { daysSaid } from "./keepFor";
 import { Popover } from "./Popover";
 import type { expiringSaid, useKeepAllExpiring } from "./screens/studio/expiring";
-import { Button, ErrorNote, Help } from "./ui";
+import { Button, Failed, Help } from "./ui";
 
 /** What the expiring chip's ? says: the rule, once, with the days Settings › Storage gives. */
 const expiringHelp = (unkeptDays: number, binDays: number) =>
@@ -38,7 +38,7 @@ export function ExpiringPanel({ anchor, open, menuAt, count, said, where, keepFo
               <Help text={expiringHelp(keepFor.unkeptDays, keepFor.binDays)} />
             </div>
             <span className="text-xs text-ink-2">{said.next === said.last ? `They go to the bin in ${said.next}` : `The next goes to the bin in ${said.next}, the last in ${said.last}`}</span>
-            {keep.isError && <ErrorNote>{keep.error.message}</ErrorNote>}
+            {keep.isError && <Failed what="Not kept" error={keep.error} />}
             <div className="flex gap-2">
               <Button size="sm" tone="primary" onClick={onShow} data-tip="The library, showing only what expires (Filters › Expiring only)">Show them</Button>
               <Button size="sm" disabled={keep.isPending} onClick={onKeepAll} data-tip="They stay until you bin them">{keep.isPending ? "Keeping…" : `Keep all ${count}`}</Button>

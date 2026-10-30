@@ -331,7 +331,7 @@ async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Time
       `route=${routeKey};by=${opts.by ?? 2};frames=${opts.seedvrFrames ?? 0}`, Math.round(source.width * by) * Math.round(source.height * by) * Math.max(1, outFrames));
     const output = await followed(core, comfy, run, row, g, outNode, [...done.loads, ...(rife ? [`frame_interpolation/${rife}`] : [])], note);
     const bytes = await comfy.client.view(output);
-    // named after the take it finishes ("Big Air · c2 · t5 · finished ×2"), worked out from its clip when that video has no name
+    // named after the take it finishes ("Big Air · Clip 2 · take 5 · finished ×2"), worked out from its clip when that video has no name
     const kept = await onDraftGrid(core, video, await clips.range.keepCut(video, bytes, finishedName(await nameOf(core.db, video), by), 0, video.duration_ms ?? 0, folder));
     await noteTool(core, note, "done", kept);
     return kept;

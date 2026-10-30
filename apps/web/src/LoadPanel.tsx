@@ -129,9 +129,9 @@ export function LoadDialog({ machine: asked, onClose }: { machine?: string; onCl
     const where = machine ? several.find((m) => m.id === machine) : undefined;
     try {
       await api.warm(r.recipe, { [r.input]: r.path }, null, machine);
-      say({ id: `load:${Date.now()}`, tone: "good", title: `Loading ${r.file}${where ? ` on ${machineLabel(where)}` : ""}`, text: "Queued: the next render with it starts at once.", href: "/queue", go: "Open queue" });
+      say({ id: `load:${Date.now()}`, tone: "good", title: `Loading ${r.file}${where ? ` on ${machineLabel(where)}` : ""}`, text: "Queued: the next render with it starts at once.", href: "/queue", go: "Open the Queue" });
     } catch (err) {
-      say(failedBanner({ id: "load", href: "/queue", go: "Open queue" }, `Could not load ${r.file}`, err));
+      say(failedBanner({ id: "load", href: "/queue", go: "Open the Queue" }, `Could not load ${r.file}`, err));
     } finally {
       void client.invalidateQueries({ queryKey: queryKeys.queue() });
     }

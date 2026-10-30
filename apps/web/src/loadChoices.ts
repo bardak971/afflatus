@@ -124,9 +124,9 @@ export function useLoadChoices(form?: LoadForm | null) {
         const d = await api.draft(choice.draft);
         await api.warm(d.recipe, d.forms[d.recipe] ?? {}, d.look, machine);
       }
-      say({ id: `load:${Date.now()}`, tone: "good", title: `Loading ${choice.file}${on}`, text: "Queued: the next render with it starts at once.", href: "/queue", go: "Open queue" });
+      say({ id: `load:${Date.now()}`, tone: "good", title: `Loading ${choice.file}${on}`, text: "Queued: the next render with it starts at once.", href: "/queue", go: "Open the Queue" });
     } catch (err) {
-      say(failedBanner({ id: "load", href: "/queue", go: "Open queue" }, `Could not load ${choice.file}${on}`, err));
+      say(failedBanner({ id: "load", href: "/queue", go: "Open the Queue" }, `Could not load ${choice.file}${on}`, err));
     } finally {
       void client.invalidateQueries({ queryKey: queryKeys.queue() });
     }

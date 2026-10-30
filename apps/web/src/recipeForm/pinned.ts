@@ -36,7 +36,7 @@ export function usePinnedFields(family: string) {
   const client = useQueryClient();
   const settings = useSettings();
   const recipes = useRecipes();
-  const failed = useSayFailed({ id: "pinned-fields", once: true });
+  const failed = useSayFailed({ id: "pinned-fields", once: true, here: true });
   const ids = knownPins(settings.data?.pinnedFields?.[family] ?? [], family, recipes.data?.recipes);
   const full = ids.length >= LIMITS.pinnedFields;
   const save = (next: string[]) => {

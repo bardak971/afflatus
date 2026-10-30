@@ -532,7 +532,7 @@ export class Queue {
     // every way in (Render, a timeline's, a load ahead, MCP's run_workflow and render)
     if (this.registry.pending(recipeId)) throw httpError(waitingWords(recipe.title), 409);
     // loading the models is asked for while the form is still being filled in: a text not written yet is no reason to refuse
-    const input = parseInput(recipe, await this.startedOn(recipe, opts.warm ? submitting.withTexts(recipe, rawInput) : rawInput)) as Record<string, unknown>; // throws a ZodError the API turns into a 400
+    const input = parseInput(recipe, await this.startedOn(recipe, opts.warm ? submitting.withTexts(recipe, rawInput) : rawInput)) as Record<string, unknown>; // a refused form throws a 400 that names its fields (core saidRefusal)
     // choices written in a text ({red|black|white}) are settled now, one per job: what is kept is what was picked
     for (const spec of recipe.inputs as InputSpec[]) {
       if (spec.type === "prompt" && typeof input[spec.id] === "string") input[spec.id] = expandWildcards(input[spec.id] as string);

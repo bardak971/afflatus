@@ -66,10 +66,22 @@ export function raw(method: string, path: string, body?: unknown, opts: { keepal
   });
 }
 
+/**
+ * What a refusal that came with no words of Afflatus's says (a proxy's error page, a server going down mid-answer): what
+ * happened and what to do, never the bare "the server answered 502" (card #177).
+ */
+export function unsaid(status: number): string {
+  if (status === 404) return "Afflatus has no such address: this page may be older than the server. Reload it.";
+  if (status === 413) return "It is too big for the server to take (a proxy in front of Afflatus may set a lower limit).";
+  if (status === 502 || status === 503 || status === 504) return `Afflatus did not answer (${status}): it may be restarting, or a proxy in front of it cannot reach it. Try again in a moment.`;
+  if (status >= 500) return `Something went wrong on the server (${status}): the console Afflatus runs in says what.`;
+  return `The server refused it (${status}), without saying why.`;
+}
+
 /** What a request that did not succeed says, as `call` throws it: the server's own words, and its status. */
 export async function failure(res: Response): Promise<ApiError> {
   const data = (await res.json().catch(() => ({}))) as { error?: string; left?: number; wait?: number; needPassword?: boolean; redeploy?: boolean };
-  return new ApiError(data.error ?? `the server answered ${res.status}`, res.status, { left: data.left, wait: data.wait, needPassword: data.needPassword, redeploy: data.redeploy });
+  return new ApiError(data.error ?? unsaid(res.status), res.status, { left: data.left, wait: data.wait, needPassword: data.needPassword, redeploy: data.redeploy });
 }
 
 /** `signal`: a query's, so that a query that is cancelled (refetched, left) also stops its request. */
@@ -141,7 +153,7 @@ async function answer<T>(res: Response): Promise<T> {
     // as an empty answer the screen would take for real. An empty body (a plain "done") stays {}.
     if (res.ok) throw new ApiError(`the server answered with something that is not Afflatus's (${res.headers.get("content-type") ?? "no type"})`, res.status);
   }
-  if (!res.ok) throw new ApiError(data.error ?? `the server answered ${res.status}`, res.status, { left: data.left, wait: data.wait, needPassword: data.needPassword, redeploy: data.redeploy });
+  if (!res.ok) throw new ApiError(data.error ?? unsaid(res.status), res.status, { left: data.left, wait: data.wait, needPassword: data.needPassword, redeploy: data.redeploy });
   return data as T;
 }
 

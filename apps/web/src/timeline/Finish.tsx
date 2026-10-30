@@ -8,7 +8,7 @@ import { Dialog, DialogFoot, DialogHead, DIALOG } from "../Dialog";
 import { FieldRow } from "../fields";
 import { est, fileLabel, plural } from "../format";
 import { Select } from "../Select";
-import { Button, Chip, cx, ErrorNote, Help, NumberBox, Segmented, Toggle } from "../ui";
+import { Button, Chip, cx, Failed, Help, NumberBox, Segmented, Toggle } from "../ui";
 import { queryKeys } from "../queryKeys";
 import { seedvrBatch } from "../snap";
 
@@ -187,8 +187,8 @@ export function FinishDialog({ timeline, clips, upscaleModels, models = { face: 
             </FieldRow>
           )}
         </div>
-        {go.isError && <ErrorNote>{go.error.message}</ErrorNote>}
-        {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
+        {go.isError && <Failed what="Not finished" error={go.error} />}
+        {save.isError && <Failed what="Not saved" error={save.error} />}
         {/* the estimate on its own line over the foot, so the foot's buttons keep one row; held while it is worked out, so nothing jumps */}
         {todo.length > 0 && (
           <span className="-mb-1.5 min-h-4 self-end text-xs text-ink-3">

@@ -439,12 +439,12 @@ const sayIfSlow = (site: string, from: number, how: string) => {
 
 const csv = z.union([z.string(), z.array(z.string())]).optional().transform((v) => (v === undefined ? [] : Array.isArray(v) ? v : [v]).flatMap((x) => x.split("|")).filter(Boolean).slice(0, 20));
 
-/** The settings, refused when searching Hugging Face and Civitai is off (Settings › Models). */
-export async function lookupsOnFor(s: Services): Promise<Settings> {
-  const settings = await readSettings(s.db);
-  if (!settings.civitaiLookups) throw httpError("Searching Hugging Face and Civitai is off. Turn it on in Settings › Models.", 409);
-  return settings;
-}
+/**
+ * The settings Find models searches with (the keys). Never refused for "Search Hugging Face and Civitai" off: opening Find
+ * models, pasting a link or an agent's find_models is the user asking, and the switch only covers what Afflatus asks on its
+ * own, files hashed and matched, newer versions checked (card #166: Find models met a wall on a new install).
+ */
+export const askedSettings = (s: Services): Promise<Settings> => readSettings(s.db);
 
 /** What Find models' Civitai tab asks: words, its types and base models, its order and period, a page's cursor, one creator's. */
 export const civitaiQuery = z.object({
@@ -456,7 +456,7 @@ export const civitaiQuery = z.object({
 
 /** Civitai's models for words and filters, a page at a time (its cursor), as cards: Find models' Civitai tab, and MCP's find_models. */
 export async function browseCivitai(s: Services, q: z.output<typeof civitaiQuery>): Promise<{ items: BrowseCard[]; next: string | null; timings: string[] }> {
-  await lookupsOnFor(s);
+  await askedSettings(s);
   const params = new URLSearchParams({ sort: q.sort, period: q.period });
   if (q.q.trim()) params.set("query", q.q.trim());
   if (q.by) params.set("username", q.by);
@@ -494,7 +494,7 @@ export const huggingFaceQuery = z.object({ q: z.string().max(200).default(""), b
  * at a time, several meaning all of them at once), a page at a time: Find models' Hugging Face tab, and MCP's find_models.
  */
 export async function browseHuggingFace(s: Services, q: z.output<typeof huggingFaceQuery>): Promise<{ items: BrowseCard[]; next: string | null; timings: string[] }> {
-  const settings = await lookupsOnFor(s);
+  const settings = await askedSettings(s);
   const params = new URLSearchParams({ sort: q.sort, direction: "-1", limit: String(PAGE), full: "true" });
   if (q.q.trim()) params.set("search", q.q.trim());
   // one user's or organisation's repositories only (the command bar's by:)
@@ -528,7 +528,7 @@ export async function browseHuggingFace(s: Services, q: z.output<typeof huggingF
 }
 
 export function registerBrowse(app: FastifyInstance, s: Services): void {
-  const lookupsOn = () => lookupsOnFor(s);
+  const asked = () => askedSettings(s);
 
   /** The filters' choices: Civitai's base models, and the user's families with theirs (the filter starts on those). */
   app.get("/api/browse/bases", async () => {
@@ -569,7 +569,7 @@ export function registerBrowse(app: FastifyInstance, s: Services): void {
   /** A Hugging Face repository opened: its model files with their sizes and SHA-256. */
   app.get("/api/browse/huggingface/files", async (req) => {
     const { repo } = z.object({ repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/, "a repository is owner/name").max(200) }).strict().parse(req.query);
-    const settings = await lookupsOn();
+    const settings = await asked();
     return { files: await repoFiles(repo, settings.huggingFaceToken, await known(s)) };
   });
 
@@ -579,7 +579,7 @@ export function registerBrowse(app: FastifyInstance, s: Services): void {
    */
   app.post("/api/browse/link", async (req) => {
     const { link } = z.strictObject({ link: z.string().min(8).max(2000) }).parse(req.body);
-    const settings = await lookupsOn();
+    const settings = await asked();
     let at: URL;
     try {
       at = new URL(link.trim());

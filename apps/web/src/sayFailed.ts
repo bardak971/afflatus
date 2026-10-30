@@ -1,26 +1,28 @@
 import { ApiError } from "./api";
 import { useBanners, type Banner } from "./store";
 
-/** Where a failed action is said to be done, for its banner's way back: the library unless told. */
-export interface FailedWhere {
+/**
+ * Where a failed action is said to be done, for its banner's way there: always named (card #177: a banner left without
+ * one offered "Open the library" for a download or ComfyUI that would not open). `href` and `go`, the place and its link's
+ * words ("Open Settings › Models"); or `here`, when what it is about is on screen already, and the banner leads nowhere.
+ */
+export type FailedWhere = {
   id?: string;
-  href?: string;
-  go?: string;
   /** A 409 (the server naming what still uses the thing) is titled "Still in use". */
   inUse?: boolean;
   /** The banner takes the place of the last one of its `id` rather than adding one more (a failure that can repeat, as each edit of a draft). */
   once?: boolean;
-}
+} & ({ href: string; go: string; here?: never } | { here: true; href?: never; go?: never });
 
 /** The banner of a failed action: its title, the error's own words, the way to where it is done. */
-export function failedBanner({ id = "failed", href = "/", go = "Open the library", inUse = false, once = false }: FailedWhere, title: string, err: unknown, at = Date.now()): Banner {
+export function failedBanner(where: FailedWhere, title: string, err: unknown, at = Date.now()): Banner {
+  const { id = "failed", inUse = false, once = false } = where;
   return {
     id: once ? id : `${id}:${at}`,
     tone: "bad",
     title: inUse && err instanceof ApiError && err.status === 409 ? "Still in use" : title,
     text: err instanceof Error ? err.message : String(err),
-    href,
-    go,
+    ...(where.here ? {} : { href: where.href, go: where.go }),
   };
 }
 
@@ -28,7 +30,7 @@ export function failedBanner({ id = "failed", href = "/", go = "Open the library
  * A banner for an action that failed (failedBanner). A file of its own, light: the menus, the command bar, the Queue
  * and the Projects panel use it.
  */
-export function useSayFailed(where: FailedWhere = {}) {
+export function useSayFailed(where: FailedWhere) {
   const say = useBanners((b) => b.push);
   return (title: string) => (err: unknown) => say(failedBanner(where, title, err));
 }

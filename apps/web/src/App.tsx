@@ -46,7 +46,7 @@ import { useWhereReport } from "./whereReport";
 import { useAgentShow } from "./agentShow";
 
 /** Where the banners of the start-up checks lead. */
-const ABOUT = { id: "ffmpeg-get", href: "/settings/about", go: "Open About in Settings" };
+const ABOUT = { id: "ffmpeg-get", href: "/settings/about", go: "Open Settings › About" };
 
 /**
  * A tool Afflatus needs is missing on the computer it runs on: said once per browser session, with the way to Settings → About
@@ -69,13 +69,13 @@ export function useMissingTools() {
         // no session storage: said every time
       }
       if (c.ok) {
-        push({ id: `check-${c.id}`, tone: "good", title: `${c.label}: ${c.detail}`, text: c.note, href: "/settings/about", go: "Open About in Settings" });
+        push({ id: `check-${c.id}`, tone: "good", title: `${c.label}: ${c.detail}`, text: c.note, href: "/settings/about", go: "Open Settings › About" });
         continue;
       }
       // started here, followed in About, where the banner leads; from another computer, where it is refused, only said
       const elsewhere = c.get === "download" && health.data?.here === false;
       const get = c.get === "download" && !elsewhere ? { label: "Get ffmpeg", run: () => void api.getFfmpeg().then((v) => client.setQueryData(queryKeys.ffmpegGet(), v), (err) => push(failedBanner(ABOUT, "Get ffmpeg did not start", err))) } : undefined;
-      push({ id: `check-${c.id}`, tone: "bad", title: `${c.label}: ${c.detail}`, text: `${c.without} ${c.fix}${elsewhere ? ` ${ELSEWHERE}` : ""}`, href: "/settings/about", go: "Open About in Settings", ...(get ? { action: get } : {}) });
+      push({ id: `check-${c.id}`, tone: "bad", title: `${c.label}: ${c.detail}`, text: `${c.without} ${c.fix}${elsewhere ? ` ${ELSEWHERE}` : ""}`, href: "/settings/about", go: "Open Settings › About", ...(get ? { action: get } : {}) });
     }
   }, [health.data, push, client]);
 }

@@ -74,14 +74,14 @@ describe("what the machines have", () => {
     await c.close();
   });
 
-  it("finds the user's own, and what a form lacks; Civitai and Hugging Face only with lookups on", async () => {
+  it("finds the user's own, and what a form lacks", async () => {
     const c = await connect(["look"]);
     const yours = await ok(c, "find_models", { site: "yours", q: "lamp" });
     expect(yours.files.map((f: { file: string }) => f.file)).toContain("zz-test-lamp.safetensors");
     const lacks = await ok(c, "find_models", { site: "lacks", form: "sdxl.text-to-picture", values: { prompt: "zz-test a lamp", checkpoint: CHECKPOINT } });
     expect(lacks).toMatchObject({ form: "sdxl.text-to-picture", ready: true, nodes: [] });
-    expect(await refused(c, "find_models", { site: "civitai", q: "lamp" })).toMatch(/Searching Hugging Face and Civitai is off/);
-    expect(await refused(c, "find_models", { site: "huggingface", q: "lamp" })).toMatch(/is off/);
+    // Civitai and Hugging Face are asked whatever "Search Hugging Face and Civitai" says (an agent's find_models is the user
+    // asking, card #166): browse.test.ts asks a pretend Civitai with lookups off
     await c.close();
   });
 });
@@ -89,6 +89,7 @@ describe("what the machines have", () => {
 describe("download", () => {
   it("goes through the downloads' own checks: refused with downloads off, and for a file under a licence the user has not accepted", async () => {
     const c = await connect(MANAGE);
+    await updateSettings(t.db, () => ({ downloadModels: false }));
     expect(await refused(c, "download", { folder: "loras", file: "zz-test.safetensors", url: "https://huggingface.co/o/r/resolve/main/zz-test.safetensors" })).toMatch(/[Dd]ownload/);
     await updateSettings(t.db, () => ({ downloadModels: true, civitaiLookups: true }));
     const said = await refused(c, "download", { folder: "diffusion_models", file: H3_FILE, url: `https://huggingface.co/x/resolve/main/${H3_FILE}` });
@@ -101,6 +102,7 @@ describe("download", () => {
   it("onto a rented pod needs Spend", async () => {
     await updateSettings(t.db, () => ({ downloadModels: true, machines: [{ id: "m1", url: fake.url }, { id: "rp", url: pod.url, rented: { provider: "runpod", pod: "pod-1" } }] }));
     const c = await connect(MANAGE);
+    await updateSettings(t.db, () => ({ downloadModels: false }));
     expect(await refused(c, "download", { folder: "loras", file: "zz-test.safetensors", url: "https://huggingface.co/o/r/resolve/main/zz-test.safetensors", machine: "rp" })).toMatch(/cannot spend on rented GPUs, and .* is one: a pod fetching files is busy, billed/);
     const set = await ok(c, "edit_model_set", { action: "new", name: "zz-test set", files: [{ file: "zz-test-vae.safetensors", folder: "vae", url: "https://huggingface.co/o/r/resolve/main/zz-test-vae.safetensors" }] });
     expect(await refused(c, "edit_model_set", { action: "get", set: set.id, machine: "rp" })).toMatch(/cannot spend on rented GPUs/);
@@ -111,6 +113,7 @@ describe("download", () => {
   it("with no machine named goes to the first, a pod in a setup with rented GPUs only: needs Spend there too", async () => {
     await updateSettings(t.db, () => ({ downloadModels: true, civitaiLookups: true, machines: [{ id: "rp", url: pod.url, rented: { provider: "runpod", pod: "pod-1" } }] }));
     const c = await connect(MANAGE);
+    await updateSettings(t.db, () => ({ downloadModels: false }));
     expect(await refused(c, "download", { folder: "loras", file: "zz-test.safetensors", url: "https://huggingface.co/o/r/resolve/main/zz-test.safetensors" })).toMatch(/cannot spend on rented GPUs, and .* is one/);
     const set = await ok(c, "edit_model_set", { action: "new", name: "zz-test set", files: [{ file: "zz-test-vae.safetensors", folder: "vae", url: "https://huggingface.co/o/r/resolve/main/zz-test-vae.safetensors" }] });
     expect(await refused(c, "edit_model_set", { action: "get", set: set.id })).toMatch(/cannot spend on rented GPUs/);
@@ -135,7 +138,7 @@ describe("download", () => {
 
   it("lists the downloads line without where on disk; clears it", async () => {
     const c = await connect(MANAGE);
-    expect(await ok(c, "downloads")).toEqual({ downloadModels: false, items: [] });
+    expect(await ok(c, "downloads")).toEqual({ downloadModels: true, items: [] });
     expect(await ok(c, "change_downloads", { action: "clear" })).toEqual({ cleared: 0 });
     expect(await refused(c, "change_downloads", { action: "cancel", id: "nope" })).toMatch(/no such download/);
     await c.close();

@@ -6,7 +6,7 @@ import { ExternalLink } from "lucide-react";
 import { api, type ModelPage } from "./api";
 import { useModelPages } from "./data";
 import { fileLabel } from "./format";
-import { cx, fieldClass, Help } from "./ui";
+import { cx, Failed, fieldClass, Help } from "./ui";
 import { queryKeys } from "./queryKeys";
 
 const CIVITAI = /^https?:\/\/(www\.)?civitai\.(com|red)(?=\/|$)/i;
@@ -118,7 +118,7 @@ export function ModelLink({ folder, file, className }: { folder: string; file: s
           ) : (
             <>
               {(find.isPending || pages.isPending) && <span className="px-2 py-1.5 text-ink-2">Searching for its model page…</span>}
-              {find.isError && <span className="px-2 py-1.5 text-warn-ink">{find.error.message}</span>}
+              {find.isError && <span className="px-2 py-1.5"><Failed inline what="Not found" error={find.error} /></span>}
               {find.data && !find.data.lookups && (
                 <span className="flex items-center gap-1.5 px-2 py-1.5 text-ink-2">
                   Search Hugging Face and Civitai: off
@@ -159,7 +159,7 @@ export function ModelLink({ folder, file, className }: { folder: string; file: s
                 <input aria-label="Model page URL" value={own} placeholder="Or paste the model page URL" onChange={(e) => setOwn(e.target.value)} onKeyDown={(e) => e.stopPropagation()} className={cx(fieldClass, "h-8 min-w-0 grow px-2 text-xs")} />
                 <button type="submit" disabled={!own.trim() || set.isPending} className="shrink-0 rounded-md border border-line-strong px-2 py-1 text-xs hover:bg-hover disabled:opacity-45">Link</button>
               </form>
-              {set.isError && <span className="px-2 py-1 text-xs text-warn-ink">{set.error.message}</span>}
+              {set.isError && <span className="px-2 py-1"><Failed inline what="Not saved" error={set.error} /></span>}
             </>
           )}
         </div>,

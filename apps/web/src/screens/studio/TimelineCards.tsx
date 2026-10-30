@@ -17,7 +17,7 @@ import { toMenu, type KindActionId } from "../../projects/kindActions";
 import { useKindActions, type TimelineSubject } from "../../projects/useKindActions";
 import { openFolderId } from "../../store";
 import { Thumb } from "../../Thumb";
-import { Button, Chip, CloseButton, cx, Empty, ErrorNote } from "../../ui";
+import { Button, Chip, CloseButton, cx, Empty, Failed } from "../../ui";
 import type { Place } from "../Library";
 import { chipsOf, factsOf, stripOf } from "./timelineCard";
 import { queryKeys } from "../../queryKeys";
@@ -186,7 +186,7 @@ export function TimelineCards({ timelines, ready, place, size = "M", searched = 
 
   return (
     <>
-      {error && <ErrorNote>{error.message}</ErrorNote>}
+      {error && <Failed what="The timelines could not be read" error={error} />}
       {ready && !timelines.length && searched && <Empty title="No timeline of that name" help="Clear the search, or open All in the folder list." />}
       {/* none yet: the New timeline card says so itself; a box above it, drawn once the list answered, pushed the
           cards (and the placeholders before them) down */}
@@ -389,7 +389,7 @@ function PlaceholderCard({ size }: { size: "S" | "M" | "L" }) {
  */
 export function useMoveTimelines() {
   const client = useQueryClient();
-  const sayFailed = useSayFailed({ id: "timeline" });
+  const sayFailed = useSayFailed({ id: "timeline", href: "/timelines", go: "Open the Timelines" });
   return useMutation({
     mutationFn: async (v: { ids: string[]; folder: string | null }) => {
       const done = await Promise.allSettled(v.ids.map((id) => api.editTimeline(id, { folder: v.folder })));

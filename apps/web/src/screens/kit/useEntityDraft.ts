@@ -111,7 +111,7 @@ export function useEntityDraft({ stored, loading, shows }: {
             if (!item) return;
             await api.saveEntity(e.id, bodyOf(back(item)));
             await client.invalidateQueries({ queryKey: queryKeys.entities() });
-          })().catch((err: unknown) => say(failedBanner({ id: `agent-undo:${e.id}` }, `${e.by}'s change could not be undone`, err)));
+          })().catch((err: unknown) => say(failedBanner({ id: `agent-undo:${e.id}`, href: "/kit", go: "Open the Prompt kit" }, `${e.by}'s change could not be undone`, err)));
         },
       },
     });

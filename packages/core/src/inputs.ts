@@ -560,6 +560,24 @@ const buildSchema = (specs: readonly InputSpec[]) => z.strictObject(Object.fromE
  */
 const schemas = new WeakMap<readonly InputSpec[], { length: number; schema: ReturnType<typeof buildSchema> }>();
 
+/**
+ * A form refused by its schema, said by its fields' labels ("What happens is empty") rather than zod's own words
+ * ("description: Too small: expected string to have >=1 characters"), which the Studio showed under Render (card #165).
+ */
+export function saidRefusal(specs: readonly InputSpec[], issues: readonly z.core.$ZodIssue[], raw: unknown): string {
+  const given = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const said = issues.map((issue) => {
+    const [id, ...rest] = issue.path;
+    const spec = specs.find((s) => s.id === id);
+    if (!spec) return issue.code === "unrecognized_keys" ? `the form has no ${plainList(issue.keys)}` : issue.message;
+    const left = given[spec.id] === undefined || given[spec.id] === null || given[spec.id] === "";
+    if (!rest.length && (left || (issue.code === "too_small" && spec.type === "prompt"))) return spec.type === "prompt" ? `${spec.label} is empty` : `${spec.label} is missing`;
+    return `${spec.label}: ${issue.message.charAt(0).toLowerCase()}${issue.message.slice(1)}`;
+  });
+  return [...new Set(said)].join("; ");
+}
+const plainList = (keys: readonly string[]) => keys.map((k) => `"${k}"`).join(", ");
+
 /** The zod object a recipe's raw inputs are parsed with: defaults filled in, unknown keys rejected. */
 export function schemaFor(specs: InputSpec[]) {
   const kept = schemas.get(specs);

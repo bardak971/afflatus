@@ -35,7 +35,7 @@ export function FileWhere({ folder, file, machine, className }: { folder: string
     queryFn: ({ signal }) => api.modelFileWhere({ folder, file, ...(machine ? { machine } : {}) }, { signal }),
     staleTime: 60_000,
   });
-  const failed = useSayFailed({ id: "show-in-folder" });
+  const failed = useSayFailed({ id: "show-in-folder", here: true });
   const show = useMutation({ mutationFn: (at: number) => api.revealModelFile({ folder, file, at, ...(machine ? { machine } : {}) }), onError: failed("Could not show it in its folder") });
   const d = where.data;
   if (!d) return null;

@@ -4,7 +4,7 @@ import { placeablesFor, suggestSections } from "@afflatus/workflows";
 import { ask } from "../../Confirm";
 import { useRecipes } from "../../data";
 import { Form } from "../../RecipeForm";
-import { Chip, cx, ErrorNote, fieldClass, Help, SectionTitle } from "../../ui";
+import { Chip, cx, ErrorNote, Failed, fieldClass, Help, SectionTitle } from "../../ui";
 import { FormSections } from "../FormSections";
 import { SwitchDialog } from "../SwitchDialog";
 import { Step } from "./parts";
@@ -125,7 +125,7 @@ export function FormPanel({ m, saveError }: { m: Mapping; saveError: Error | nul
         </div>
       )}
 
-      {saveError && <ErrorNote>{saveError.message}</ErrorNote>}
+      {saveError && <Failed what="Not saved" error={saveError} />}
     </section>
   );
 }

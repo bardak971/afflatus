@@ -111,7 +111,7 @@ export function useBarRequests({ id, t, shown, clips, slots, missing, ready, ren
       (made) => {
         asked?.reply(made.ids);
         // sent to the top of the queue: the bar says so once they are there
-        if (!request.top) say({ id: `bar-render:${Date.now()}`, tone: "good", title: `${plural(list.length, "clip")} of ${t.name} queued`, href: "/queue", go: "Open queue" });
+        if (!request.top) say({ id: `bar-render:${Date.now()}`, tone: "good", title: `${plural(list.length, "clip")} of ${t.name} queued`, href: "/queue", go: "Open the Queue" });
       },
       // the refusal is said by the render mutation (useTimelineMutations), for every way it is asked
       () => asked?.reply(null),

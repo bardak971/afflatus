@@ -6,7 +6,7 @@ import { Dialog, DialogFoot, DialogHead, DIALOG } from "../Dialog";
 import { FieldRow } from "../fields/FieldRow";
 import { Keys } from "../Keys";
 import { queryKeys } from "../queryKeys";
-import { Button, cx, ErrorNote, fieldClass } from "../ui";
+import { Button, cx, Failed, fieldClass } from "../ui";
 
 /** A new project, named here (Projects.tsx): a chunk of its own, since it is opened now and then and the rail is in the first load. */
 export function NewProject({ onClose, onMade }: { onClose(): void; onMade(p: Project): void }) {
@@ -34,7 +34,7 @@ export function NewProject({ onClose, onMade }: { onClose(): void; onMade(p: Pro
         <FieldRow label="Name" htmlFor="new-project-name" note="A project holds drafts, timelines and folders. It gets a root folder of the same name, where its renders land unless another folder of it is open. The library, the drafts and the timelines then show this project's.">
           <input id="new-project-name" autoFocus aria-label="Project name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Project name" maxLength={120} className={cx(fieldClass, "h-10")} />
         </FieldRow>
-        {make.isError && <ErrorNote>{make.error.message}</ErrorNote>}
+        {make.isError && <Failed what="The project was not made" error={make.error} />}
         <DialogFoot>
           <Button tone="quiet" type="button" onClick={onClose}>Cancel <Keys keys="Esc" size="sm" /></Button>
           <Button tone="primary" type="submit" disabled={!name.trim() || make.isPending}>Create <Keys keys="Enter" size="sm" /></Button>

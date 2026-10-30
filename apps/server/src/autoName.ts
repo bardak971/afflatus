@@ -32,9 +32,12 @@ function firstWords(text: string, words = 5, max = 40): string {
   return capName(out, max).replace(/[,.;:·–-]+$/, "");
 }
 
-/** A take of a timeline clip: the timeline is cut short before the clip and take numbers are. */
+/**
+ * A take of a timeline clip: the timeline is cut short before the clip and take numbers are. In full words, as the status
+ * bar, the command bar and the inspector say them (card #176: the Queue's "c2 · t1"); a name given before stays as it was.
+ */
 export function takeName(timeline: string, clip: number, take: number): string {
-  const suffix = ` · c${clip} · t${take}`;
+  const suffix = ` · Clip ${clip} · take ${take}`;
   return `${capName(timeline.trim() || "Timeline", NAME_MAX - suffix.length)}${suffix}`;
 }
 
@@ -43,7 +46,7 @@ const stem = (name: string) => name.trim().replace(/\.(mp4|webm|mov|mkv|m4v|avi|
 
 /**
  * The finished version of a take: its draft's name, said finished once (a finish of a finish is not "finished · finished"),
- * with how many times bigger it was made when it was ("Big Air · c2 · t5 · finished ×2").
+ * with how many times bigger it was made when it was ("Big Air · Clip 2 · take 5 · finished ×2").
  */
 export function finishedName(of: string, by?: number | null): string {
   const suffix = by && by !== 1 ? ` · finished ×${Math.round(by * 10) / 10}` : " · finished";
@@ -51,7 +54,7 @@ export function finishedName(of: string, by?: number | null): string {
   return `${capName(base, NAME_MAX - suffix.length)}${suffix}`;
 }
 
-/** What was taken out of a named item: its name, cut short before what it is of it ("Big Air · c2 · t5 · 0:01–0:02"). */
+/** What was taken out of a named item: its name, cut short before what it is of it ("Big Air · Clip 2 · take 5 · 0:01–0:02"). */
 export function fromName(source: string, suffix: string): string {
   return `${capName(stem(source) || "video", NAME_MAX - suffix.length)}${suffix}`;
 }
@@ -66,10 +69,10 @@ export function passName(source: string, pass: string, n?: number): string {
   return `${capName(stem(source) || "picture", NAME_MAX - suffix.length)}${suffix}`;
 }
 
-/** A frame of a video: "Big Air · c2 · t5 · frame 0:03.2" (without the moment when it is not known). */
+/** A frame of a video: "Big Air · Clip 2 · take 5 · frame 0:03.2" (without the moment when it is not known). */
 export const frameName = (source: string, atMs?: number) => fromName(source, ` · frame${atMs === undefined ? "" : ` ${clockOf(atMs)}`}`);
 
-/** The sound of a video, as a sound of its own: "Big Air · c2 · t5 · audio". */
+/** The sound of a video, as a sound of its own: "Big Air · Clip 2 · take 5 · audio". */
 export const soundName = (source: string) => fromName(source, " · audio");
 
 /**

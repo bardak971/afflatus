@@ -3,8 +3,10 @@ import { api } from "../../api";
 import { useSettings } from "../../data";
 import { openFindModels, thisPcTarget } from "../../findModels/store";
 import { queryKeys } from "../../queryKeys";
-import { Button, cx, ErrorNote } from "../../ui";
+import { Button, cx, ErrorNote, Failed } from "../../ui";
 import { Block, Card, Row } from "./Rows";
+import { LookupsOff } from "./CivitaiCard";
+import { UnseenFolder, useComfyListed } from "./unseenFolder";
 
 const WHY = "Every model file of this PC's ComfyUI is hashed once (its SHA-256: a fingerprint of its content, read from the file, a minute after Afflatus starts and when you press Hash now; paused while this PC renders). Civitai is then asked which version each one is, all in one request, and Hugging Face by the file's name, taken only when its file has the same SHA-256. A rented GPU then fetches each from that site, faster than this PC's upload and sparing its line; one no site has is sent from here.";
 
@@ -24,9 +26,10 @@ export function ModelsOnlineCard() {
   const run = useMutation({ mutationFn: () => api.hashModels(), onSuccess: (s) => client.setQueryData(queryKeys.modelHashes(), s) });
   const s = status.data;
   const lookups = Boolean(settings.data?.civitaiLookups);
+  const listed = useComfyListed();
   const part = s && s.files ? s.hashed / s.files : 0;
   return (
-    <Card title="Your models online" setting="models.online" help={WHY} status={<Button size="sm" disabled={!lookups} onClick={() => openFindModels(thisPcTarget(client))} data-tip={lookups ? "Civitai, Hugging Face and yours, to download onto this PC" : "Turn on Search Hugging Face and Civitai (Missing models) first"}>Find models…</Button>}>
+    <Card title="Your models online" setting="models.online" help={WHY} status={<Button size="sm" onClick={() => openFindModels(thisPcTarget(client))} data-tip="Civitai, Hugging Face and yours, to download onto this PC">Find models…</Button>}>
       {s?.noFolder ? (
         <Block><span className="text-xs text-ink-2">No ComfyUI folder on this PC (Settings › ComfyUI): nothing to hash here.</span></Block>
       ) : s && (
@@ -35,7 +38,7 @@ export function ModelsOnlineCard() {
             <span className="flex min-w-0 grow flex-col gap-1.5">
               <span className="text-body">
                 {!s.looked ? <span className="text-ink-2">Not looked at yet: a minute after Afflatus starts, or Hash now</span>
-                  : !s.files ? <span className="text-ink-2">No model file in this PC's ComfyUI folders</span>
+                  : !s.files ? <span className="text-ink-2">{listed ? <UnseenFolder listed={listed} /> : "No model file in this PC's ComfyUI folders"}</span>
                   : <><span className="font-mono">{s.hashed} / {s.files}</span>{s.files > s.hashed ? <span className="text-ink-3"> · {s.files - s.hashed} not hashed yet</span> : <span className="text-good"> · all</span>}</>}
               </span>
               <span className="h-[5px] max-w-[320px] overflow-hidden rounded-key bg-line-strong"><span className="block h-full rounded-key bg-accent" style={{ width: `${part * 100}%` }} /></span>
@@ -50,12 +53,12 @@ export function ModelsOnlineCard() {
                 <Count n={s.huggingFace} what="on Hugging Face" sub="by name, checked by hash" />
                 <Count n={s.nowhere} what="this PC only" sub="sent from here to a pod" warn />
               </span>
-            ) : <span className="text-xs text-ink-2">Not asked: Search Hugging Face and Civitai is off (Missing models).</span>}
+            ) : <LookupsOff why="no site is asked which of your files it has" />}
           </Row>
           {s.error && <Block><ErrorNote>{s.error}</ErrorNote></Block>}
         </>
       )}
-      {status.isError && <Block><ErrorNote>{status.error.message}</ErrorNote></Block>}
+      {status.isError && <Block><Failed what="The hashing could not be read" error={status.error} /></Block>}
     </Card>
   );
 }

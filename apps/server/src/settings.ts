@@ -366,14 +366,21 @@ export const settingsSchema = z.object({
    * forgotten when it never does. Never given to the page.
    */
   pendingDeploys: z.array(z.object({ name: z.string().max(120), secret: z.string().max(80), at: z.string().max(40) })).max(50).default([]),
-  /** Missing model files may be looked for on Civitai. Off: Afflatus never contacts Civitai. */
-  civitaiLookups: z.boolean().default(false),
+  /**
+   * Missing model files may be looked for on Hugging Face and Civitai, and the files here hashed and matched there. Off:
+   * Afflatus never contacts them on its own; Find models still searches when it is opened, the user asking (card #166).
+   * On for a new install; one from before 0.8.4 kept what it had (migration 0101).
+   */
+  civitaiLookups: z.boolean().default(true),
   /** Once a day, Civitai is asked whether it has newer versions of the models here (only with lookups on; hashes of the files are sent). */
   updateChecks: z.boolean().default(false),
   /** Once a day, GitHub is asked whether a newer Afflatus is out (updates.ts); nothing about the user is sent. Apart from `updateChecks`, which is about the models. */
   afflatusUpdateChecks: z.boolean().default(true),
-  /** Missing model files may be fetched into ComfyUI, through ComfyUI-Manager. Off: Afflatus never asks ComfyUI to download anything. */
-  downloadModels: z.boolean().default(false),
+  /**
+   * Missing model files may be fetched into ComfyUI (by Afflatus, its node pack or ComfyUI-Manager), each asked first with
+   * its size. Off: Afflatus never asks ComfyUI to download anything. On for a new install (card #166, migration 0101).
+   */
+  downloadModels: z.boolean().default(true),
   /**
    * Where a model folder's downloads go when ComfyUI reads it from several places (card #59), by machine id then folder
    * name: one of the paths ComfyUI lists for it, as it says it. A folder not named takes ComfyUI's own models/<folder>.

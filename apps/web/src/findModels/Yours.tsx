@@ -7,7 +7,7 @@ import { plural, size } from "../format";
 import { useSettled } from "../hooks";
 import { filesOfPick, ViaChip } from "../modelFilesUi";
 import { queryKeys } from "../queryKeys";
-import { cx, Empty, ErrorNote, IconButton, SearchField } from "../ui";
+import { cx, Empty, Failed, IconButton, SearchField } from "../ui";
 import type { PickedFile } from "./store";
 
 /** One of the user's own: a preset or a family's usual files, as a card; + picks all its files. */
@@ -54,7 +54,7 @@ export function Yours({ words, onWords, picked, onPick }: { words: string; onWor
         <SearchField autoFocus value={words} onChange={onWords} label="Search your presets, families and files" placeholder="Your presets, your families, this PC's files" />
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4">
-        {found.isError && <ErrorNote>{found.error.message}</ErrorNote>}
+        {found.isError && <Failed what="Your models could not be searched" error={found.error} />}
         {d && d.presets.length > 0 && (
           <section className="flex flex-col gap-2">
             <span className="text-meta font-bold tracking-label text-ink-3 uppercase">Presets</span>

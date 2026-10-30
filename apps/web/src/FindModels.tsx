@@ -15,7 +15,7 @@ import { Keys } from "./Keys";
 import { Progress } from "./progress/Progress";
 import { queryKeys } from "./queryKeys";
 import { Select } from "./Select";
-import { Checkbox, Chip, CloseButton, cx, Empty, ErrorNote, SearchField, Segmented } from "./ui";
+import { Checkbox, Chip, CloseButton, cx, Empty, Failed, SearchField, Segmented } from "./ui";
 
 /**
  * Find models: Civitai's and Hugging Face's models, and the user's own (presets, families, this PC's files), in a large
@@ -250,7 +250,7 @@ export function FindModels({ target }: { target: FindTarget }) {
             ) : (
               <div ref={scroller} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
                 {failed && !moreFailed && !isLink(q) && <SiteFailed error={failed} other={tab === "civitai" ? "Hugging Face" : "Civitai"} onRetry={retry} />}
-                {link.error && <ErrorNote>{link.error.message}</ErrorNote>}
+                {link.error && <Failed what="The link could not be read" error={link.error} />}
                 {link.isPending && <span className="text-xs text-ink-3">Reading the link…</span>}
                 <SlowSaid site={siteName} waiting={asking || refreshing} />
                 <div

@@ -51,7 +51,7 @@ export async function clearDraftUse(client: QueryClient, ids: string[]): Promise
       useDraftsChanged.getState().say({ deleted: drafts.map((d) => d.id) });
     }
   } catch (err) {
-    useBanners.getState().push(failedBanner({ id: "draft-use", once: true }, how === "release" ? "Could not take them out of the drafts" : "Could not delete the drafts", err));
+    useBanners.getState().push(failedBanner({ id: "draft-use", once: true, href: "/", go: "Open the Studio" }, how === "release" ? "Could not take them out of the drafts" : "Could not delete the drafts", err));
     return false;
   } finally {
     void client.invalidateQueries({ queryKey: queryKeys.drafts.lists() });

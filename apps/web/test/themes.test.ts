@@ -12,6 +12,12 @@ describe("the themes' text", () => {
             expect(contrast(t[ink], t[on]), `${theme.id} ${accent}: ${ink} on ${on}`).toBeGreaterThanOrEqual(LEGIBLE);
           }
         }
+        // the quieter inks on raised cards and on a row under the pointer too (the "?" marks, card #178)
+        for (const ink of ["ink-2", "ink-3"] as const) {
+          for (const on of ["raised", "hover"] as const) {
+            expect(contrast(t[ink], t[on]), `${theme.id} ${accent}: ${ink} on ${on}`).toBeGreaterThanOrEqual(LEGIBLE);
+          }
+        }
         // what is written on the accent reads too, and a notice's text on its wash
         expect(contrast(t["accent-ink"], t.accent), `${theme.id} ${accent}: on the accent`).toBeGreaterThanOrEqual(3);
         expect(contrast(t["warn-ink"], t["warn-wash"]), `${theme.id} ${accent}: warn-ink on its wash`).toBeGreaterThanOrEqual(LEGIBLE);
@@ -103,11 +109,13 @@ describe("the attention amber", () => {
 });
 
 describe("Studio Dark's quietest ink", () => {
-  // raised on purpose from #7c7c7c (4.2:1 on a raised field) for the 11 and 12 px text it is used for (review 4, P18)
-  it("is #8f8f8f and reads on a raised field too", () => {
+  // raised on purpose from #7c7c7c (4.2:1 on a raised field) for the 11 and 12 px text it is used for (review 4, P18), then
+  // from #8f8f8f (4.44:1 on a row under the pointer, card #178)
+  it("is #939393 and reads on a raised field and a hovered row too", () => {
     const t = tokensOf(themeById("studio"), "coral");
-    expect(t["ink-3"]).toBe("#8f8f8f");
+    expect(t["ink-3"]).toBe("#939393");
     expect(contrast(t["ink-3"], t.raised)).toBeGreaterThanOrEqual(LEGIBLE);
+    expect(contrast(t["ink-3"], t.hover)).toBeGreaterThanOrEqual(LEGIBLE);
   });
 });
 

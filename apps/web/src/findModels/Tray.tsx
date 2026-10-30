@@ -28,7 +28,7 @@ export function Tray({ files, target, onRemove, onClear, onDone, dropping, onOve
   onDrop(e: React.DragEvent): void;
 }) {
   const client = useQueryClient();
-  const sayFailed = useSayFailed({ id: "find-models" });
+  const sayFailed = useSayFailed({ id: "find-models", here: true });
   // onto this PC, each file's download says how it goes in its row (In line · 3rd, Downloading, Here): a file coming or
   // here already is not asked for twice, and Picked stays open on them (card #60)
   const downloads = useDownloads().data?.items ?? [];

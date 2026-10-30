@@ -88,7 +88,7 @@ const studio: Theme = {
     ground: "#141414", panel: "#1b1b1b", raised: "#232323", hover: "#2a2a2a", line: "#2b2b2b", "line-strong": "#3a3a3a",
     // the quietest ink at 4.86:1 on a raised field: at #7c7c7c (taken to #848484 to read on the panel) it was 4.2:1 there,
     // short of AA for the 11 and 12 px text it is used for (review 4, P18)
-    ink: "#e8e8e8", "ink-2": "#a9a9a9", "ink-3": "#8f8f8f", "ink-strong": "#ffffff",
+    ink: "#e8e8e8", "ink-2": "#a9a9a9", "ink-3": "#939393", "ink-strong": "#ffffff",
     good: "#6fc9b0", ...warning("#f0875e", "#1b1b1b", "#e8e8e8", false), "warn-on": "#2a0e00",
     picture: "#7fb0e8", shade: "#000000", stage: darkStage("#141414"),
   },
@@ -426,10 +426,13 @@ export function tokensOf(theme: Theme, accent: string | undefined): Tokens {
   const written = contrast(colour, other) > contrast(colour, theme.onAccent) * 1.25 ? other : theme.onAccent;
   const warn = warnFor(theme, theme.accents[name]!);
   const base = warn === theme.base.warn ? theme.base : { ...theme.base, ...theme.warning(warn) };
+  // the quieter inks are also written on raised cards and rows under the pointer (the "?" marks are ink-3 on raised): read
+  // on those too, which Catppuccin Mocha's and Studio Dark's ink-3 did not (3.5 to 4.4:1, card #178)
+  const inkGrounds = [...grounds, base.raised, base.hover];
   return {
     ...base,
-    "ink-2": legible(base["ink-2"], grounds, theme.light),
-    "ink-3": legible(base["ink-3"], grounds, theme.light),
+    "ink-2": legible(base["ink-2"], inkGrounds, theme.light),
+    "ink-3": legible(base["ink-3"], inkGrounds, theme.light),
     // "OK", "Ready", "Connected": green text that reads on the light themes' panels too
     // on a light theme it is also written on a tint of itself (a "Saved" chip, a sound's lane), up to a fifth of it
     good: theme.light ? legibleOnTint(base.good, [base.panel, base.raised, base.ground], true, TINT) : legible(base.good, [base.panel, base.raised, base.ground], false),

@@ -300,7 +300,7 @@ function Results({ found, active, onActive, onChoose, keysOfRow, pane, query }: 
       className={cx("flex min-h-8 w-full items-center gap-3 rounded-chip px-3 py-1 text-left", i === active && "bg-hover")}
     >
       <span className="flex w-[170px] shrink-0 items-center gap-1.5 truncate text-xs text-ink-3">
-        <span className="truncate">{f.place.name}{f.group.kind ? ` · ${f.group.kind}` : ""}</span>
+        <span className="truncate" data-tip={`${f.place.name}${f.group.kind ? ` · ${f.group.kind}` : ""}`}>{f.place.name}{f.group.kind ? ` · ${f.group.kind}` : ""}</span>
         {f.here && <Chip size="xs" tone="solid">here</Chip>}
       </span>
       <Does row={f.row} query={words ? query : undefined} />
@@ -310,7 +310,7 @@ function Results({ found, active, onActive, onChoose, keysOfRow, pane, query }: 
   const head = (text: string) => <h4 className="m-0 px-3 pb-1.5 text-meta font-bold tracking-label text-ink-3 uppercase">{text}</h4>;
   const kq = found.kq;
   return (
-    <div ref={pane} tabIndex={0} aria-label="Results" className="flex min-h-0 grow flex-col gap-4 overflow-y-auto px-4 py-3 outline-none">
+    <div ref={pane} tabIndex={0} aria-label="Results" className="flex min-h-0 grow flex-col gap-4 overflow-y-auto px-4 py-3 outline-none focus-visible:inset-ring-2 focus-visible:inset-ring-accent/50">
       {kq && found.keys.length > 0 && (
         <div>
           {head(`The ${kq.exact.length > 1 ? "keys" : "key"} ${kq.exact.join("+")}`)}

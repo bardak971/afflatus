@@ -162,7 +162,7 @@ function RunpodAccount() {
   // read again every 10 s while a pod runs (its cost goes on), every minute otherwise
   const running = useQueue().data?.machines.some((m) => m.rented?.status === "RUNNING") ?? false;
   const spending = useQuery({ queryKey: queryKeys.rentedSpending(), queryFn: ({ signal }) => api.rentedSpending({ signal }), enabled: any, refetchInterval: running ? 10_000 : 60_000 });
-  const sayFailed = useSayFailed({ href: "/settings/rented", go: "Open Rented GPUs" });
+  const sayFailed = useSayFailed({ href: "/settings/rented", go: "Open Settings › Rented GPUs" });
   const saveUnused = useMutation({
     mutationFn: (volumeUnusedDays: number) => api.saveSettings({ volumeUnusedDays }),
     onSuccess: (saved) => {

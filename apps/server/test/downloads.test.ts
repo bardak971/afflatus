@@ -155,14 +155,17 @@ afterEach(async () => {
   await new Promise((r) => site.close(r));
 });
 
-// fetching needs downloads on, and lookups on too: with lookups off Afflatus never contacts Civitai or Hugging Face
+// fetching needs downloads on (a new install's default since card #166); with lookups off, a Download pressed still goes
 const on = () => t.app.inject({ method: "PUT", url: "/api/settings", payload: { downloadModels: true, civitaiLookups: true, civitaiKey: "k-123" } });
+// both off, as an install from before 0.8.4 had them unless turned on
+const off = () => t.app.inject({ method: "PUT", url: "/api/settings", payload: { downloadModels: false, civitaiLookups: false } });
 const list = async () => (await get(t.app, "/api/downloads")).json();
 const done = (id: string) => until(async () => ["done", "error"].includes((await list()).items.find((d: { id: string }) => d.id === id)?.status));
 
 describe("fetching a missing model file into ComfyUI", () => {
   it("is never done unless it was turned on", async () => {
     await start(true);
+    await off();
     const res = await post(t.app, "/api/downloads", { file: "soft_light-v2.safetensors", folder: "loras", civitai: 42 });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("turned off");
@@ -339,14 +342,15 @@ describe("fetching a missing model file into ComfyUI", () => {
     expect(fake.installed).toEqual([]);
   });
 
-  it("is never done while lookups are off either: with lookups off Afflatus contacts neither Civitai nor Hugging Face", async () => {
+  it("goes with lookups off: a Download pressed, or a link pasted, is the user asking, which the switch does not cover (card #166)", async () => {
     await start(true);
-    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { downloadModels: true } });
-    const res = await post(t.app, "/api/downloads", { file: "soft_light-v2.safetensors", folder: "loras", civitai: 42 });
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toContain("Search Hugging Face and Civitai");
-    expect((await post(t.app, "/api/downloads/resolve", { link: "https://civitai.com/models/9" })).statusCode).toBe(400);
-    expect(asked).toEqual([]);
+    await on();
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { civitaiLookups: false } });
+    const d = (await post(t.app, "/api/downloads", { file: "soft_light-v2.safetensors", folder: "loras", civitai: 42 })).json();
+    expect(d).toMatchObject({ file: "soft_light-v2.safetensors", status: "starting" });
+    await done(d.id);
+    expect((await list()).items[0]).toMatchObject({ status: "done" });
+    expect((await post(t.app, "/api/downloads/resolve", { link: "https://civitai.com/models/9" })).statusCode).toBe(200);
   });
 
   it("fetches from the internet only: an address inside the network is refused before anything is asked of ComfyUI", async () => {
@@ -417,6 +421,7 @@ describe("a model from a link", () => {
 
   it("says what the link leads to: its versions, its files with their sizes, and the folder it most likely goes in", async () => {
     await start(true);
+    await off();
     expect((await resolve("https://civitai.red/models/9/some-h3?modelVersionId=50")).statusCode).toBe(400);
     expect(asked).toEqual([]);
     await on();

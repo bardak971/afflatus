@@ -124,7 +124,7 @@ export function useFamilyFetch(family: string, recipes: readonly RecipeInfo[], m
   const downloads = useDownloads(machine);
   const sizes = useOfficialSizes();
   const client = useQueryClient();
-  const failed = useSayFailed({ id: "models", href: "/settings/models", go: "Open Models" });
+  const failed = useSayFailed({ id: "models", href: "/settings/models", go: "Open Settings › Models" });
   const slots = setup.data?.families.find((f) => f.id === family)?.slots ?? [];
   const { needed } = familyFiles(slots, recipes, setup.data?.recipes ?? []);
   const coming = (r: FileRow) => (downloads.data?.items ?? []).some((d) => d.file === r.get?.file && d.folder === r.folder && (!machine || d.machine === machine) && d.status !== "error" && d.status !== "stopped");

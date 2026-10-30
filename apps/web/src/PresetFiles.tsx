@@ -8,7 +8,7 @@ import { Dialog, DialogFoot, DialogHead, DIALOG } from "./Dialog";
 import { fileLabel, gb, plural } from "./format";
 import { DownloadRow, GetFile, useDownloads } from "./GetFile";
 import { Keys } from "./Keys";
-import { Button, Chip, cx, ErrorNote } from "./ui";
+import { Button, Chip, cx, Failed } from "./ui";
 import { queryKeys } from "./queryKeys";
 
 /**
@@ -129,7 +129,7 @@ export function PresetFiles({ id, def, fetch, inHead = false }: { id: string; de
           {got.failed.map((x) => <div key={x.file} className="text-warn-ink">{fileLabel(x.file)}: {x.error}</div>)}
         </div>
       )}
-      {fetchAll.isError && <ErrorNote>{fetchAll.error.message}</ErrorNote>}
+      {fetchAll.isError && <Failed what="Not downloaded" error={fetchAll.error} />}
       {/* each file's row says its own download once it can download (its GetFile): listed here only before that */}
       {!(fetching && accepted) && downloads.data?.items.filter((d) => files.some((f) => fileKey(f.folder, f.file) === fileKey(d.folder, d.file)) && d.status !== "done").map((d) => <DownloadRow key={d.id} d={d} named />)}
       {licence && def.licence && (

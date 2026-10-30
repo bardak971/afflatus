@@ -345,7 +345,7 @@ function PacksNote({ wait, machine, onPacks }: { wait: PackWait; machine: string
 function OwnDownloads({ w }: { w: Job }) {
   const wait = useOwnWait()(w);
   // a file put in by hand (or by ComfyUI-Manager's page) is seen within a minute; Look again reads its folders now
-  const look = useMutation({ mutationFn: (machine: string) => api.rescanSetup(machine), onError: useSayFailed({ id: "own-wait-rescan", href: "/queue" })("Its ComfyUI could not be asked again") });
+  const look = useMutation({ mutationFn: (machine: string) => api.rescanSetup(machine), onError: useSayFailed({ id: "own-wait-rescan", here: true })("Its ComfyUI could not be asked again") });
   if (!wait) return null;
   return (
     <DownloadTo.Provider value={wait.id}>

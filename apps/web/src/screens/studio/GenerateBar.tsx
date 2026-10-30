@@ -6,7 +6,7 @@ import { batchAbout, batchMs, useAdvice } from "../../advice";
 import { BATCH } from "../../draft";
 import { Keys } from "../../Keys";
 import { FormModel, ResultsPlace } from "../../ModelLoad";
-import { Button, cx, ErrorNote, Help } from "../../ui";
+import { Button, cx, ErrorNote, Failed, Help } from "../../ui";
 import { useQueue } from "../../data";
 import { aboutMs } from "../../format";
 import { severalMachines } from "../../machines";
@@ -41,12 +41,14 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, waits, send
   const missing = inputMissing(recipe, whole);
   return (
     <div className="flex shrink-0 flex-col gap-2 border-t border-line p-3">
-      {send.isError && <ErrorNote>{send.error.message}</ErrorNote>}
+      {send.isError && <Failed what="Not rendered" error={send.error} />}
       {blocked && (
         <ErrorNote>
           {blocked} <Link href="/settings/models" className="font-semibold underline">Open settings</Link>
         </ErrorNote>
       )}
+      {/* what Render waits for, said over it as the clip inspector says it: a greyed button's tip never shows (card #165) */}
+      {!blocked && missing && <span className="text-xs text-ink-2">{missing}</span>}
       {recipe && recipe.inputs.some((i) => i.type === "prompt" && hasWildcards(String(whole[i.id] ?? ""))) && (
         <span className="flex items-center gap-1.5 text-xs text-ink-2">
           Wildcards: one pick per {noun}

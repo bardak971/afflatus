@@ -76,7 +76,7 @@ export function Queue() {
   const client = useQueryClient();
   const refresh = () => client.invalidateQueries({ queryKey: queryKeys.queue() });
   // what fails is said in a banner, as the history's actions do: it goes away, and does not stay on the screen
-  const failed = useSayFailed({ id: "queue", href: "/queue", go: "Open queue" });
+  const failed = useSayFailed({ id: "queue", href: "/queue", go: "Open the Queue" });
   const { pause, resume, unload: free } = useQueueOps();
   const cancel = useMutation({ mutationFn: api.cancel, onSuccess: refresh, onError: failed("Could not cancel it") });
   const order = useMutation({ mutationFn: api.queueOrder, onSuccess: (q) => client.setQueryData(queryKeys.queue(), q), onError: failed("Could not reorder the queue") });

@@ -148,7 +148,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
         const input = wholeForm(recipe, status, x.modelSettings.data?.items ?? [], stored);
         await api.warm(recipe.id, input, open?.recipe.id === recipe.id ? open.look ?? null : null);
         void client.invalidateQueries({ queryKey: queryKeys.queue() });
-        good(`${recipe.title}: loading its models`, "A job in the queue that renders nothing.", "/queue", "Open queue");
+        good(`${recipe.title}: loading its models`, "A job in the queue that renders nothing.", "/queue", "Open the Queue");
       };
       return [{ label: `Load ${recipe.title}`, icon: <MemoryStick size={14} />, note: "into ComfyUI, ahead of a render", run: () => run().catch(failed(`${recipe.title} could not be loaded`)) }];
     }
@@ -270,7 +270,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
           const done = (await api.jobs({ status: "done", limit: 10 })).items;
           const id = done.flatMap((j) => j.made.filter((m) => !m.inBin)).at(0)?.id;
           if (id) await x.view(id);
-          else say({ id: "bar:last", tone: "bad", title: "Nothing finished lately is in the library", href: "/queue", go: "Open queue" });
+          else say({ id: "bar:last", tone: "bad", title: "Nothing finished lately is in the library", href: "/queue", go: "Open the Queue" });
         },
       }];
     case "reconnect":
@@ -361,7 +361,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       const ids = queue?.waiting.map((w) => w.id) ?? [];
       return [{
         label: "Remove all waiting…", icon: <Trash2 size={14} />, danger: true, disabled: !ids.length, note: ids.length ? `${ids.length} · asked first · the running one goes on` : "nothing waits",
-        run: () => x.bulk.cancelAllWaiting({ ids }).then((n) => n && good(`${plural(n, "waiting job")} removed from the queue`, "In the history as cancelled: Render again brings one back.", "/queue", "Open queue")),
+        run: () => x.bulk.cancelAllWaiting({ ids }).then((n) => n && good(`${plural(n, "waiting job")} removed from the queue`, "In the history as cancelled: Render again brings one back.", "/queue", "Open the Queue")),
       }];
     }
     case "retry-failed": {
@@ -369,20 +369,20 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       const ids = queue?.failed ?? [];
       return [{
         label: "Retry all failed", icon: <RotateCcw size={14} />, disabled: !ids.length, note: ids.length ? `${ids.length} · the same jobs, oldest first` : "none failed",
-        run: () => x.bulk.retryAllFailed(ids).then((r) => r?.ids.length && good(`${plural(r.ids.length, "failed job")} queued again`, undefined, "/queue", "Open queue")),
+        run: () => x.bulk.retryAllFailed(ids).then((r) => r?.ids.length && good(`${plural(r.ids.length, "failed job")} queued again`, undefined, "/queue", "Open the Queue")),
       }];
     }
     case "dismiss-failed": {
       const ids = queue?.failed ?? [];
       return [{
         label: "Dismiss all failed…", icon: <X size={14} />, danger: true, disabled: !ids.length, note: ids.length ? `${ids.length} · off the history, asked first` : "none failed",
-        run: () => x.bulk.dismissAllFailed({ ids, ask: true }).then((n) => n && good(`${plural(n, "failed job")} dismissed`, "Nothing left the library.", "/queue", "Open queue")),
+        run: () => x.bulk.dismissAllFailed({ ids, ask: true }).then((n) => n && good(`${plural(n, "failed job")} dismissed`, "Nothing left the library.", "/queue", "Open the Queue")),
       }];
     }
     case "group-queue":
       return [{
         label: "Group by model", icon: <Layers size={14} />, note: "same model together, the loaded one first",
-        run: () => x.bulk.groupQueueByModel().then((done) => (done ? good("Queue grouped by model", "Same model together, the loaded one first.", "/queue", "Open queue") : done === false && good("Grouping saves no load", "The queue stays as it is.", "/queue", "Open queue"))),
+        run: () => x.bulk.groupQueueByModel().then((done) => (done ? good("Queue grouped by model", "Same model together, the loaded one first.", "/queue", "Open the Queue") : done === false && good("Grouping saves no load", "The queue stays as it is.", "/queue", "Open the Queue"))),
       }];
     case "undo": {
       // the open editor's history first, as Ctrl+Z there; elsewhere the newest banner's Undo (a move, a bin), as Ctrl+Z off the editor
@@ -497,15 +497,15 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
           // the card's question, as its two-step button asks it
           const yes = await ask({ title: "Sign out every device, this one too?", text: "Each device needs the password again to come back in.", yes: "Sign out everywhere" });
           if (!yes) return;
-          await api.signOutEverywhere(false).then(() => (x.access?.session ? location.reload() : good("Every device signed out", "This computer stays in: it needs no password.", settingHref("access"), "Open Access")), failed("Could not sign out everywhere"));
+          await api.signOutEverywhere(false).then(() => (x.access?.session ? location.reload() : good("Every device signed out", "This computer stays in: it needs no password.", settingHref("access"), "Open Settings › Access")), failed("Could not sign out everywhere"));
         },
       }];
     case "find-models": {
-      // as Settings › Models' Find models…: what is picked downloads onto this PC; online only with lookups on
-      const lookups = Boolean(x.settingCtx.server?.civitaiLookups);
+      // as Settings › Models' Find models…: what is picked downloads onto this PC. Opening it is the user asking: it searches
+      // whatever "Search Hugging Face and Civitai" says, which covers only what Afflatus asks on its own (card #166)
       return [{
-        label: c.words ? `Find models: “${c.words}”` : "Find models…", icon: <Search size={14} />, disabled: !lookups,
-        note: lookups ? "Civitai, Hugging Face and yours · to download onto this PC" : "turn on Search Hugging Face and Civitai (Settings › Models) first",
+        label: c.words ? `Find models: “${c.words}”` : "Find models…", icon: <Search size={14} />,
+        note: "Civitai, Hugging Face and yours · to download onto this PC",
         run: () => openFindModels(onThisPc(x), c.words || undefined),
       }];
     }
@@ -541,10 +541,10 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
           try {
             const v = await api.checkUpdates();
             client.setQueryData(queryKeys.updates(), v);
-            if (v.newer && v.latest) say({ id: "bar:updates", tone: "good", title: `Afflatus ${v.latest.version} is out`, text: `You have ${v.version}. > update, or Settings › About.`, href: settingHref("about.updates"), go: "Open About" });
+            if (v.newer && v.latest) say({ id: "bar:updates", tone: "good", title: `Afflatus ${v.latest.version} is out`, text: `You have ${v.version}. > update, or Settings › About.`, href: settingHref("about.updates"), go: "Open Settings › About" });
             else if (v.checkError) failed("Could not ask GitHub")(new Error(v.checkError));
             // a build that is no release (dev, a checkout) is told the latest release rather than that it is it
-            else good(v.latest && v.latest.version !== v.version ? `The latest release is ${v.latest.version}` : `Afflatus ${v.version} is the latest`, v.latest && v.latest.version !== v.version ? `You run ${v.version}.` : undefined, settingHref("about.updates"), "Open About");
+            else good(v.latest && v.latest.version !== v.version ? `The latest release is ${v.latest.version}` : `Afflatus ${v.version} is the latest`, v.latest && v.latest.version !== v.version ? `You run ${v.version}.` : undefined, settingHref("about.updates"), "Open Settings › About");
           } catch (err) {
             failed("Could not check for updates")(err);
           }
@@ -557,8 +557,8 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
         run: () => api.checkHealth().then((h) => {
           client.setQueryData(queryKeys.health(), h);
           const bad = h.checks.filter((k) => !k.ok);
-          if (bad.length) say({ id: "bar:checks", tone: "bad", title: `${bad.map((k) => k.label).join(", ")} failed`, text: bad.map((k) => `${k.label}: ${k.detail}`).join(" · "), href: settingHref("about.checks"), go: "Open About" });
-          else good("Every start-up check passes", h.checks.find((k) => k.note)?.note, settingHref("about.checks"), "Open About");
+          if (bad.length) say({ id: "bar:checks", tone: "bad", title: `${bad.map((k) => k.label).join(", ")} failed`, text: bad.map((k) => `${k.label}: ${k.detail}`).join(" · "), href: settingHref("about.checks"), go: "Open Settings › About" });
+          else good("Every start-up check passes", h.checks.find((k) => k.note)?.note, settingHref("about.checks"), "Open Settings › About");
         }, failed("Could not check again")),
       }];
     case "get-ffmpeg": {
@@ -644,7 +644,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       // as each channel's Send a test: one action a channel set up, the one named first
       const n = x.settingCtx.server?.notify;
       const set = { telegram: Boolean(n?.hasTelegramToken && n.telegramChat), discord: Boolean(n?.hasDiscordWebhook) };
-      const send = (ch: "telegram" | "discord") => api.testNotify(ch).then(() => good(`Test sent to ${ch === "telegram" ? "Telegram" : "Discord"}`, "Look for it there.", settingHref(`notify.${ch}`), "Open the settings"), failed(`Could not send to ${ch === "telegram" ? "Telegram" : "Discord"}`));
+      const send = (ch: "telegram" | "discord") => api.testNotify(ch).then(() => good(`Test sent to ${ch === "telegram" ? "Telegram" : "Discord"}`, "Look for it there.", settingHref(`notify.${ch}`), "Open Settings"), failed(`Could not send to ${ch === "telegram" ? "Telegram" : "Discord"}`));
       const all = (["telegram", "discord"] as const).map((ch) => ({
         label: `Send a test to ${ch === "telegram" ? "Telegram" : "Discord"}`, icon: <Bell size={14} />, disabled: !set[ch], note: set[ch] ? undefined : "not set up (Settings › Interface)",
         run: () => send(ch),

@@ -179,7 +179,7 @@ export async function mirrorItem(s: Services, { asset, addBeside }: AssetLookup,
 export async function soundItem(s: Services, { asset, addBeside }: AssetLookup, id: string) {
   const video = await asset(id);
   if (video.kind !== "video" || !video.has_sound) throw httpError("This video has no audio to extract.");
-  // "Big Air · c2 · t5 · audio": after the name the video goes by (worked out from where it came from when it has none)
+  // "Big Air · Clip 2 · take 5 · audio": after the name the video goes by (worked out from where it came from when it has none)
   const source = await nameOf(s.db, video);
   // read where it lies and stored from where ffmpeg wrote it: handed the whole video, a 2-minute 1080p one held 967 MB
   return soundOf(await sourceOf(s.storage, video.file_key), extOf(video.mime), video.duration_ms, (path) => addBeside(video, { path, ext: "m4a", thumb: null }, {

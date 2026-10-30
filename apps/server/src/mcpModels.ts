@@ -1,7 +1,7 @@
 import { placesFrom } from "./filePlaces";
 import { plural } from "@afflatus/core";
 import { z } from "zod";
-import { browseCivitai, browseHuggingFace, civitaiQuery, huggingFaceQuery, known, lookupsOnFor, repoFiles, type BrowseCard, type BrowseFile } from "./browse";
+import { browseCivitai, browseHuggingFace, civitaiQuery, huggingFaceQuery, known, askedSettings, repoFiles, type BrowseCard, type BrowseFile } from "./browse";
 import { withoutPaths, type DownloadView } from "./downloads";
 import { httpError } from "./errors";
 import { beginDownload, downloadBody } from "./fetchFile";
@@ -132,7 +132,7 @@ const findModels = tool({
     }
     if (a.site === "repo") {
       if (!a.q || !/^[\w.-]+\/[\w.-]+$/.test(a.q)) throw httpError("A repository is owner/name, as huggingface lists it.");
-      const settings = await lookupsOnFor(s);
+      const settings = await askedSettings(s);
       const files = await repoFiles(a.q, settings.huggingFaceToken, await known(s));
       ctx.said(`Opened the repository ${quoted(a.q)}: ${plural(files.length, "file")}`);
       return { repo: a.q, files: files.map(fileSaid) };

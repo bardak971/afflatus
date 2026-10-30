@@ -73,7 +73,7 @@ async function allFailures() {
 /** The bulk actions bound to this page's query client, what fails said in a banner (as the queue's other actions do). */
 export function useQueueBulk() {
   const client = useQueryClient();
-  const sayFailed = useSayFailed({ id: "queue", href: "/queue", go: "Open queue" });
+  const sayFailed = useSayFailed({ id: "queue", href: "/queue", go: "Open the Queue" });
   const failed = (title: string) => (err: unknown) => {
     sayFailed(title)(err);
     return null;

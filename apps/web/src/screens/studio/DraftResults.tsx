@@ -7,7 +7,7 @@ import { Keys } from "../../Keys";
 import { useStudio } from "../../store";
 import { LivePreview, StageStrip } from "../../LivePreview";
 import { useStop } from "../../ModelLoad";
-import { Bar, Button, CloseButton, cx, Empty, ErrorNote } from "../../ui";
+import { Bar, Button, CloseButton, cx, Empty, Failed } from "../../ui";
 import { Viewer } from "../../viewer/LazyViewer";
 import { useTileMenu } from "../../TileMenu";
 import { Tile, tileName } from "../Library";
@@ -96,7 +96,7 @@ export function DraftResults({ draft, folder, list, title, empty }: {
                   </Button>
                 )}
               </div>
-              {stop.isError && <ErrorNote>{stop.error.message}</ErrorNote>}
+              {stop.isError && <Failed what="Not stopped" error={stop.error} />}
             </div>
           </div>
         )}

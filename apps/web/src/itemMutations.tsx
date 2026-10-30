@@ -23,7 +23,7 @@ import { queryKeys } from "./queryKeys";
  */
 export function useItemMutations() {
   const client = useQueryClient();
-  const failed = useSayFailed();
+  const failed = useSayFailed({ id: "item", href: "/", go: "Open the library" });
   const say = useBanners((b) => b.push);
   const projects = (useProjects().data?.items ?? []).filter((p) => !p.archivedAt);
   const folders = useFolders().data?.items ?? [];
@@ -82,8 +82,8 @@ export function useItemMutations() {
     makeFolder.mutate({ ids: [asset.id], name: name.trim(), parent: project?.folderId ?? null, project: project?.id ?? null });
   };
   const openInComfy = useOpenInComfy((asset: Asset) => api.openRender(asset.id), {
-    onSuccess: (r) => { if (!r.direct) say({ id: `menu:${Date.now()}`, tone: "good", title: "Saved in ComfyUI", text: `${r.path}: open the Workflows sidebar there (key W) and pick it under "afflatus".`, href: "/settings", go: "Open settings" }); },
-    onError: (err) => say(failedBanner({ id: "menu", href: "/settings", go: "Open settings" }, "Could not open in ComfyUI", err)),
+    onSuccess: (r) => { if (!r.direct) say({ id: `menu:${Date.now()}`, tone: "good", title: "Saved in ComfyUI", text: `${r.path}: open the Workflows sidebar there (key W) and pick it under "afflatus".`, href: "/settings", go: "Open Settings" }); },
+    onError: (err) => say(failedBanner({ id: "menu", href: "/settings", go: "Open Settings" }, "Could not open in ComfyUI", err)),
   });
   /** The seed on the clipboard, said in a banner: where the menu was, nothing shows the figure. */
   const copySeed = (seed: number) => void copyText(String(seed)).then(
@@ -129,7 +129,7 @@ export function useTimelineSubmenu(opts: {
       void client.invalidateQueries({ queryKey: queryKeys.timelines.all() });
       say({ id: `music:${Date.now()}`, tone: "good", title: `${v.asset.name || "The sound"} is the music of ${v.timeline.name}`, href: `/timelines/${v.timeline.id}`, go: "Open the timeline" });
     },
-    onError: (err) => say(failedBanner({ id: "music", href: "/timelines", go: "Open timelines" }, "Could not set the music", err)),
+    onError: (err) => say(failedBanner({ id: "music", href: "/timelines", go: "Open the Timelines" }, "Could not set the music", err)),
   });
   const recent = (n: number) => [...(timelines.data?.items ?? [])]
     .sort((x, y) => (x.id === last?.id ? -1 : y.id === last?.id ? 1 : y.updatedAt.localeCompare(x.updatedAt)))
