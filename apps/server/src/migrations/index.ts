@@ -100,6 +100,7 @@ import m0098 from "./0098-mcp-token-tasks";
 import m0099 from "./0099-model-files";
 import m0100 from "./0100-rent-capped";
 import m0101 from "./0101-lookups-kept";
+import m0102 from "./0102-model-hash-places";
 
 /**
  * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
@@ -208,4 +209,5 @@ export const migrations: Record<string, Migration> = {
   "0099_model_files": m0099,
   "0100_rent_capped": m0100,
   "0101_lookups_kept": m0101,
+  "0102_model_hash_places": m0102,
 };

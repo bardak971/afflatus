@@ -37,7 +37,11 @@ export interface Need {
 }
 
 export interface LibraryFile {
-  /** `folder|file` for a file here; `removed:<id>` for one Delete moved, still listed until it is put back or emptied. */
+  /**
+   * `folder|file` for a file here, the one ComfyUI loads by that name; `folder|file|<path>` for another file under the same
+   * name in a later directory of the folder (one id per file on disk); `removed:<id>` for one Delete moved, still listed
+   * until it is put back or emptied.
+   */
   id: string;
   folder: string;
   /** As ComfyUI lists it: its sub-folder and name, forward slashes. */
@@ -114,14 +118,17 @@ async function folderDirs(comfyDir: string): Promise<Map<string, string[]>> {
 }
 
 /**
- * A model file of a folder on this computer: its path, refused when the name leads out of the folder, is not a model
+ * A model file of a folder on this computer: its path (the first directory holding the name, the file ComfyUI loads by
+ * it, unless `exactly` names one), refused when the name leads out of the folder, is not a model
  * file's (an extra_model_paths.yaml, a config's .json beside the models), the file is not there, or it is one Delete moved
  * already (in a set-aside folder or a bin, reached through a junction): never moved again from there.
  */
-async function pathOf(dirs: Map<string, string[]>, folder: string, file: string): Promise<{ path: string; dir: string; size: number } | null> {
+async function pathOf(dirs: Map<string, string[]>, folder: string, file: string, exactly?: string): Promise<{ path: string; dir: string; size: number } | null> {
   if (!isModelFile(file)) return null;
   for (const dir of dirs.get(folder) ?? []) {
     const path = insideDir(dir, file);
+    // asked by its path (a row of the list): that directory's file only, never another one's under the same name
+    if (exactly !== undefined && path !== resolve(exactly)) continue;
     const st = path ? await stat(path).catch(() => null) : null;
     if (path && st?.isFile() && !inBinOrAside(await realpath(path).catch(() => path))) return { path, dir, size: st.size };
   }
@@ -290,7 +297,7 @@ export async function library(s: Lib, machine?: string): Promise<Library> {
   const families = scan?.families ?? [];
   const hashStatus = await s.hashes.status();
   /** A file listed: here (with its path), moved away by Delete (its row), or another machine's (its name only). */
-  type Listed = { folder: string; file: string; size: number | null; mtime: number | null; path: string | null; identity?: string; away?: Awaited<ReturnType<typeof awayRows>>[number] };
+  type Listed = { folder: string; file: string; size: number | null; mtime: number | null; path: string | null; identity?: string; shadowed?: boolean; away?: Awaited<ReturnType<typeof awayRows>>[number] };
   const listed: Listed[] = [];
   let noFolder = false;
   if (!readOnly) {
@@ -324,37 +331,48 @@ export async function library(s: Lib, machine?: string): Promise<Library> {
     }
     for (const fam of families) for (const slot of fam.slots) if (slot.file) add(slot.folder, slot.file);
   }
-  const present = new Set(listed.filter((f) => !f.away).map(usedKey));
+  const present = new Set(listed.filter((f) => !f.away && !f.shadowed).map(usedKey));
   const [needs, { usesOf, since }, takes, genFamily, civitai] = await Promise.all([needsOf(s, families), readUses(s.db, readOnly ? [id] : here, present), takesByGeneration(s), familyOfGenerations(s), civitaiOf(s)]);
   const slotFamilies = new Map<string, string[]>();
   for (const fam of families) for (const slot of fam.slots) if (slot.file) slotFamilies.set(fileKey({ folder: slot.folder, file: slot.file }), [...(slotFamilies.get(fileKey({ folder: slot.folder, file: slot.file })) ?? []), fam.id]);
   const infos = new Map((await s.db.selectFrom("model_info").select(["folder", "file", "info"]).execute()).map((r) => [`${r.folder}|${r.file.replace(/\\/g, "/")}`, JSON.parse(r.info) as { title?: string; base?: string }]));
   const pages = new Map((await s.db.selectFrom("model_pages").select(["folder", "name", "url", "title"]).where("url", "!=", "").execute()).map((r) => [`${r.folder}|${r.name}`, r]));
-  const hashes = new Map((await s.db.selectFrom("model_hashes").selectAll().execute()).map((r) => [`${r.folder}|${r.file}`, r]));
+  const hashRows = await s.db.selectFrom("model_hashes").selectAll().execute();
+  const hashes = new Map(hashRows.map((r) => [`${r.folder}|${r.file}`, r]));
+  // a file another one's name shadows: its own hash, by its path, and what the sites said of those bytes under any name
+  const places = new Map((await s.db.selectFrom("model_hash_places").select(["path", "sha256"]).execute()).map((r) => [r.path, r.sha256]));
+  const matchOf = new Map(hashRows.map((r) => [r.sha256, r]));
+  const placeHash = (path: string | null) => {
+    const sha256 = path ? places.get(path) : undefined;
+    return sha256 ? { civitai_version: null, hf_url: null, matched_at: null, civitai_base: null, ...matchOf.get(sha256), sha256 } : undefined;
+  };
 
   /** What is known of one file, by its folder and name (and hash), whatever machine lists it. */
   const describe = (f: Listed): LibraryFile => {
     const k = `${f.folder}|${f.file}`;
-    const h = f.away ? (f.away.sha256 ? { sha256: f.away.sha256, civitai_version: null, hf_url: null, matched_at: null, civitai_base: null } : undefined) : hashes.get(k);
-    const info = infos.get(k);
-    const page = pages.get(`${f.folder}|${nameOf(f.file)}`);
+    const h = f.away ? (f.away.sha256 ? { sha256: f.away.sha256, civitai_version: null, hf_url: null, matched_at: null, civitai_base: null } : undefined) : f.shadowed ? placeHash(f.path) : hashes.get(k);
+    // what is kept by name (its header's title, its page, its uses, what needs it) is of the file ComfyUI loads by the
+    // name: a shadowed one has only what its own bytes say (its uses by its hash, from files of it since gone)
+    const byName = !f.shadowed;
+    const info = byName ? infos.get(k) : undefined;
+    const page = byName ? pages.get(`${f.folder}|${nameOf(f.file)}`) : undefined;
     const key = fileKey(f);
     // a file away is listed with the uses it had: its own, by its name
-    const u = f.away ? null : usesOf({ key: usedKey(f), sha256: h?.sha256 ?? null });
+    const u = f.away ? null : usesOf({ key: byName ? usedKey(f) : "", sha256: h?.sha256 ?? null });
     const version = Number(h?.civitai_version) > 0 ? Number(h!.civitai_version) : 0;
     const cv = version ? civitai.get(version) : undefined;
     const match = version ? "civitai" : h?.hf_url ? "hf" : h?.matched_at ? "none" : "pending";
     // Civitai's page is the model's, open on the version: known once the version was read (fillCivitai)
     const link = version && cv?.model_id ? { site: "Civitai", url: `https://civitai.com/models/${Number(cv.model_id)}?modelVersionId=${version}` } : h?.hf_url ? { site: "Hugging Face", url: h.hf_url } : page ? { site: "Page", url: page.url } : null;
-    const fams = new Set([...(slotFamilies.get(key) ?? []), ...(u?.generations ?? []).map((g) => genFamily.get(g)).filter((x): x is string => Boolean(x))]);
+    const fams = new Set([...((byName && slotFamilies.get(key)) || []), ...(u?.generations ?? []).map((g) => genFamily.get(g)).filter((x): x is string => Boolean(x))]);
     // a file Civitai names the base model of (a LoRA, a fine-tune) is of the family that runs that base, used or not
     const civitaiBase = cv?.base || h?.civitai_base;
     if (civitaiBase) for (const [fam, bases] of Object.entries(FAMILY_BASES)) if (bases.includes(civitaiBase)) fams.add(fam);
     return {
-      id: f.away ? `removed:${f.away.id}` : k, folder: f.folder, file: f.file, kind: kindOfFolder(f.folder), size: f.size, mtime: f.mtime, sha256: h?.sha256 ?? null,
+      id: f.away ? `removed:${f.away.id}` : f.shadowed ? `${k}|${f.path}` : k, folder: f.folder, file: f.file, kind: kindOfFolder(f.folder), size: f.size, mtime: f.mtime, sha256: h?.sha256 ?? null,
       name: cv?.model_name ?? (page?.title || null) ?? info?.title ?? null, version: cv?.version_name ?? null, base: cv?.base || h?.civitai_base || info?.base || null, picture: cv?.picture ?? null,
       link, match: f.away ? "none" : match, uses: u?.count ?? 0, last: u?.last ?? null, approx: u?.approx ?? false, months: u?.months ?? {},
-      takes: (u?.generations ?? []).reduce((n, g) => n + (takes.get(g) ?? 0), 0), copies: [], also: [], needs: needs.get(key) ?? [], families: [...fams], path: f.path,
+      takes: (u?.generations ?? []).reduce((n, g) => n + (takes.get(g) ?? 0), 0), copies: [], also: [], needs: (byName && needs.get(key)) || [], families: [...fams], path: f.path,
       removed: f.away ? { id: f.away.id, place: f.away.place, at: f.away.removed_at, batch: f.away.batch } : null,
     };
   };
@@ -424,7 +442,11 @@ function oncePerDrive(bin: BinFinder): { find: BinFinder; took(path: string, byt
 }
 
 export interface DeleteAsk {
-  files: Array<{ folder: string; file: string }>;
+  /**
+   * By name, and by path for a row of the list: a name held in two of a folder's directories is two files, and the path
+   * says which (without it, the one ComfyUI loads by the name, the first directory's).
+   */
+  files: Array<{ folder: string; file: string; path?: string }>;
   to: Place;
   /** The user saw what needs them and said Delete all: a preset's or a set's file goes too. */
   anyway?: boolean;
@@ -458,15 +480,18 @@ export async function deleteFiles(s: Lib, ask: DeleteAsk, bin: BinFinder = syste
   const here: Found[] = [];
   for (const [folder, list] of dirs) here.push(...(await filesIn(list, folder)).files);
   // the file on disk each asked one is, and every place it is seen in: the same file through another folder goes with it.
-  // By the path that is moved (pathOf: the first of the folder's directories holding the name), not by the name alone: a
-  // name in two of a folder's directories, two files, took the last one's identity while the first one's file moved
-  const byPath = new Map(here.map((f) => [resolve(f.path), f.identity]));
+  // By the path that is moved (pathOf: the one asked, else the first of the folder's directories holding the name), not
+  // by the name alone: a name in two of a folder's directories, two files, took the last one's identity while the first
+  // one's file moved, and a row of the second one asked for the first one's file
+  const byPath = new Map(here.map((f) => [resolve(f.path), f]));
+  const askKey = (f: DeleteAsk["files"][number]) => (f.path ? `${usedKey(f)}|${resolve(f.path)}` : usedKey(f));
   const where = new Map<string, Awaited<ReturnType<typeof pathOf>>>();
-  for (const f of ask.files) if (!where.has(usedKey(f))) where.set(usedKey(f), await pathOf(dirs, f.folder, f.file));
-  const identityOfAsked = (f: { folder: string; file: string }) => {
-    const at = where.get(usedKey(f));
+  for (const f of ask.files) if (!where.has(askKey(f))) where.set(askKey(f), await pathOf(dirs, f.folder, f.file, f.path));
+  const foundOf = (f: DeleteAsk["files"][number]) => {
+    const at = where.get(askKey(f));
     return at ? byPath.get(resolve(at.path)) : undefined;
   };
+  const identityOfAsked = (f: DeleteAsk["files"][number]) => foundOf(f)?.identity;
   const placesOf = (identity: string | undefined) => (identity ? here.filter((x) => x.identity === identity) : []);
   const going = new Set(ask.files.map(identityOfAsked).filter((x): x is string => Boolean(x)));
   // a preset or a set names a file by its name: a copy of it left in another sub-folder still has what it needs, when it
@@ -488,7 +513,7 @@ export async function deleteFiles(s: Lib, ask: DeleteAsk, bin: BinFinder = syste
       done.left.push({ file: name, why: `${blocking[0]!.kind === "preset" ? "the preset" : "the model set"} ${blocking[0]!.name} needs it` });
       continue;
     }
-    const at = where.get(usedKey(f));
+    const at = where.get(askKey(f));
     if (!at) {
       done.left.push({ file: name, why: isModelFile(f.file) ? "it is not in ComfyUI's folders any more" : "it is not a model file" });
       continue;
@@ -500,7 +525,10 @@ export async function deleteFiles(s: Lib, ask: DeleteAsk, bin: BinFinder = syste
       done.left.push({ file: name, why: "a job waiting or running uses it" });
       continue;
     }
-    const sha = (await s.db.selectFrom("model_hashes").select("sha256").where("folder", "=", f.folder).where("file", "=", f.file.replace(/\\/g, "/")).executeTakeFirst())?.sha256 ?? null;
+    // its own hash: a file another one's name shadows has it by its path, the name's row being the other file's
+    const sha = foundOf(f)?.shadowed
+      ? (await s.db.selectFrom("model_hash_places").select("sha256").where("path", "=", foundOf(f)!.path).executeTakeFirst())?.sha256 ?? null
+      : (await s.db.selectFrom("model_hashes").select("sha256").where("folder", "=", f.folder).where("file", "=", f.file.replace(/\\/g, "/")).executeTakeFirst())?.sha256 ?? null;
     const id = randomUUID();
     let written = false;
     try {
@@ -558,6 +586,7 @@ export async function putBack(s: Lib, which: { ids?: string[]; batch?: string })
   else if (which.ids?.length) q = q.where("id", "in", which.ids);
   else throw httpError("Say which files to put back.", 400);
   const out = { back: 0, left: [] as Array<{ file: string; why: string }> };
+  let dirs: Map<string, string[]> | undefined;
   for (const r of await q.execute()) {
     try {
       await moveBack({ stored: r.stored_path, info: r.info_path, was: r.path_was });
@@ -565,7 +594,12 @@ export async function putBack(s: Lib, which: { ids?: string[]; batch?: string })
       // hashed again in moments: the same bytes, its hash kept (asked again of the sites, once)
       if (r.sha256) {
         const st = await stat(r.path_was).catch(() => null);
-        if (st) await s.db.insertInto("model_hashes").values({ folder: r.folder, file: r.file, size: st.size, mtime: Math.round(st.mtimeMs), sha256: r.sha256, hashed_at: now(), civitai_version: null, hf_url: null, matched_at: null })
+        // under its name when it is the file ComfyUI loads by it; by its path when another directory's holds the name first
+        dirs ??= await folderDirs((await readSettings(s.db)).comfyDir);
+        const first = st ? await pathOf(dirs, r.folder, r.file) : null;
+        if (st && first && first.path !== resolve(r.path_was)) await s.db.insertInto("model_hash_places").values({ path: r.path_was, folder: r.folder, file: r.file, size: st.size, mtime: Math.round(st.mtimeMs), sha256: r.sha256, hashed_at: now() })
+          .onConflict((oc) => oc.column("path").doNothing()).execute();
+        else if (st) await s.db.insertInto("model_hashes").values({ folder: r.folder, file: r.file, size: st.size, mtime: Math.round(st.mtimeMs), sha256: r.sha256, hashed_at: now(), civitai_version: null, hf_url: null, matched_at: null })
           .onConflict((oc) => oc.columns(["folder", "file"]).doNothing()).execute();
       }
       out.back++;

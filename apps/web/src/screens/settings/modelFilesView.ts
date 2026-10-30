@@ -68,6 +68,15 @@ export const NO_FILTER: Omit<Filters, "sort"> = { family: null, q: "", kind: "al
 export const ALSO_HELP = "One file on disk that ComfyUI reaches through two folders: extra_model_paths.yaml lists the same folder twice (or a folder and its sub-folder), or models/unet, which ComfyUI reads as diffusion_models. It is listed once, its size counted once, and it is never taken for a copy of itself: Delete moves it once, from every place it is seen in.";
 
 /** A file's name as the table says it: where it was found, else its file name without its folder or extension. */
+/**
+ * A copy's place as the list says it, from its row id: `folder/file`, with where it is for a file under a name another
+ * directory's file holds first (`folder|file|path`, modelLibrary.ts).
+ */
+export const placeOfId = (id: string) => {
+  const [folder, file, ...path] = id.split("|");
+  return path.length ? `${folder}/${file} (${path.join("|")})` : `${folder}/${file}`;
+};
+
 export const nameOf = (f: ModelFile) => f.name ?? (f.file.split("/").pop() ?? f.file).replace(/\.[a-z0-9]+$/i, "");
 
 /** The files shown, filtered and sorted. Files Delete moved stay in the list (greyed), whatever the filters. */
