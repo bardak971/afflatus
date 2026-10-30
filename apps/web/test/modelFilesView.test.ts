@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelFile, ModelLibrary } from "../src/api";
-import { bandOf, figures, lastSaid, NO_FILTER, shown, young } from "../src/screens/settings/modelFilesView";
+import { bandOf, figures, lastSaid, NO_FILTER, placeOfId, shown, young } from "../src/screens/settings/modelFilesView";
 import { idleSummary, idleWords } from "../src/screens/settings/ModelFilesTab";
 
 const DAY = 86_400_000;
@@ -98,5 +98,12 @@ describe("Model files with no job's files kept yet", () => {
   it("sorts never-used files as the longest not used", () => {
     const lib = libOf(ago(28), FILES);
     expect(shown(lib, { ...NO_FILTER, sort: { key: "last", down: false } }, NOW).map((x) => x.id).slice(0, 2)).toEqual(["never-old", "never-new"]);
+  });
+});
+
+describe("a copy's place, from its row id", () => {
+  it("is folder/file, with its path for a file under a name another directory's file holds first", () => {
+    expect(placeOfId("loras|style/x.safetensors")).toBe("loras/style/x.safetensors");
+    expect(placeOfId("loras|x.safetensors|D:/a1111/models/Lora/x.safetensors")).toBe("loras/x.safetensors (D:/a1111/models/Lora/x.safetensors)");
   });
 });

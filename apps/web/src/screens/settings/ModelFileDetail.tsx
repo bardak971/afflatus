@@ -6,7 +6,7 @@ import { useCopied } from "../../hooks";
 import { queryKeys } from "../../queryKeys";
 import { Thumb } from "../../Thumb";
 import { Button, Chip, cx, Help } from "../../ui";
-import { ALSO_HELP, lastSaid, nameOf } from "./modelFilesView";
+import { ALSO_HELP, lastSaid, nameOf, placeOfId } from "./modelFilesView";
 
 /**
  * A model file's picture: its Civitai cover when it has one, "HF" for a Hugging Face file (the site has no pictures for its
@@ -46,7 +46,7 @@ export function ModelFileDetail({ f, lib, onDelete, onPutBack }: { f: ModelFile;
   const ls = lastSaid(f, lib.since, day, (iso) => when(iso, now));
   const takes = useQuery({ queryKey: queryKeys.modelInfo.takes(f.id), queryFn: ({ signal }) => api.modelFileTakes(f, lib.readOnly ? lib.machine : undefined, { signal }), enabled: f.takes > 0 && !f.removed });
   const { copied, copy } = useCopied();
-  const copies = f.copies.map((c) => c.replace("|", "/"));
+  const copies = f.copies.map(placeOfId);
   return (
     <div className="grid grid-cols-[180px_minmax(0,1.1fr)_minmax(0,1fr)] gap-6 border-t border-line bg-raised/50 px-[18px] py-4 @max-[1000px]:grid-cols-[120px_minmax(0,1fr)]">
       <div className="flex flex-col gap-1.5">

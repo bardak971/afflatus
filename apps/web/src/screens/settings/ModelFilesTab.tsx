@@ -14,7 +14,7 @@ import { Button, Checkbox, Chip, CloseButton, cx, ErrorNote, Help, SearchField, 
 import { ModelFileDetail, Picture } from "./ModelFileDetail";
 import { DeleteDialog } from "./ModelFilesDelete";
 import { AddingStrip, useDropFiles } from "./ModelFilesDrop";
-import { BANDS, figures, idleFiles, KIND_PLURAL, KINDS, lastSaid, nameOf, NO_FILTER, shown, type Filters, type SortKey } from "./modelFilesView";
+import { BANDS, figures, idleFiles, KIND_PLURAL, KINDS, lastSaid, nameOf, NO_FILTER, placeOfId, shown, type Filters, type SortKey } from "./modelFilesView";
 
 /**
  * What Empty would erase, asked before it does: each file with its size, and the ones of which no other copy stays here
@@ -36,7 +36,7 @@ function EmptyAsk({ files, from }: { files: ModelFile[]; from: string }) {
           <div key={f.id} className={cx("grid grid-cols-[minmax(0,1fr)_minmax(0,auto)_76px] gap-3 border-b border-line/60 px-3 py-1.5 last:border-b-0", !f.copies.length && "bg-attention-wash/50")}>
             <span className="truncate font-mono text-xs" data-tip={`${f.folder}/${f.file}`}>{f.folder}/{f.file}</span>
             {f.copies.length
-              ? <span className="truncate text-xs text-ink-3" data-tip={f.copies.map((c) => c.replace("|", "/")).join(", ")}>a copy stays: {f.copies[0]!.replace("|", "/")}</span>
+              ? <span className="truncate text-xs text-ink-3" data-tip={f.copies.map((c) => placeOfId(c)).join(", ")}>a copy stays: {placeOfId(f.copies[0]!)}</span>
               : <span className="text-xs font-semibold text-attention-ink">{f.sha256 ? "the only copy" : "the only copy known (not hashed)"}</span>}
             <span className="text-right font-mono text-xs">{f.size === null ? "—" : size(f.size)}</span>
           </div>
@@ -230,7 +230,7 @@ export function ModelFilesTab() {
                       <span className="truncate font-semibold">{nameOf(x)}</span>
                       {x.version && x.name && <span className="shrink-0 truncate text-xs text-ink-3">{x.version}</span>}
                       {gone && <Chip size="xs" tone="good">{x.removed!.place === "bin" ? "in the bin" : "set aside"}</Chip>}
-                      {!gone && x.copies.length > 0 && <Chip size="xs" tone="attention" tip={`The same model in another file: ${x.copies.map((c) => c.replace("|", "/")).join(", ")}`}>copy</Chip>}
+                      {!gone && x.copies.length > 0 && <Chip size="xs" tone="attention" tip={`The same model in another file: ${x.copies.map((c) => placeOfId(c)).join(", ")}`}>copy</Chip>}
                       {!gone && x.also.length > 0 && <Chip size="xs" tip={`The same file on disk, also seen as ${x.also.map((a) => `${a.folder}/${a.file}`).join(", ")}: not a copy (a folder extra_model_paths.yaml lists twice)`}>{x.also.length + 1} places</Chip>}
                       {!gone && x.match === "pending" && !ro && <Chip size="xs" tip="Not hashed yet: its Civitai or Hugging Face match comes once it is">hashing…</Chip>}
                       {!gone && x.match === "none" && <Chip size="xs" tip="No match on Civitai or Hugging Face">no match</Chip>}

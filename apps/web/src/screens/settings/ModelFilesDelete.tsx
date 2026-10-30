@@ -42,7 +42,7 @@ export function DeleteDialog({ files, all, bin, since, onClose, onDone }: { file
   const bytes = (fs: ModelFile[]) => fs.reduce((n, f) => n + (f.size ?? 0), 0);
   const now = Date.now();
   const del = useMutation({
-    mutationFn: ({ fs, anyway }: { fs: ModelFile[]; anyway: boolean }) => api.deleteModelFiles({ files: fs.map((f) => ({ folder: f.folder, file: f.file })), to, anyway }),
+    mutationFn: ({ fs, anyway }: { fs: ModelFile[]; anyway: boolean }) => api.deleteModelFiles({ files: fs.map((f) => ({ folder: f.folder, file: f.file, ...(f.path ? { path: f.path } : {}) })), to, anyway }),
     onSuccess: (done) => {
       sayDone(done, to, () => void api.putBackModelFiles({ batch: done.batch }).catch(said("Could not put them back")).finally(() => void client.invalidateQueries({ queryKey: queryKeys.modelInfo.all() })));
       onDone(files.map((f) => f.id));

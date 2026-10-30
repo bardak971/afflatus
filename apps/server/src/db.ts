@@ -429,6 +429,8 @@ export interface Tables {
   pod_measures: { id: string; kind: string; cloud: string | null; bytes: number; ms: number; at: string };
   /** Every model file of this computer hashed once, and the site version or file it is (modelHashes.ts). Sizes and times as numbers (bigint on Postgres: read through Number). */
   model_hashes: { folder: string; file: string; size: number | string; mtime: number | string; sha256: string; hashed_at: string; civitai_version: number | string | null; hf_url: string | null; matched_at: string | null; civitai_base?: string | null };
+  /** The hashes of the model files ComfyUI does not load by their name, another directory's file holding it first (modelHashes.ts, 0102), by path. */
+  model_hash_places: { path: string; folder: string; file: string; size: number | string; mtime: number | string; sha256: string; hashed_at: string };
   /** The model files each job's graph loaded (modelUses.ts, 0099): `exact` 0 for a helper file the backfill read from today's recipe. */
   model_uses: { job_id: string; folder: string; file: string; name_key: string; sha256: string | null; generation_id: string | null; machine_id: string | null; exact: number; used_at: string };
   /** Model files Delete moved (modelBin.ts, 0099): `place` bin or aside, where each is now, put back or emptied since. */

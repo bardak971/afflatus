@@ -549,7 +549,7 @@ export const api = {
   modelFiles: (machine: string | undefined, o?: Asked) => call<ModelLibrary>("GET", `/model-files${machine ? `?machine=${encodeURIComponent(machine)}` : ""}`, undefined, o?.signal),
   modelFileTakes: (f: { folder: string; file: string }, machine?: string, o?: Asked) => call<{ count: number; items: Array<{ id: string; kind: string }> }>("GET", `/model-files/takes?folder=${encodeURIComponent(f.folder)}&file=${encodeURIComponent(f.file)}${machine ? `&machine=${encodeURIComponent(machine)}` : ""}`, undefined, o?.signal),
   /** Moved to the Recycle Bin (or the set-aside folder), never erased: `anyway` takes a preset's or a set's file too. */
-  deleteModelFiles: (body: { files: Array<{ folder: string; file: string }>; to: "bin" | "aside"; anyway?: boolean }) => call<ModelDeleteDone>("POST", "/model-files/delete", body),
+  deleteModelFiles: (body: { files: Array<{ folder: string; file: string; path?: string }>; to: "bin" | "aside"; anyway?: boolean }) => call<ModelDeleteDone>("POST", "/model-files/delete", body),
   putBackModelFiles: (body: { ids?: string[]; batch?: string }) => call<{ back: number; left: Array<{ file: string; why: string }> }>("POST", "/model-files/put-back", body),
   /** What Delete moved, erased for good: the only erase there is. */
   emptyModelFiles: () => call<{ erased: number; bytes: number }>("POST", "/model-files/empty"),

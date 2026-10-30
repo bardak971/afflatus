@@ -1,4 +1,5 @@
-import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { PassThrough } from "node:stream";
 import { sql } from "kysely";
@@ -401,6 +402,44 @@ describe("the files Delete moved, never a file in place nor a copy that stays (c
     l = await lib();
     expect(byFile(l, "style/zz-test-h2.safetensors")).toMatchObject({ size: 400 });
     expect(l.files.filter((f) => f.removed).map((f) => [f.file, f.copies])).toEqual([["zz-test-h1.safetensors", ["loras|style/zz-test-h2.safetensors"]]]);
+  });
+
+  it("keeps two files of one name in two of a folder's directories apart: each its own row, hash, Delete and Put back", async () => {
+    // ComfyUI loads models/loras' one by the name; A1111's Lora holds another file under it, other bytes (the junction
+    // to A1111's models left out: through it, that file is a checkpoint's name of its own)
+    rmdirSync(join(home, "models", "checkpoints", "a1111"));
+    const mine = join(home, "models", "loras", "zz-test-dup.safetensors");
+    const other = join(home, "a1111", "models", "Lora", "zz-test-dup.safetensors");
+    writeFileSync(mine, Buffer.alloc(500, 31));
+    writeFileSync(other, Buffer.alloc(500, 32));
+    const sha = (p: string) => createHash("sha256").update(readFileSync(p)).digest("hex").toUpperCase();
+    const [shaMine, shaOther] = [sha(mine), sha(other)];
+    await t.services.hashes.run();
+    const rowOf = (l: Library, path: string) => live(l).find((f) => f.path === path);
+    let l = await lib();
+    expect(rowOf(l, mine)).toMatchObject({ id: "loras|zz-test-dup.safetensors", sha256: shaMine, copies: [] });
+    expect(rowOf(l, other)).toMatchObject({ id: `loras|zz-test-dup.safetensors|${other}`, sha256: shaOther, copies: [] });
+    // the name's hash is the file ComfyUI loads; the other one's is kept by its path
+    expect((await t.db.selectFrom("model_hashes").select("sha256").where("folder", "=", "loras").where("file", "=", "zz-test-dup.safetensors").executeTakeFirstOrThrow()).sha256).toBe(shaMine);
+    // the other one's row asked by its path: that file moves, never the one ComfyUI loads
+    const done = await deleteFiles(t.services, { files: [{ folder: "loras", file: "zz-test-dup.safetensors", path: rowOf(l, other)!.path! }], to: "aside" }, fake);
+    expect(done).toMatchObject({ moved: 1, left: [] });
+    expect(readFileSync(mine)).toEqual(Buffer.alloc(500, 31));
+    expect(existsSync(other)).toBe(false);
+    await t.services.hashes.run();
+    l = await lib();
+    expect(rowOf(l, mine)).toMatchObject({ sha256: shaMine });
+    const away = l.files.filter((f) => f.removed);
+    expect(away.map((f) => [f.path, f.sha256])).toEqual([[other, shaOther]]);
+    // put back where it was, with its own hash again, the name's still the other file's
+    expect((await post(t.app, "/api/model-files/put-back", { ids: [away[0]!.removed!.id] })).json()).toMatchObject({ back: 1 });
+    await t.services.hashes.run();
+    l = await lib();
+    expect(readFileSync(other)).toEqual(Buffer.alloc(500, 32));
+    expect([rowOf(l, mine)?.sha256, rowOf(l, other)?.sha256]).toEqual([shaMine, shaOther]);
+    // asked by its name alone (an older page): the file ComfyUI loads by it
+    expect(await deleteFiles(t.services, { files: [{ folder: "loras", file: "zz-test-dup.safetensors" }], to: "aside" }, fake)).toMatchObject({ moved: 1 });
+    expect([existsSync(mine), existsSync(other)]).toEqual([false, true]);
   });
 
   it("moves and says the file of the first directory holding a name, when two of a folder's directories hold it", async () => {

@@ -88,6 +88,12 @@ export interface Found {
   identity: string;
   /** Its bytes on disk (identityOf): the hard links of one file share them, and are hashed once. */
   inode: string;
+  /**
+   * Another file holds its name in an earlier directory of the folder (models/loras before A1111's Lora): ComfyUI loads
+   * that one by the name, never this one. What is kept by name (model_hashes, uses, what presets need) is the other's;
+   * this one's hash is kept by its path (model_hash_places), and Delete moves it only when asked by its path.
+   */
+  shadowed: boolean;
 }
 
 /** A path as one place on disk, whatever folder it is reached through (junctions, links resolved), for comparing. */
@@ -125,7 +131,9 @@ const msOf = (ns: bigint) => Math.round(Number(ns / 1000n) / 1000);
 export async function filesIn(dirs: string[], folder: string): Promise<{ files: Found[]; whole: boolean }> {
   const out: Found[] = [];
   let whole = true;
-  const walk = async (root: string, dir: string, depth: number, inside: string[]): Promise<void> => {
+  /** The file on disk ComfyUI loads by each name: the first directory's that holds it. */
+  const loaded = new Map<string, string>();
+  const walk =async (root: string, dir: string, depth: number, inside: string[]): Promise<void> => {
     if (depth > 6) return;
     const real = await realOf(dir);
     if (real && (inBinOrAside(real) || inside.includes(real))) return;
@@ -142,7 +150,13 @@ export async function filesIn(dirs: string[], folder: string): Promise<{ files: 
       if (e.isDirectory() || (e.isSymbolicLink() && (await stat(path).catch(() => null))?.isDirectory())) await walk(root, path, depth + 1, real ? [...inside, real] : inside);
       else if (e.isFile() && MODEL_EXT.test(e.name)) {
         const st = await stat(path, { bigint: true }).catch(() => null);
-        if (st) out.push({ folder, file: relative(root, path).replace(/\\/g, "/"), path, size: Number(st.size), mtime: msOf(st.mtimeNs), ...(await identityOf(path, st)) });
+        if (!st) continue;
+        const file = relative(root, path).replace(/\\/g, "/");
+        const id = await identityOf(path, st);
+        // the same file seen again under the name (a directory listed twice) is not another one
+        const first = loaded.get(file);
+        if (first === undefined) loaded.set(file, id.identity);
+        out.push({ folder, file, path, size: Number(st.size), mtime: msOf(st.mtimeNs), ...id, shadowed: first !== undefined && first !== id.identity });
       }
     }
   };
@@ -230,30 +244,51 @@ export class ModelHashes {
     const kept = await this.s.db.selectFrom("model_hashes").selectAll().execute();
     const keyOf = (folder: string, file: string) => `${folder}|${file}`;
     const have = new Map(kept.map((k) => [keyOf(k.folder, k.file), k]));
+    // a name's row is the file ComfyUI loads by it; another directory's file under the same name has its own, by path
+    const byName = all.filter((f) => !f.shadowed);
+    const shadowed = all.filter((f) => f.shadowed);
+    const keptPlaces = await this.s.db.selectFrom("model_hash_places").selectAll().execute();
+    const havePlace = new Map(keptPlaces.map((k) => [k.path, k]));
+    const rowOf = (f: Found) => (f.shadowed ? havePlace.get(f.path) : have.get(keyOf(f.folder, f.file)));
     // gone from the disk: forgotten. Only in a folder read whole (an offline drive is not every file deleted), and kept
     // aside for this pass: a file renamed or moved is the same bytes under another name
-    const here = new Set(all.map((f) => keyOf(f.folder, f.file)));
+    const here = new Set(byName.map((f) => keyOf(f.folder, f.file)));
     const gone = kept.filter((k) => read.has(k.folder) && !here.has(keyOf(k.folder, k.file)));
     for (const k of gone) await this.s.db.deleteFrom("model_hashes").where("folder", "=", k.folder).where("file", "=", k.file).execute();
+    const herePlaces = new Set(shadowed.map((f) => f.path));
+    for (const k of keptPlaces) if (read.has(k.folder) && !herePlaces.has(k.path)) await this.s.db.deleteFrom("model_hash_places").where("path", "=", k.path).execute();
     // the smallest first: most files are LoRAs, done in moments, before a checkpoint takes a minute
     const todo = all.filter((f) => {
-      const k = have.get(keyOf(f.folder, f.file));
+      const k = rowOf(f);
       return !k || Number(k.size) !== f.size || Number(k.mtime) !== f.mtime;
     }).sort((a, b) => a.size - b.size);
     // one file on disk seen in two places (a folder listed twice, a hard link) is read once: its hash, known in one place
     // and the same size and date there, goes to the other
     type Known = { sha256: string; civitai_version: number | null; hf_url: string | null; matched_at: string | null };
     const known = new Map<string, Known>();
-    for (const f of all) {
+    for (const f of byName) {
       const k = have.get(keyOf(f.folder, f.file));
       if (k && Number(k.size) === f.size && Number(k.mtime) === f.mtime) known.set(f.inode, { sha256: k.sha256, civitai_version: k.civitai_version === null ? null : Number(k.civitai_version), hf_url: k.hf_url, matched_at: k.matched_at });
     }
+    for (const f of shadowed) {
+      const k = havePlace.get(f.path);
+      if (k && Number(k.size) === f.size && Number(k.mtime) === f.mtime && !known.has(f.inode)) known.set(f.inode, { sha256: k.sha256, civitai_version: null, hf_url: null, matched_at: null });
+    }
+    /** A shadowed file's hash, kept by its path: never the name's row, which is the other file's. */
+    const keepPlace = async (f: Found, sha256: string) => {
+      const row = { folder: f.folder, file: f.file, size: f.size, mtime: f.mtime, sha256, hashed_at: now() };
+      await this.s.db.insertInto("model_hash_places").values({ path: f.path, ...row }).onConflict((oc) => oc.column("path").doUpdateSet(row)).execute();
+    };
     // the hashing's thread, for this pass only
     let worker: Worker | null = null;
     try {
       for (const f of todo) {
         if (this.stopped) return;
         const same = known.get(f.inode);
+        if (same && f.shadowed) {
+          await keepPlace(f, same.sha256);
+          continue;
+        }
         if (same) {
           const row = { size: f.size, mtime: f.mtime, hashed_at: now(), ...same };
           await this.s.db.insertInto("model_hashes").values({ folder: f.folder, file: f.file, ...row }).onConflict((oc) => oc.columns(["folder", "file"]).doUpdateSet(row)).execute();
@@ -261,7 +296,7 @@ export class ModelHashes {
         }
         // a file just found gone with the same size and time: the same file renamed or moved, its hash and match kept
         // rather than a checkpoint read again in full
-        const moved = !have.has(keyOf(f.folder, f.file)) ? gone.findIndex((g) => Number(g.size) === f.size && Number(g.mtime) === f.mtime) : -1;
+        const moved = !f.shadowed && !have.has(keyOf(f.folder, f.file)) ? gone.findIndex((g) => Number(g.size) === f.size && Number(g.mtime) === f.mtime) : -1;
         if (moved >= 0) {
           const [g] = gone.splice(moved, 1);
           await this.s.db.insertInto("model_hashes").values({ ...g!, folder: f.folder, file: f.file }).execute();
@@ -276,6 +311,10 @@ export class ModelHashes {
         const sha256 = await this.hashOf(worker, f);
         if (!sha256 || this.stopped) continue;
         known.set(f.inode, { sha256, civitai_version: null, hf_url: null, matched_at: null });
+        if (f.shadowed) {
+          await keepPlace(f, sha256);
+          continue;
+        }
         const row = { size: f.size, mtime: f.mtime, sha256, hashed_at: now(), civitai_version: null, hf_url: null, matched_at: null };
         await this.s.db.insertInto("model_hashes").values({ folder: f.folder, file: f.file, ...row }).onConflict((oc) => oc.columns(["folder", "file"]).doUpdateSet(row)).execute();
       }
