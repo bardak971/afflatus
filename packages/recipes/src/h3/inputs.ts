@@ -101,22 +101,28 @@ export interface H3Video extends ColourMatch {
 export const REF_VIDEOS_WHAT = "short videos of a person, a place, clothes, an object or a look, and how they move: they are followed, they are not frames of the clip. The first 3 seconds of each are used.";
 export const H3_NO_TAGS = "No <Picture 1> or <Video 1> to type: Afflatus adds H3's tags, saying which picture is whom.";
 
+/**
+ * Every H3 form's Sound card (card #170): the sound effects and the music H3 makes, the source's sound kept and its audio guide,
+ * a recording's start and loudness. Reached under the Inputs tab, so that the four forms keep the same six tabs.
+ */
+export const H3_SOUND_CHAPTER = { id: "sound", label: "Sound", under: "inputs", help: "The sound H3 makes with the picture (its effects and music) and what it is given to hear: a recording, the source's own sound as an audio guide, a voice sample brought to one loudness." };
+
 export const h3Inputs: InputSpec[] = [
   {
     id: "model", type: "model", label: "Model", folder: "diffusion_models", slot: "unet", match: ["minimax.?h3", "(^|[^a-z0-9])h3([^a-z0-9]|$)"],
     note: "MiniMax's own, or a fine-tune of it",
   },
   {
-    id: "description", type: "prompt", weights: false, label: "What happens", style: "sentences",
+    id: "description", type: "prompt", weights: false, label: "What happens", style: "sentences", main: true,
     placeholder: "She walks to the railing and looks out at the sea. The camera follows her slowly. (S1) says <d>[English] What a view.</d> softly.",
     note: H3_NO_TAGS,
   },
-  { id: "soundscape", type: "prompt", weights: false, label: "Sound effects", style: "sentences", optional: true, placeholder: "waves, a light wind, seagulls far away" },
-  { id: "music", type: "prompt", weights: false, label: "Music", style: "sentences", optional: true, placeholder: "none" },
+  { id: "soundscape", type: "prompt", weights: false, label: "Sound effects", style: "sentences", optional: true, chapter: "sound", placeholder: "waves, a light wind, seagulls far away" },
+  { id: "music", type: "prompt", weights: false, label: "Music", style: "sentences", optional: true, chapter: "sound", placeholder: "none" },
   { id: "start", type: "image", role: "start", label: "First frame", note: "the first frame", optional: true },
   { id: "end", type: "image", role: "end", label: "Last frame", note: "the last frame. Not used with reference pictures, videos or a voice sample: the reference model takes no last frame", optional: true },
   { id: "mid", type: "image", role: "mid", at: "midAt", label: "Keyframe", note: "a picture the clip passes through, at the time set below", optional: true, advanced: true },
-  { id: "midAt", type: "number", label: "Keyframe at", min: 0.5, max: 14.5, step: 0.5, default: 2.5, unit: " s", showWhen: "mid", advanced: true },
+  { id: "midAt", type: "number", label: "Keyframe at", min: 0.5, max: 14.5, step: 0.5, default: 2.5, unit: " s", showWhen: "mid" },
   {
     // a sound alone pinned at a frame lands there exactly, and the picture meets it only when the words name it (card #79)
     id: "cues", type: "cues", label: "Sound cues", max: H3_CUES,
@@ -147,7 +153,7 @@ export const h3Inputs: InputSpec[] = [
     note: "this clip ends exactly where that one begins",
   },
   {
-    id: "landing", type: "choice", label: "Landing", options: [...H3_LANDINGS], default: "22", showWhen: "next", advanced: true,
+    id: "landing", type: "choice", label: "Landing", options: [...H3_LANDINGS], default: "22", showWhen: "next",
     note: "frames of the next clip the join lands on: 5 is a position, 22 brings its motion too, 39 a long run-in (a short next clip gives fewer)",
   },
   {
@@ -170,7 +176,7 @@ export const h3Inputs: InputSpec[] = [
   // 15 s carried his voice better than 8 s, at the same render time (3 seeds each, evened: 0.805 against 0.781, 2026-10-13)
   { id: "voiceSeconds", type: "number", label: "Voice sample: length", min: 2, max: 15, step: 0.5, default: 15, unit: " s", showWhen: "voice" },
   {
-    id: "voiceEven", type: "toggle", label: "Even out the voice's loudness", default: true, showWhen: "voice", advanced: true,
+    id: "voiceEven", type: "toggle", label: "Normalize loudness", default: true, showWhen: "voice", advanced: true, chapter: "sound",
     note: "the part is brought to a usual speaking level (-16 LUFS, measured as EBU R128) before it is used: a quiet sample carries a voice weakly",
   },
   {
@@ -248,6 +254,10 @@ export const h3Inputs: InputSpec[] = [
   { id: "smooth", type: "toggle", label: "RIFE ×2", note: "frame interpolation: frames interpolated with RIFE, from 24 to 48 a second", default: true, advanced: true },
   { id: "sharpRefs", type: "toggle", label: "Full-res references", note: "holds a face better, several times slower", default: false, advanced: true },
   { id: "cache", type: "toggle", label: "Step cache", note: "faster, softer: steps that barely change are skipped (MiniMaxH3Cache, from the ComfyUI-DaSiWa-Nodes pack; without it nothing changes). Only without Turbo", default: false, showWhen: { input: "fast", in: [false] }, advanced: true },
+  { id: "cacheThreshold", type: "number", label: "Step cache threshold", note: "a step that would change the clip by less than this is skipped: higher skips more, faster and softer", min: 0.01, max: 0.5, step: 0.01, default: 0.05, showWhen: "cache", advanced: true, section: "speed" },
+  { id: "cacheStart", type: "number", label: "Step cache start", note: "where in the render skipping may begin: the first steps decide the clip and are never skipped below this", min: 0, max: 0.9, step: 0.05, default: 0.15, showWhen: "cache", advanced: true, section: "speed" },
+  { id: "cacheEnd", type: "number", label: "Step cache end", note: "where skipping stops, so that the last steps finish the detail", min: 0.1, max: 1, step: 0.05, default: 0.9, showWhen: "cache", advanced: true, section: "speed" },
+  { id: "cacheSteps", type: "number", label: "Step cache max skips", note: "how many steps may be skipped one after the other", min: 1, max: 6, step: 1, default: 2, showWhen: "cache", advanced: true, section: "speed" },
   {
     // the shot as a word of the prompt (card #27), deterministic: the same words on every H3 form, in the prompt as sent
     id: "shot", type: "choice", label: "Shot", options: ["Any", "Wide", "Medium", "Close-up"], default: "Any",
@@ -259,8 +269,8 @@ export const h3Inputs: InputSpec[] = [
     id: "veda", type: "toggle", label: "Veda sparse attention", default: false, advanced: true, section: "speed",
     note: "faster on long clips: a small predictor picks the attention that matters and the rest is skipped, the steps unchanged. Needs the veda-sparse-attention node pack and its predictor (the reference model's for clips with references, the text-and-frames one otherwise), in Settings › Models; without them the full attention runs",
   },
-  { id: "vedaGenerated", type: "number", label: "Veda generated sparsity", min: 8, max: 64, step: 8, default: 32, section: "speed", showWhen: "veda", note: "VedaSparseAttention's generated_sparsity: key tiles kept of each query tile, of the clip's own tokens; fewer is faster" },
-  { id: "vedaReference", type: "number", label: "Veda reference sparsity", min: 8, max: 64, step: 8, default: 32, section: "speed", showWhen: "veda", note: "VedaSparseAttention's reference_sparsity: the same of the reference tokens (the pictures, a source video)" },
+  { id: "vedaGenerated", type: "number", label: "Veda generated sparsity", min: 8, max: 64, step: 8, default: 32, advanced: true, section: "speed", showWhen: "veda", note: "VedaSparseAttention's generated_sparsity: key tiles kept of each query tile, of the clip's own tokens; fewer is faster" },
+  { id: "vedaReference", type: "number", label: "Veda reference sparsity", min: 8, max: 64, step: 8, default: 32, advanced: true, section: "speed", showWhen: "veda", note: "VedaSparseAttention's reference_sparsity: the same of the reference tokens (the pictures, a source video)" },
   {
     id: "livePreview", type: "toggle", label: "Live preview (animated)", default: true, advanced: true,
     note: "while it renders, a short clip of what is forming, each step, with its sound so far. A small cost per step. Needs the KJNodes pack",
@@ -269,10 +279,6 @@ export const h3Inputs: InputSpec[] = [
     id: "quick", type: "toggle", label: "Comfy Kitchen attention", default: true, advanced: true,
     note: "a faster attention for INT8 models (ModelAttentionBackend), on Nvidia and AMD cards. Turn it off if renders fail on another machine",
   },
-  { id: "cacheThreshold", type: "number", label: "Step cache threshold", note: "a step that would change the clip by less than this is skipped: higher skips more, faster and softer", min: 0.01, max: 0.5, step: 0.01, default: 0.05, showWhen: "cache", advanced: true },
-  { id: "cacheStart", type: "number", label: "Step cache start", note: "where in the render skipping may begin: the first steps decide the clip and are never skipped below this", min: 0, max: 0.9, step: 0.05, default: 0.15, showWhen: "cache", advanced: true },
-  { id: "cacheEnd", type: "number", label: "Step cache end", note: "where skipping stops, so that the last steps finish the detail", min: 0.1, max: 1, step: 0.05, default: 0.9, showWhen: "cache", advanced: true },
-  { id: "cacheSteps", type: "number", label: "Step cache max skips", note: "how many steps may be skipped one after the other", min: 1, max: 6, step: 1, default: 2, showWhen: "cache", advanced: true },
   { id: "crf", type: "number", label: "CRF", note: "how hard the video file is compressed: lower is better and larger. 19 looks lossless, 23 is the usual quality of the web", min: 0, max: 40, step: 1, default: 19, advanced: true },
   { id: "loras", type: "loras", label: "LoRAs", max: 6, added: [H3_TURBO_ROW] },
   ...TURBO_LORA_INPUTS,

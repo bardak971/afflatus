@@ -57,6 +57,11 @@ interface PromptInput extends Base {
    * such a place; the words of the cast go there instead of in front of the main text.
    */
   holds?: "subject";
+  /**
+   * The form's main text: the box that heads its Prompt card, with the Designer and Snippets, where a LoRA's trigger words go.
+   * Left out on every text of a recipe, the one that must be written is, else its first text (form.ts mainTextOf).
+   */
+  main?: boolean;
   /** The cast's words are never added to it: a few words the recipe builds its own prompt from (a swap's "who to replace"). */
   noCast?: boolean;
   /** With noCast: the Designer still writes it (a Motion transfer's description of its picture), where a swap's few words are the user's own. */

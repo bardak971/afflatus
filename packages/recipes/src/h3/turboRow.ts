@@ -56,8 +56,11 @@ const row = (r: { when: StartCondition; slots: AddedLora["slots"] }): AddedLora 
 /** H3's forms made by H3's own model inputs (Video with audio, Lip sync): references, reference videos or a voice take the reference route. */
 export const H3_TURBO_ROW = row(videoRow({ any: [{ input: "references", filled: true }, { input: "refVideos", filled: true }, { input: "voice", filled: true }] }));
 
-/** A swap's (and a window after it): its model run as the clip's own, a hybrid, MiniMax's reference turbo LoRA first. */
-const SWAP_MODEL_TURBO = named("swapModel", "swapUnet", namedFor.turbo);
+/**
+ * A swap's (and a window after it): its model run as the clip's own, a hybrid, MiniMax's reference turbo LoRA first. Distilled
+ * as its Distilled model says (card #170: the swap's asClip reads it), else as its name says.
+ */
+export const SWAP_MODEL_TURBO = said("turboIn", named("swapModel", "swapUnet", namedFor.turbo));
 export const SWAP_TURBO_ROW = row({ when: { not: SWAP_MODEL_TURBO }, slots: [{ slot: "refTurbo" }, { slot: "turbo" }] });
 
 /**

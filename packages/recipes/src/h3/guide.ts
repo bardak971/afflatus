@@ -82,16 +82,16 @@ ${EXAMPLE}
 Prompt: Live-action, cinematic, warm dusk light. A wide shot of a narrow harbour street, fishing boats moored along the quay. The young woman shown in the picture keeps her appearance and her red scarf as she walks slowly along the water's edge, her lips closed, then stops and watches the boats rock. The camera trucks left with small amplitude at slow speed, keeping her in the left third of the frame.`;
 
 /**
- * Motion transfer's (card #129), walking its boxes as Swap's does: the driving video gives the motion, the camera and the
+ * Motion transfer's (card #129), walking its boxes as Swap's does: the source video gives the motion, the camera and the
  * timing, the picture everything seen, so the text only says who is there and what they do, short, in SCAIL-2's spirit.
  * Nothing of the room or the light: H3 draws every word ("Keep the room and the light…" drew a lamp, 2026-10-20).
  */
-export const H3_MOTION_GUIDE = `A MOTION TRANSFER PROMPT is for MiniMax H3 held to a driving video's pose. It is not a scene: the motion, the gestures, the camera and the timing come from the video, and everything seen comes from the PICTURE, its first frame (its people, its room, its light). The text only helps H3 keep who is there and say what they do; short is best.
+export const H3_MOTION_GUIDE = `A MOTION TRANSFER PROMPT is for MiniMax H3 held to a source video's pose. It is not a scene: the motion, the gestures, the camera and the timing come from the video, and everything seen comes from the PICTURE, its first frame (its people, its room, its light). The text only helps H3 keep who is there and say what they do; short is best.
 - THE PARTS come first: write "How they look" (the person of the picture in a few words, the things that can be seen: hair, clothing with its colour; "short brown hair, a white shirt and jeans") and "What happens" (in this part, present tense, one short sentence, the action the way the video has it: "He dances in the living room, turning on the spot and raising his arms."). Leave "Prompt as sent" empty: Afflatus writes it from the parts, the shot's words first. Write "Prompt as sent" only when the user asks for a whole prompt of their own: then 25 to 60 words, plain sentences, present tense, who is in the picture and what they do, and the rules below are its rules.
 - "How they look" is shared by every window of a source on a timeline: keep it the same from window to window. "What happens" is each window's own.
 - The action in a few words, as the video has it. Never a sequence of moves, a camera move or timing: the video gives those.
 - Only what the picture shows. Never the room, the light or a new person, object or place: the picture has them, and H3 draws what is named.
 ${POSITIVE}
-- The sound is the driving video's (Keep the source's sound) and the mouth is drawn to it: never write a spoken line, a <d>…</d> tag, a speaker number (S1) or what a voice sounds like.
+- The sound is the source video's (Keep the source's sound) and the mouth is drawn to it: never write a spoken line, a <d>…</d> tag, a speaker number (S1) or what a voice sounds like.
 - No names of real people, no weights, no quality words, no tags.
 - You cannot see the picture or the video: take what they show from the user's words, never invent a look. When you do not know who is in the picture, ask ONE question.`;

@@ -1,7 +1,7 @@
 import { defineRecipe, gridAtOrBefore, type BuildContext, type BuiltGraph, type ClipValue, type GraphBuilder, type InputSpec, type Ref, type Variant } from "@afflatus/core";
 import { H3_MOTION_GUIDE } from "./guide";
 import { H3_FPS, H3_GRID } from "./family";
-import { H3_NO_TAGS, h3Inputs, type H3Video } from "./inputs";
+import { H3_NO_TAGS, H3_SOUND_CHAPTER, h3Inputs, type H3Video } from "./inputs";
 import { MOTION_STARTS, MOTION_TURBO_ROW, withTurboRow } from "./turboRow";
 import { buildH3, h3Video, SHOT_WORDS } from "./video";
 import { H3_CONTINUATION_NODES, H3_SEAM, H3_TRIM } from "./join";
@@ -95,9 +95,20 @@ const MOTION_PART = partBounds({ fps: H3_FPS, most: SWAP_FRAMES, least: MOTION_L
  * video's; how the person looks is the form's own `look` (H3's `subject` was a second "How they look", landing elsewhere).
  */
 const NOT_TAKEN = new Set([
-  "description", "soundscape", "music", "start", "end", "mid", "midAt", "handover", "next", "landing",
-  "refVideos", "voice", "voiceStart", "voiceSeconds", "voiceEven", "subject", "seconds", "shape",
+  "description", "start", "end", "mid", "midAt", "handover", "next", "landing",
+  "voice", "voiceStart", "voiceSeconds", "voiceEven", "subject", "seconds", "shape",
 ]);
+
+/**
+ * H3's inputs as this form shows them, every H3 form alike (card #170): Sound effects and Music only while the take makes its
+ * own sound (Keep the source's sound off), the reference videos on a Motion transfer of its own (a window after a swap is the
+ * swap's references).
+ */
+const MOTION_SHOWS: Record<string, InputSpec["showWhen"]> = {
+  soundscape: { input: "keepSound", in: [false] },
+  music: { input: "keepSound", in: [false] },
+  refVideos: OWN_MODEL,
+};
 
 const inputs: InputSpec[] = [
   {
@@ -110,26 +121,27 @@ const inputs: InputSpec[] = [
   {
     // not for a window that carries on from a swap, which has none (afterSwap): any other one needs it (build)
     id: "picture", type: "image", role: "source", label: "Picture", opensOnly: true, showWhen: OWN_MODEL,
-    note: "what moves, its first frame: its room, its light and its people are kept, only the motion comes from the video. In the driving video's shape: the video is cut to the picture's from the centre. A window after a swap needs none: it carries on from it",
+    note: "what moves, its first frame: its room, its light and its people are kept, only the motion comes from the video. In the source video's shape: the video is cut to the picture's from the centre. A window after a swap needs none: it carries on from it",
   },
   // the prompt's parts (card #34): the prompt as sent written from them while it is left empty (motionFromParts)
   { id: "look", type: "prompt", weights: false, label: "How they look", style: "sentences", line: true, optional: true, noCast: true, designed: true, holds: "subject", placeholder: "short brown hair, a white shirt and jeans", note: `the person of the picture, in a few words: what H3 keeps of them. Shared by a source's windows. ${H3_NO_TAGS}` },
-  { id: "happens", type: "prompt", weights: false, label: "What happens", style: "sentences", optional: true, noCast: true, designed: true, placeholder: "He dances in the living room, turning on the spot and raising his arms.", note: `in this part, in the present tense. Each window of a source keeps its own. ${H3_NO_TAGS}` },
+  { id: "happens", type: "prompt", weights: false, label: "What happens", style: "sentences", optional: true, noCast: true, designed: true, main: true, placeholder: "He dances in the living room, turning on the spot and raising his arms.", note: `in this part, in the present tense. Each window of a source keeps its own. ${H3_NO_TAGS}` },
   {
     // each window keeps its own (traits.windows.own): clip 6 of a source can show something else than clip 2
     id: "description", type: "prompt", weights: false, label: "Prompt as sent", style: "sentences", optional: true, designed: true, noCast: true,
     placeholder: "The man with short brown hair, in a white shirt and jeans, dances in the living room, turning on the spot and raising his arms.",
     note: `who is in the picture and what they do in this part, in the present tense: optional, it helps H3 keep what is there. Left empty, it is written from the parts above; typed, it is sent as it is and the parts wait. Each clip of a source keeps its own. ${H3_NO_TAGS} After a swap, tags typed are taken out`,
   },
+  // the Sound card's first rows: Sound effects and Music after them show while the take makes its own sound
+  { id: "keepSound", type: "toggle", label: "Keep the source's sound", default: true, advanced: true, chapter: "sound", note: "the file carries the source video's own sound over its part; off, the sound H3 makes" },
+  {
+    id: "soundGuide", type: "toggle", label: "Audio guide", default: true, advanced: true, showWhen: "keepSound", chapter: "sound",
+    note: "the source video's sound given to H3 as a guide, as Lip sync gives its recording, so that the mouth is drawn to the words heard",
+  },
   // H3's colour match pulls towards the first frame: here the picture
   // H3's Model is this form's own: a window after a swap shows the swap's in its place (the one it runs on)
   // (Turbo's row in the LoRA list on whichever model the window runs on, card #160)
-  ...withTurboRow(h3Inputs, MOTION_TURBO_ROW).filter((spec) => !NOT_TAKEN.has(spec.id)).flatMap((spec): InputSpec[] => (spec.showWhen === "start" ? [{ ...spec, showWhen: "picture" }] : spec.id === "model" ? [{ ...spec, showWhen: OWN_MODEL }, SWAP_MODEL] : [spec])),
-  { id: "keepSound", type: "toggle", label: "Keep the source's sound", default: true, advanced: true, note: "the file carries the driving video's own sound over its part; off, the sound H3 makes" },
-  {
-    id: "soundGuide", type: "toggle", label: "Lips follow the source's sound", default: true, advanced: true, showWhen: "keepSound",
-    note: "the driving video's sound given to H3 as a guide, as Lip sync gives its recording, so that the mouth is drawn to the words heard",
-  },
+  ...withTurboRow(h3Inputs, MOTION_TURBO_ROW).filter((spec) => !NOT_TAKEN.has(spec.id)).flatMap((spec): InputSpec[] => (spec.showWhen === "start" ? [{ ...spec, showWhen: "picture" }] : spec.id === "model" ? [{ ...spec, showWhen: OWN_MODEL }, SWAP_MODEL] : MOTION_SHOWS[spec.id] ? [{ ...spec, showWhen: MOTION_SHOWS[spec.id] } as InputSpec] : [spec])),
   ...motionControlInputs,
   {
     // set where a source's window comes from a swap (windowFrom, the migration of Swap motion): not a choice made up front
@@ -167,7 +179,8 @@ function asClip(input: H3MotionTransfer, frames: number, carried: number): H3Vid
     description: input.description.trim() || motionTransferFromParts(input), shot: "Any",
     start: input.previous ? undefined : input.picture,
     end: undefined, mid: undefined, next: undefined, voice: undefined, midAt: 0,
-    soundscape: "", music: "", refVideos: [], handover: false, landing: "22",
+    // its sound effects and music only while the take makes its own sound; its reference videos as H3's clip takes them
+    soundscape: input.keepSound ? "" : input.soundscape ?? "", music: input.keepSound ? "" : input.music ?? "", refVideos: input.refVideos ?? [], handover: false, landing: "22",
     context: input.context || String(MOTION_CARRIED), joinFrom: input.joinFrom || "Latent",
     seconds: (frames - carried) / H3_FPS,
     shape: { width: 576, height: 1024 },
@@ -270,7 +283,7 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
   title: "Motion transfer",
   // its boxes walked in its own guide over H3's shot guide (card #129): the video gives the motion and the camera
   guide: H3_MOTION_GUIDE,
-  summary: "A picture moved like a driving video, H3 held to its pose: the picture's room, light and people kept, the motion the video's. Audio included.",
+  summary: "A picture moved like a source video, H3 held to its pose: the picture's room, light and people kept, the motion the video's. Audio included.",
   output: "video",
   // made from a picture and another video; on a timeline, a window of a long source carrying on from the window before (its
   // last frames, in its latent), each window with its own prompt
@@ -280,7 +293,8 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
     windows: { most: SWAP_FRAMES, least: MOTION_LEAST, carried: MOTION_CARRIED, runUp: SWAP_RUN_UP, own: ["description", "happens", "cues"] },
   },
   inputs,
-  chapters: [MOTION_CHAPTER],
+  // under the Inputs tab, with Sound: every H3 form keeps the same six tabs (card #170)
+  chapters: [{ ...MOTION_CHAPTER, under: "inputs" }, H3_SOUND_CHAPTER],
   starts: MOTION_STARTS,
   presets: h3Video.presets,
   // a window after a swap needs what the swap's do (its model, unless picked), less its LoRA and SAM 3; any other is read
@@ -304,7 +318,7 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
   finishing: (input) => h3Video.finishing!(asClip(input, SWAP_FRAMES, 0)),
 
   build(input, ctx) {
-    if (!input.source || !ctx.uploads.source) throw new Error("Motion transfer needs a driving video: how it moves.");
+    if (!input.source || !ctx.uploads.source) throw new Error("Motion transfer needs a source video: how it moves.");
     if (afterSwap(input)) return windowAfterSwap(input, ctx);
     if (!input.picture || !ctx.uploads.picture) throw new Error("Motion transfer needs a picture: what moves.");
     const frames = framesOf(input, ctx);
@@ -353,12 +367,12 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
     const before = { width: 576, height: 1024, frames: 22, fps: H3_FPS, hasSound: true };
     return [
       {
-        name: "a picture moved by the driving video's pose (DWPose), its sound kept",
+        name: "a picture moved by the source video's pose (DWPose), its sound kept",
         input: { picture: "p1", source: { asset: "v1" }, description: "A man dances in a living room." },
         slots: all, uploads: { picture: "p.png", source: "v.mp4" }, media: { picture, source: part },
       },
       {
-        name: "a picture moved by the driving video, a sound cue over its sound",
+        name: "a picture moved by the source video, a sound cue over its sound",
         input: { picture: "p1", source: { asset: "v1" }, description: "A man dances in a living room and claps once.", cues: [{ asset: "s1", start: 0, seconds: 0.6, at: 2.4 }] },
         slots: all, uploads: { picture: "p.png", source: "v.mp4", "cues.0": "clap.wav" }, media: { picture, source: part, "cues.0": { width: 0, height: 0, seconds: 0.6 } },
       },

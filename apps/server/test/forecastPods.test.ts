@@ -202,6 +202,19 @@ describe("the fallback's usual times", () => {
     const unseen = await record(times(2, () => h3(0, 34_000)));
     expect(fromRates(await rates(unseen), recipe, {}, { samples: true })!.ms).toBe(34_000);
   });
+
+  it("price a form with no Duration by the part of its source it is made from: a Swap or a Lip sync before its source is picked (card #170)", () => {
+    const all = { "h3.swap": { perJobMs: 90_000, perSecondMs: 20_000, loads: null, samples: 3 } };
+    const swap = {
+      id: "h3.swap",
+      inputs: [
+        { id: "source", type: "clip", role: "source", label: "Source video", window: { start: "sourceStart", seconds: "sourceSeconds" } },
+        { id: "sourceSeconds", type: "number", label: "Source: length", min: 1, max: 6, step: 0.01, default: 5 },
+      ],
+    } as unknown as Parameters<typeof fromRates>[1];
+    expect(fromRates(all, swap, { sourceSeconds: 5 })!.ms).toBe(100_000);
+    expect(fromRates(all, swap, { sourceSeconds: 2.5 })!.ms).toBe(50_000);
+  });
 });
 
 describe("a pod's model load, for the GPU hunt", () => {

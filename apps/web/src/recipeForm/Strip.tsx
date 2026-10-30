@@ -8,12 +8,13 @@ import { plural } from "../format";
 
 /**
  * The strip at the top of a form: its parts in the order they are touched, the one in view marked;
- * a click opens a part and scrolls to it. Beside them, a search over the form's settings (typing
+ * a click opens a part and scrolls to it. A part reached under another (`under`: an H3 form's Mask, Motion and Sound
+ * cards, under Inputs, card #170) has no tab of its own: the tab it is under is lit while it is in view. Beside them, a search over the form's settings (typing
  * leaves only the settings that match). A part's id can be a chapter's id from an imported workflow:
  * it is escaped before it goes in a selector.
  */
 export function Strip({ parts, open, query, setQuery, found }: {
-  parts: Array<{ id: string; label: string }>;
+  parts: Array<{ id: string; label: string; under?: string }>;
   open(id: string): void;
   query: string;
   setQuery(q: string): void;
@@ -31,10 +32,17 @@ export function Strip({ parts, open, query, setQuery, found }: {
   const pinned = useRef(false);
   // the listeners are bound again when the parts change, not on every keystroke (the array is new each render)
   const partIds = parts.map((p) => p.id).join("|");
+  // the tabs: a part under another is lit through it (an under whose tab is not in the strip keeps its own)
+  const tabs = parts.filter((p) => !p.under || !parts.some((o) => o.id === p.under));
+  const tabOf = (id: string | null) => {
+    const p = parts.find((x) => x.id === id);
+    return p?.under && tabs.some((t) => t.id === p.under) ? p.under : id;
+  };
+  const lit = tabOf(current);
   // one line, always: the parts that do not fit go under a "+N" at the end (a form of many sections, a narrow column)
-  const fold = useFit(self, Math.max(0, parts.length - 1), partIds);
-  const shown = parts.slice(0, parts.length - fold);
-  const hidden = parts.slice(parts.length - fold);
+  const fold = useFit(self, Math.max(0, tabs.length - 1), tabs.map((p) => p.id).join("|"));
+  const shown = tabs.slice(0, tabs.length - fold);
+  const hidden = tabs.slice(tabs.length - fold);
   const more = useMenu<true>();
   const goTo = (id: string) => {
     open(id);
@@ -57,7 +65,7 @@ export function Strip({ parts, open, query, setQuery, found }: {
     placePill(pill.current, at.current, to, true);
     at.current = to;
     setPlaced(true);
-  }, [current, searching, fold]);
+  }, [lit, searching, fold]);
   // the strip changes width (the panel dragged wider, a font loading): the pill follows at once, without travel
   useLayoutEffect(() => {
     const s = self.current;
@@ -184,8 +192,8 @@ export function Strip({ parts, open, query, setQuery, found }: {
                 key={p.id}
                 type="button"
                 onClick={() => goTo(p.id)}
-                data-on={current === p.id ? "" : undefined}
-                className={cx("relative shrink-0 rounded px-1.5 py-1 text-meta font-semibold whitespace-nowrap transition-colors", current === p.id ? cx("text-ink-strong", !placed && "bg-line-strong") : "text-ink-2 hover:bg-hover hover:text-ink")}
+                data-on={lit === p.id ? "" : undefined}
+                className={cx("relative shrink-0 rounded px-1.5 py-1 text-meta font-semibold whitespace-nowrap transition-colors", lit === p.id ? cx("text-ink-strong", !placed && "bg-line-strong") : "text-ink-2 hover:bg-hover hover:text-ink")}
               >
                 {p.label}
               </button>
@@ -197,14 +205,14 @@ export function Strip({ parts, open, query, setQuery, found }: {
                 aria-label={`${plural(hidden.length, "more part")}`}
                 data-tip={hidden.map((p) => p.label).join(", ")}
                 onClick={(e) => more.open(e, true)}
-                data-on={hidden.some((p) => p.id === current) ? "" : undefined}
-                className={cx("relative flex shrink-0 items-center gap-0.5 rounded px-1.5 py-1 text-meta font-semibold whitespace-nowrap transition-colors", hidden.some((p) => p.id === current) ? cx("text-ink-strong", !placed && "bg-line-strong") : "text-ink-2 hover:bg-hover hover:text-ink")}
+                data-on={hidden.some((p) => p.id === lit) ? "" : undefined}
+                className={cx("relative flex shrink-0 items-center gap-0.5 rounded px-1.5 py-1 text-meta font-semibold whitespace-nowrap transition-colors", hidden.some((p) => p.id === lit) ? cx("text-ink-strong", !placed && "bg-line-strong") : "text-ink-2 hover:bg-hover hover:text-ink")}
               >
-                {hidden.find((p) => p.id === current)?.label ?? `+${hidden.length}`}
+                {hidden.find((p) => p.id === lit)?.label ?? `+${hidden.length}`}
                 <ChevronDown size={11} />
               </button>
             )}
-            {more.menu && <ContextMenu at={more.menu.at} label="More parts of the form" head={{ title: "More parts", sub: headLine("Form", plural(hidden.length, "part")) }} items={hidden.map((p) => ({ label: p.label, note: p.id === current ? "in view" : undefined, run: () => goTo(p.id) }))} onClose={more.close} />}
+            {more.menu && <ContextMenu at={more.menu.at} label="More parts of the form" head={{ title: "More parts", sub: headLine("Form", plural(hidden.length, "part")) }} items={hidden.map((p) => ({ label: p.label, note: p.id === lit ? "in view" : undefined, run: () => goTo(p.id) }))} onClose={more.close} />}
           </>
         )}
         <span className="grow" />

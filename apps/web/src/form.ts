@@ -64,11 +64,12 @@ export const scaleOf = (spec: Extract<InputSpec, { type: "size" }>, values: Reco
   spec.scaledBy && values?.[spec.scaledBy.on] && values[spec.scaledBy.on] !== "Off" ? Number(values[spec.scaledBy.by] ?? 2) : 0;
 
 /**
- * The text a form is about: the one that must be written, else its first text. A negative prompt is
- * never that: a tool whose only text is one (an upscale) has no main text, and no help to write it.
+ * The text a form is about: the one its recipe names (every H3 form's What happens, card #170: a swap's required Track was
+ * taken before, and its Prompt card had no heading), else the one that must be written, else its first text. A negative
+ * prompt is never that: a tool whose only text is one (an upscale) has no main text, and no help to write it.
  */
-export const mainTextOf = (recipe: RecipeInfo): InputSpec | undefined =>
-  recipe.inputs.find((i) => i.type === "prompt" && !i.optional) ?? recipe.inputs.find((i) => i.type === "prompt" && i.id !== "negative");
+export const mainTextOf = (recipe: Pick<RecipeInfo, "inputs">): InputSpec | undefined =>
+  recipe.inputs.find((i) => i.type === "prompt" && i.main) ?? recipe.inputs.find((i) => i.type === "prompt" && !i.optional) ?? recipe.inputs.find((i) => i.type === "prompt" && i.id !== "negative");
 
 /** The groups the settings are shown in, in order, and what each is about. */
 type Group = "speed" | "upscale" | "file" | "rare";
@@ -175,8 +176,9 @@ export function layoutOf(recipe: RecipeInfo, seen: Record<string, unknown>, q: s
     refs: sought(rest.filter((i) => i.type === "references" || (i.type === "audio" && !builtOn(i)))),
     loras: sought(front.filter((i) => i.type === "loras")),
     out: sought(front.filter(isOut)),
-    // the model's file and the operation's own settings (how much an img2img may redraw, which upscaler)
-    knobs: sought(front.filter((i) => i.type === "model" || ((i.type === "number" || i.type === "toggle" || i.type === "choice") && !isOut(i) && !withMedia(i)))),
+    // the model's file and the operation's own settings (how much an img2img may redraw, which upscaler). A model filed under
+    // Output (SeedVR2's, Face refine's) is Output's alone: it was drawn in both while its route was on (card #170)
+    knobs: sought(front.filter((i) => (i.type === "model" || i.type === "number" || i.type === "toggle" || i.type === "choice") && !isOut(i) && !withMedia(i))),
     // the settings, by what they are about
     sampling: tuning.filter((i) => groupOf(i) === "speed"),
     /** A picture's upscale pass (hires fix), drawn in Sampling after the sampler rows. */
