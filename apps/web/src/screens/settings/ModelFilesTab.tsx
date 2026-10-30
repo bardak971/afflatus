@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fileKey } from "@afflatus/core";
 import { ChevronRight, Plus } from "lucide-react";
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import { api, type ModelFile, type ModelLibrary } from "../../api";
 import { useRecipes } from "../../data";
@@ -57,6 +57,14 @@ const USES_HELP = "Afflatus jobs that loaded this file, counted from the graph e
 const GRID = "grid grid-cols-[28px_40px_minmax(0,1fr)_118px_104px_76px_92px_52px_120px_84px_150px_18px] @max-[1240px]:grid-cols-[28px_40px_minmax(0,1fr)_118px_76px_92px_52px_120px_150px_18px] @max-[1000px]:grid-cols-[28px_40px_minmax(0,1fr)_118px_76px_52px_120px_18px] items-center gap-x-3";
 const WIDE = "@max-[1240px]:hidden";
 const MID = "@max-[1000px]:hidden";
+/**
+ * The rows' own scroll area (card #194: with some 470 files the cards below the table were a long scroll away): 60 % of the
+ * window, never under about eight rows and the header on a short screen. The header is pinned, and the padding on top keeps
+ * a row scrolled to by the keyboard from hiding under it.
+ */
+const SCROLL = "max-h-[max(60vh,470px)] overflow-y-auto scroll-pt-10";
+/** A row off screen is neither laid out nor painted (its pictures not fetched), held at a row's height until it is seen. */
+const OFFSCREEN = "[content-visibility:auto] [contain-intrinsic-height:auto_40px]";
 
 /** Settings › Model files: its own tab, after Models. */
 export function ModelFilesTab() {
@@ -87,6 +95,11 @@ export function ModelFilesTab() {
   const rows = useMemo(() => (l ? shown(l, f, now) : []), [l, f, now]);
   const figs = useMemo(() => (l ? figures(l, f.family, now) : null), [l, f.family, now]);
   const listed = useComfyListed();
+  const scroller = useRef<HTMLDivElement>(null);
+  // a file's detail opens under its row: brought into the area whole, the row with it, when it would open below its edge
+  useEffect(() => {
+    if (open) scroller.current?.querySelector("[data-open]")?.scrollIntoView({ block: "nearest" });
+  }, [open]);
   if (lib.isError) return <Failed what="The model files could not be read" error={lib.error} />;
   if (!l || !figs) return <div className="flex items-center gap-2 text-ink-3"><Spinner /> Reading ComfyUI's model folders…</div>;
 
@@ -107,10 +120,12 @@ export function ModelFilesTab() {
 
   const toggle = (id: string, shift: boolean) => {
     const order = live.map((x) => x.id);
+    // the range's other end read now: React may run the update below after `last` is this row already
+    const from = last.current;
     setSel((s) => {
       const next = new Set(s);
-      if (shift && last.current && order.includes(last.current) && order.includes(id)) {
-        const [i, j] = [order.indexOf(last.current), order.indexOf(id)].sort((a, b) => a - b);
+      if (shift && from && order.includes(from) && order.includes(id)) {
+        const [i, j] = [order.indexOf(from), order.indexOf(id)].sort((a, b) => a - b);
         const on = !s.has(id);
         for (const x of order.slice(i!, j! + 1)) if (on) next.add(x); else next.delete(x);
       } else if (next.has(id)) next.delete(id);
@@ -204,8 +219,8 @@ export function ModelFilesTab() {
             Delete{picked.length ? ` ${plural(picked.length, "file")}` : ""}
           </Button>
         </div>
-        <div role="table" aria-label="Model files" className="flex flex-col">
-          <div role="row" className={cx(GRID, "border-b border-line px-[18px] py-2")}>
+        <div ref={scroller} role="table" aria-label="Model files" className={cx("flex flex-col", SCROLL)}>
+          <div role="row" className={cx(GRID, "sticky top-0 z-sticky border-b border-line bg-panel px-[18px] py-2")}>
             <span /><span />
             {head("name", "Name · file")}
             {head("kind", "Kind")}
@@ -218,12 +233,12 @@ export function ModelFilesTab() {
             <span className={cx(MID, "text-meta font-bold tracking-label text-ink-3 uppercase")}>Needed by</span>
             <span />
           </div>
-          {rows.slice(0, 600).map((x) => {
+          {rows.map((x) => {
             const ls = lastSaid(x, l.since, day, (iso) => when(iso, now));
             const isOpen = open === x.id;
             const gone = Boolean(x.removed);
             return (
-              <div key={x.id} className="border-b border-line/60 last:border-b-0">
+              <div key={x.id} data-open={isOpen || undefined} className="border-b border-line/60 last:border-b-0">
                 {/* reached by Tab and opened by Enter or Space as by a click (card #178: a keyboard could not open a file's detail) */}
                 <div
                   role="row" tabIndex={0} aria-expanded={isOpen} aria-label={nameOf(x)}
@@ -233,7 +248,7 @@ export function ModelFilesTab() {
                     e.preventDefault();
                     setOpen(isOpen ? null : x.id);
                   }}
-                  className={cx(GRID, "min-h-[52px] cursor-pointer px-[18px] py-1.5 outline-none hover:bg-hover focus-visible:inset-ring-2 focus-visible:inset-ring-accent/50", sel.has(x.id) && "bg-accent-wash/40", isOpen && "bg-raised", gone && "opacity-60")}
+                  className={cx(GRID, OFFSCREEN, "min-h-[52px] cursor-pointer px-[18px] py-1.5 outline-none hover:bg-hover focus-visible:inset-ring-2 focus-visible:inset-ring-accent/50", sel.has(x.id) && "bg-accent-wash/40", isOpen && "bg-raised", gone && "opacity-60")}
                 >
                   <span onClickCapture={(e) => { e.stopPropagation(); if (!ro && !gone) toggle(x.id, e.shiftKey); }}>
                     <Checkbox checked={sel.has(x.id)} disabled={ro || gone} label={`Select ${nameOf(x)}`} onChange={() => {}} />
@@ -269,7 +284,6 @@ export function ModelFilesTab() {
               </div>
             );
           })}
-          {rows.length > 600 && <div className="px-[18px] py-3 text-body text-ink-3">{rows.length - 600} more: narrow the list with the search or the filters.</div>}
           {!rows.length && (
             <div className="flex flex-col items-center gap-2 px-[18px] py-10 text-center">
               <h3 className="text-title font-semibold">{l.files.length ? "No file matches" : unseen ? "Afflatus cannot see ComfyUI's model files" : "No model file in ComfyUI's model folders"}</h3>
