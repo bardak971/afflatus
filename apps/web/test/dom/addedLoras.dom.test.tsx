@@ -36,11 +36,11 @@ function serve() {
   fakeApi.on("GET /model-words", { items: {} });
 }
 
-function drawList(spec: Extract<InputSpec, { type: "loras" }>, values: Record<string, unknown>) {
+function drawList(spec: Extract<InputSpec, { type: "loras" }>, values: Record<string, unknown>, over: InputSpec[] = specs) {
   serve();
   const set = vi.fn();
   const onChange = vi.fn();
-  const added: AddedLoras = { rows: addedRows(spec, values, { turbo: TURBO }), specs, options: { turboLora: [TURBO, OTHER], distilledLora: [TURBO] }, values, set };
+  const added: AddedLoras = { rows: addedRows(spec, values, { turbo: TURBO }), specs: over, options: { turboLora: [TURBO, OTHER], distilledLora: [TURBO] }, values, set };
   const value = (values.loras as LoraValue[] | undefined) ?? [];
   const drawn = draw(<Loras spec={spec} value={value} options={[TURBO, OTHER]} family={undefined} model={undefined} onChange={onChange} added={added} />);
   return { ...drawn, set, onChange };
@@ -77,6 +77,24 @@ describe("the LoRAs the recipe adds itself, in the LoRA list", () => {
     await user.type(box, "0.6{Enter}");
     expect(onChange).toHaveBeenCalledWith([{ file: OTHER, weight: 0.5 }]);
     expect(set).toHaveBeenLastCalledWith("turboWeight", 0.6);
+  });
+
+  it("folds a hand weight into the row within the row's own range (card #189)", async () => {
+    // Wan's high-noise turbo strength goes to 1.2: a hand row at 3 of its file, folded in, was a render refused
+    const narrow = specs.map((x) => (x.id === "turboWeight" ? { ...x, min: 0, max: 1.2 } : x));
+    const { user, set, onChange } = drawList(list, { fast: true, loras: [{ file: TURBO, weight: 3 }] }, narrow);
+    await user.click(within(document.querySelector<HTMLElement>('[data-added="Turbo"]')!).getByRole("button", { name: /turns Turbo off/ }));
+    expect(onChange).toHaveBeenCalledWith([]);
+    expect(set).toHaveBeenCalledWith("turboWeight", 1.2);
+    expect(set).toHaveBeenLastCalledWith("fast", false);
+  });
+
+  it("counts Turbo's row among the list's places: five of your own with it on", () => {
+    const five = Array.from({ length: 5 }, (_, i) => ({ file: `zz-test-${i}.safetensors`, weight: 0.5 }));
+    drawList(list, { fast: true, loras: five });
+    expect(screen.getByText("6 of 6")).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: /add one/ })).toBeNull();
+    expect(screen.queryByText("Add a LoRA")).toBeNull();
   });
 
   it("draws a LoRA the model needs without a ×, and says when it is not loaded", () => {

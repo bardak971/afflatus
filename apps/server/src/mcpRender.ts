@@ -1,5 +1,5 @@
 import { setTimeout as sleep } from "node:timers/promises";
-import { notFilled, plural, type Recipe } from "@afflatus/core";
+import { notFilled, plural, verb, type Recipe } from "@afflatus/core";
 import { z } from "zod";
 import type { Tables } from "./db";
 import { compose, lookSchema, withMentions, type Look } from "./entities";
@@ -291,7 +291,7 @@ export async function mayUnload(s: Services, ctx: ToolCtx, pods: readonly Machin
   for (const pod of pods) {
     const there = waiting.filter((j) => !j.pin_machine || j.pin_machine === pod.id);
     const others = there.filter((j) => j.mcp_token_id !== ctx.token.id);
-    if (pod.rented?.mcpToken !== ctx.token.id && others.length) throw refusal(`${plural(others.length, "render")} of the user's or another token's ${others.length === 1 ? "waits" : "wait"} for ${quoted(machineName(pod))}, a pod this token did not start: unloading its models now makes them load again, billed to whoever pays for them. Unload in Afflatus, or once they have run.`);
+    if (pod.rented?.mcpToken !== ctx.token.id && others.length) throw refusal(`${plural(others.length, "render")} of the user's or another token's ${verb(others.length, "waits", "wait")} for ${quoted(machineName(pod))}, a pod this token did not start: unloading its models now makes them load again, billed to whoever pays for them. Unload in Afflatus, or once they have run.`);
     const next = there[0];
     usd += await mayCostEach(s, next?.recipe_id ?? null, next ? readJson(next.inputs, {}) : {}, [pod], rates, true);
   }
@@ -514,7 +514,12 @@ const cancel = tool({
   async run({ job: id }, ctx) {
     const row = await jobRow(ctx.s, id);
     await mayTouch(ctx.s, ctx, row);
-    if (!(await ctx.s.queue.cancel(id))) throw httpError(`“${row.label}” is not waiting or running: it ended (${row.status}).`);
+    // whose it is held in the write too: one another token's run_on or use_only took since it was read is not cancelled
+    if (!(await ctx.s.queue.cancel(id, { mcpToken: ctx.token.id }))) {
+      const now = await jobRow(ctx.s, id);
+      await mayTouch(ctx.s, ctx, now);
+      throw httpError(`“${row.label}” is not waiting or running: it ended (${now.status}).`);
+    }
     ctx.said(`Cancelled ${quoted(row.label)}`);
     return { cancelled: id, was: row.status === "running" ? "running" : "waiting" };
   },

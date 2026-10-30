@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { OWN_MODEL } from "@afflatus/core";
 import { newId, now, OWNER } from "../src/db";
 import { newAssetRow } from "../src/media";
 import type { JobRow } from "../src/queueModel";
@@ -59,6 +60,41 @@ describe("Redo finished › Changed", () => {
     expect(res.json().skipped).toEqual([{ clip: 1, why: "finished already with these settings" }]);
     // the view still says what plays
     expect(withTakes((await get(t.app, `/api/timelines/${tl.id}`)).json()).clips[0].take.finishedFrom).toBe(draft);
+  });
+});
+
+describe("Redo finished › Changed, Face refine first and an upscale behind it (card #190)", () => {
+  // an H3 clip whose draft kept its latent, finished with SeedVR2 after a Face refine on the form's own model (the cut that
+  // finished it done after the clip last changed)
+  async function finishedH3(face: Record<string, unknown>) {
+    const tl = (await t.app.inject({ method: "POST", url: "/api/timelines", payload: { name: "zz-test redo face model" } })).json();
+    const clip = (await t.app.inject({ method: "POST", url: `/api/timelines/${tl.id}/clips`, payload: { recipe: "h3.video" } })).json().clip as string;
+    const drafted = await video({ description: "zz-test" });
+    await t.db.updateTable("generations").set({ recipe_id: "h3.video", family: "h3" } as never).where("id", "=", (await t.db.selectFrom("assets").select("generation_id").where("id", "=", drafted).executeTakeFirstOrThrow()).generation_id!).execute();
+    await t.db.updateTable("assets").set({ latent_key: `latents/${drafted}.latent` }).where("id", "=", drafted).execute();
+    const draft = await take(clip, drafted, null);
+    await take(clip, await video(null), draft);
+    const at = new Date(Date.now() + 1000).toISOString();
+    await t.db.insertInto("jobs").values({
+      id: newId(), owner_id: OWNER, recipe_id: CUT_JOB, label: "zz-test finish", status: "done", priority: 0, clip_id: clip, created_at: at, updated_at: at, finished_at: at,
+      inputs: JSON.stringify({ asset: "x", startMs: 0, endMs: 3000, action: "finish", route: "seedvr", by: 2, colour: "lab", seedvrFrames: 0, sharpen: 0, clip, finishedFrom: draft, fromJob: "x", faceFirst: 0.45, ...face }),
+    } as never).execute();
+    const redo = (faceModel?: string) => t.app.inject({ method: "POST", url: `/api/timelines/${tl.id}/finish`, payload: { route: "seedvr", factor: 2, colour: "lab", seedvrFrames: 0, sharpen: 0, face: true, faceDenoise: 0.45, ...(faceModel !== undefined ? { faceModel } : {}), redo: "changed" } });
+    return { redo };
+  }
+
+  it("redoes a clip when the Face refine model is another: the clip's own model asked, its form's used before", async () => {
+    const { redo } = await finishedH3({});
+    const res = await redo(OWN_MODEL);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().skipped).toEqual([]);
+    expect(res.json().jobs.length).toBeGreaterThan(0);
+  });
+
+  it("leaves it with the same model asked, and a finish made before the model was kept keeps its key", async () => {
+    expect((await (await finishedH3({ faceFirstModel: OWN_MODEL })).redo(OWN_MODEL)).json().skipped).toEqual([{ clip: 1, why: "finished already with these settings" }]);
+    expect((await (await finishedH3({})).redo()).json().skipped).toEqual([{ clip: 1, why: "finished already with these settings" }]);
+    expect((await (await finishedH3({})).redo("")).json().skipped).toEqual([{ clip: 1, why: "finished already with these settings" }]);
   });
 });
 

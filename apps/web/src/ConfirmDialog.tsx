@@ -8,12 +8,13 @@ import { Button, cx, fieldClass, Help } from "./ui";
 /** The text question: a box with what it holds now, Enter or the button answers, Escape closes with nothing. */
 function TextAsk({ open }: { open: Extract<Open, { kind: "text" }> }) {
   const [text, setText] = useState(open.value);
-  const send = () => open.answer(text.trim());
+  const send = () => open.answer(open.password ? text : text.trim());
   return (
     <Dialog label={open.title} onClose={() => open.answer(null)} z="z-confirm" className={DIALOG}>
       <DialogHead icon={<PenLine size={15} />} title={open.title} />
       <input
         autoFocus
+        {...(open.password ? { type: "password", autoComplete: "current-password" } : {})}
         value={text}
         placeholder={open.placeholder}
         onChange={(e) => setText(e.target.value)}

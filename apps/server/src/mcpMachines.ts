@@ -89,7 +89,7 @@ const editMachine = tool({
   name: "edit_machine",
   scope: "manage",
   title: "Change a machine",
-  description: "Change a machine as its card in Settings › ComfyUI does: its name, what it takes, its families switched on or off on it alone; a pod's idle minutes, what it does then (stop: its disk billed on; terminate: deleted on RunPod), its watchdog and Make room. A pod's idle rule and watchdog need Spend, and are never set to 0 (never) from here; what it takes and its families, while a rented pod takes work, are refused unless that pod is one this token started (and then need Spend): work would move onto it with no cap counting it. A machine's address, adding a machine, node packs installed without asking, open ports and its folder on this computer are the user's, in Afflatus itself.",
+  description: "Change a machine as its card in Settings › ComfyUI does: its name, what it takes, its families switched on or off on it alone; a pod's idle minutes, what it does then (stop: its disk billed on; terminate: deleted on RunPod), its watchdog and Make room. A pod's idle rule and watchdog need Spend, and are never set to 0 (never) from here; on a pod this token did not start they are only shortened (fewer minutes, stop → terminate); what it takes and its families, while a rented pod takes work, are refused unless that pod is one this token started (and then need Spend): work would move onto it with no cap counting it. A machine's address, adding a machine, node packs installed without asking, open ports and its folder on this computer are the user's, in Afflatus itself.",
   input: {
     machine: z.string().min(1).describe("A machine's id or name (list_machines)."),
     name: z.string().trim().max(40).optional(),
@@ -109,6 +109,18 @@ const editMachine = tool({
     // a pod's idle rule and watchdog are Spend's, as starting one is
     const podRule = a.idleMinutes !== undefined || a.idleDo !== undefined || a.watchdogMinutes !== undefined;
     if (podRule) mustSpend(ctx, `a pod's idle time, idle action and watchdog decide how long ${machineName(m)} bills`);
+    // on a pod this token did not start, its run is not counted against this token's cap: only shortened from here, as
+    // change_setting lowers the app's caps but never raises them (card #182)
+    if (podRule && m.rented!.mcpToken !== ctx.token.id) {
+      // 0 is never: any minutes are shorter than that
+      const longerThan = (asked: number | undefined, was: number) => asked !== undefined && was > 0 && asked > was;
+      const longer = [
+        longerThan(a.idleMinutes, m.rented!.idleMinutes) ? `idle minutes ${m.rented!.idleMinutes} → ${a.idleMinutes}` : "",
+        longerThan(a.watchdogMinutes, m.rented!.watchdogMinutes) ? `watchdog ${m.rented!.watchdogMinutes} → ${a.watchdogMinutes} min` : "",
+        a.idleDo === "stop" && m.rented!.idleDo === "terminate" ? "idle action terminate → stop (its disk billed on)" : "",
+      ].filter(Boolean);
+      if (longer.length) throw refusal(`${quoted(machineName(m))} is ${m.rented!.mcpToken ? "a pod another token started" : "the user's pod"}: its bill is not counted against this token's cap, so from here it is only made to bill less (${longer.join(", ")} refused). The user lengthens it in Afflatus.`);
+    }
     // what a machine takes, and its families, steer the queue's work: onto a pod that is up, that is spending
     if (a.takes !== undefined || a.families !== undefined) mustNotSteerOntoPods(ctx, await podsTaking(s, settings.machines), `changing what ${machineName(m)} takes`);
     const families = a.families ? Object.fromEntries(Object.entries({ ...m.families, ...a.families }).filter((e): e is [string, boolean] => e[1] !== null)) : m.families;

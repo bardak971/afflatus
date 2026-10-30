@@ -721,10 +721,13 @@ async function inTurnOf<T>(db: Db, paths: string[], work: () => Promise<T>): Pro
 }
 
 /**
- * A file of a linked folder to the bin: copied into Afflatus's storage, then removed from its directory, and only then is
- * its row changed. A file another program holds open (Windows refuses to remove it) is left as it was, row and all, and
- * the copy is dropped: the row never says "in the bin" while the file still sits in the folder, where the next reading
- * would find it and register it a second time. Also for a video taken apart by a cut (timelineRange.ts).
+ * A file of a linked folder to the bin: copied into Afflatus's storage, its row changed to name that copy, and only then
+ * removed from its directory. A stop between any two steps loses nothing: before the row is written the file is in its
+ * folder and the row names it there; after, the row names the bin's copy, the file at worst still in its folder too (the
+ * next reading registers it again). Removing it first, a stop before the row was written left a row naming a file gone:
+ * the next reading forgot it, and the orphan sweep erased the bin's copy that nothing named any more (card #186). A file
+ * another program holds open (Windows refuses to remove it) is left as it was, its row named it in its folder again and
+ * the copy dropped. Also for a video taken apart by a cut (timelineRange.ts).
  */
 export async function linkedToBin(db: Db, storage: Storage, item: Pick<Asset, "id" | "mime" | "file_key">): Promise<void> {
   await inTurnOf(db, [diskPath(item.file_key)], async () => {
@@ -741,19 +744,23 @@ async function toBinNow(db: Db, storage: Storage, a: Pick<Asset, "id" | "mime" |
   if (path) await storage.putFile(key, path);
   else await storage.put(key, await storage.get(a.file_key));
   try {
-    await rm(from, { force: true });
+    await db.updateTable("assets").set({ file_key: key, linked_path: from, deleted_at: now() }).where("id", "=", a.id).execute();
   } catch (err) {
+    // the row still names the file in its folder, which has not been touched: only the copy goes
     await storage.delete(key).catch(() => {});
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === "EBUSY" || code === "EPERM" || code === "EACCES") throw httpError(`"${basename(from)}" is open in another program, or read-only: close it there, then try again. It stays in its folder.`, 409);
     throw err;
   }
   try {
-    await db.updateTable("assets").set({ file_key: key, linked_path: from, deleted_at: now() }).where("id", "=", a.id).execute();
+    await rm(from, { force: true });
   } catch (err) {
-    // the row still names the file in its folder: it goes back there
-    await writeOut(storage, key, from).catch(() => {});
-    await storage.delete(key).catch(() => {});
+    // removed after all (a refusal reported late): the row says where the file is now, the bin
+    if (!(await stat(from).then(() => true, () => false))) return;
+    // still in its folder: its row names it there again (failing that, the bin's copy stays named by the row, the file
+    // in its folder as well, found again by the next reading), and the copy goes
+    const back = await db.updateTable("assets").set({ file_key: a.file_key, linked_path: null, deleted_at: null }).where("id", "=", a.id).execute().then(() => true, () => false);
+    if (back) await storage.delete(key).catch(() => {});
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "EBUSY" || code === "EPERM" || code === "EACCES") throw httpError(`"${basename(from)}" is open in another program, or read-only: close it there, then try again. It stays in its folder.`, 409);
     throw err;
   }
 }

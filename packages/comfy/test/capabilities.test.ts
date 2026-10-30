@@ -265,4 +265,9 @@ describe("filesIn, a model folder's files as a machine has them", () => {
     expect(await filesIn(client({ diffusion_models: ["a.safetensors"] }), "diffusion_models")).toEqual(["a.safetensors"]);
     await expect(filesIn(client({ unet_gguf: ["b-Q4.gguf"] }), "diffusion_models")).rejects.toThrow("404");
   });
+
+  it("leaves out a file Delete moved, listed by ComfyUI through a junction to the set-aside folder or a bin (card #185)", async () => {
+    const lists = { loras: ["x.safetensors", "a1111/.afflatus-set-aside/loras/y.safetensors", "d\\$RECYCLE.BIN\\S-1-5\\$RAB12CD.safetensors", "aside-not/z.safetensors"] };
+    expect(await filesIn(client(lists), "loras")).toEqual(["x.safetensors", "aside-not/z.safetensors"]);
+  });
 });

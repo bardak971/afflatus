@@ -4,7 +4,7 @@ import { findAsset } from "../assetCache";
 import { changeAssets } from "../assetChange";
 import { bringFiles } from "../bringFiles";
 import { ask, askAboutDisk, askText } from "../Confirm";
-import { plural, size } from "../format";
+import { plural, size, verb } from "../format";
 import { IMPORT_UNDER_WAY, pathOf, useFolderImport } from "../folderImport";
 import { duplicateDraft, useDraftsChanged } from "../draft";
 import { useProject } from "../project";
@@ -96,7 +96,7 @@ export function useTreeActions() {
         list.some((r) => r.kind === "draft") && "A draft goes with its form and conversation; what was made from it stays.",
         list.some((r) => r.kind !== "item") && "Folders, timelines and drafts deleted cannot be restored from the bin.",
         list.some((r) => r.kind === "item") && `Items go to the bin: ${restorable()}.`,
-        onDisk > 0 && `${onDisk === 1 ? "One item is a file" : `${onDisk} items are files`} of a linked folder: the bin removes ${onDisk === 1 ? "it" : "them"} from that folder on your disk.`,
+        onDisk > 0 && `${onDisk === 1 ? "One item is a file" : `${onDisk} items are files`} of a linked folder: the bin removes ${verb(onDisk, "it", "them")} from that folder on your disk.`,
       ].filter(Boolean);
       const binOnly = list.every((r) => r.kind === "item");
       const title = binOnly ? (one ? `Move ${list[0]!.label} to the bin?` : `Move these ${list.length} items to the bin?`) : one ? `Delete ${list[0]!.label}?` : `Delete these ${list.length}?`;
@@ -328,8 +328,8 @@ export function useTreeActions() {
       const id = r.id;
       const u = r.unused;
       if (!id || r.kind !== "timeline" || !u) return;
-      const many = u.takes === 1 ? "take" : "takes";
-      const text = `The ${many} no clip plays and nothing else needs go, and ${u.takes === 1 ? "its video goes" : "their videos go"} to the bin (${size(u.bytes)}): ${restorable()}, and Undo in the timeline brings them back. The take each clip plays, and what it was made from, stay.`;
+      const many = verb(u.takes, "take", "takes");
+      const text = `The ${many} no clip plays and nothing else needs go, and ${verb(u.takes, "its video goes", "their videos go")} to the bin (${size(u.bytes)}): ${restorable()}, and Undo in the timeline brings them back. The take each clip plays, and what it was made from, stay.`;
       if (!(await ask({ title: `Bin ${u.takes} unused ${many} of ${r.label}?`, text, yes: "Move to bin" }))) return;
       let done = { binned: 0, bytes: 0 };
       if (await run(`The unused takes of ${r.label} could not go to the bin`, async () => { done = await api.binUnusedTakes(id); })) {

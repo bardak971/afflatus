@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { ComfyAway, ComfyCancelled, ComfyError, ComfyFailed, ComfyLost, ComfyUnreachable, filesIn, systemLoadFromStatus, waitForOutputs, type Measured } from "@afflatus/comfy";
-import { expandWildcards, fileKey, modelFileName, modelOf, modelStart, parseInput, removedSaid, sameFile, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
+import { expandWildcards, fileKey, lorasOverSaid, modelFileName, modelOf, modelStart, parseInput, removedSaid, sameFile, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
 import { Comfy, NO_COMFY_URL, type MachineComfy } from "./comfy";
 import { fileName } from "./media";
 import type { Insertable } from "kysely";
@@ -548,6 +548,8 @@ export class Queue {
     if (opts.machine && !pin && isPodMachineId(opts.machine)) throw httpError(POD_GONE, 409);
     // a file no machine has and none can get (its pod gone, card #139): refused now, not at its build with the job's turn come
     if (!opts.warm) await this.refuseNowhere(recipe, input);
+    // more LoRAs than a list takes, Turbo's row counted as the form counts it (card #189): the schema sees the hand rows alone
+    if (!opts.warm) await this.refuseLoras(recipe, input, pin && pin !== this.firstId ? this.lane(pin).core : this.core);
     if (!opts.warm) {
       // with the files of the machine it is pinned to, not the first's: a render pinned to a pod with a clean set was refused
       // for this PC's (card #119, B18). The first's still, while that one cannot be asked (a pod booting): its files would
@@ -567,6 +569,20 @@ export class Queue {
       mcp_token_id: opts.mcpToken ?? null,
       created_at: at, started_at: null, finished_at: null, updated_at: at,
     } satisfies Insertable<Tables["jobs"]>;
+  }
+
+  /**
+   * A LoRA list over its `max` once the rows the recipe adds itself are counted (lorasOverSaid, as the form's "n of 6"): a row
+   * comes with Turbo on and its file there, the family's slot read from the machine's last scan. A ComfyUI not answering
+   * gives no slot: a row whose file only the slot names is not counted then, rather than refusing for a file not known.
+   */
+  private async refuseLoras(recipe: Recipe<any>, input: Record<string, unknown>, core: QueueCore): Promise<void> {
+    const specs = recipe.inputs as InputSpec[];
+    if (!specs.some((s) => s.type === "loras" && s.added?.length)) return;
+    const scan = await core.comfy().then((c) => c.scan()).catch(() => null);
+    const slots = Object.fromEntries((scan?.families.find((f) => f.id === recipe.family)?.slots ?? []).flatMap((s) => (s.file ? [[s.id, s.file]] : [])));
+    const over = lorasOverSaid(specs, input, slots);
+    if (over) throw httpError(over);
   }
 
   /**
@@ -609,7 +625,7 @@ export class Queue {
    * same line so that it comes after the renders that were asked for before it and its own timeline's (needsAhead), and
    * shows with them.
    */
-  async enqueueExport(opts: ExportOptions, label: string): Promise<string> {
+  async enqueueExport(opts: ExportOptions, label: string, mcpToken?: string): Promise<string> {
     const id = newId();
     const at = now();
     await this.db
@@ -618,6 +634,8 @@ export class Queue {
         id, owner_id: OWNER, recipe_id: EXPORT_JOB, label, inputs: JSON.stringify(opts), status: "queued", warm: 0, look: null, priority: 20, depends_on: null,
         attempts: 0, resume: null, error: null, generation_id: null, clip_id: null, clip_fit: 0, timeline_id: opts.timeline, draft_id: null, folder_id: null,
         created_at: at, started_at: null, finished_at: null, updated_at: at,
+        // the MCP token whose export call queued it: its to cancel, and an agent's export is not the user's for other tokens
+        ...(mcpToken ? { mcp_token_id: mcpToken } : {}),
       })
       .execute();
     this.events.emit("queue");
@@ -669,7 +687,9 @@ export class Queue {
       .catch(() => {});
   }
 
-  async cancel(id: string): Promise<boolean> {
+  async cancel(id: string, by?: bulk.CancelBy): Promise<boolean> {
+    // whose it may be (an MCP token's cancel), held in each write below: a job another token made its own since the caller
+    // read it (run_on, use_only) is not cancelled
     // a job queued again with the prompt ComfyUI may still have (lost from sight, or a finish stopped by a restart): that prompt
     // is stopped in ComfyUI too, or it would go on rendering what nobody wants any more
     const waiting = await this.db.selectFrom("jobs").select(["resume", "machine_id"]).where("id", "=", id).where("status", "=", "queued").executeTakeFirst();
@@ -680,6 +700,7 @@ export class Queue {
       .set({ status: "cancelled", error: "stopped by you", finished_at: now(), updated_at: now() })
       .where("id", "=", id)
       .where("status", "=", "queued")
+      .$if(Boolean(by), (q) => q.where(bulk.ownedBy(by!)))
       .executeTakeFirst();
     if (Number(queued.numUpdatedRows) > 0) {
       if (sent) this.interruptOn(waiting?.machine_id, sent);
@@ -690,6 +711,8 @@ export class Queue {
       return true;
     }
     const lane = this.laneRunning(id);
+    // a running job changes hands no more (run_on and use_only move waiting ones): its owner read now holds
+    if (lane?.running && by && !(await this.db.selectFrom("jobs").select("id").where("id", "=", id).where(bulk.ownedBy(by)).executeTakeFirst())) return false;
     if (lane?.running) {
       lane.running.abort.abort();
       if (lane.running.promptId && lane.comfy) await lane.comfy.client.interrupt(lane.running.promptId).catch(() => {});
@@ -703,6 +726,7 @@ export class Queue {
       .set({ status: "cancelled", error: "stopped by you", finished_at: now(), updated_at: now() })
       .where("id", "=", id)
       .where("status", "=", "running")
+      .$if(Boolean(by), (q) => q.where(bulk.ownedBy(by!)))
       .executeTakeFirst();
     if (Number(stopped.numUpdatedRows) === 0) return false;
     // picked up in the meantime: stopped there too
@@ -849,7 +873,7 @@ export class Queue {
   async again(id: string, change: Record<string, unknown> = {}, by: { mcpToken?: string | null } = {}): Promise<string> {
     const row = await this.db.selectFrom("jobs").selectAll().where("id", "=", id).executeTakeFirst();
     if (!row) throw httpError("this job was not found");
-    if (row.recipe_id === EXPORT_JOB) return this.enqueueExport(JSON.parse(row.inputs) as ExportOptions, row.label);
+    if (row.recipe_id === EXPORT_JOB) return this.enqueueExport(JSON.parse(row.inputs) as ExportOptions, row.label, by.mcpToken ?? undefined);
     if (row.recipe_id === CUT_JOB) {
       const cut = JSON.parse(row.inputs) as CutOptions;
       // a finish cut behind a Face refine still to end waits for it again: started first, it would fail with nothing to finish
@@ -891,7 +915,7 @@ export class Queue {
   /** Several finished jobs again, in the order given, each as `again` does it (queueBulk.ts). */
   againAll(ids: readonly string[], opts: { dismiss?: boolean } = {}) { return bulk.againAll(this.core, (id) => this.again(id), ids, opts); }
   /** Every waiting job cancelled in one statement, or those of `ids` that still wait (queueBulk.ts). */
-  cancelWaiting(ids?: readonly string[]) { return bulk.cancelWaiting(this.core, (id) => this.failDependents(id), (machine, promptId) => this.interruptOn(machine, promptId), ids); }
+  cancelWaiting(ids?: readonly string[], by?: bulk.CancelBy) { return bulk.cancelWaiting(this.core, (id) => this.failDependents(id), (machine, promptId) => this.interruptOn(machine, promptId), ids, by); }
 
   /**
    * About how long a render will take: the forecast of its form, with what loading its model adds when it is not the one

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { PassThrough } from "node:stream";
 import { sql } from "kysely";
@@ -335,5 +335,88 @@ describe("one file seen through two folders (card #164)", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.also).toHaveLength(1);
     expect(rows[0]!.copies).toEqual([]);
+  });
+});
+
+describe("the files Delete moved, never a file in place nor a copy that stays (card #185)", () => {
+  /**
+   * A junction to a folder above a model folder, as `models/checkpoints/a1111` → A1111's models with A1111's Lora as
+   * loras: the set-aside folder made beside that Lora folder is reached through it. Junctions on Windows, directory links
+   * elsewhere; all in the test's folder.
+   */
+  const X = "zz-test-x.safetensors";
+  beforeEach(() => {
+    mkdirSync(join(home, "a1111", "models", "Lora"), { recursive: true });
+    writeFileSync(join(home, "a1111", "models", "Lora", X), Buffer.alloc(900, 11));
+    writeFileSync(join(home, "extra_model_paths.yaml"), ["a1111:", `  base_path: ${home.replace(/\\/g, "/")}/a1111`, "  loras: models/Lora", ""].join("\n"));
+    symlinkSync(join(home, "a1111", "models"), join(home, "models", "checkpoints", "a1111"), "junction");
+  });
+  const live = (l: Library) => l.files.filter((f) => !f.removed);
+
+  it("never lists a set-aside file reached through a junction: the removed one has no copy, Empty erases its only copy", async () => {
+    await t.services.hashes.run();
+    const done = await deleteFiles(t.services, { files: [{ folder: "loras", file: X }], to: "aside" }, fake);
+    expect(done).toMatchObject({ moved: 1, left: [] });
+    expect(existsSync(join(home, "a1111", "models", ASIDE_DIR, "loras", X))).toBe(true);
+    await t.services.hashes.run();
+    const l = await lib();
+    expect(live(l).filter((f) => f.file.includes(ASIDE_DIR) || f.also.some((a) => a.file.includes(ASIDE_DIR)))).toEqual([]);
+    const away = l.files.filter((f) => f.removed);
+    expect(away.map((f) => [f.file, f.copies])).toEqual([[X, []]]);
+    // nor hashed there, nor offered to Delete by its path through the junction
+    expect((await t.db.selectFrom("model_hashes").select("file").execute()).filter((r) => r.file.includes(ASIDE_DIR))).toEqual([]);
+    const again = await deleteFiles(t.services, { files: [{ folder: "checkpoints", file: `a1111/${ASIDE_DIR}/loras/${X}` }], to: "aside" }, fake);
+    expect(again).toMatchObject({ moved: 0 });
+    expect(existsSync(join(home, "a1111", "models", ASIDE_DIR, "loras", X))).toBe(true);
+  });
+
+  it("never lists a file in a drive's Recycle Bin reached through a junction", async () => {
+    const recycle = join(home, "a1111", "models", "$RECYCLE.BIN", "S-1-5-21-0");
+    mkdirSync(recycle, { recursive: true });
+    const inBin: BinFinder = async () => ({ dir: recycle, room: 1e9 });
+    await t.services.hashes.run();
+    expect(await deleteFiles(t.services, { files: [{ folder: "loras", file: X }], to: "bin" }, inBin)).toMatchObject({ moved: 1, aside: [] });
+    await t.services.hashes.run();
+    const l = await lib();
+    expect(live(l).filter((f) => /\$recycle\.bin/i.test([f.file, ...f.also.map((a) => a.file)].join("|")))).toEqual([]);
+    expect(l.files.filter((f) => f.removed).map((f) => f.copies)).toEqual([[]]);
+  });
+
+  it("walks a junction to its own parent once, not round and round", async () => {
+    symlinkSync(join(home, "models", "loras"), join(home, "models", "loras", "loop"), "junction");
+    const l = await lib();
+    expect(live(l).filter((f) => f.file.startsWith("loop/") || f.also.some((a) => a.file.startsWith("loop/")))).toEqual([]);
+    expect(byFile(l, "zz-test-copy.safetensors")!.also).toEqual([]);
+  });
+
+  it("takes each name of a hard-linked file as its own place: Delete moves one, the other stays listed", async () => {
+    writeFileSync(join(home, "models", "loras", "zz-test-h1.safetensors"), Buffer.alloc(400, 5));
+    linkSync(join(home, "models", "loras", "zz-test-h1.safetensors"), join(home, "models", "loras", "style", "zz-test-h2.safetensors"));
+    await t.services.hashes.run();
+    let l = await lib();
+    expect(byFile(l, "zz-test-h1.safetensors")).toMatchObject({ also: [], copies: ["loras|style/zz-test-h2.safetensors"] });
+    expect(byFile(l, "style/zz-test-h2.safetensors")).toMatchObject({ also: [], copies: ["loras|zz-test-h1.safetensors"] });
+    const done = await deleteFiles(t.services, { files: [{ folder: "loras", file: "zz-test-h1.safetensors" }], to: "aside" }, fake);
+    expect(done).toMatchObject({ moved: 1, also: [] });
+    l = await lib();
+    expect(byFile(l, "style/zz-test-h2.safetensors")).toMatchObject({ size: 400 });
+    expect(l.files.filter((f) => f.removed).map((f) => [f.file, f.copies])).toEqual([["zz-test-h1.safetensors", ["loras|style/zz-test-h2.safetensors"]]]);
+  });
+
+  it("moves and says the file of the first directory holding a name, when two of a folder's directories hold it", async () => {
+    // A1111's Lora holds a zz-test-same too, another file, also seen as a VAE (listed twice): the Delete of the first
+    // directory's one said it gone from vae too, and left the other directory's file in place, as it should
+    writeFileSync(join(home, "models", "loras", "zz-test-same.safetensors"), Buffer.alloc(100, 21));
+    writeFileSync(join(home, "a1111", "models", "Lora", "zz-test-same.safetensors"), Buffer.alloc(100, 22));
+    const base = `${home.replace(/\\/g, "/")}/a1111`;
+    writeFileSync(join(home, "extra_model_paths.yaml"), ["a1111:", `  base_path: ${base}`, "  loras: models/Lora", "  vae: models/Lora", ""].join("\n"));
+    const done = await deleteFiles(t.services, { files: [{ folder: "loras", file: "zz-test-same.safetensors" }], to: "aside" }, fake);
+    expect(done).toMatchObject({ moved: 1, also: [] });
+    expect(existsSync(join(home, "models", "loras", "zz-test-same.safetensors"))).toBe(false);
+    // the other directory's file stays: one row, its places those of A1111's Lora (loras, vae, the checkpoints junction)
+    expect(existsSync(join(home, "a1111", "models", "Lora", "zz-test-same.safetensors"))).toBe(true);
+    const left = live(await lib()).filter((f) => [f, ...f.also].some((p) => p.file.endsWith("zz-test-same.safetensors")));
+    expect(left).toHaveLength(1);
+    expect([left[0]!, ...left[0]!.also].map((p) => p.folder).sort()).toEqual(["checkpoints", "loras", "vae"]);
   });
 });

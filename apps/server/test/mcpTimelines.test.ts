@@ -187,6 +187,8 @@ describe.skipIf(!ffmpegThere)("the timelines from outside", { timeout: FFMPEG_TI
     // the export waits in the queue as the editor's does, and is not queued twice
     const ex = await ok(c, "export", { timeline: id });
     expect((await ok(c, "export", { timeline: id })).job).toBe(ex.job);
+    // queued by this token: its own, to cancel (card #188)
+    expect((await s.t.db.selectFrom("jobs").select("mcp_token_id").where("id", "=", ex.job).executeTakeFirstOrThrow()).mcp_token_id).toEqual(expect.any(String));
     // once done, job names the video it made (an export has no generation: its video is the timeline's export)
     await s.t.db.insertInto("assets").values(newAssetRow({ id: "exported1", kind: "video", origin: "exported", name: "the export", file_key: "assets/ex/exported1.mp4", mime: "video/mp4", bytes: 1, width: 640, height: 360, duration_ms: 9000, has_sound: 1, created_at: new Date().toISOString() })).execute();
     await s.t.db.updateTable("timelines").set({ export_asset_id: "exported1" }).where("id", "=", id).execute();

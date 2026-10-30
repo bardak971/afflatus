@@ -6,6 +6,7 @@ import { now } from "./db";
 import { findOnHuggingFace, huggingFaceSha256 } from "./huggingface";
 import { fileName } from "./media";
 import { MODEL_EXT, FULL_MODEL_FOLDERS } from "@afflatus/core";
+import { inBinOrAside } from "./modelBin";
 import { modelDirsSaid } from "./modelFiles";
 import type { Services } from "./services";
 import { ownMachines, readSettings } from "./settings";
@@ -85,7 +86,12 @@ export interface Found {
   mtime: number;
   /** The file on disk itself (identityOf): two places with the same one are one file, not a copy of it. */
   identity: string;
+  /** Its bytes on disk (identityOf): the hard links of one file share them, and are hashed once. */
+  inode: string;
 }
+
+/** A path as one place on disk, whatever folder it is reached through (junctions, links resolved), for comparing. */
+const realOf = (path: string) => realpath(path).then((p) => (process.platform === "win32" ? p.toLowerCase() : p), () => null);
 
 /**
  * Which file on disk a path is, whatever folder it is reached through: its volume and file index (`dev` and `ino`, read
@@ -93,10 +99,15 @@ export interface Found {
  * extra_model_paths.yaml may list one folder twice (the owner's named A1111's Stable-diffusion for checkpoints and its
  * Krea2 sub-folder for diffusion_models), and ComfyUI reads models/unet as diffusion_models: the same file then shows in
  * two places with the same sha256, and taken for two copies one was deleted as the "extra" one (card #164, 85 GB lost).
+ *
+ * A file with hard links (A1111's and ComfyUI's folders linked file by file) is one index under several names: each name
+ * is its own place (its real path), since a Delete moves one name and the others still hold the file (folded into one
+ * row, the Delete said the file gone from them too). `inode` stays the index: the bytes are the same, hashed once.
  */
-export function identityOf(path: string, st: { dev: bigint; ino: bigint }): Promise<string> {
-  if (st.ino !== 0n) return Promise.resolve(`${st.dev}:${st.ino}`);
-  return realpath(path).then((p) => `path:${process.platform === "win32" ? p.toLowerCase() : p}`, () => `path:${path}`);
+export async function identityOf(path: string, st: { dev: bigint; ino: bigint; nlink: bigint }): Promise<{ identity: string; inode: string }> {
+  const real = st.ino === 0n || st.nlink > 1n ? `path:${(await realOf(path)) ?? path}` : null;
+  const inode = st.ino !== 0n ? `${st.dev}:${st.ino}` : real!;
+  return { identity: real ?? inode, inode };
 }
 
 /** A bigint stat's date as a plain stat's `Math.round(mtimeMs)`: kept dates and the pod's check compare with that one. */
@@ -105,12 +116,19 @@ const msOf = (ns: bigint) => Math.round(Number(ns / 1000n) / 1000);
 /**
  * The model files under a folder's directories, sub-folders included, and whether every directory of it could be read: a
  * drive away or a folder refused lists nothing, which is not the same as its files being gone.
+ *
+ * Never the files Delete moved: the set-aside folder and a drive's Recycle Bin are not walked, by where a directory really
+ * is. A junction to a folder above a model folder (models/checkpoints/a1111 → A1111's models) reaches the set-aside folder
+ * made beside that model folder: its file, listed, was "a copy that stays" of the one moved there, and Empty erased that
+ * only copy (card #185). Nor a directory the walk is inside already (a junction to its own parent), walked for ever else.
  */
 export async function filesIn(dirs: string[], folder: string): Promise<{ files: Found[]; whole: boolean }> {
   const out: Found[] = [];
   let whole = true;
-  const walk = async (root: string, dir: string, depth: number): Promise<void> => {
+  const walk = async (root: string, dir: string, depth: number, inside: string[]): Promise<void> => {
     if (depth > 6) return;
+    const real = await realOf(dir);
+    if (real && (inBinOrAside(real) || inside.includes(real))) return;
     const entries = await readdir(dir, { withFileTypes: true }).catch(() => null);
     if (!entries) {
       whole = false;
@@ -121,14 +139,14 @@ export async function filesIn(dirs: string[], folder: string): Promise<{ files: 
       // a folder linked in (a junction, a directory symlink) is walked as ComfyUI walks it (os.walk, followlinks): what it
       // holds may be listed elsewhere too, one file on disk then seen in two places (identity). A link to a file is not
       // followed: moving it would move the link, not the file
-      if (e.isDirectory() || (e.isSymbolicLink() && (await stat(path).catch(() => null))?.isDirectory())) await walk(root, path, depth + 1);
+      if (e.isDirectory() || (e.isSymbolicLink() && (await stat(path).catch(() => null))?.isDirectory())) await walk(root, path, depth + 1, real ? [...inside, real] : inside);
       else if (e.isFile() && MODEL_EXT.test(e.name)) {
         const st = await stat(path, { bigint: true }).catch(() => null);
-        if (st) out.push({ folder, file: relative(root, path).replace(/\\/g, "/"), path, size: Number(st.size), mtime: msOf(st.mtimeNs), identity: await identityOf(path, st) });
+        if (st) out.push({ folder, file: relative(root, path).replace(/\\/g, "/"), path, size: Number(st.size), mtime: msOf(st.mtimeNs), ...(await identityOf(path, st)) });
       }
     }
   };
-  for (const d of dirs) await walk(d, d, 0);
+  for (const d of dirs) await walk(d, d, 0, []);
   return { files: out, whole };
 }
 
@@ -222,20 +240,20 @@ export class ModelHashes {
       const k = have.get(keyOf(f.folder, f.file));
       return !k || Number(k.size) !== f.size || Number(k.mtime) !== f.mtime;
     }).sort((a, b) => a.size - b.size);
-    // one file on disk seen in two places (a folder listed twice) is read once: its hash, known in one place and the same
-    // size and date there, goes to the other
+    // one file on disk seen in two places (a folder listed twice, a hard link) is read once: its hash, known in one place
+    // and the same size and date there, goes to the other
     type Known = { sha256: string; civitai_version: number | null; hf_url: string | null; matched_at: string | null };
     const known = new Map<string, Known>();
     for (const f of all) {
       const k = have.get(keyOf(f.folder, f.file));
-      if (k && Number(k.size) === f.size && Number(k.mtime) === f.mtime) known.set(f.identity, { sha256: k.sha256, civitai_version: k.civitai_version === null ? null : Number(k.civitai_version), hf_url: k.hf_url, matched_at: k.matched_at });
+      if (k && Number(k.size) === f.size && Number(k.mtime) === f.mtime) known.set(f.inode, { sha256: k.sha256, civitai_version: k.civitai_version === null ? null : Number(k.civitai_version), hf_url: k.hf_url, matched_at: k.matched_at });
     }
     // the hashing's thread, for this pass only
     let worker: Worker | null = null;
     try {
       for (const f of todo) {
         if (this.stopped) return;
-        const same = known.get(f.identity);
+        const same = known.get(f.inode);
         if (same) {
           const row = { size: f.size, mtime: f.mtime, hashed_at: now(), ...same };
           await this.s.db.insertInto("model_hashes").values({ folder: f.folder, file: f.file, ...row }).onConflict((oc) => oc.columns(["folder", "file"]).doUpdateSet(row)).execute();
@@ -257,7 +275,7 @@ export class ModelHashes {
         }
         const sha256 = await this.hashOf(worker, f);
         if (!sha256 || this.stopped) continue;
-        known.set(f.identity, { sha256, civitai_version: null, hf_url: null, matched_at: null });
+        known.set(f.inode, { sha256, civitai_version: null, hf_url: null, matched_at: null });
         const row = { size: f.size, mtime: f.mtime, sha256, hashed_at: now(), civitai_version: null, hf_url: null, matched_at: null };
         await this.s.db.insertInto("model_hashes").values({ folder: f.folder, file: f.file, ...row }).onConflict((oc) => oc.columns(["folder", "file"]).doUpdateSet(row)).execute();
       }

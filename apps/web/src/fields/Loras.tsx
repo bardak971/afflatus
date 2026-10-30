@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, Minus, Pencil, Plus } from "lucide-react";
-import { baseGroup, baseLabel, lineOf, loraFit, modelFit, sameLora, type AddedRow, type InputSpec, type LoraValue } from "@afflatus/core";
+import { baseGroup, baseLabel, lineOf, loraFit, lorasCounted, modelFit, sameLora, type AddedRow, type InputSpec, type LoraValue } from "@afflatus/core";
 import { api, type FamilyInfo, type ModelInfo, type ModelWords } from "../api";
 import { useModelInfo, useModelWords } from "../data";
 import { fileLabel } from "../format";
@@ -180,10 +180,11 @@ function AddedRowField({ row, added, list, onList, family }: { row: AddedRow; ad
   const fileSpec = added.specs.find((s) => s.id === a.file);
   const toggle = a.toggle ? added.specs.find((s) => s.id === a.toggle) : undefined;
   const limits = weightSpec?.type === "number" ? { min: Math.min(weightSpec.min, 0), max: weightSpec.max, step: weightSpec.step } : { min: -4, max: 4, step: 0.05 };
-  // the hand row of the same file, folded into this one: its weight kept in the row, the row out of the list
+  // the hand row of the same file, folded into this one: its weight kept in the row, the row out of the list. Brought within
+  // the row's own range: a hand weight goes from −4 to 4, LTX's distilled LoRA strength to 1.5, and the render was refused
   const fold = () => {
     if (row.hand < 0) return;
-    added.set(a.weight, row.weight);
+    added.set(a.weight, Math.max(limits.min, Math.min(limits.max, row.weight)));
     onList(list.filter((_, j) => j !== row.hand));
   };
   const weight = (w: number) => {
@@ -248,9 +249,9 @@ export function Loras({ spec, value, options, family, model, onChange, main, add
   // a hand row of a file the recipe adds itself is shown as that row; and that file is not offered again: it is in the list
   const folded = new Set(rows.map((r) => r.hand).filter((i) => i >= 0));
   const free = options.filter((o) => !value.some((v) => v.file === o) && !rows.some((r) => sameLora(r.file, o)));
-  const handCount = value.length - folded.size;
-  // the count says every LoRA the render loads, the rows the recipe adds among them (a Turbo row takes a place of the list)
-  const loaded = handCount + rows.length;
+  // the count says every LoRA the render loads, the rows the recipe adds among them (a Turbo row takes a place of the list):
+  // the server refuses a render over it, counted the same way
+  const loaded = lorasCounted(value, rows);
   // where each LoRA is with a pod in the settings: a pod's own says so, and a stopped pod's (or its set's) is offered greyed
   const places = useFilePlaces("loras");
   const set = (i: number, weight: number) => onChange(value.map((v, j) => (j === i ? { ...v, weight } : v)));

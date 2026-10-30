@@ -22,6 +22,8 @@ interface TextQuestion {
   placeholder?: string;
   /** What the button that goes ahead says. */
   yes: string;
+  /** A password: typed hidden, and answered as typed (not trimmed). */
+  password?: boolean;
 }
 /** A question with more than one way ahead (Resume while a GPU hunt holds the renders): answered with the choice's value, or null when closed. */
 interface ChoiceQuestion {

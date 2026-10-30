@@ -215,6 +215,25 @@ describe("a cap", () => {
     expect(podB().status).toBe("EXITED");
   });
 
+  it("a render running at a cap gets its grace hour once: a restart does not start it again (card #184)", async () => {
+    const id = await add(podA().id);
+    await startUp(id, podA);
+    await post(t.app, "/api/jobs", { ...job(), machine: id });
+    await until(() => a.calls.includes("POST /prompt"));
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 0.0000001, month: 0 } } });
+    await t.services.rented.poll();
+    // reached while it renders: kept for its render, the time kept on its run
+    expect(podA().status).toBe("RUNNING");
+    const run = (await sessions()).at(-1)!;
+    expect(run.capped_at).toEqual(expect.any(String));
+    // Afflatus restarted: what it held in memory of the cap is gone, the render picked up again
+    const seen = (t.services.rented as unknown as { seen: Map<string, { cappedAt: number | null }> }).seen;
+    seen.get(id)!.cappedAt = null;
+    later(t, 61 * MIN);
+    await t.services.rented.poll();
+    expect(podA().status).toBe("EXITED");
+  });
+
   it("stops a pod the user added while it starts", async () => {
     const id = await add(podA().id);
     runpod.bootMs = 5_000;

@@ -98,6 +98,7 @@ import m0096 from "./0096-workflow-pending";
 import m0097 from "./0097-mcp-tasks";
 import m0098 from "./0098-mcp-token-tasks";
 import m0099 from "./0099-model-files";
+import m0100 from "./0100-rent-capped";
 import m0101 from "./0101-lookups-kept";
 
 /**
@@ -205,5 +206,6 @@ export const migrations: Record<string, Migration> = {
   "0097_mcp_tasks": m0097,
   "0098_mcp_token_tasks": m0098,
   "0099_model_files": m0099,
+  "0100_rent_capped": m0100,
   "0101_lookups_kept": m0101,
 };

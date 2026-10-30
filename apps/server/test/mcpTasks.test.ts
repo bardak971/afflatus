@@ -124,6 +124,27 @@ describe("a client that takes tasks", () => {
     await client.close();
   });
 
+  it("cancels only what this token queued: a job of the user's it joined (an export already on its way) goes on (card #188)", async () => {
+    await t.app.inject({ method: "POST", url: "/api/queue/pause", payload: {} });
+    const { token: bearer, id: tokenId } = await token();
+    const { client, session } = await tasksClient(await urlOf(t.app), bearer);
+    const ex = await session.callTool("render", { form: RECIPE, values: VALUES, takes: 2 });
+    const id = ex.handle!.taskId;
+    const jobs = JSON.parse((await t.db.selectFrom("mcp_tasks").select("follow").where("id", "=", id).executeTakeFirstOrThrow()).follow).jobs as string[];
+    // as a task that joined the user's job: export answers the export already on its way, the user's
+    await t.db.updateTable("jobs").set({ mcp_token_id: null }).where("id", "=", jobs[1]!).execute();
+    await session.cancelTask(id);
+    const rows = new Map((await t.db.selectFrom("jobs").select(["id", "status"]).where("id", "in", jobs).execute()).map((r) => [r.id, r.status]));
+    expect([rows.get(jobs[0]!), rows.get(jobs[1]!)]).toEqual(["cancelled", "queued"]);
+    expect(await session.task(id).snapshot()).toMatchObject({ status: "cancelled" });
+    expect((await t.db.selectFrom("mcp_activity").select("said").where("tool", "=", "tasks/cancel").executeTakeFirstOrThrow()).said).toMatch(/1 job not queued by this token left as it is$/);
+    // and an export a token queues is its own, not the user's for every other token
+    const exported = await t.services.queue.enqueueExport({ timeline: "zz-test none", scale: 1, music: false }, "zz-test export", tokenId);
+    expect((await t.db.selectFrom("jobs").select("mcp_token_id").where("id", "=", exported).executeTakeFirstOrThrow()).mcp_token_id).toBe(tokenId);
+    await session.close();
+    await client.close();
+  });
+
   it("is followed again after a restart of Afflatus, from the jobs", async () => {
     await t.app.inject({ method: "POST", url: "/api/queue/pause", payload: {} });
     const { token: bearer } = await token();

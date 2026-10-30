@@ -72,16 +72,30 @@ function afterWhatTheyContinue(ids: readonly string[], after: ReadonlyMap<string
 }
 
 /**
+ * Whose jobs a cancel may take, held in its write (an MCP token's call): that token's own, and the user's too unless `mine`.
+ * Absent: anyone's (the page).
+ */
+export interface CancelBy {
+  mcpToken: string;
+  mine?: boolean;
+}
+
+/** The condition `by` puts on a write to jobs. */
+export const ownedBy = (by: CancelBy) => (w: ExpressionBuilder<Tables, "jobs">) => (by.mine ? w("mcp_token_id", "=", by.mcpToken) : w.or([w("mcp_token_id", "is", null), w("mcp_token_id", "=", by.mcpToken)]));
+
+/**
  * Every waiting job cancelled in one statement (or, with `ids`, those of them that still wait: what the page showed
  * when it was asked); how many were. What continues from one of them fails (`failDependents`, the queue's), as with a
  * single cancel, and a prompt one of them still had on a ComfyUI (queued again after it was lost from sight) is stopped
  * there (`interrupt`). The running job goes on.
  */
-export async function cancelWaiting(core: QueueCore, failDependents: (id: string) => Promise<void>, interrupt: (machine: string | null, promptId: string) => void, ids?: readonly string[]): Promise<number> {
+export async function cancelWaiting(core: QueueCore, failDependents: (id: string) => Promise<void>, interrupt: (machine: string | null, promptId: string) => void, ids?: readonly string[], by?: CancelBy): Promise<number> {
   // the ones cancelled are the ones this statement changed: a job a pass started between a read and the write runs on, and
   // what continues from it is not failed
   let cancel = core.db.updateTable("jobs").set({ status: "cancelled", error: "stopped by you", finished_at: now(), updated_at: now() }).where("status", "=", "queued");
   if (ids) cancel = cancel.where("id", "in", ids.length ? [...ids] : [""]);
+  // whose they are, in the write itself: a job another token's run_on or use_only made its own since it was read is left
+  if (by) cancel = cancel.where(ownedBy(by));
   const cancelled = await cancel.returning(["id", "resume", "machine_id"]).execute();
   if (!cancelled.length) return 0;
   for (const r of cancelled) {
