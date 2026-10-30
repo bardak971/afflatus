@@ -249,6 +249,8 @@ export function Loras({ spec, value, options, family, model, onChange, main, add
   const folded = new Set(rows.map((r) => r.hand).filter((i) => i >= 0));
   const free = options.filter((o) => !value.some((v) => v.file === o) && !rows.some((r) => sameLora(r.file, o)));
   const handCount = value.length - folded.size;
+  // the count says every LoRA the render loads, the rows the recipe adds among them (a Turbo row takes a place of the list)
+  const loaded = handCount + rows.length;
   // where each LoRA is with a pod in the settings: a pod's own says so, and a stopped pod's (or its set's) is offered greyed
   const places = useFilePlaces("loras");
   const set = (i: number, weight: number) => onChange(value.map((v, j) => (j === i ? { ...v, weight } : v)));
@@ -288,7 +290,7 @@ export function Loras({ spec, value, options, family, model, onChange, main, add
   }, [free.join("|"), known.data, extra.data, family?.id, spec.label, model, places]);
   return (
     <div className="flex flex-col gap-1.5">
-      <Label aside={`${handCount} of ${spec.max}`} note={spec.note}>{spec.label}</Label>
+      <Label aside={`${loaded} of ${Math.max(spec.max, loaded)}`} note={spec.note}>{spec.label}</Label>
       {failed && <span className="text-xs text-ink-3">Trigger words could not be looked up: {failed}</span>}
       {added && rows.map((r) => <AddedRowField key={r.added.file} row={r} added={added} list={value} onList={onChange} family={family} />)}
       {value.map((l, i) => folded.has(i) ? null : (
@@ -303,7 +305,7 @@ export function Loras({ spec, value, options, family, model, onChange, main, add
           <LoraWords file={l.file} info={info[l.file]} more={more[nameOf(l.file)]} main={main} />
         </div>
       ))}
-      {handCount < spec.max && (
+      {loaded < spec.max && (
         <Select
           dashed
           size="sm"

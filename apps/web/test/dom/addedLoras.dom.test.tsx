@@ -53,8 +53,8 @@ describe("the LoRAs the recipe adds itself, in the LoRA list", () => {
     expect(within(row).getByText("Turbo")).toBeTruthy();
     expect(within(row).getByRole("button", { name: /^Turbo LoRA:/ }).textContent).toContain("zz-test-h3-turbo");
     expect((within(row).getByRole("textbox", { name: /typed/ }) as HTMLInputElement).value).toBe("1.00");
-    // the list's count is of the hand rows
-    expect(screen.getByText("0 of 6")).toBeTruthy();
+    // the list's count is of every LoRA the render loads: Turbo's row among them
+    expect(screen.getByText("1 of 6")).toBeTruthy();
     await user.click(within(row).getByRole("button", { name: /turns Turbo off/ }));
     expect(set).toHaveBeenCalledWith("fast", false);
   });
@@ -70,7 +70,7 @@ describe("the LoRAs the recipe adds itself, in the LoRA list", () => {
     expect(document.querySelectorAll('[data-added="Turbo"]')).toHaveLength(1);
     const row = document.querySelector<HTMLElement>('[data-added="Turbo"]')!;
     expect((within(row).getByRole("textbox", { name: /typed/ }) as HTMLInputElement).value).toBe("0.80");
-    expect(screen.getByText("1 of 6")).toBeTruthy();
+    expect(screen.getByText("2 of 6")).toBeTruthy();
     expect(screen.queryAllByRole("button", { name: `Remove ${"zz-test-h3-turbo"}` })).toHaveLength(0);
     const box = within(row).getByRole("textbox", { name: /typed/ });
     await user.clear(box);
