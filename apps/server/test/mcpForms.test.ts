@@ -2,6 +2,7 @@ import type { AddressInfo } from "node:net";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import type { FakeComfy } from "@afflatus/comfy/testing";
+import { OWN_MODEL } from "@afflatus/core";
 import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { serverFor } from "../src/mcp";
@@ -142,6 +143,8 @@ describe("the drafts", () => {
     expect(json(await call(c, "read_draft", { draft: d.id })).values.prompt).toBeUndefined();
     await refused({ set: { steps: 100_000 } }, /steps/i);
     await refused({ set: { checkpoint: "zz-test-missing.safetensors" } }, /no machine has zz-test-missing/);
+    // the clip's own model only where the input offers it (Face refine's): on a checkpoint it named no file, and the job failed at its submit
+    await refused({ set: { checkpoint: OWN_MODEL } }, /checkpoint.*"Clip's own model" is not offered here/);
     await refused({ loras: [{ file: "zz-test-nowhere.safetensors", weight: 0.8 }] }, /no machine has the LoRA/);
     await refused({ cast: ["Nobody Here"] }, /Nobody called Nobody Here/);
     await refused({ draft: "0".repeat(32), set: { steps: 20 } }, /no such draft/);

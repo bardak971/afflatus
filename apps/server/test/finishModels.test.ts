@@ -71,6 +71,25 @@ describe("Finish › SeedVR2 model", () => {
   });
 });
 
+describe("the clip's own model, Face refine's alone (0.8.3 review)", () => {
+  it("is refused for an upscaler's model by Finish and by Render, before any job is queued", async () => {
+    const tl = (await t.app.inject({ method: "POST", url: "/api/timelines", payload: { name: "zz-test finish models" } })).json();
+    await clipWithTake(tl.id);
+    for (const payload of [{ route: "seedvr", seedvrModel: OWN_MODEL }, { route: "latent", latentModel: OWN_MODEL }, { route: "model", upscaleModel: OWN_MODEL }]) {
+      const res = await t.app.inject({ method: "POST", url: `/api/timelines/${tl.id}/finish`, payload: { factor: 2, ...payload } });
+      expect(res.statusCode, JSON.stringify(payload)).toBe(400);
+    }
+    // a form's: SeedVR2's model set to it is refused at Render; Face refine's is taken
+    const render = (values: Record<string, unknown>) => t.app.inject({ method: "POST", url: "/api/jobs", payload: { recipe: "h3.video", input: { description: "a", start: "s1", ...values } } });
+    const refused = await render({ upscale: "SeedVR2", seedvrModel: OWN_MODEL });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.body).toMatch(/not offered here/);
+    expect(() => parseInput(recipeById("h3.video")!, { description: "a", upscaleLatentModel: OWN_MODEL })).toThrow(/not offered here/);
+    expect(parseInput(recipeById("h3.video")!, { description: "a", faceRefineModel: OWN_MODEL })).toMatchObject({ faceRefineModel: OWN_MODEL });
+    expect(await t.db.selectFrom("jobs").select("id").execute()).toEqual([]);
+  });
+});
+
 describe("a form's model inputs, as the files a job asks for", () => {
   const video = recipeById("h3.video")!;
   const form = (values: Record<string, unknown>) => parseInput(video, { description: "a", references: [{ asset: "r1", role: "person" }], ...values }) as unknown as Record<string, unknown>;

@@ -9,7 +9,7 @@ import { lookOf, measureOf, meansAlong, takeMeasures } from "../src/measure";
 import { joinJump, lastFrameAt, LEAST_MOTION, runUpBreak, runUpCut } from "../src/joinScore";
 import { measureLanded } from "../src/precompute";
 import { keptKey, keptMotion } from "../src/timelineMedia";
-import { FFMPEG_TIMEOUT, ffmpegMade, ffmpegThere } from "./clipKit";
+import { FFMPEG_TIMEOUT, ffmpegMade, ffmpegThere, patternClip } from "./clipKit";
 
 /**
  * A take measured once as it lands (takeMeasures, measureLanded) gives the figures each measure gave in a pass of its own;
@@ -96,7 +96,7 @@ describe.skipIf(!ffmpegThere)("a take measured once", { timeout: FFMPEG_TIMEOUT 
 
   it("puts the motion, strip and means where the editor finds them done, with the look and its run-up step", async () => {
     const put = new Map<string, Uint8Array>();
-    const look = await measureLanded(async (k, b) => void put.set(k, b), "abcd1234", file, "mp4", { durationMs: 3000, hasSound: true }, 1500);
+    const look = await measureLanded(async (k, b) => void put.set(k, b), "abcd1234", file, "mp4", { durationMs: 3000, hasSound: true }, 1500, "h3.video");
     expect(look).toEqual({ ...(await lookOf(file, "mp4", 1500)), handover: await runUpBreak(file, "mp4", 1500), runUpCut: await runUpCut(file, "mp4", 1500) });
     expect([...put.keys()].sort()).toEqual([keptKey.means("abcd1234"), keptKey.motion("abcd1234"), keptKey.strip("abcd1234")].sort());
     expect(JSON.parse(Buffer.from(put.get(keptKey.motion("abcd1234"))!).toString())).toEqual(keptMotion(await measureOf(file, "mp4")));
@@ -104,6 +104,16 @@ describe.skipIf(!ffmpegThere)("a take measured once", { timeout: FFMPEG_TIMEOUT 
     const none = new Map<string, Uint8Array>();
     expect(await measureLanded(async (k, b) => void none.set(k, b), "ffff0000", new Uint8Array([1, 2, 3]), "mp4", { durationMs: 1000, hasSound: false })).toBeNull();
     expect(none.size).toBe(0);
+  });
+
+  it("looks for a cut after the run-up in H3's renders alone, made for its 24 frames a second (0.8.3 review)", async () => {
+    // a Wan take, 16 frames a second, that carries on without a cut: its run-up step read, no cut looked for
+    const wan = await patternClip(3, { fps: 16, sound: false });
+    const look = await measureLanded(async () => {}, "wan00001", wan, "mp4", { durationMs: 3000, hasSound: false }, 1000, "wan.video");
+    expect(look).toHaveProperty("handover");
+    expect(look).not.toHaveProperty("runUpCut");
+    const ltx = await measureLanded(async () => {}, "ltx00001", file, "mp4", { durationMs: 3000, hasSound: true }, 1500, "ltx.video");
+    expect(ltx).not.toHaveProperty("runUpCut");
   });
 
   it("reads a join's frames in one run per side as a seek per frame read them", async () => {

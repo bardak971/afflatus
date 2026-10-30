@@ -5,10 +5,22 @@ import { assetView } from "./media";
 import type { InputSpec, Recipe } from "@afflatus/core";
 import { carried, EXPORT_JOB, FROM_PREVIOUS, lengthOnGrid, seamless, visible, type Placed, type Taken, type TimelineRow } from "./timelineModel";
 import { sourceOfRow } from "./timelineSource";
+import { cutLookedFor } from "./joinScore";
 
 /** What a timeline's view is made of besides its clips' order and lengths: its takes as the browser gets them, its jobs, its header. */
 
 /** What the record of renders says of a take's video: how long its render took, and how its own part looks. */
+/**
+ * A render's measure as the timeline reads it: a cut after the run-up kept for another family than H3's (measured before the
+ * detector was kept to H3's frames, cutLookedFor) is left out: on Wan's 16 frames a second it flagged quick moves as cuts.
+ */
+export function measureRead(recipe: string, json: string): Measure {
+  const m = JSON.parse(json) as Measure;
+  if (m.runUpCut === undefined || cutLookedFor(recipe)) return m;
+  const { runUpCut: _, ...rest } = m;
+  return rest;
+}
+
 export interface Rendered {
   genMs: number | null;
   measure: Measure | null;
@@ -176,7 +188,7 @@ export class TimelineViews {
     return new Map(records.map((g) => {
       const resolved = JSON.parse(g.resolved) as { seed?: number; mirror?: string[] };
       return [g.id, {
-        genMs: g.gen_ms, measure: g.measure ? (JSON.parse(g.measure) as Measure) : null, recipe: g.recipe_id, facePass: g.inputs.includes('"faceRefineOnly":true'), inputs: JSON.parse(g.inputs) as Record<string, unknown>,
+        genMs: g.gen_ms, measure: g.measure ? measureRead(g.recipe_id, g.measure) : null, recipe: g.recipe_id, facePass: g.inputs.includes('"faceRefineOnly":true'), inputs: JSON.parse(g.inputs) as Record<string, unknown>,
         asked: g.asked ? (JSON.parse(g.asked) as Record<string, unknown>) : null, seed: typeof resolved.seed === "number" ? resolved.seed : null, mirror: Array.isArray(resolved.mirror) ? resolved.mirror : [],
       }];
     }));

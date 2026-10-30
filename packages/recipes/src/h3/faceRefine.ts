@@ -144,7 +144,9 @@ export function clipModelOf(input: H3Video, slots: Record<string, string> = {}, 
   const own = !how.reference || picked.hybrid;
   const file = own ? picked.file : slots.refUnet;
   const distilled = own ? picked.turbo : namedFor.turbo.test(fileName(file));
-  const turboSlot = !own && slots.refTurbo ? "refTurbo" : "turbo";
+  // (a reference clip takes the reference LoRA, else the usual one, as loadH3Model; with neither here, the reference one, as
+  // referenceNeeds asks a fresh pod for: the usual one fetched there would be another pairing than the clip's)
+  const turboSlot = !own && (slots.refTurbo || !slots.turbo) ? "refTurbo" : "turbo";
   // the file and weight of Turbo's row, as loadH3Model puts it on (not at weight 0)
   const added = input.fast && !distilled ? addedLora(turboPick ?? slots[turboSlot], input.turboLora, input.turboWeight, input.loras ?? []) : null;
   const turbo = added?.put ? added.lora : null;

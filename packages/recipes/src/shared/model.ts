@@ -10,13 +10,16 @@ export function applyLoras(g: GraphBuilder, model: Ref, loras: LoraValue[]): Ref
  * A LoRA the recipe adds itself (Turbo's, a distilled LoRA: card #160), as its row in the LoRA list says: the file picked
  * there, else the recipe's own (`file`); the row's weight, 1 for a draft saved before it had one (`usual` where the recipe
  * put it on at another). A row of the same file in the user's list gives the weight and leaves that list: one loader, never
- * two (Turbo's at 1 and the same file at 0.8 by hand made 1.8). `lora` is null without a file; at weight 0 it is not loaded
- * (put), the clip still read as made with it where a recipe counts on that (Turbo's steps).
+ * two (Turbo's at 1 and the same file at 0.8 by hand made 1.8). A hand row at 0 is not folded: it stays in the list at 0
+ * (loaded by nobody) and the row keeps its own weight, as before card #160 (an older draft with Turbo on and the turbo LoRA
+ * by hand at 0 loaded it at 1; folded, it lost the LoRA and was sampled at Turbo's few steps without it). `lora` is null
+ * without a file; at weight 0 it is not loaded (put), the clip still read as made with it where a recipe counts on that
+ * (Turbo's steps).
  */
 export function addedLora(file: string | undefined, picked: unknown, weight: unknown, loras: LoraValue[], usual = 1): { lora: LoraValue | null; put: boolean; loras: LoraValue[] } {
   const chosen = pickedFile(picked) ?? file;
   if (!chosen) return { lora: null, put: false, loras };
-  const hand = loras.find((l) => sameLora(l.file, chosen));
+  const hand = loras.find((l) => l.weight !== 0 && sameLora(l.file, chosen));
   const w = hand ? hand.weight : typeof weight === "number" && Number.isFinite(weight) ? weight : usual;
   return { lora: { file: chosen, weight: w }, put: w !== 0, loras: hand ? loras.filter((l) => l !== hand) : loras };
 }

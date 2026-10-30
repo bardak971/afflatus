@@ -63,6 +63,14 @@ describe("H3's Turbo LoRA as a row of the LoRA list (card #160)", () => {
     expect(loaders(build({ fast: true, loras: [{ file: `H3\\${TURBO}`, weight: 0.7 }] }).graph, TURBO).map((n) => n.inputs.strength_model)).toEqual([0.7]);
   });
 
+  it("leaves a hand row of the same file at 0 where it is, Turbo's row loaded at its own weight (an older draft)", () => {
+    // Turbo on and the turbo LoRA by hand at 0 loaded it at 1 before card #160; folded at 0, it was sampled at Turbo's steps without it
+    const { input, graph, built } = build({ fast: true, loras: [{ file: TURBO, weight: 0 }] });
+    expect(loaders(graph, TURBO).map((n) => n.inputs.strength_model)).toEqual([1]);
+    expect(built.loads).toContain(`loras/${TURBO}`);
+    expect(addedRows(lorasSpec(video), input, slots)).toMatchObject([{ file: TURBO, weight: 1, hand: -1 }]);
+  });
+
   it("has no row and no loader with Turbo off, and keeps its file and weight for when Turbo is on again", () => {
     const off = build({ fast: false, turboLora: "someone_h3_turbo4.safetensors", turboWeight: 0.7 });
     expect(of(off.graph, "LoraLoaderModelOnly")).toHaveLength(0);
