@@ -15,7 +15,7 @@ import { ALSO_HELP, lastSaid, nameOf, placeOfId } from "./modelFilesView";
 export function Picture({ f, small }: { f: ModelFile; small?: boolean }) {
   const [broken, setBroken] = useState(false);
   const box = small ? "size-9 rounded-lg" : "aspect-[4/5] w-full rounded-card";
-  if (f.picture && !broken) return <img src={f.picture} alt="" loading="lazy" onError={() => setBroken(true)} className={cx(box, "bg-raised object-cover")} />;
+  if (f.picture && !broken) return <img src={f.picture} alt="" loading="lazy" decoding="async" onError={() => setBroken(true)} className={cx(box, "bg-raised object-cover")} />;
   const tip = f.match === "pending" ? "Not hashed yet: its Civitai or Hugging Face match comes once it is" : f.match === "hf" ? "Hugging Face has no picture for its files" : f.match === "none" ? "No match on Civitai or Hugging Face: trained or merged here, or renamed and re-saved" : undefined;
   return (
     <span data-tip={tip} className={cx(box, "grid place-items-center bg-raised font-mono text-ink-3", small ? "text-sm" : "text-5xl", f.match === "pending" && "m-skeleton")}>
