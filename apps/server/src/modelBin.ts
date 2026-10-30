@@ -44,6 +44,12 @@ export type BinFinder = (path: string) => Promise<BinSpot | { none: string }>;
 export const ASIDE_DIR = ".afflatus-set-aside";
 
 /**
+ * Whether a path is in a set-aside folder or a drive's Recycle Bin, where Delete puts files: never a model file's place,
+ * whatever folder (a junction) it is reached through. Asked of its real path.
+ */
+export const inBinOrAside = (path: string) => path.split(/[\\/]/).some((part) => part.toLowerCase() === ASIDE_DIR || part.toLowerCase() === "$recycle.bin");
+
+/**
  * One of Windows' own tools, by its full path: a `whoami` of Git for Windows, first on the PATH of a shell Afflatus was started
  * from, answers in its own way (and knows no SID).
  */
