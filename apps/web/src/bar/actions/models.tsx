@@ -2,6 +2,7 @@ import { Copy, Download as DownloadIcon, ExternalLink, FolderOpen, ListPlus, Rot
 import { api, type BrowseCard, type BrowseFile, type Download, type FileWhere, type UpdateRow } from "../../api";
 import { ask, askChoice } from "../../Confirm";
 import { addPicked, clearPicked, dropPicked, foldersFor, getOnPc, openFindModels, openFindModelsOn, pickedNow, pickedOf, thisPcTarget, civitaiExact, type FindTarget } from "../../findModels/store";
+import { PAID_HELP, askPaid, paidWords } from "../../findModels/paid";
 import { plural } from "../../format";
 import { toFind, type BrowseAsk } from "../browseSearch";
 import { retype } from "./retype";
@@ -36,10 +37,13 @@ async function download(x: BarCtx, card: BrowseCard, version: string, f: BrowseF
     choices: (await foldersFor(x.client, to.id)).map((v) => ({ value: v, label: v })), no: "Cancel",
   }));
   if (!folder) return;
+  // a version Civitai sells: said in the same question (card #163), the download still possible
+  const paid = card.versions.find((v) => v.id === version)?.paid;
   const yes = await ask({
     title: `Download ${f.name}?`,
-    text: `${f.bytes ? size(f.bytes) : "Size not given"} from ${card.site === "civitai" ? "Civitai" : "Hugging Face"}, into ${folder} on ${to.name}.`,
-    yes: "Download",
+    text: `${f.bytes ? size(f.bytes) : "Size not given"} from ${card.site === "civitai" ? "Civitai" : "Hugging Face"}, into ${folder} on ${to.name}.${paid ? ` ${paidWords(paid)}: Buzz needed, Civitai refuses its download until it is unlocked on its page.` : ""}`,
+    yes: paid ? "Download anyway" : "Download",
+    ...(paid ? { help: PAID_HELP } : {}),
   });
   if (!yes) return;
   const page = card.site === "civitai" && f.source.kind === "civitai" ? `${card.page}?modelVersionId=${f.source.version}` : card.page;
@@ -68,7 +72,7 @@ export function linkActions(x: BarCtx, card: BrowseCard, version: string, file: 
   const words = v.trainedWords.join(", ");
   return [
     {
-      label: `Download onto ${pcName}`, icon: <DownloadIcon size={14} />, note: have ? "you have it already · asked first" : "asked first, with its size",
+      label: `Download onto ${pcName}`, icon: <DownloadIcon size={14} />, note: have ? "you have it already · asked first" : v.paid ? `${paidWords(v.paid)} on Civitai · asked first` : "asked first, with its size",
       run: () => download(x, card, version, f, { name: pcName }),
     },
     ...others(x).map((m): Action => ({
@@ -164,6 +168,7 @@ export function cardActions(x: BarCtx, card: BrowseCard, ask: BrowseAsk): Action
         const got = await fileOf(x, card);
         if (!got) return;
         const v = got.card.versions.find((y) => y.id === got.version)!;
+        if (!(await askPaid(v, "Pick"))) return;
         const folder = got.f.folder ?? (await askChoice({ title: `Which folder does ${got.f.name} go in?`, text: "Its source does not say what kind of model it is.", choices: (await foldersFor(x.client)).map((y) => ({ value: y, label: y })), no: "Cancel" }));
         if (!folder) return;
         x.flash(addPicked(pickedOf(got.f, got.card, v.name, folder)) ? `${got.f.name} picked · > picked gets them` : `${got.f.name} was picked already`);

@@ -4,6 +4,9 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Fixed
+- **A paid Civitai version (Early Access, Buzz) is said as paid, before and after its download.** Find models shows **Paid** or **Early Access · until <day>** on the card, in the version picker and in the command bar's rows, and asks before picking it (Pick anyway); the download stays possible. A refused download says Civitai's own reason with the version's page (it said "save a key in Settings" to a user whose key was saved and valid), and a key Civitai refuses is said as such; a rented GPU says the same instead of "no download link of its own". `find_models` gives `paid` on such versions. The key's place is named as it is now, Settings › Models › Civitai API key.
+
 ## [0.8.3] - 2026-10-30
 
 Seamless joins that say when they cut (a reference picture's continuation told its run-up, in positive words), the Face refine and upscale models chosen per clip (one model in memory on Swap), every LoRA a render loads shown in the LoRA list with its weight, Swap's windows all swaps, and no more "ComfyUI is offline" for one late answer.

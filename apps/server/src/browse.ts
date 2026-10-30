@@ -51,6 +51,11 @@ export interface BrowseVersion {
   publishedAt: string | null;
   trainedWords: string[];
   files: BrowseFile[];
+  /**
+   * Civitai sells it (Early Access, paid with Buzz): its download is refused, whatever the key, until it is unlocked on
+   * its page. `until`: when Early Access ends and it is free; null, paid for good.
+   */
+  paid?: { until: string | null };
 }
 
 export interface BrowseCard {
@@ -119,7 +124,11 @@ const PAGE = 24;
 
 type CivImage = { url?: string; type?: string };
 type CivFile = { id?: number; name?: string; sizeKB?: number; type?: string; primary?: boolean; metadata?: { fp?: string | null; size?: string | null; format?: string | null } | null; hashes?: { SHA256?: string } };
-type CivVersion = { id: number; name?: string; baseModel?: string; publishedAt?: string; trainedWords?: string[]; files?: CivFile[]; images?: CivImage[] };
+type CivVersion = {
+  id: number; name?: string; baseModel?: string; publishedAt?: string; trainedWords?: string[]; files?: CivFile[]; images?: CivImage[];
+  /** Civitai's mark of a version it sells (seen 2026-10-30: `{ permanent: true, endsAt: null }`); absent or null, free. */
+  paidAccess?: { permanent?: boolean; endsAt?: string | null } | null;
+};
 type CivModel = {
   id: number; name: string; type?: string; creator?: { username?: string }; stats?: { downloadCount?: number; thumbsUpCount?: number };
   allowCommercialUse?: string[] | string; allowNoCredit?: boolean; allowDerivatives?: boolean; modelVersions?: CivVersion[];
@@ -193,6 +202,14 @@ const haveOf = (k: Known, name: string, sha: string | null): Have[] => {
   return [...(pc ? [{ kind: "pc" as const, ...pc }] : []), ...(k.inSets.get(name.toLowerCase()) ?? []).map((n) => ({ kind: "set" as const, name: n }))];
 };
 
+/** A version Civitai sells, and until when (Early Access with an end date); none when it is free, or its end has passed. */
+export function paidOf(v: CivVersion, now = Date.now()): { until: string | null } | null {
+  const p = v.paidAccess;
+  if (!p) return null;
+  const until = p.permanent || !p.endsAt ? null : p.endsAt;
+  return until && Date.parse(until) <= now ? null : { until };
+}
+
 /** A Civitai model as a card: its versions and their model files, each with its folder, its source, and what the user has. */
 export function civitaiCard(m: CivModel, k: Known): BrowseCard {
   const type = m.type ?? "";
@@ -210,6 +227,7 @@ export function civitaiCard(m: CivModel, k: Known): BrowseCard {
         source: { kind: "civitai", version: v.id, pick: f.name!, ...(f.id ? { fileId: f.id } : {}), ...(sha ? { sha256: sha } : {}) }, have: haveOf(k, f.name!, sha),
       };
     }),
+    ...(paidOf(v) ? { paid: paidOf(v)! } : {}),
   }));
   const first = m.modelVersions?.[0];
   const mine = k.versions.get(m.id);
@@ -333,6 +351,7 @@ export function civitaiKept(page: CivPage | null): CivPage | null {
       allowCommercialUse: m.allowCommercialUse, allowNoCredit: m.allowNoCredit, allowDerivatives: m.allowDerivatives, nsfw: m.nsfw, tags: m.tags,
       modelVersions: (m.modelVersions ?? []).map((v, i) => ({
         id: v.id, name: v.name, baseModel: v.baseModel, publishedAt: v.publishedAt, trainedWords: v.trainedWords?.slice(0, 20),
+        ...(v.paidAccess ? { paidAccess: { permanent: v.paidAccess.permanent, endsAt: v.paidAccess.endsAt } } : {}),
         files: (v.files ?? []).map((f) => ({ id: f.id, name: f.name, sizeKB: f.sizeKB, type: f.type, primary: f.primary, metadata: f.metadata && { fp: f.metadata.fp, size: f.metadata.size, format: f.metadata.format }, hashes: { SHA256: f.hashes?.SHA256 } })),
         images: i === 0 && pic ? [{ url: pic.url, type: pic.type }] : [],
       })),

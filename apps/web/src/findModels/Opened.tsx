@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ExternalLink, Lock } from "lucide-react";
+import { Coins, ExternalLink, Lock } from "lucide-react";
 import { api, type BrowseCard, type BrowseFile } from "../api";
 import { compact, plural, shortDate, size } from "../format";
 import { queryKeys } from "../queryKeys";
 import { Select } from "../Select";
-import { Button, Checkbox, Chip, CloseButton, cx, ErrorNote } from "../ui";
+import { Button, Checkbox, Chip, CloseButton, cx, ErrorNote, Help } from "../ui";
+import { askPaid, PAID_HELP, paidWords } from "./paid";
 import { pickedOf, useFolders, type PickedFile } from "./store";
 
 /** What the user has of a file, in a few words: "on this PC", "in set Video". */
@@ -54,8 +55,17 @@ export function Opened({ card, picked, onPick, onClose }: { card: BrowseCard; pi
               {versions.map((v) => (
                 <button key={v.id} type="button" onClick={() => { setVersionId(v.id); setTicked(null); }} className={cx("rounded-lg border px-2.5 py-1 text-xs font-semibold", v.id === version?.id ? "border-accent bg-accent-wash text-accent" : "border-line text-ink-2 hover:bg-hover")}>
                   {v.name}{v.base && v.base !== card.base ? ` · ${v.base}` : ""}
+                  {v.paid && <span className="ml-1.5 inline-flex items-center gap-0.5 text-warn-ink"><Coins size={11} />{v.paid.until ? "Early Access" : "Paid"}</span>}
                 </button>
               ))}
+            </span>
+          )}
+          {version?.paid && (
+            <span className="flex flex-wrap items-center gap-1.5 text-xs text-warn-ink">
+              <Chip tone="warn"><Coins size={11} /> {paidWords(version.paid)}</Chip>
+              Buzz needed: Civitai refuses its download until it is unlocked
+              <a href={`${card.page}?modelVersionId=${version.id}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 font-semibold underline">on its page <ExternalLink size={11} /></a>
+              <Help text={PAID_HELP} />
             </span>
           )}
           {repo.isPending && card.site === "huggingface" && !card.versions.length && <span className="text-xs text-ink-3">Reading its files…</span>}
@@ -89,7 +99,7 @@ export function Opened({ card, picked, onPick, onClose }: { card: BrowseCard; pi
             </span>
           )}
           <span className="flex items-center gap-2">
-            <Button tone="primary" disabled={!chosen.length || lacksFolder} onClick={() => onPick(chosen.map((f) => pickedOf(f, card, version!.name, folderOf(f))))}>
+            <Button tone="primary" disabled={!chosen.length || lacksFolder} onClick={async () => { if (await askPaid(version!, "Pick")) onPick(chosen.map((f) => pickedOf(f, card, version!.name, folderOf(f)))); }}>
               Pick {chosen.length > 1 ? plural(chosen.length, "file") : "it"}
             </Button>
             {lacksFolder && <span className="text-xs text-warn-ink">Say which folder it goes in.</span>}

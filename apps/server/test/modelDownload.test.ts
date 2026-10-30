@@ -71,6 +71,14 @@ beforeEach(async () => {
       res.writeHead(200, { "content-type": "application/zip", "content-length": zip.length });
       return res.end(zip);
     }
+    // Civitai's refusals, as it says them (card #163): a paid version, a key it does not take
+    const json = (status: number, body: object) => {
+      res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
+      return res.end(JSON.stringify(body));
+    };
+    if (req.url?.startsWith("/api/download/models/88") || req.url?.startsWith("/api/download/models/90")) return json(403, { error: "Early Access", message: "This asset is in Early Access. You can use Buzz access it now!" });
+    if (req.url === "/api/v1/model-versions/88") return json(200, { id: 88, paidAccess: { permanent: false, endsAt: "2026-11-05T09:00:00.000Z" } });
+    if (req.url?.startsWith("/api/download/models/89")) return json(401, { error: "Unauthorized", message: "The creator of this asset requires you to be logged in to download it" });
     if (req.url === "/login") {
       res.writeHead(200, { "content-type": "text/html" });
       return res.end("<html>sign in</html>");
@@ -187,6 +195,27 @@ describe("Afflatus downloading a model file itself", () => {
     // nothing came is said as nothing, never as "1 MB"
     expect(sizeText(0)).toBe("0 MB");
     expect(sizeText(1)).toBe("1 MB");
+  });
+
+  describe("Civitai's own reason for a refusal (card #163)", () => {
+    beforeEach(() => void (process.env.CIVITAI_URL = siteUrl));
+    afterEach(() => void delete process.env.CIVITAI_URL);
+
+    it("says a paid version (Early Access) as paid, with its page and when it ends, not as a missing key", async () => {
+      const key = { Authorization: "Bearer k-123456789" };
+      const until = fetchTo("/api/download/models/88?fileId=1", { headers: key }).done;
+      await expect(until).rejects.toThrow(`This version is paid on Civitai (Early Access until 2026-11-05): unlock it with Buzz on its page (${siteUrl}/model-versions/88), or pick another version.`);
+      await expect(until).rejects.toBeInstanceOf(Refused);
+      // paid for good: Civitai's version says no end (here, it does not answer at all)
+      await expect(fetchTo("/api/download/models/90", { headers: key }).done).rejects.toThrow(/^This version is paid on Civitai \(Early Access\): unlock it with Buzz/);
+      // never tried again: Buzz is not waited for
+      expect(asked.filter((a) => a.url.startsWith("/api/download/models/88"))).toHaveLength(1);
+    });
+
+    it("says a 401 without a key as before, and with one as the key refused", async () => {
+      await expect(fetchTo("/api/download/models/89").done).rejects.toThrow("The site refused the download. For Civitai, save a key in Settings › Models › Civitai API key: some files need an account.");
+      await expect(fetchTo("/api/download/models/89", { headers: { Authorization: "Bearer k-123456789" } }).done).rejects.toThrow(/^Civitai refused the API key \(expired, revoked or mistyped\)/);
+    });
   });
 
   it("says when the site refuses (a sign-in page), without trying again", async () => {

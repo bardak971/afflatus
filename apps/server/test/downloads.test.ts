@@ -131,6 +131,11 @@ beforeEach(async () => {
       res.writeHead(from ? 206 : 200, { "content-type": "application/octet-stream", "content-length": body.length, ...(from ? { "content-range": `bytes ${from}-${FILE.length - 1}/${FILE.length}` } : {}) });
       return res.end(body);
     }
+    // a paid version (card #163): Civitai's 403, said in its body
+    if (req.url?.startsWith("/api/download/models/88")) {
+      res.writeHead(403, { "content-type": "application/json; charset=utf-8" });
+      return res.end(JSON.stringify({ error: "Early Access", message: "This asset is in Early Access. You can use Buzz access it now!" }));
+    }
     if (req.url === "/files/login") {
       res.writeHead(200, { "content-type": "text/html" });
       return res.end("<html>sign in</html>");
@@ -238,6 +243,16 @@ describe("fetching a missing model file into ComfyUI", () => {
     const none = (await post(t.app, "/api/downloads", { file: "c.safetensors", folder: "loras", url: `${siteUrl}/files/plain.safetensors` })).json();
     expect(none).toMatchObject({ status: "error", error: expect.stringContaining("has no ComfyUI-Manager") });
     expect(await list()).toMatchObject({ manager: { found: false } });
+  });
+
+  it("says a paid Civitai version (Early Access) as paid, with its page, although the key is saved (card #163)", async () => {
+    await start(true);
+    await on();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const d = (await post(t.app, "/api/downloads", { file: "p.safetensors", folder: "loras", url: `${siteUrl}/api/download/models/88?fileId=1` })).json();
+    await done(d.id);
+    expect((await list()).items[0]).toMatchObject({ status: "error", error: `This version is paid on Civitai (Early Access): unlock it with Buzz on its page (${siteUrl}/model-versions/88), or pick another version.` });
+    warn.mockRestore();
   });
 
   it("can be stopped while it runs: nothing reaches ComfyUI, and it can be started again", async () => {
@@ -730,6 +745,20 @@ describe("a source's own signed download link", () => {
     expect(await signedLink(plain, {}, site({ [plain]: { status: 200 } }))).toBe(plain);
     expect(await signedLink(plain, { Authorization: "Bearer hf_secret_token_1" }, site({ [plain]: { status: 200 } }))).toBeNull();
     expect(await signedLink("https://example.com/m.safetensors", {}, site({ "https://example.com/m.safetensors": { status: 200 } }))).toBeNull();
+  });
+
+  it("says Civitai's refusal itself (a paid version), asked again in full as a HEAD has no body; a host refusing HEADs only gives none", async () => {
+    const paid = `${siteUrl}/api/download/models/88?fileId=1`;
+    const seen: string[] = [];
+    const answers = (async (input: string | URL | Request, init?: RequestInit) => {
+      seen.push(init?.method ?? "GET");
+      return new Response(init?.method === "HEAD" ? null : JSON.stringify({ error: "Early Access", message: "This asset is in Early Access. You can use Buzz access it now!" }), { status: 403, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    // a rented GPU takes only such a link: told the real reason, not "no download link of its own"
+    await expect(signedLink(paid, { Authorization: "Bearer civitai_key_12345" }, answers)).rejects.toThrow(/^This version is paid on Civitai \(Early Access\)/);
+    expect(seen).toEqual(["HEAD", "GET"]);
+    const headOnly = "https://example.com/m.safetensors";
+    expect(await signedLink(headOnly, {}, (async (_: unknown, init?: RequestInit) => new Response(null, { status: init?.method === "HEAD" ? 403 : 200 })) as typeof fetch)).toBeNull();
   });
 
   it("is on the download hosts only", () => {

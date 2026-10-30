@@ -307,7 +307,21 @@ const pretendSite = createServer(async (req, res) => {
   const version = (file: string) => ({ id: 1001, name: "v1 (pretend)", baseModel: "Demo", trainedWords: ["demo"], model: { name: "Pretend model" }, files: [{ id: 90001, name: file, type: "Model", primary: true, sizeKB: PRETEND_BYTES / 1024, downloadUrl: `${self}/files/demo` }] });
   if (url.pathname === "/api/v1/models") {
     const file = `${(url.searchParams.get("query") ?? "model").trim().replace(/\s+/g, "_")}.safetensors`;
-    return json({ items: [{ id: 501, name: "Pretend model (the demo's Civitai)", type: "Checkpoint", modelVersions: [version(file)] }] });
+    // a model whose newest version Civitai sells (Early Access, Buzz; card #163), with a free one beside it: its download is refused as Civitai does
+    const paid = { ...version(`paid_${file}`), id: 1003, name: "v2 (pretend, paid)", paidAccess: { permanent: true, endsAt: null } };
+    paid.files = paid.files.map((f) => ({ ...f, id: 90003, downloadUrl: `${self}/api/download/models/1003` }));
+    return json({ items: [
+      { id: 501, name: "Pretend model (the demo's Civitai)", type: "Checkpoint", modelVersions: [version(file)] },
+      { id: 502, name: "Pretend paid model (the demo's Civitai)", type: "Checkpoint", modelVersions: [paid, { ...version(`free_${file}`), id: 1004 }] },
+    ] });
+  }
+  if (url.pathname === "/api/download/models/1003") {
+    res.writeHead(403, { "Content-Type": "application/json; charset=utf-8" });
+    return res.end(JSON.stringify({ error: "Early Access", message: "This asset is in Early Access. You can use Buzz access it now!" }));
+  }
+  if (url.pathname === "/api/v1/model-versions/1003") {
+    const file = { id: 90003, name: "paid_model.safetensors", type: "Model", primary: true, sizeKB: PRETEND_BYTES / 1024, downloadUrl: `${self}/api/download/models/1003` };
+    return json({ ...version(file.name), id: 1003, modelId: 502, paidAccess: { permanent: true, endsAt: null }, files: [file] });
   }
   // the pretend LoRA's own version (1002, below), else the search's
   if (url.pathname === "/api/v1/model-versions/1002") return json({ ...version("zz-test-pretend-lora.safetensors"), id: 1002, modelId: 777 });

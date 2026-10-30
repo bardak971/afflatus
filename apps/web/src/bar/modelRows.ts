@@ -1,4 +1,5 @@
 import type { BrowseBases, BrowseCard, Download } from "../api";
+import { paidWords } from "../findModels/paid";
 import { count } from "../useGetFile";
 import { askSaid, PERIOD_WORDS, SORT_WORDS, TYPE_WORDS, type BrowseAsk } from "./browseSearch";
 import { completeLast } from "./search";
@@ -29,7 +30,7 @@ export function linkRows(card: BrowseCard): Shown[] {
       const label = card.site === "civitai" ? `${card.name} · ${v.name}${v.files.length > 1 ? ` · ${f.name}` : ""}` : f.name;
       const meta = [
         card.type || null, v.base || card.base || null, f.bytes ? size(f.bytes) : null,
-        f.folder ? `→ ${f.folder}` : "its folder asked", f.have.length ? "you have it" : null, card.gated ? "gated" : null,
+        f.folder ? `→ ${f.folder}` : "its folder asked", f.have.length ? "you have it" : null, card.gated ? "gated" : null, v.paid ? paidWords(v.paid) : null,
       ].filter(Boolean).join(" · ");
       rows.push({ key: `link:${card.site}:${card.id}:${v.id}:${f.name}`, kind: "command", label, meta, group: "Model link", verb: "download", p: prepare(label), value: { kind: "link", card, version: v.id, file: f.name } });
     }
@@ -64,7 +65,7 @@ export function browseRows(ask: BrowseAsk, cards: readonly BrowseCard[] | undefi
   const off = ask.unknown.map((u): Shown => ({ key: `find-off:${u}`, kind: "command", label: `${u} is not read`, meta: KEY_TAKES[u.split(":")[0]!] ?? "", group, verb: "—", p: prepare(u) }));
   const found = (cards ?? []).map((c): Shown => ({
     key: `card:${c.site}:${c.id}`, kind: "command", label: c.name, group, verb: "open", p: prepare(c.name), value: { kind: "card", card: c, ask },
-    meta: [c.type || null, c.base || null, c.creator ? `by ${c.creator}` : null, c.downloads ? `${count(c.downloads)} downloads` : null, c.have ? "you have it" : null, c.update ? "a newer version than yours" : null, c.gated ? "gated" : null].filter(Boolean).join(" · "),
+    meta: [c.type || null, c.base || null, c.creator ? `by ${c.creator}` : null, c.downloads ? `${count(c.downloads)} downloads` : null, c.have ? "you have it" : null, c.update ? "a newer version than yours" : null, c.gated ? "gated" : null, c.versions[0]?.paid ? paidWords(c.versions[0].paid) : null].filter(Boolean).join(" · "),
   }));
   return [{ group, rows: [open, ...off, ...found] }];
 }

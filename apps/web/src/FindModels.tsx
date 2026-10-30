@@ -5,6 +5,7 @@ import { api, type BrowseCard } from "./api";
 import { keepTabIn } from "./Dialog";
 import { Card } from "./findModels/Card";
 import { Opened } from "./findModels/Opened";
+import { askPaid } from "./findModels/paid";
 import { clearPicked, closeFindModels, pickedOf, useKept, type FindTarget, type HfSort, type PickedFile } from "./findModels/store";
 import { Tray } from "./findModels/Tray";
 import { CardSkeletons, SiteFailed, SlowSaid } from "./findModels/Waiting";
@@ -150,10 +151,11 @@ export function FindModels({ target }: { target: FindTarget }) {
   const pickedNames = new Set(picked.map((f) => f.file));
   const add = (files: PickedFile[]) => setPicked((p) => [...p, ...files.filter((f) => !p.some((x) => fileKey(x) === fileKey(f)))]);
   /** A card's + (or a drop): its one file at once; a version of several files, or one without a folder, opens to choose. */
-  const quick = (card: BrowseCard) => {
+  const quick = async (card: BrowseCard) => {
     const v = card.versions[0];
-    if (v?.files.length === 1 && v.files[0]!.folder) add([pickedOf(v.files[0]!, card, v.name)]);
-    else setOpened(card);
+    if (!(v?.files.length === 1 && v.files[0]!.folder)) return setOpened(card);
+    // a version Civitai sells: asked first, then picked as any other (card #163)
+    if (await askPaid(v, "Pick")) add([pickedOf(v.files[0]!, card, v.name)]);
   };
   // the cards' callbacks, the same at every drawing (Card is memoised): a new page draws only its own cards
   const latest = useRef({ quick, setOpened });
@@ -285,7 +287,7 @@ export function FindModels({ target }: { target: FindTarget }) {
               setDropping(false);
               const key = e.dataTransfer.getData("application/x-afflatus-card");
               const card = cards.find((c) => `${c.site}:${c.id}` === key);
-              if (card) quick(card);
+              if (card) void quick(card);
             }}
           />
         </div>
