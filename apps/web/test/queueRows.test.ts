@@ -11,7 +11,17 @@ describe("a failed job's link to its fix", () => {
   it("opens the settings tab the error names", () => {
     expect(fixLink("Both are one click in Settings → Models. Or pick another route.")).toEqual({ href: "/settings/models", label: "Open Settings › Models" });
     expect(fixLink("Turn it on (Settings → Models → Missing models says how).")?.href).toBe("/settings/models");
-    expect(fixLink("Add one in Settings › Command bar first")?.href).toBe("/settings/bar");
+    expect(fixLink("Add one in Settings › Interface first")?.href).toBe("/settings/interface");
+    expect(fixLink("Tick Spend on it in Settings › Agents (MCP).")).toEqual({ href: "/settings/agents", label: "Open Settings › Agents (MCP)" });
+    expect(fixLink("Set it in Settings › Sign-in.")?.href).toBe("/settings/signin");
+    expect(fixLink("Raise it in Settings › Costs.")?.href).toBe("/settings/costs");
+  });
+  it("opens the tab that has it now when an older server names a tab since gone", () => {
+    // the old names put together, so that this file never reads as sending anyone there (accessTab.test.ts)
+    const gone = (tab: string) => `Settings › ${tab}`;
+    expect(fixLink(`Add one in ${gone("Command bar")} first`)?.href).toBe("/settings/interface");
+    expect(fixLink(`tick Spend on it in ${gone("Access")}.`)?.href).toBe("/settings/signin");
+    expect(fixLink(`the LLM set in ${gone("Designer")}`)?.href).toBe("/settings/prompts");
   });
   it("offers nothing when no tab is named", () => {
     expect(fixLink(null)).toBeNull();

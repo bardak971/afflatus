@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { SETTING_TABS, type SettingTab } from "@afflatus/core";
+import { SETTING_TABS, SETTING_TABS_MOVED, type SettingTab } from "@afflatus/core";
 import { z } from "zod";
 import { httpError, notFound } from "./errors";
 import { quoted, tool, type ToolCtx } from "./mcpTool";
@@ -37,9 +37,11 @@ export interface ShowEvent {
 const ANSWER_MS = 4000;
 
 const TAB_IDS = SETTING_TABS.map((t) => t.id) as [SettingTab, ...SettingTab[]];
+/** The tabs' ids, and the old ones an agent may still name (access, designer, bar…): they land on the tab that has them now. */
+const ASKED_TABS = [...TAB_IDS, ...Object.keys(SETTING_TABS_MOVED)] as [string, ...string[]];
 
 /** The target as asked, checked, and said in words: refused when it is not there. */
-async function targetOf(ctx: ToolCtx, a: { draft?: string; timeline?: string; clip?: string | number; item?: string; settings?: SettingTab; setting?: string }): Promise<{ to: ShowTo; said: string }> {
+async function targetOf(ctx: ToolCtx, a: { draft?: string; timeline?: string; clip?: string | number; item?: string; settings?: string; setting?: string }): Promise<{ to: ShowTo; said: string }> {
   const { db } = ctx.s;
   const asked = [a.draft, a.timeline, a.item, a.settings].filter((x) => x !== undefined).length;
   if (a.clip !== undefined && a.timeline === undefined) throw httpError("A clip is shown on its timeline: name the timeline too.");
@@ -66,9 +68,9 @@ async function targetOf(ctx: ToolCtx, a: { draft?: string; timeline?: string; cl
     if (!it) throw notFound("that item");
     return { to: { item: it.id, folder: it.folder_id, project: it.project_id ?? null, inBin: it.deleted_at !== null }, said: `${it.kind === "image" ? "the picture" : it.kind === "video" ? "the video" : "the sound"} ${quoted(it.name || it.id)}${it.deleted_at ? " (in the bin)" : ""}` };
   }
-  // the Access rows ("access", "access.mcp"…) left Interface for a tab of their own: an agent naming the old tab lands there,
-  // as the page does
-  const id = a.settings === "interface" && /^access(\.|$)/.test(a.setting ?? "") ? "access" : a.settings;
+  // an old tab's id lands on the tab that has its settings now (card #168); a setting named with a tab it is not on is sent on
+  // to its own by the page, as an old link is
+  const id = SETTING_TABS_MOVED[a.settings!] ?? a.settings;
   const tab = SETTING_TABS.find((t) => t.id === id)!;
   return { to: { settings: tab.id, ...(a.setting ? { setting: a.setting } : {}) }, said: `Settings › ${tab.label}` };
 }
@@ -83,7 +85,7 @@ const showPage = tool({
     timeline: z.string().max(64).optional().describe("A timeline's id (list_timelines)."),
     clip: z.union([z.number().int().min(1), z.string().max(64)]).optional().describe("With `timeline`: a clip, by its number (1 is the first) or id."),
     item: z.string().max(64).optional().describe("A library item's id (search_library)."),
-    settings: z.enum(TAB_IDS).optional().describe("A Settings tab."),
+    settings: z.enum(ASKED_TABS).optional().describe(`A Settings tab: ${TAB_IDS.join(", ")}.`),
     setting: z.string().max(80).optional().describe("With `settings`: the row to land on, as Settings' search names it (\"rented.bootlogs\", \"models.sets\")."),
   },
   async run(a, ctx) {

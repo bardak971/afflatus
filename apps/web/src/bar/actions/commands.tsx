@@ -484,7 +484,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       ];
     case "sign-out": {
       const why = signOutBlock(x.access);
-      // as the Access card's Sign out on this device: the session ends, and the page read again shows the sign-in
+      // as the Sign-in card's Sign out on this device: the session ends, and the page read again shows the sign-in
       return [{
         label: "Sign out", icon: <LogOut size={14} />, disabled: Boolean(why), note: why ?? "this browser · the sign-in page comes next",
         run: () => api.signOut().then(() => location.reload(), failed("Could not sign out")),
@@ -497,7 +497,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
           // the card's question, as its two-step button asks it
           const yes = await ask({ title: "Sign out every device, this one too?", text: "Each device needs the password again to come back in.", yes: "Sign out everywhere" });
           if (!yes) return;
-          await api.signOutEverywhere(false).then(() => (x.access?.session ? location.reload() : good("Every device signed out", "This computer stays in: it needs no password.", settingHref("access"), "Open Settings › Access")), failed("Could not sign out everywhere"));
+          await api.signOutEverywhere(false).then(() => (x.access?.session ? location.reload() : good("Every device signed out", "This computer stays in: it needs no password.", settingHref("access"), "Open Settings › Sign-in")), failed("Could not sign out everywhere"));
         },
       }];
     case "find-models": {
@@ -646,7 +646,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       const set = { telegram: Boolean(n?.hasTelegramToken && n.telegramChat), discord: Boolean(n?.hasDiscordWebhook) };
       const send = (ch: "telegram" | "discord") => api.testNotify(ch).then(() => good(`Test sent to ${ch === "telegram" ? "Telegram" : "Discord"}`, "Look for it there.", settingHref(`notify.${ch}`), "Open Settings"), failed(`Could not send to ${ch === "telegram" ? "Telegram" : "Discord"}`));
       const all = (["telegram", "discord"] as const).map((ch) => ({
-        label: `Send a test to ${ch === "telegram" ? "Telegram" : "Discord"}`, icon: <Bell size={14} />, disabled: !set[ch], note: set[ch] ? undefined : "not set up (Settings › Interface)",
+        label: `Send a test to ${ch === "telegram" ? "Telegram" : "Discord"}`, icon: <Bell size={14} />, disabled: !set[ch], note: set[ch] ? undefined : "not set up (Settings › Notifications)",
         run: () => send(ch),
       }));
       // the one named alone; else those set up first

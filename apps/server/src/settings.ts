@@ -220,7 +220,7 @@ export type NotifySettings = z.infer<typeof notifySchema>;
 /** The password as stored (access.ts hashPassword): scrypt's figures, the salt and the hash, and when it was set. Never sent to the page. */
 const passwordSchema = z.object({ hash: z.string().max(400), setAt: z.string().max(40) });
 
-/** The optional password (Settings › Access, access.ts). */
+/** The optional password (Settings › Sign-in, access.ts). */
 const accessSchema = z.object({
   /** Null: no password, Afflatus is open to whoever reaches it, as before there was one. */
   password: passwordSchema.nullable().default(null),
@@ -800,7 +800,7 @@ async function written(db: Db, patch: unknown, fromPage = false, forget = ""): P
   if (sent.notify !== undefined) sent.notify = notifyMerged(current.notify, sent.notify);
   // `access` is never the page's to write here: its own routes (access-api.ts) ask for a recent sign-in or the password
   if (sent.access !== undefined) {
-    if (fromPage) throw httpError("The Access settings are changed in Settings › Access, which asks for the password.", 403);
+    if (fromPage) throw httpError("The Sign-in settings are changed in Settings › Sign-in, which asks for the password.", 403);
     sent.access = sent.access && typeof sent.access === "object" ? { ...current.access, ...(sent.access as Record<string, unknown>) } : sent.access;
   }
   const next = settingsSchema.parse({ ...current, ...sent });

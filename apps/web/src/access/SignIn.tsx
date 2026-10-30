@@ -30,7 +30,7 @@ function refusalSaid(err: unknown, what: string): string {
 }
 
 const WAYS: Array<{ via: Via; title: string; note: string; icon: ReactNode }> = [
-  { via: "telegram", title: "Telegram", note: "To your bot's chat, set in Settings › Interface › Notifications.", icon: <Send size={15} /> },
+  { via: "telegram", title: "Telegram", note: "To your bot's chat, set in Settings › Notifications.", icon: <Send size={15} /> },
   { via: "computer", title: "This computer", note: "Written to Afflatus's console and its log file (data/logs/afflatus.log; docker logs on Docker). Always there.", icon: <SquareTerminal size={15} /> },
 ];
 

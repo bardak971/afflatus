@@ -80,7 +80,7 @@ export type LlmPatch = Omit<LlmInfo, "hasApiKey"> & { apiKey?: string };
  */
 export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiKey" | "hasHuggingFaceToken" | "hasRunpodKey" | "hasRunpodS3Secret" | "machines" | "machinesSetAside" | "notify" | "access">> & {
   /** Some of the password's settings; the password itself has its own routes (api.setPassword), never this. */
-  /** Refused from the page: the Access settings go through api.accessSettings, which asks for the password. */
+  /** Refused from the page: the Sign-in settings go through api.accessSettings, which asks for the password. */
   access?: Partial<Omit<AccessSettings, "hasPassword" | "passwordSetAt" | "hasMetricsToken">> & {
     password?: { hash: string; setAt: string } | null;
     metricsToken?: string;
@@ -107,7 +107,7 @@ export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiK
 };
 /** What Afflatus tells about (the server's notify.ts); `newDevice`: a sign-in from a device never seen (access.ts). */
 export type NotifyKind = "renderDone" | "renderFailed" | "queueEmpty" | "renderStuck" | "podStopped" | "capReached" | "balanceLow" | "comfyGone" | "gpuFound" | "huntGaveUp" | "newDevice";
-/** The optional password's settings (Settings › Access). The password itself never comes back: only whether there is one. */
+/** The optional password's settings (Settings › Sign-in). The password itself never comes back: only whether there is one. */
 export interface AccessSettings {
   hasPassword: boolean;
   /** When it was set (ISO); null without one. */
@@ -252,7 +252,7 @@ export interface MachineProbe {
   /** The last four characters of the token Afflatus has for it; empty without one. */
   tokenEnd: string;
 }
-/** A ComfyUI's access, as its card's Access line says it. */
+/** A ComfyUI's access, as its card's ComfyUI token line says it. */
 export interface MachineAccess {
   /** open: no lock; locked: locked, and Afflatus's token works; wrong: locked against the token Afflatus has (or has none); unknown: it does not answer. */
   state: "open" | "locked" | "wrong" | "unknown";
@@ -377,7 +377,7 @@ export interface SessionState {
   /** Seconds before another reset code may be sent. */
   sendAgain: number;
 }
-/** A device signed in (Settings › Access). */
+/** A device signed in (Settings › Sign-in). */
 export interface SignedDevice {
   id: string;
   /** "Chrome on Windows": from its browser's own words. */
@@ -403,7 +403,7 @@ export interface SignedDevices {
 export type McpScope = "look" | "make" | "spend" | "manage";
 /** The new-token line's starting sets. */
 export type McpStart = "look" | "make" | "spend" | "all";
-/** A personal MCP token as Settings › Access lists it (never the token itself: shown once, when made). */
+/** A personal MCP token as Settings › Agents (MCP) lists it (never the token itself: shown once, when made). */
 export interface McpToken {
   id: string;
   name: string;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import { FirstLaunch } from "../../src/screens/FirstLaunch";
-import { RentedTab } from "../../src/screens/settings/RentedCard";
+import { CapsCard } from "../../src/screens/settings/RentedCard";
 import { fakeApi, jsonAnswer, later } from "./fakeApi";
 import { draw } from "./render";
 
@@ -96,10 +96,10 @@ describe("the first launch's caps", () => {
   });
 });
 
-describe("Settings › Rented GPUs' caps", () => {
+describe("Settings › Costs' caps", () => {
   it("sends an edit queued behind a refused one without the refused value, and keeps saying that cap was not saved", async () => {
     const first = serveSaves();
-    const { user } = draw(<RentedTab />);
+    const { user } = draw(<CapsCard />);
     await user.type(await screen.findByLabelText("Cap a day"), "3");
     await user.tab();
     await waitFor(() => expect(bodies()).toHaveLength(1));
@@ -116,7 +116,7 @@ describe("Settings › Rented GPUs' caps", () => {
 
   it("keeps a second edit of the same cap queued behind a refused one", async () => {
     const first = serveSaves();
-    const { user } = draw(<RentedTab />);
+    const { user } = draw(<CapsCard />);
     await user.type(await screen.findByLabelText("Cap a day"), "3");
     await user.tab();
     await waitFor(() => expect(bodies()).toHaveLength(1));

@@ -79,6 +79,6 @@ The `?` at the bottom right opens the sheet of every keyboard shortcut, with a s
 
 ## Settings
 
-ComfyUI's address and folder, the model families and what each has ready or missing, the optional prompt designer, the interface and its theme, the command bar, storage and backups. See [configuration](configuration.md) for each tab and for the environment variables. When something does not work, see [troubleshooting](troubleshooting.md).
+ComfyUI's address and folder, rented GPUs and what they cost, the model families and what each has ready or missing, the model files on the disk, the prompts and the optional prompt designer, the interface and its command bar, notifications, the password, agents' tokens, storage and backups. See [configuration](configuration.md) for each tab and for the environment variables. When something does not work, see [troubleshooting](troubleshooting.md).
 
-Settings › Access › Agents (MCP) makes the tokens an AI client drives Afflatus with: see [agents (MCP)](mcp.md).
+Settings › Agents (MCP) makes the tokens an AI client drives Afflatus with: see [agents (MCP)](mcp.md).

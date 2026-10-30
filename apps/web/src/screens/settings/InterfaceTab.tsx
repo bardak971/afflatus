@@ -1,23 +1,25 @@
-import { useCompareResult, useExplain, useHoverPlay, useNotify } from "../../store";
+import { useCompareResult, useExplain, useHoverPlay } from "../../store";
 import { plural } from "../../format";
 import { useForgetPinnedFields } from "../../recipeForm/pinned";
 import { ProgressPicker } from "../../progress/ProgressPicker";
 import { ThemeMode, ThemePickers } from "../../theme/Appearance";
 import { Button, Help, Toggle } from "../../ui";
-import { WhatCard, WhereCard } from "./NotifyCards";
+import { BarCard } from "./BarCard";
 import { Block, Card, Row } from "./Rows";
 import { COLUMNS } from "./wide";
 import { SETTING_HELP } from "@afflatus/core";
 
-/** Settings › Interface: how Afflatus looks and behaves in this browser, and what it tells you about. Who may open it is Settings › Access. */
+/**
+ * Settings › Interface: how Afflatus looks and behaves in this browser, and its command bar (card #168: the bar's tab joined
+ * this one). What it tells you about is Settings › Notifications; who may open it, Settings › Sign-in.
+ */
 export function InterfaceTab() {
   const explain = useExplain();
   const hover = useHoverPlay();
   const compare = useCompareResult();
-  const notify = useNotify();
   const pins = useForgetPinnedFields();
   return (
-    // two columns in a wide window, as the other tabs: the look on the left, the notifications on the right
+    // two columns in a wide window, as the other tabs: the look on the left, the command bar on the right
     <div className={COLUMNS}>
       <div className="flex flex-col gap-4">
         <Card
@@ -48,15 +50,7 @@ export function InterfaceTab() {
           </Row>
         </Card>
       </div>
-      <div className="flex flex-col gap-4">
-        <Card title="Notifications">
-          <Row setting="notify.banner" label="Banner when renders finish" help="A banner over the screen when renders finish while another screen is open (the library and the Queue show them anyway). Off: finished renders are not announced in the app; a failure always is.">
-            <Toggle bare on={notify.banner} onChange={(banner) => notify.set({ banner })} label="Banner when renders finish" />
-          </Row>
-        </Card>
-        <WhereCard />
-        <WhatCard />
-      </div>
+      <BarCard />
     </div>
   );
 }

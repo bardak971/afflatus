@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, HardDrive, MoreHorizontal, Trash2 } from "lucide-react";
 import { api, type NetworkVolume, type VolumePlan } from "../../api";
 import { ContextMenu, useMenu } from "../../ContextMenu";
+import { useSettings } from "../../data";
 import { DEPLOYED_READS } from "../../deployReads";
 import { LicenceChecks } from "../../DeployModels";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "../../Dialog";
@@ -30,9 +31,11 @@ const rangeSaid = (r: { fastMs: number; slowMs: number; lowUsd: number; highUsd:
  * the pod on it now, and whether it went unused; Make one, Fill from a set, Grow, Delete.
  */
 export function VolumesCard() {
-  const volumes = useQuery({ queryKey: queryKeys.runpodVolumes(), queryFn: ({ signal }) => api.runpodVolumes({ signal }), refetchInterval: 30_000, staleTime: 10_000, retry: false });
+  // shown before a RunPod key too (card #168), with a line in place of the list: nothing is asked of RunPod until then
+  const has = Boolean(useSettings().data?.hasRunpodKey);
+  const volumes = useQuery({ queryKey: queryKeys.runpodVolumes(), queryFn: ({ signal }) => api.runpodVolumes({ signal }), refetchInterval: 30_000, staleTime: 10_000, retry: false, enabled: has });
   // the GPUs in stock where each volume is: the plan reads RunPod's stock (the sets weighed are all of them)
-  const plan = useQuery({ queryKey: queryKeys.volumePlan(null), queryFn: ({ signal }) => api.volumePlan(null, { signal }), staleTime: 60_000, retry: false });
+  const plan = useQuery({ queryKey: queryKeys.volumePlan(null), queryFn: ({ signal }) => api.volumePlan(null, { signal }), staleTime: 60_000, retry: false, enabled: has });
   const [open, setOpen] = useState<null | { kind: "make" } | { kind: "fill" | "grow" | "delete"; volume: NetworkVolume } | { kind: "files"; volume: NetworkVolume; folder?: string; full?: boolean }>(null);
   const list = volumes.data?.volumes ?? [];
   // a volume's Files asked for by its id (?volume=, a "volume is full" message's Open the volume): opened once it is listed,
@@ -60,10 +63,11 @@ export function VolumesCard() {
               {list.some((v) => v.unused) && <> · <span className="font-semibold text-warn-ink">{list.filter((v) => v.unused).length} unused</span></>}
             </span>
           )}
-          <Button size="sm" onClick={() => setOpen({ kind: "make" })}>Make one…</Button>
+          <Button size="sm" onClick={() => setOpen({ kind: "make" })} disabled={!has} data-tip={has ? undefined : "Save the RunPod API key first (RunPod account, on this tab)"}>Make one…</Button>
         </span>
       )}
     >
+      {!has && <Block><span className="text-xs text-ink-2">A network volume keeps the models between pods, in one data centre. Yours show here once the RunPod API key is saved (RunPod account, on this tab).</span></Block>}
       {volumes.isError && <Block><ErrorNote>{volumes.error.message}</ErrorNote></Block>}
       {volumes.isSuccess && !list.length && <Block><span className="text-xs text-ink-2">No volume on this account. Without one, each deploy fetches its models; with one, they wait there for the next pod.</span></Block>}
       {list.map((v) => <VolumeRow key={v.id} v={v} stock={plan.data?.places.find((p) => p.dataCenter === v.dataCenter)?.gpus ?? null} onAct={(kind) => setOpen({ kind, volume: v })} />)}

@@ -12,7 +12,7 @@ import { useQueue } from "../../data";
 import { AccessRow } from "./AccessRow";
 import { AddMachineCard, MachineCards, MachinesHead, PacksRow, SetAsideNote, useMachineProbes, useSaveMachines } from "./MachinesCard";
 import { COLUMNS } from "./wide";
-import { FirstLaunchCard, NoComfyCard } from "./NoComfyCard";
+import { NoComfyCard } from "./NoComfyCard";
 import { ComfyCheckRows, ComfyVersionFacts } from "./ComfyCheck";
 import { SETTING_HELP } from "@afflatus/core";
 
@@ -56,23 +56,23 @@ function NodePackRow() {
   }, [loaded, restartedAt, client]);
   if (!pack.data) return null;
   const p = pack.data;
-  if (p.loaded) return <Row setting="comfy.pack" label="Node pack" help={WHY_PACK}><Status ok>Loaded</Status></Row>;
+  if (p.loaded) return <Row setting="comfy.pack" label="Afflatus node pack" help={WHY_PACK}><Status ok>Loaded</Status></Row>;
   if (p.written) {
     return (
-      <Row setting="comfy.pack" tone="warn" label="Node pack: restart ComfyUI" help={`Afflatus's node pack was written to ComfyUI's custom_nodes folder: ComfyUI loads it at its next start. Restart ComfyUI asks ComfyUI-Manager to restart it, as its own Restart does (the same command line), once nothing renders. Without ComfyUI-Manager, restart it the way you started it. ${WHY_PACK}`}>
+      <Row setting="comfy.pack" tone="warn" label="Afflatus node pack: restart ComfyUI" help={`Afflatus's node pack was written to ComfyUI's custom_nodes folder: ComfyUI loads it at its next start. Restart ComfyUI asks ComfyUI-Manager to restart it, as its own Restart does (the same command line), once nothing renders. Without ComfyUI-Manager, restart it the way you started it. ${WHY_PACK}`}>
         <span className="min-w-0 grow text-xs text-warn-ink">{waiting ? "ComfyUI is restarting…" : p.manager === false ? "written to custom_nodes: no ComfyUI-Manager to restart it from here, restart ComfyUI the way you started it" : "written to custom_nodes: ComfyUI loads it at its next start"}</span>
         {p.manager && <Button size="sm" tone="primary" onClick={() => restart.mutate()} disabled={restart.isPending || waiting}>{restart.isPending || waiting ? "Restarting…" : "Restart ComfyUI"}</Button>}
       </Row>
     );
   }
   if (p.canWrite) {
-    return <Row setting="comfy.pack" label="Node pack" help={`With the folder set, Afflatus puts its node pack in ComfyUI's custom_nodes. ${WHY_PACK}`}><span className="text-xs text-ink-3">goes into custom_nodes with the folder set</span></Row>;
+    return <Row setting="comfy.pack" label="Afflatus node pack" help={`With the folder set, Afflatus puts its node pack in ComfyUI's custom_nodes. ${WHY_PACK}`}><span className="text-xs text-ink-3">goes into custom_nodes with the folder set</span></Row>;
   }
   return (
     <Row
       setting="comfy.pack"
       tone="warn"
-      label="Node pack not installed"
+      label="Afflatus node pack not installed"
       help={`ComfyUI's folder is not on this computer, so Afflatus cannot write its node pack there. Install it once by hand: download it, unpack it into ComfyUI's custom_nodes folder (it makes custom_nodes/afflatus-nodes/) and restart ComfyUI. ${WHY_PACK}`}
     >
       {/* a link (the zip is a download), drawn as the kit's danger button */}
@@ -92,7 +92,7 @@ export function ComfyCard() {
   // a lone rented pod has its own card too (Start, Stop, idle, Delete), not the one Connection card
   const several = machines.length > 1 || machines.some((m) => m.rented);
   const saveMachines = useSaveMachines();
-  // with one ComfyUI too: its Access line reads its lock from there
+  // with one ComfyUI too: its ComfyUI token line reads its lock from there
   const probes = useMachineProbes();
   const queue = useQueue();
   const setup = useSetup();
@@ -154,7 +154,6 @@ export function ComfyCard() {
         <SetAsideNote />
         <div className={COLUMNS}>
           <div className="flex min-w-0 flex-col gap-4"><NoComfyCard /></div>
-          <div className="flex min-w-0 flex-col gap-4"><FirstLaunchCard /></div>
         </div>
         {machines.length > 0 && <MachineCards machines={machines} probes={probes.data} states={queue.data?.machines} />}
       </div>
@@ -168,7 +167,6 @@ export function ComfyCard() {
         <div className={COLUMNS}>
           <AddMachineCard />
           {vram}
-          <FirstLaunchCard />
         </div>
         <MachineCards machines={machines} probes={probes.data} states={queue.data?.machines} />
       </div>
@@ -210,7 +208,6 @@ export function ComfyCard() {
       <div className="flex min-w-0 flex-col gap-4">
         <AddMachineCard />
         {vram}
-        <FirstLaunchCard />
       </div>
     </div>
   );

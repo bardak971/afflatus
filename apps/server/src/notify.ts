@@ -346,7 +346,7 @@ export class Notify {
    */
   async toTelegram(notice: Notice): Promise<void> {
     const n = (await readSettings(this.deps.db)).notify;
-    if (!(n.telegramToken && n.telegramChat)) throw httpError("Telegram is not set up: Settings › Interface › Notifications.", 409);
+    if (!(n.telegramToken && n.telegramChat)) throw httpError("Telegram is not set up: Settings › Notifications.", 409);
     try {
       await this.post("telegram", n, notice, null);
     } catch (err) {
@@ -482,7 +482,7 @@ export class Notify {
 
 const channelBody = z.object({ channel: z.enum(["telegram", "discord"]) });
 
-/** Send a test, and find the chat id (Settings › Interface › Notifications). The settings themselves go through PUT /api/settings. */
+/** Send a test, and find the chat id (Settings › Notifications). The settings themselves go through PUT /api/settings. */
 export function registerNotify(app: FastifyInstance, notify: Notify): void {
   app.post("/api/notify/test", async (req) => {
     await notify.test(channelBody.parse(req.body).channel);

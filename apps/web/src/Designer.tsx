@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "wouter";
+import { settingHref } from "./screens/settings/settingsIndex";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, RotateCcw, Send, Sparkles } from "lucide-react";
 import { api, type DesignerReply, type DesignerSession, type Look, type RecipeInfo, type SettingsPatch } from "./api";
@@ -245,7 +246,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
       <div className={cx("flex min-h-0 grow flex-col gap-3 overflow-y-auto p-4", showingSystem && "hidden")}>
         {remember.isError && <ErrorNote>{remember.error.message}</ErrorNote>}
         {!ready && settings.isSuccess && (
-          <ErrorNote>The designer has no LLM yet. <Link href="/settings/designer" className="font-semibold underline">Add one in Settings</Link>: any OpenAI-compatible API works, on your computer or elsewhere.</ErrorNote>
+          <ErrorNote>The designer has no LLM yet. <Link href={settingHref("designer.llms")} className="font-semibold underline">Add one in Settings</Link>: any OpenAI-compatible API works, on your computer or elsewhere.</ErrorNote>
         )}
         {near.length > 0 && (
           <div className="flex flex-col gap-1 text-xs text-ink-3">

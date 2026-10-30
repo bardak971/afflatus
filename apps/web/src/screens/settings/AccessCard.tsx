@@ -9,14 +9,16 @@ import { useSayFailed } from "../../sayFailed";
 import { Select } from "../../Select";
 import { useCopied } from "../../hooks";
 import { Button, Checkbox, Chip, cx, ErrorNote, fieldClass, Toggle, TwoStep } from "../../ui";
-import { AgentsBlock } from "./AgentsBlock";
 import { PasswordAsk } from "./PasswordAsk";
+import { Link } from "wouter";
 import { Block, Card, Row } from "./Rows";
+import { settingHref } from "./settingsIndex";
 
 /**
- * Settings › Access: the optional password (access.ts). Where Afflatus listens, the password itself (set,
- * change, turn off: each asks for the current one), whether this computer needs it, how long a device stays signed in,
- * where reset codes go, and the devices signed in now.
+ * Settings › Sign-in (card #168: the Access tab, renamed, its Agents (MCP) a tab of their own): the optional password
+ * (access.ts). Where Afflatus listens, the password itself (set, change, turn off: each asks for the current one), whether
+ * this computer needs it, how long a device stays signed in, where reset codes go, where a new device's sign-in is told
+ * (set in Notifications), and the devices signed in now.
  */
 
 const HELP = "A password for Afflatus. Set, every page, API call and /metrics needs a signed-in device (the probe's /api/health, the sign-in itself and a download ComfyUI fetches excepted; Prometheus uses the metrics token). Too many wrong tries make everyone wait a minute: devices signed in go on, and you are told on Telegram and here. Forgot it: Forgot password? on the sign-in sends a 10-character code (K7M2P-9XQ4R) to Telegram or to this computer's console and data/logs/afflatus.log. Lost every way in: stop Afflatus and run Afflatus.bat reset-password (./afflatus.sh reset-password; from the sources pnpm start reset-password; Docker: docker compose run --rm afflatus node apps/server/dist/index.mjs reset-password), or start it once with AFFLATUS_RESET_PASSWORD=1. Either removes the password and signs every device out.";
@@ -25,12 +27,12 @@ const LOCAL_OFF_HELP = "Not offered: Afflatus listens on this computer only (HOS
 const METRICS_HELP = "While a password is set, /metrics needs a session or this token, sent by Prometheus as a Bearer token (authorization: credentials). Shown once when made: copy it then. Make a new one to replace it.";
 const STAY_HELP = "How long a device stays signed in when \"Remember this device\" was ticked at its sign-in. Not ticked: until the browser closes, or 12 h without use. A change counts from the next sign-in.";
 const CODES_HELP = "Where Forgot password? may send a 10-character code (valid 10 minutes, once, only in the browser that asked for it). A Telegram bot or chat changed lately gets none for 24 h. This computer always: Afflatus's console and data/logs/afflatus.log (docker logs on Docker), which only someone at the machine reads. Telegram: your bot's chat, once Telegram is set in Notifications; in a group chat every member sees the code.";
-const NEW_HELP = "A notice on Telegram when a device never seen before signs in: its browser and address. Changing this, From this computer or where codes go asks for the password unless you signed in within 10 minutes.";
+const NEW_HELP = "A notice when a device never seen before signs in: its browser and address. Where it goes is set in Settings › Notifications › What, its one place. Changing it, From this computer or where codes go asks for the password unless you signed in within 10 minutes.";
 
 const STAY: Array<{ value: string; label: string }> = [1, 7, 30, 90].map((d) => ({ value: String(d), label: plural(d, "day") }));
 
 /** What the card changes on the server: an Access setting, or the metrics token made (true) or taken off (false). */
-type AccessPatch = { localNoPassword?: boolean; stayDays?: AccessSettings["stayDays"]; resetTelegram?: boolean; newDevice?: { telegram?: boolean } } | { metrics: boolean };
+type AccessPatch = { localNoPassword?: boolean; stayDays?: AccessSettings["stayDays"]; resetTelegram?: boolean } | { metrics: boolean };
 
 /** A device's icon from its name ("Safari on iPhone"). */
 function DeviceIcon({ name }: { name: string }) {
@@ -115,7 +117,7 @@ export function AccessCard() {
   const devices = useQuery({ queryKey: queryKeys.signedDevices(), queryFn: () => api.signedDevices() });
   const session = useQuery({ queryKey: queryKeys.session(), queryFn: () => api.session(), staleTime: Infinity });
   const [form, setForm] = useState<"set" | "change" | "off" | null>(null);
-  const sayFailed = useSayFailed({ href: "/settings/access", go: "Open Settings › Access" });
+  const sayFailed = useSayFailed({ href: "/settings/signin", go: "Open Settings › Sign-in" });
   const readAgain = () => {
     void client.invalidateQueries({ queryKey: queryKeys.settings() });
     void client.invalidateQueries({ queryKey: queryKeys.session() });
@@ -135,7 +137,7 @@ export function AccessCard() {
     onError: (err, { patch }) => {
       if (err instanceof ApiError && (err.said.needPassword || (asking && err.status === 403))) setAsking({ patch, said: asking ? err.message : null });
       else if (err instanceof ApiError && err.status === 429) setAsking({ patch, said: err.message });
-      else sayFailed("The access settings were not saved")(err);
+      else sayFailed("The sign-in settings were not saved")(err);
     },
   });
   const change = (patch: AccessPatch) => save.mutate({ patch });
@@ -152,7 +154,9 @@ export function AccessCard() {
   const listen = devices.data?.listen;
   const where = listen ? `${listen.host}:${listen.port}` : "";
   const telegramSet = settings.notify.hasTelegramToken && Boolean(settings.notify.telegramChat);
+  // where a new device's sign-in is told, said here; set in Notifications › What, its one place (card #168)
   const newDevice = settings.notify.events.newDevice;
+  const toldOn = [newDevice.telegram && (telegramSet ? "Telegram" : "Telegram, once it is set"), newDevice.discord && (settings.notify.hasDiscordWebhook ? "Discord" : "Discord, once it is set")].filter(Boolean);
   const list = devices.data?.devices ?? [];
   const canBypass = devices.data?.canBypass ?? false;
   const alarm = devices.data?.alarm;
@@ -167,7 +171,7 @@ export function AccessCard() {
 
   return (
     <Card
-      id="access" setting="access" title="Access" help={HELP}
+      id="access" setting="access" title="Sign-in" help={HELP}
       status={a.hasPassword ? <Chip tone="good"><Lock size={12} strokeWidth={2.4} />Password on</Chip> : undefined}
     >
       <Row setting="access.reach" label="Reachable from" help="The address Afflatus listens on (HOST): 127.0.0.1 is this computer only, 0.0.0.0 every network it is on. Set when Afflatus starts.">
@@ -212,9 +216,10 @@ export function AccessCard() {
           <Checkbox checked disabled onChange={() => {}} className="text-body">This computer <span className="text-xs text-ink-3">its console and log file: always</span></Checkbox>
         </span>
       </Row>
-      <Row setting="access.newDevice" label="Tell me of a new device" help={NEW_HELP}>
+      <Row setting="access.newDevice" label="New device signed in" help={NEW_HELP}>
         {/* a channel on but not set up sends nothing: said as such, not as a notice that never comes */}
-        <Toggle on={newDevice.telegram} onChange={(telegram) => change({ newDevice: { telegram } })} label={telegramSet ? "On Telegram" : "On Telegram, once it is set"} />
+        <span className="grow text-body text-ink-2">{toldOn.length ? `told on ${toldOn.join(" and ")}` : "not told"}</span>
+        <Link href={settingHref("notify.newDevice")} className="shrink-0 text-body font-semibold hover:underline">Notifications › What ›</Link>
       </Row>
       {a.hasPassword && (
         <Row setting="access.metrics" label="Metrics token" help={METRICS_HELP}>
@@ -252,7 +257,6 @@ export function AccessCard() {
           )}
         </div>
       )}
-      <AgentsBlock />
       <Block>
         <span className="text-xs leading-normal text-ink-3">
           Locks Afflatus for anyone who reaches it over the network: the library, renders, the GPUs and pods, the keys it holds. Not the files on this computer: those are your account's and your disk's to protect.

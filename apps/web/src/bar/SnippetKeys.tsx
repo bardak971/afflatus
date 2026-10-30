@@ -4,7 +4,7 @@ import { cx } from "../ui";
 import { insertSnippet, slugOf, snippetsFor, typedTrigger, type Snippet } from "./snippets";
 
 /**
- * Prompt snippets typed by name in a prompt box (Settings › Command bar, off at first): while `;ci…` is typed,
+ * Prompt snippets typed by name in a prompt box (Settings › Interface › Command bar, off at first): while `;ci…` is typed,
  * the kit's snippets it starts are listed under the box (↑ ↓, Tab or Enter puts one in, Esc closes the list);
  * a whole name followed by a space or Tab is put in at once. Hands the box its key handler and the list.
  */

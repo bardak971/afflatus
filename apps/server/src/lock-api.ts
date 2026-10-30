@@ -182,7 +182,7 @@ export function registerLock(app: FastifyInstance, s: Services): void {
   /** Open it again: the lock taken off, the token forgotten. */
   app.post("/api/machines/:id/unlock", async (req) => {
     const { id } = params.parse(req.params);
-    // it loosens what guards that ComfyUI as the Access settings do: a sign-in of the last 10 minutes, or the password (a
+    // it loosens what guards that ComfyUI as the Sign-in settings do: a sign-in of the last 10 minutes, or the password (a
     // session stolen long ago, or one signed out of nowhere yet, does not open it) (card #187)
     const { current } = z.object({ current: z.string().max(200).optional() }).parse(req.body ?? {});
     await s.access.mayChange(req.access.session, current, ip(req));

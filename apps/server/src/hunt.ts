@@ -383,7 +383,7 @@ export class Hunt {
     const settings = await readSettings(this.s.db);
     if (!settings.runpodKey) throw httpError("No RunPod API key: set it in Settings › Rented GPUs.", 409);
     if (settings.machines.length >= MAX_MACHINES) throw httpError(`Afflatus keeps ${MAX_MACHINES} ComfyUIs at most: remove one to hunt a GPU.`, 409);
-    if (await this.s.rented.capped()) throw httpError("A spending cap is reached: raise it in Settings › Rented GPUs to hunt a GPU.", 409);
+    if (await this.s.rented.capped()) throw httpError("A spending cap is reached: raise it in Settings › Costs to hunt a GPU.", 409);
     if (!(await this.held()).length) throw httpError("Nothing waits for a GPU: queue the renders first.", 409);
     let dataCenter: string | null = null;
     if (asked.deploy.volume) {

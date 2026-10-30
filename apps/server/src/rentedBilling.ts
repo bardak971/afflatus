@@ -392,7 +392,7 @@ export class RentedBilling extends RentedCore {
     const cap = (await readSettings(this.db)).rentCaps.month;
     if (cap <= 0) return;
     const spent = await this.spent();
-    if (spent.month >= cap) throw httpError(`This month's cap is reached (${dollars(spent.month)} of ${dollars(cap)}), and a network volume bills every month: raise the cap in Settings › Rented GPUs first.`, 409);
+    if (spent.month >= cap) throw httpError(`This month's cap is reached (${dollars(spent.month)} of ${dollars(cap)}), and a network volume bills every month: raise the cap in Settings › Costs first.`, 409);
   }
 
   /** Whether a spending cap is reached now: a deploy and a Start are refused, and the GPU hunt ends (hunt.ts). */

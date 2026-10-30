@@ -75,7 +75,7 @@ export interface RendersAsked { from?: number; to?: number; machine?: string; re
 /**
  * The Render times tab's file: a row per render on record in the window and filters, the oldest first, every one of them
  * (the list pages by 500 at most; this reads them all). A render on a pod costs its time at its session's rate (as the
- * Costs tab counts it); one of this PC's, its energy at the price set in Settings, in the currency set there.
+ * Costs tab counts it); one of this PC's, its energy at the price set in Settings › Costs, in the currency set there.
  */
 export async function rendersCsv(db: Db, registry: Registry, settings: Settings, asked: RendersAsked): Promise<string> {
   let q = db.selectFrom("render_stats").select([

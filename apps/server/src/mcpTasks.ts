@@ -144,7 +144,7 @@ export async function cancelTask(s: Services, ctx: ToolCtx, taskId: string): Pro
   const follow = readJson<Follow>(row.follow, { jobs: [] });
   let said = `Cancelled the task of ${row.tool}`;
   try {
-    if (!token.scopes.includes("make")) throw refusal(`This token cannot cancel (it needs ${SCOPE_WORDS.make}): tick ${SCOPE_WORDS.make} on it in Settings › Access.`);
+    if (!token.scopes.includes("make")) throw refusal(`This token cannot cancel (it needs ${SCOPE_WORDS.make}): tick ${SCOPE_WORDS.make} on it in Settings › Agents (MCP).`);
     if ("jobs" in follow) {
       const going = follow.jobs.length ? await s.db.selectFrom("jobs").selectAll().where("id", "in", follow.jobs).where("status", "in", ["queued", "running"]).execute() : [];
       for (const r of going) await mayTouch(s, ctx, r);

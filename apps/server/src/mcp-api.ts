@@ -5,11 +5,11 @@ import { SCOPES, STARTS } from "./mcpTokens";
 import type { Services } from "./services";
 
 /**
- * Settings › Access › Agents (MCP): the tokens made, changed, revoked and listed, each one's activity (and as
+ * Settings › Agents (MCP): the tokens made, changed, revoked and listed, each one's activity (and as
  * CSV), and where each page is (whatsOpen.ts). Behind the lock as every API route: an MCP token is never taken here.
  *
  * Making a token, and changing its scopes, limits or end or revoking it, loosen or tighten what an agent may do: each needs
- * a sign-in of the last 10 minutes or the password with it (access.ts mayChange), as the Access settings and Telegram's
+ * a sign-in of the last 10 minutes or the password with it (access.ts mayChange), as the Sign-in settings and Telegram's
  * bot do. A new name alone does not.
  */
 
