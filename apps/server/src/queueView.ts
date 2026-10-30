@@ -71,6 +71,8 @@ export interface LaneView {
   files?: PodFileView[];
   /** It takes no job: node packs wait for its ComfyUI to restart, or it restarts now (podPacks.ts holding). */
   packsHold?: boolean;
+  /** Its ComfyUI answers nothing while it renders but still runs (queue.ts sayBusy): what is said of it; null otherwise. */
+  busy?: string | null;
 }
 
 export async function status(
@@ -158,7 +160,7 @@ export async function status(
     const monitor = own && lane ? (await lane.core.comfy()).monitor : null;
     // the seed it was built with, once sent: from memory, or from the job when another process sent it
     const seed = own?.seed ?? readJson<Partial<Resume>>(r.resume, {}).seed ?? null;
-    return { ...brief(r), seed, ...behind(figures(monitor, own, own?.promptId, idle(r)), lane), spilling: own && lane ? await spillingNow(lane.core) : false };
+    return { ...brief(r), seed, ...behind(figures(monitor, own, own?.promptId, idle(r)), lane), spilling: own && lane ? await spillingNow(lane.core) : false, busy: own ? lane?.busy ?? null : null };
   };
   const ran = rows.filter((r) => r.status === "running");
   const cards = await Promise.all(lanes.map((l) => {
@@ -188,6 +190,11 @@ export async function status(
        * that do not ask for those packs say so, rather than waiting with no reason given.
        */
       packsHold: l.packsHold ?? false,
+      /**
+       * Its ComfyUI answers nothing while it renders, but its process still runs (a PC paging): what is said of it ("ComfyUI
+       * isn't answering: …; the render goes on"). It is then not offline, and its render is followed on. Null otherwise.
+       */
+      busy: l.busy ?? null,
       /** A rented pod: started, stopped, what it has cost; null for a ComfyUI of its own. */
       rented: l.rented,
       ...(l.files?.length ? { files: l.files } : {}),

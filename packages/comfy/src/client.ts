@@ -10,6 +10,11 @@ export class ComfyError extends Error {}
  * there, but out of reach as much as one that does not answer, so a job waits for it the same way. Its message says why.
  */
 export class ComfyLocked extends ComfyUnreachable {}
+/**
+ * A gateway in front of ComfyUI said nothing listens behind it (502, 503, Cloudflare's 521 and 523): ComfyUI's process is
+ * gone, or its pod stopped, not merely slow to answer, as a gateway's time-out (504, 524) may be.
+ */
+export class ComfyNotBehind extends ComfyUnreachable {}
 
 /**
  * A hash of each node list as ComfyUI sent it: machines with the same nodes and the same files send the same list, and what
@@ -24,6 +29,8 @@ export const LOCKED_HEADER = "x-afflatus-lock";
 
 /** The statuses a gateway answers with when what is behind it does not (502, 503, 504, and Cloudflare's 520 to 524). */
 const UNREACHED = new Set([502, 503, 504, 520, 521, 522, 523, 524]);
+/** Of those, the ones that say nothing is there behind it, rather than that it took too long (ComfyNotBehind). */
+const NOTHING_BEHIND = new Set([502, 503, 521, 523]);
 
 export interface ComfyStatus {
   version: string;
@@ -175,7 +182,7 @@ export class ComfyClient {
     // may well still be rendering. A job waits for it as for any silence, instead of failing a render that goes on, billed
     if (UNREACHED.has(res.status)) {
       await res.body?.cancel().catch(() => {});
-      throw new ComfyUnreachable(`ComfyUI did not answer at ${this.baseUrl} (${path.split("?")[0]}: ${res.status} from the proxy in front of it)`);
+      throw new (NOTHING_BEHIND.has(res.status) ? ComfyNotBehind : ComfyUnreachable)(`ComfyUI did not answer at ${this.baseUrl} (${path.split("?")[0]}: ${res.status} from the proxy in front of it)`);
     }
   }
 

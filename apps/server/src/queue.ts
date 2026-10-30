@@ -15,6 +15,7 @@ import { waitingWords, type Registry } from "./registry";
 import { record } from "./renders";
 import { machineSaid, type Say } from "./notifyWords";
 import type { PodFileView } from "./podFiles";
+import type { StillRuns } from "./comfyAlive";
 import { plan, planTotal } from "./schedule";
 import { FIRST_MACHINE, readSettings, type Machine } from "./settings";
 import { isPodMachineId, reportsDeath } from "./runpod";
@@ -165,6 +166,16 @@ export class Queue {
   private goneSaid = new Set<string>();
   /** Since when each machine has not answered the status poll, in a row (noteReachable). */
   private silentSince = new Map<string, number>();
+  /**
+   * Whether a machine's ComfyUI that answers nothing still runs (comfyAlive.ts: its port, its pod; set by services.ts). Asked
+   * before a render is taken as lost or its machine said offline: one that runs is swamped, not gone. `memory`: what it holds
+   * is read too (slow on a PC that pages: once per silence). Null: never asked, as before.
+   */
+  stillRuns: ((machine: Machine, memory: boolean) => Promise<StillRuns>) | null = null;
+  /** The machines whose ComfyUI answers nothing while it renders and still runs, since when and what was said (Queue, status bar). */
+  private readonly busy = new Map<string, { since: number; said: string }>();
+  /** The machines a silence is being looked into for (judgeSilent): one look at a time. */
+  private readonly judging = new Set<string>();
   /**
    * Told when a rented pod's ComfyUI is found started again without the render it ran (an older pod image, whose ComfyUI was
    * the container itself: its death restarted it, and said nothing): rentedFollow terminates the pod as a crash, with why.
@@ -1056,7 +1067,7 @@ export class Queue {
     const lanes = await this.refresh();
     const tools = this.lane(TOOLS);
     return [
-      ...lanes.map((l, i) => ({ machine: l.machine, core: l.core, paused: l.paused, reachable: l.reachable, outside: l.outside, locked: l.comfy?.locked ?? false, rented: l.machine ? this.rentedOf(l.machine) : null, files: l.machine && !l.machine.rented ? this.downloadsOf(l.machine, i === 0) : [], packsHold: Boolean(this.podFetch?.holding(l.id) || this.ownPacks.holding(l.id)) })),
+      ...lanes.map((l, i) => ({ machine: l.machine, core: l.core, paused: l.paused, reachable: l.reachable, outside: l.outside, locked: l.comfy?.locked ?? false, rented: l.machine ? this.rentedOf(l.machine) : null, files: l.machine && !l.machine.rented ? this.downloadsOf(l.machine, i === 0) : [], packsHold: Boolean(this.podFetch?.holding(l.id) || this.ownPacks.holding(l.id)), busy: this.swampedSaid(l.id) })),
       { machine: null, core: tools.core, paused: false, reachable: null, locked: false, rented: null },
     ];
   }
@@ -1547,6 +1558,50 @@ export class Queue {
   }
 
   /**
+   * A machine's ComfyUI silent while it renders, its process found running (stillRuns): busy, not gone. Kept for the Queue and
+   * the status bar, and told once (comfyBusy) until it answers again; its render is followed on, never queued again.
+   */
+  private sayBusy(lane: Lane, label: string | null, still: StillRuns): void {
+    if (this.busy.has(lane.id)) return;
+    const said = still.memory
+      ? `${still.full || still.swollen ? "its memory is full, the PC is paging" : "it still runs"} (${still.memory}); the render goes on${still.swollen ? ". Restart ComfyUI once the queue is empty to give that memory back" : ""}`
+      : lane.machine?.rented ? "the pod still runs; the render goes on" : "it still runs; the render goes on";
+    this.busy.set(lane.id, { since: Date.now(), said: `ComfyUI isn't answering: ${said}` });
+    this.events.emit("queue");
+    const name = lane.machine ? machineSaid(lane.machine) : "ComfyUI";
+    this.tell?.("comfyBusy", { title: `${name} isn't answering`, body: `It still runs${label ? ` ${label}` : ""}: ${said}.`, key: lane.id });
+  }
+
+  /** It answers again, or its render ended: no longer busy. */
+  private notBusy(lane: Lane): void {
+    if (this.busy.delete(lane.id)) this.events.emit("queue");
+  }
+
+  /** What a machine's ComfyUI silent but running is said to be doing, while it is; null otherwise (queueView). */
+  swampedSaid(machine: string): string | null {
+    return this.busy.get(machine)?.said ?? null;
+  }
+
+  /**
+   * A machine silent to the status poll long enough while it renders: offline only if its process is gone (stillRuns),
+   * busy otherwise. One look at a time, none while it is known busy (its render's own wait says when that ends).
+   */
+  private async judgeSilent(lane: Lane): Promise<void> {
+    if (this.busy.has(lane.id) || this.goneSaid.has(lane.id) || this.judging.has(lane.id)) return;
+    if (!this.stillRuns || !lane.machine) return this.sayGone(lane, null);
+    this.judging.add(lane.id);
+    try {
+      const still = await this.stillRuns(lane.machine, true).catch(() => null);
+      // its process found gone: it went, even if one started again answers by now; found running, busy, unless it answered
+      // meanwhile or its render ended
+      if (!still?.runs) this.sayGone(lane, null);
+      else if (lane.reachable === false && lane.running?.gpu) this.sayBusy(lane, null, still);
+    } finally {
+      this.judging.delete(lane.id);
+    }
+  }
+
+  /**
    * A machine's ComfyUI died (its pod said so: rentedFollow): the render it ran fails now, with why and the step it was at,
    * and is not queued again (Died). Kept for that render (by its job): its own wait, which sees only a ComfyUI gone, would
    * otherwise queue it again elsewhere; never for a later job on the machine. Whether a render was failed by it: none for a
@@ -1715,8 +1770,9 @@ export class Queue {
         changed = true;
         lane.reachable = false;
       }
-      // said offline once silent this long while it renders, not at one answer missed (goneAfterMs)
-      if (lane.running?.gpu && now - this.silentSince.get(lane.id)! >= (this.opts.goneAfterMs ?? 30_000)) this.sayGone(lane, null);
+      // said offline once silent this long while it renders, not at one answer missed (goneAfterMs), and only once its
+      // process is found gone: one still running is swamped (judgeSilent)
+      if (lane.running?.gpu && now - this.silentSince.get(lane.id)! >= (this.opts.goneAfterMs ?? 30_000)) void this.judgeSilent(lane);
     }
     this.offline.noteReachable(ok);
     if (changed) {
@@ -1747,6 +1803,7 @@ export class Queue {
    */
   private back(lane: Lane): void {
     lane.reachable = true;
+    this.notBusy(lane);
     this.awayFor.delete(lane.id);
     this.dropStale(lane);
     this.goneSaid.delete(lane.id);
@@ -1974,9 +2031,18 @@ export class Queue {
       ram.unref?.();
       let outputs;
       try {
-        outputs = await waitForOutputs(comfy.client, resume.promptId, { ...this.opts.wait, signal: abort.signal, ended: comfy.monitor.ended(resume.promptId) });
+        // a ComfyUI silent past the wait's offlineMs whose process still runs is swamped (a PC paging): followed on, not lost
+        const machine = lane.machine;
+        const ask = this.stillRuns;
+        const stillRuns = machine && ask ? async () => {
+          const still = await ask(machine, !this.busy.has(lane.id));
+          if (still.runs) this.sayBusy(lane, row.label, still);
+          return still.runs;
+        } : undefined;
+        outputs = await waitForOutputs(comfy.client, resume.promptId, { ...this.opts.wait, signal: abort.signal, ended: comfy.monitor.ended(resume.promptId), stillRuns, onBusy: (b) => (b ? undefined : this.notBusy(lane)) });
       } finally {
         clearInterval(ram);
+        this.notBusy(lane);
         measured = comfy.monitor.measured(resume.promptId);
         comfy.monitor.untrack(resume.promptId);
         // a save under way lands before the job is closed or queued again, never over what that writes

@@ -1,4 +1,4 @@
-import { ComfyUnreachable, type ComfyClient, type HistoryEntry } from "./client";
+import { ComfyNotBehind, ComfyUnreachable, type ComfyClient, type HistoryEntry } from "./client";
 
 /** ComfyUI stopped answering for too long, or forgot the prompt (it restarted): the job can be tried again. */
 export class ComfyLost extends Error {}
@@ -61,6 +61,15 @@ export interface WaitOptions {
    * history asked for every 750 ms was 68 requests a minute per running render, though the socket says when it ends.
    */
   ended?: Promise<unknown>;
+  /**
+   * Asked once ComfyUI has been silent `offlineMs`, and at each poll after: whether its process still lives (its port takes
+   * a connection, its pod runs). True: it is swamped (a PC paging, a model loading), not gone, and the render is waited for
+   * on, never taken as lost; only the deadline still holds. Left out, or false: lost as before (ComfyAway). Never asked
+   * while a gateway in front of it says nothing listens behind it (ComfyNotBehind): that is a process gone.
+   */
+  stillRuns?: () => Promise<boolean>;
+  /** Told when that silence of a ComfyUI still running starts (true) and ends (false, it answers again). */
+  onBusy?: (busy: boolean) => void;
 }
 
 /** How often the history is asked for when the socket tells the end: in case it never does (dropped, an old ComfyUI). */
@@ -79,6 +88,8 @@ export async function waitForOutputs(
   let unreachableSince: number | null = null;
   let absentChecks = 0;
   let heard = false;
+  /** Silent past offlineMs with its process alive (stillRuns): told once, until it answers again. */
+  let busy = false;
   // a promise that fails says nothing of the end: it is then as one never told
   const ended = opts.ended?.then(() => { heard = true; }, () => new Promise<void>(() => {}));
   /** Once the end is heard, how long until the history is read again: it was read at once, and it may not be written yet. */
@@ -107,10 +118,25 @@ export async function waitForOutputs(
         if (absentChecks >= 2 && !(await client.history(promptId))) throw new ComfyLost("ComfyUI lost the job (did it restart?)");
       }
       unreachableSince = null;
+      if (busy) {
+        busy = false;
+        opts.onBusy?.(false);
+      }
     } catch (err) {
       if (!(err instanceof ComfyUnreachable)) throw err;
       unreachableSince ??= Date.now();
-      if (Date.now() - unreachableSince > offlineMs) throw new ComfyAway("ComfyUI went offline during the render");
+      if (Date.now() - unreachableSince > offlineMs) {
+        // a ComfyUI whose process lives renders on, however long it answers nothing (a PC paging took minutes): taken as
+        // lost, its render was queued again while it was still being made, and the user told it was offline
+        if (opts.stillRuns && !(err instanceof ComfyNotBehind) && (await opts.stillRuns().catch(() => false))) {
+          if (!busy) {
+            busy = true;
+            opts.onBusy?.(true);
+          }
+          continue;
+        }
+        throw new ComfyAway("ComfyUI went offline during the render");
+      }
       continue;
     }
     if (!entry) continue;

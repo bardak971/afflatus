@@ -191,6 +191,8 @@ describe("what the queue tells", () => {
     expect(texts().filter((x) => x.startsWith("<b>Stuck: "))).toHaveLength(1);
     expect(texts().find((x) => x.startsWith("<b>Stuck: "))).toMatch(/No step, node or preview for \d+ s on ComfyUI\. It runs on/);
     const q = t.services.queue;
+    // its process found gone when looked at (the fake itself listens on: a process alive is busy, comfyBusy.test.ts)
+    q.stillRuns = async () => ({ runs: false, memory: null, full: false, swollen: false });
     q.noteReachable(true, new Map([["m1", true]]));
     // one answer missed, or silent under 30 s: no news (a ComfyUI loading a model, a PC paging, answers late and renders on)
     q.noteReachable(false, new Map([["m1", false]]), 1_000);

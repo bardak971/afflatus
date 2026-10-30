@@ -45,7 +45,10 @@ const GROUPS: Array<{ title: string; kinds: Array<{ kind: NotifyKind; label: str
   },
   {
     title: "Machines",
-    kinds: [{ kind: "comfyGone", label: "ComfyUI offline mid-render", help: "A machine's ComfyUI stopped answering while it rendered: crashed, closed, or its computer asleep." }],
+    kinds: [
+      { kind: "comfyGone", label: "ComfyUI offline mid-render", help: "A machine's ComfyUI stopped answering while it rendered, and its process is gone: crashed, closed, or its computer asleep." },
+      { kind: "comfyBusy", label: "ComfyUI not answering mid-render", help: "A machine's ComfyUI answers nothing while it renders but still runs (its PC short of memory, paging): the render goes on, with what ComfyUI holds when it is this PC's. Once, until it answers again." },
+    ],
   },
   {
     title: "Sign-in",

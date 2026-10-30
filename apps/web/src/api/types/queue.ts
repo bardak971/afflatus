@@ -172,6 +172,8 @@ export interface RunningJob extends Job {
   stages?: Array<{ n: number; node: string; title: string | null; count: number }>;
   /** Out of video memory, it seems: the memory full and twice what was expected already gone. Much slower than usual. */
   spilling?: boolean;
+  /** Its ComfyUI answers nothing but still runs (a PC paging): what is said of it ("ComfyUI isn't answering: …; the render goes on"); null otherwise. */
+  busy?: string | null;
   /** The seed its graph was built with, once it is sent to ComfyUI; null before, and for a job with none (an export, a cut). */
   seed?: number | null;
 }
@@ -208,6 +210,8 @@ export interface MachineState {
   outside?: { running: number; pending: number } | null;
   /** It takes no job: node packs wait for its ComfyUI to restart, or it restarts now. */
   packsHold?: boolean;
+  /** Its ComfyUI answers nothing while it renders, but still runs (a PC paging): what is said of it; it is not offline then. Null otherwise. */
+  busy?: string | null;
 }
 export interface QueueStatus {
   /** Pause all; each machine says its own in `machines`. */
