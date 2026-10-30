@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { ComfyClient, LOCKED_HEADER } from "@afflatus/comfy";
 import type { Comfy, MachineComfy } from "./comfy";
@@ -155,6 +155,7 @@ export function registerLock(app: FastifyInstance, s: Services): void {
   };
   const told = () => s.queue.events.emit("setup");
   const params = z.object({ id: z.string().max(40) });
+  const ip = (req: FastifyRequest) => req.socket.remoteAddress ?? "";
 
   /**
    * Lock it, or change its lock: a new token (`renew`, or the first lock) and whether calls from its own computer need one.
@@ -163,7 +164,16 @@ export function registerLock(app: FastifyInstance, s: Services): void {
    */
   app.post("/api/machines/:id/lock", async (req) => {
     const { id } = params.parse(req.params);
-    const body = z.object({ local: z.boolean().default(false), renew: z.boolean().default(false) }).parse(req.body ?? {});
+    const { current, ...body } = z.object({ local: z.boolean().default(false), renew: z.boolean().default(false), current: z.string().max(200).optional() }).parse(req.body ?? {});
+    // "No token needed from this PC" switched on loosens the lock, as unlocking does: a sign-in of the last 10 minutes or the
+    // password (card #187). A lock it cannot read counts as one it would loosen
+    if (body.local) {
+      const was = await packLock((await machineOf(id)).comfy);
+      if (!was || (was.locked && !was.local)) {
+        await s.access.mayChange(req.access.session, current, ip(req));
+        await s.access.audit(`ComfyUI ${id}: no token needed from its own computer, from ${ip(req)}`);
+      }
+    }
     const origin = /^https?:\/\/[^/\s]+$/i.test(req.headers.origin ?? "") ? req.headers.origin : undefined;
     const { tokenEnd } = await lockMachine(s, id, { ...body, origin });
     return { ok: true, checks: ["made", "locked", "refused", "answers"], tokenEnd };
@@ -172,10 +182,15 @@ export function registerLock(app: FastifyInstance, s: Services): void {
   /** Open it again: the lock taken off, the token forgotten. */
   app.post("/api/machines/:id/unlock", async (req) => {
     const { id } = params.parse(req.params);
+    // it loosens what guards that ComfyUI as the Access settings do: a sign-in of the last 10 minutes, or the password (a
+    // session stolen long ago, or one signed out of nowhere yet, does not open it) (card #187)
+    const { current } = z.object({ current: z.string().max(200).optional() }).parse(req.body ?? {});
+    await s.access.mayChange(req.access.session, current, ip(req));
     const { comfy } = await machineOf(id);
     await post(comfy, "/afflatus/unlock", {});
     comfy.client.token = "";
     await keepToken(s, id, "");
+    await s.access.audit(`ComfyUI ${id} unlocked, from ${ip(req)}`);
     told();
     return { ok: true };
   });

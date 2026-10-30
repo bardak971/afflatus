@@ -135,7 +135,8 @@ const cancelWaiting = tool({
     const { s, token } = ctx;
     const rows = await waitingRows(s);
     const ids = rows.filter((r) => r.mcp_token_id === token.id || (!mine && !r.mcp_token_id)).map((r) => r.id);
-    const cancelled = ids.length ? await s.queue.cancelWaiting(ids) : 0;
+    // whose they are held in the write too: one another token's run_on or use_only took since this read is left
+    const cancelled = ids.length ? await s.queue.cancelWaiting(ids, { mcpToken: token.id, mine }) : 0;
     const left = rows.length - ids.length;
     ctx.said(`Cancelled ${plural(cancelled, "waiting job")}${left ? `, ${left} left (${mine ? "not this token's" : "another token's"})` : ""}`);
     return { cancelled, ...(left ? { left, said: mine ? "Jobs not queued by this token are left." : "Jobs queued by another token are left: that token's, or the user's in Afflatus, to cancel." } : {}) };

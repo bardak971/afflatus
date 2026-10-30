@@ -250,6 +250,29 @@ export class RentedFollow extends RentedBilling {
     }) : false;
   }
 
+  /** Pods whose open run is known here to keep no cap time (capped_at null): not written again at every read. */
+  private capClear = new Set<string>();
+
+  /**
+   * When this run reached a cap (s.cappedAt, from s.stopAfter just set): kept on its open run (rent_sessions.capped_at) and
+   * read back, so that a restart of Afflatus gives a render running at a cap no fresh grace hour (card #184).
+   */
+  private async capSince(m: Machine, s: Seen, now: number): Promise<void> {
+    const open = () => this.db.updateTable("rent_sessions").where("machine_id", "=", m.id).where("ended_at", "is", null);
+    if (!s.stopAfter) {
+      if (s.cappedAt !== null || !this.capClear.has(m.id)) await open().set({ capped_at: null }).execute();
+      s.cappedAt = null;
+      this.capClear.add(m.id);
+      return;
+    }
+    if (s.cappedAt !== null) return;
+    this.capClear.delete(m.id);
+    const run = await this.db.selectFrom("rent_sessions").select("capped_at").where("machine_id", "=", m.id).where("ended_at", "is", null).executeTakeFirst();
+    const kept = run?.capped_at ? Date.parse(run.capped_at) : Number.NaN;
+    s.cappedAt = Number.isFinite(kept) ? Math.min(kept, now) : now;
+    if (run && !run.capped_at) await open().set({ capped_at: new Date(now).toISOString() }).execute();
+  }
+
   /** What was spent, read once per poll and shared by every pod's cap check in it. */
   private spentThisPoll: Promise<{ today: number; month: number }> | null = null;
 
@@ -374,8 +397,13 @@ export class RentedFollow extends RentedBilling {
    * RunPod has not listed for PENDING_FORGET_MS is forgotten. Each settled name's secret goes to leftSecrets, deleted once
    * its pod is gone.
    */
-  private async settlePending(settings: Settings, pods: Pod[]): Promise<void> {
-    if (this.deploying || !settings.pendingDeploys.length) return;
+  private async settlePending(read: Settings, pods: Pod[]): Promise<void> {
+    if (this.deploying || !read.pendingDeploys.length) return;
+    // read again now no deploy runs: the poll's settings may be from before a deploy that ended while RunPod was asked (its
+    // machine is saved before `deploying` goes false, rentedDeploy.ts), and its pod, found by name with no machine in
+    // them, would be terminated as lost (card #184)
+    const settings = await readSettings(this.db);
+    if (this.deploying) return;
     const client = this.client(settings.runpodKey);
     const done: Array<{ name: string; secret: string; pod: string }> = [];
     for (const p of settings.pendingDeploys) {
@@ -498,10 +526,15 @@ export class RentedFollow extends RentedBilling {
     // a cap reached while it starts or provisions (by another pod's spending, or the bill read since its Start): it would
     // come up billed and only then stop. Stopped now, or terminated as capAction says; asked again if it is still at it a
     // while after
-    if (pod && TRANSITIONAL.has(pod.status) && (caps.day > 0 || caps.month > 0)) {
-      const spent = await (this.spentThisPoll ??= this.spent());
-      this.sayCap(caps, spent);
-      if (capReached(caps, spent)) {
+    // The cap of the MCP token whose run it is, too: the token's pod is not let come up past it (card #184)
+    if (pod && TRANSITIONAL.has(pod.status)) {
+      let capped = false;
+      if (caps.day > 0 || caps.month > 0) {
+        const spent = await (this.spentThisPoll ??= this.spent());
+        this.sayCap(caps, spent);
+        capped = capReached(caps, spent);
+      }
+      if (capped || (await this.overTokenCap(m))) {
         if (s.stopping && s.stoppingSince !== null && this.now() - s.stoppingSince < STOP_AGAIN_MS) return changed;
         const again = s.stopping;
         s.stopping = false;
@@ -999,14 +1032,11 @@ export class RentedFollow extends RentedBilling {
     for (const m of up) {
       const s = this.seen.get(m.id)!;
       // a spending that could not be read leaves the cap as last seen
-      if (spent || !capped) {
-        s.stopAfter = spent ? capReached(caps, spent) : false;
-        s.cappedAt = s.stopAfter ? s.cappedAt ?? now : null;
-      }
-      if (!s.stopAfter && (await this.overTokenCap(m))) {
-        s.stopAfter = true;
-        s.cappedAt ??= now;
-      }
+      const read = Boolean(spent) || !capped;
+      if (read) s.stopAfter = spent ? capReached(caps, spent) : false;
+      if (!s.stopAfter && (await this.overTokenCap(m))) s.stopAfter = true;
+      // a cap not read is not known to be off: the time kept on its run stays for when it is read again
+      if (read || s.stopAfter) await this.capSince(m, s, now);
       await this.endIfStuck(m, now);
       if (s.stopping) continue;
       if (s.stopAfter) {
@@ -1127,7 +1157,7 @@ export class RentedFollow extends RentedBilling {
     const spent = await (this.spentThisPoll ??= this.spent());
     this.sayCap(caps, spent);
     s.stopAfter = capReached(caps, spent) || (await this.overTokenCap(m));
-    s.cappedAt = s.stopAfter ? s.cappedAt ?? now : null;
+    await this.capSince(m, s, now);
     // at a cap: once its render ends, or an hour after the cap when the render does not end
     // Whether it renders is read again here, the cap now set: a render that ended while the bill was read is not waited for.
     // A render still waiting in its ComfyUI behind work from outside Afflatus has not started: it is not waited for, the pod

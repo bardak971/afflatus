@@ -609,7 +609,7 @@ export class Queue {
    * same line so that it comes after the renders that were asked for before it and its own timeline's (needsAhead), and
    * shows with them.
    */
-  async enqueueExport(opts: ExportOptions, label: string): Promise<string> {
+  async enqueueExport(opts: ExportOptions, label: string, mcpToken?: string): Promise<string> {
     const id = newId();
     const at = now();
     await this.db
@@ -618,6 +618,8 @@ export class Queue {
         id, owner_id: OWNER, recipe_id: EXPORT_JOB, label, inputs: JSON.stringify(opts), status: "queued", warm: 0, look: null, priority: 20, depends_on: null,
         attempts: 0, resume: null, error: null, generation_id: null, clip_id: null, clip_fit: 0, timeline_id: opts.timeline, draft_id: null, folder_id: null,
         created_at: at, started_at: null, finished_at: null, updated_at: at,
+        // the MCP token whose export call queued it: its to cancel, and an agent's export is not the user's for other tokens
+        ...(mcpToken ? { mcp_token_id: mcpToken } : {}),
       })
       .execute();
     this.events.emit("queue");
@@ -669,7 +671,9 @@ export class Queue {
       .catch(() => {});
   }
 
-  async cancel(id: string): Promise<boolean> {
+  async cancel(id: string, by?: bulk.CancelBy): Promise<boolean> {
+    // whose it may be (an MCP token's cancel), held in each write below: a job another token made its own since the caller
+    // read it (run_on, use_only) is not cancelled
     // a job queued again with the prompt ComfyUI may still have (lost from sight, or a finish stopped by a restart): that prompt
     // is stopped in ComfyUI too, or it would go on rendering what nobody wants any more
     const waiting = await this.db.selectFrom("jobs").select(["resume", "machine_id"]).where("id", "=", id).where("status", "=", "queued").executeTakeFirst();
@@ -680,6 +684,7 @@ export class Queue {
       .set({ status: "cancelled", error: "stopped by you", finished_at: now(), updated_at: now() })
       .where("id", "=", id)
       .where("status", "=", "queued")
+      .$if(Boolean(by), (q) => q.where(bulk.ownedBy(by!)))
       .executeTakeFirst();
     if (Number(queued.numUpdatedRows) > 0) {
       if (sent) this.interruptOn(waiting?.machine_id, sent);
@@ -690,6 +695,8 @@ export class Queue {
       return true;
     }
     const lane = this.laneRunning(id);
+    // a running job changes hands no more (run_on and use_only move waiting ones): its owner read now holds
+    if (lane?.running && by && !(await this.db.selectFrom("jobs").select("id").where("id", "=", id).where(bulk.ownedBy(by)).executeTakeFirst())) return false;
     if (lane?.running) {
       lane.running.abort.abort();
       if (lane.running.promptId && lane.comfy) await lane.comfy.client.interrupt(lane.running.promptId).catch(() => {});
@@ -703,6 +710,7 @@ export class Queue {
       .set({ status: "cancelled", error: "stopped by you", finished_at: now(), updated_at: now() })
       .where("id", "=", id)
       .where("status", "=", "running")
+      .$if(Boolean(by), (q) => q.where(bulk.ownedBy(by!)))
       .executeTakeFirst();
     if (Number(stopped.numUpdatedRows) === 0) return false;
     // picked up in the meantime: stopped there too
@@ -849,7 +857,7 @@ export class Queue {
   async again(id: string, change: Record<string, unknown> = {}, by: { mcpToken?: string | null } = {}): Promise<string> {
     const row = await this.db.selectFrom("jobs").selectAll().where("id", "=", id).executeTakeFirst();
     if (!row) throw httpError("this job was not found");
-    if (row.recipe_id === EXPORT_JOB) return this.enqueueExport(JSON.parse(row.inputs) as ExportOptions, row.label);
+    if (row.recipe_id === EXPORT_JOB) return this.enqueueExport(JSON.parse(row.inputs) as ExportOptions, row.label, by.mcpToken ?? undefined);
     if (row.recipe_id === CUT_JOB) {
       const cut = JSON.parse(row.inputs) as CutOptions;
       // a finish cut behind a Face refine still to end waits for it again: started first, it would fail with nothing to finish
@@ -891,7 +899,7 @@ export class Queue {
   /** Several finished jobs again, in the order given, each as `again` does it (queueBulk.ts). */
   againAll(ids: readonly string[], opts: { dismiss?: boolean } = {}) { return bulk.againAll(this.core, (id) => this.again(id), ids, opts); }
   /** Every waiting job cancelled in one statement, or those of `ids` that still wait (queueBulk.ts). */
-  cancelWaiting(ids?: readonly string[]) { return bulk.cancelWaiting(this.core, (id) => this.failDependents(id), (machine, promptId) => this.interruptOn(machine, promptId), ids); }
+  cancelWaiting(ids?: readonly string[], by?: bulk.CancelBy) { return bulk.cancelWaiting(this.core, (id) => this.failDependents(id), (machine, promptId) => this.interruptOn(machine, promptId), ids, by); }
 
   /**
    * About how long a render will take: the forecast of its form, with what loading its model adds when it is not the one

@@ -385,6 +385,8 @@ export interface Tables {
     gpu: string | null; up_at: string | null; idle_minutes: number | null;
     /** When it last had work while it ran (rented.ts keepBusy), read back after a restart: null on sessions before 0074. */
     busy_at: string | null;
+    /** When this run reached a spending cap (rentedFollow.ts capSince), read back after a restart: null while none is, and before 0100. */
+    capped_at?: string | null;
     /**
      * Its boot in parts (0076): its container up (its image pulled), its boot log's node packs step and the step after, the
      * Python packages installed per pack (JSON: [{ pack, ms }]), the step its start failed at. Null when not seen.

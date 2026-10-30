@@ -617,14 +617,15 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
 /**
  * A timeline exported as one video (POST /api/timelines/:id/export, MCP's export): queued after the renders already waiting
  * (its own timeline's among them), looked at and queued one request at a time, so that two tabs asking at once get the one
- * export. Its job's id.
+ * export. Its job's id. `by`: the MCP token whose call queued it (its job then is that token's: cancelled by it, never by
+ * another token).
  */
-export function exportTimeline(s: Services, id: string, opts: z.output<typeof exportBody>): Promise<{ id: string }> {
+export function exportTimeline(s: Services, id: string, opts: z.output<typeof exportBody>, by: { mcpToken?: string } = {}): Promise<{ id: string }> {
   return s.timelines.history.oneAtATime(`export:${id}`, async () => {
     const view = await s.timelines.view(id);
     if (!view.durationMs) throw httpError("There is nothing to export yet: no clip of this timeline has a take.");
     if (view.exporting) return { id: view.exporting.id };
-    return { id: await s.queue.enqueueExport({ timeline: view.id, scale: opts.scale, music: opts.music, smooth: opts.smooth, range: opts.range, blend: opts.blend, match: opts.match, fit: opts.fit, webMb: opts.webMb }, `${view.name} · ${opts.webMb ? "web copy" : "export"}`) };
+    return { id: await s.queue.enqueueExport({ timeline: view.id, scale: opts.scale, music: opts.music, smooth: opts.smooth, range: opts.range, blend: opts.blend, match: opts.match, fit: opts.fit, webMb: opts.webMb }, `${view.name} · ${opts.webMb ? "web copy" : "export"}`, by.mcpToken) };
   });
 }
 

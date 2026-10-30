@@ -98,6 +98,28 @@ describe("locking a ComfyUI", () => {
     expect((await probe()).access.state).toBe("open");
   });
 
+  it("unlocking, or no token from its own computer, needs a sign-in of the last 10 minutes or the password (card #187)", async () => {
+    const PASSWORD = "correct horse battery";
+    await post(t.app, "/api/machines/m1/lock", {});
+    const set = await t.app.inject({ method: "POST", url: "/api/session/password", payload: { password: PASSWORD } });
+    const cookie = [set.headers["set-cookie"]].flat().map((c) => String(c).split(";")[0]).join("; ");
+    // a sign-in 11 minutes old, from another computer of the network: a session kept, or stolen, long ago
+    await t.db.updateTable("sessions").set({ created_at: new Date(Date.now() - 11 * 60_000).toISOString() }).execute();
+    const ask = (url: string, payload: object) => t.app.inject({ method: "POST", url, remoteAddress: "192.168.1.20", headers: { cookie }, payload });
+    for (const [url, body] of [["/api/machines/m1/unlock", {}], ["/api/machines/m1/lock", { local: true }]] as const) {
+      const res = await ask(url, body);
+      expect(res.statusCode, url).toBe(403);
+      expect(res.json()).toMatchObject({ needPassword: true });
+    }
+    expect(fake.lock).toMatchObject({ local: false });
+    // tightening needs nothing: a new token, or the token needed from its own computer again
+    expect((await ask("/api/machines/m1/lock", { renew: true })).statusCode).toBe(200);
+    expect((await ask("/api/machines/m1/unlock", { current: "wrong one" })).statusCode).toBe(403);
+    expect(fake.lock).not.toBeNull();
+    expect((await ask("/api/machines/m1/unlock", { current: PASSWORD })).statusCode).toBe(200);
+    expect(fake.lock).toBeNull();
+  });
+
   it("opens ComfyUI's page with a one-time code when locked, as it is when not", async () => {
     expect((await post(t.app, "/api/machines/m1/open", {})).json()).toEqual({ url: fake.url });
     await post(t.app, "/api/machines/m1/lock", {});
