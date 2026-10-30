@@ -242,7 +242,8 @@ describe("what is refused before anything is queued", () => {
   it("inputs the recipe does not accept", async () => {
     const res = await post(t.app, "/api/jobs", job({ steps: 5000 }));
     expect(res.statusCode).toBe(400);
-    expect(res.json().error).toContain("steps");
+    // by the field's label, as the form says it (card #165)
+    expect(res.json().error).toMatch(/^Steps: too big/);
     expect(submitted()).toEqual([]);
   });
 });

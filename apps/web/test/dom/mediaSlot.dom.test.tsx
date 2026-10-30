@@ -85,7 +85,7 @@ describe("a picture slot of a form, drawn", () => {
     await user.upload(input, png());
     await waitFor(() => expect(within(picker).getByRole("button", { name: /Adding…/ })).toBeTruthy());
     held.answer(jsonAnswer({ error: "zz-test: refused" }, 400));
-    await waitFor(() => expect(within(picker).getAllByRole("alert").map((a) => a.textContent)).toContain("zz-test: refused"));
+    await waitFor(() => expect(within(picker).getAllByRole("alert").map((a) => a.textContent)).toContain("Not added: zz-test: refused"));
     expect(within(picker).getByRole("button", { name: /From your computer/ })).toBeTruthy();
   });
 });

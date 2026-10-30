@@ -229,7 +229,8 @@ describe("a deploy", () => {
   });
 
   it("fills a volume from a set: the cheapest GPU there, no render given to it, terminated once its files are in", async () => {
-    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { downloadModels: true } });
+    // lookups off, as before 0.8.4's default: the file goes up from this PC rather than from its address (card #166)
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { downloadModels: true, civitaiLookups: false } });
     const set = (await post(t.app, "/api/model-sets", { name: "zz-test set", presets: [], off: [], files: [
       { file: "illustrious.safetensors", folder: "checkpoints", url: "https://huggingface.co/zz-test/x/resolve/main/illustrious.safetensors", size: 6_000_000_000 },
     ] })).json().id as string;

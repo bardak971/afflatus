@@ -106,6 +106,7 @@ describe("presets with files", () => {
     expect(refused.statusCode).toBe(400);
     expect(refused.json().error).toContain(licence);
     // accepted, but downloads are off: said per file, the licence remembered
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { downloadModels: false } });
     const off = (await post(t.app, `/api/presets/${shipped.id}/get`, { accept: true })).json();
     expect(off.started).toEqual([]);
     expect(off.failed[0].error).toContain("turned off");

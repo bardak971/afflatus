@@ -98,6 +98,7 @@ describe("the words that call a LoRA up", () => {
     await kept("mine/renamed.safetensors", { fingerprint: "AB12CD34EF56" });
     await kept("unknown.safetensors", { fingerprint: "000000000000" });
     await kept("no_print.safetensors", {});
+    await put("/api/settings", { civitaiLookups: false });
     expect(await find(["mine/renamed.safetensors"])).toEqual({ items: {}, lookups: false });
     expect(asked).toEqual([]);
 
