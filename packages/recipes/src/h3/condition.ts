@@ -4,7 +4,7 @@ import { H3_FPS } from "./family";
 import type { H3Video } from "./inputs";
 import { H3_HEAD_GUIDE, H3_LANDING, H3_TRIM, type H3Join } from "./join";
 import type { H3Uses } from "./model";
-import { h3Prompt, h3ReferencePrompt, type H3Mode } from "./prompt";
+import { h3Prompt, h3ReferencePrompt, type H3Mode, type H3Run } from "./prompt";
 
 /** How many reference pictures the reference model is given at most (it takes 9; the opening picture is one of them). */
 export const H3_REFERENCES = 6;
@@ -25,6 +25,9 @@ function continuationWindow(g: GraphBuilder, ctx: BuildContext, join: H3Join): {
   return { prev, window: g.add("MiniMaxH3GuidedContinuationWindow", { previous_av_latent: prev, overlap_frames: join.head, extension_frames: join.frames - join.head }) };
 }
 
+/** A clip that carries on: its run-up and its own part in seconds, as both routes say them in the prompt. */
+const runOf = (input: H3Video, join: H3Join): H3Run | undefined => (input.previous ? { overlap: join.head / H3_FPS, seconds: join.ownSeconds, lands: Boolean(input.next) } : undefined);
+
 /** A reference picture made in the graph, after the form's: what it shows (a reference role), and the image. */
 export interface MorePicture {
   image: Ref;
@@ -32,7 +35,7 @@ export interface MorePicture {
 }
 
 /** The clip from the reference model: the pictures, the reference videos and the voice, and the opening picture pinned at the first frame when there is one. */
-function referenceStart(g: GraphBuilder, ctx: BuildContext, input: H3Video, how: H3Uses, frame: Frame, clip: Ref, length: number | Ref, fixed?: (pictures: number) => string, more: MorePicture[] = []): { start: string; positive: Ref } {
+function referenceStart(g: GraphBuilder, ctx: BuildContext, input: H3Video, how: H3Uses, join: H3Join, frame: Frame, clip: Ref, length: number | Ref, fixed?: (pictures: number) => string, more: MorePicture[] = []): { start: string; positive: Ref } {
   const { uploads, media } = ctx;
   const { width, height, vae, audioVae } = frame;
   // a voice with a picture to open on and nothing else: that picture is who speaks, and the clip still opens on it (B20)
@@ -55,7 +58,7 @@ function referenceStart(g: GraphBuilder, ctx: BuildContext, input: H3Video, how:
   const opensOnFirst = opening && voiceOnly && !more.length;
   const files: Array<{ file?: string; image?: Ref }> = [...pictures, ...(opening && !opensOnFirst ? [{ file: uploads.start }] : [])];
   // a recipe made on this one can say the prompt itself (a swap: its LoRA's short trained caption)
-  const prompt = fixed ? fixed(files.length) : h3ReferencePrompt(input, { roles: pictures.map((p) => p.role), videos: videos.map(({ role, sound }) => ({ role, sound })), voice: Boolean(input.voice), continues: Boolean(input.previous), opening, opensOnFirst, voiceOnly });
+  const prompt = fixed ? fixed(files.length) : h3ReferencePrompt(input, { roles: pictures.map((p) => p.role), videos: videos.map(({ role, sound }) => ({ role, sound })), voice: Boolean(input.voice), continues: Boolean(input.previous), run: runOf(input, join), opening, opensOnFirst, voiceOnly });
   const start = g.add("MiniMaxH3ReferenceToVideo", {
     clip, vae, audio_vae: audioVae, prompt, width, height, length, ref_image_size: input.sharpRefs ? "max" : "match",
     // inputs of a group that grows are named "<group>.<prefix><n>", counting from 0
@@ -79,7 +82,7 @@ function pictureStart(g: GraphBuilder, ctx: BuildContext, input: H3Video, how: H
   const { uploads } = ctx;
   const { width, height, vae } = frame;
   const mode: H3Mode = how.start ? (how.end ? "both" : "start") : how.end ? "land" : "free";
-  const prompt = h3Prompt(mode, join.seconds, input, input.previous ? { overlap: join.head / H3_FPS, seconds: join.ownSeconds, lands: Boolean(input.next) } : undefined);
+  const prompt = h3Prompt(mode, join.seconds, input, runOf(input, join));
   const start = g.add("MiniMaxH3ImageToVideo", {
     clip, vae, prompt, width, height, length,
     ...(how.start ? { first_frame: g.out("LoadImage", { image: uploads.start }) } : {}),
@@ -140,7 +143,7 @@ export function conditionFor(g: GraphBuilder, ctx: BuildContext, input: H3Video,
   // the prompt alone, without the pictures pinned at frames (made for the sampled frame): what the latent re-sample is guided by
   let plain: Ref | null = null;
   if (how.reference) {
-    ({ start, positive } = referenceStart(g, ctx, input, how, frame, clip, length, prompt, more));
+    ({ start, positive } = referenceStart(g, ctx, input, how, join, frame, clip, length, prompt, more));
   } else {
     ({ start, plain } = pictureStart(g, ctx, input, how, join, frame, clip, length));
     positive = [start, 0];

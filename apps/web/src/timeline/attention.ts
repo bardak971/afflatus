@@ -1,4 +1,5 @@
 import type { Clip, ClipPatch } from "../api";
+import { cutsAtJoin } from "@afflatus/core";
 
 /**
  * What the timeline's Needs attention card lists, each row with the one action that mends it, and Fix all: every
@@ -81,12 +82,13 @@ export function attention(clips: Clip[], o: {
     const figure = items?.find((j) => j.take === c.take!.id)?.in ?? null;
     const carry = c.take.measure?.handover ?? null;
     const worst = Math.max(figure ?? 0, carry ?? 0);
-    if (worst <= SHOWS) return;
+    // a take that cut to another shot a few frames after its run-up: its step at the join may read small (card #161)
+    if (worst <= SHOWS && !cutsAtJoin(c.take.measure)) return;
     // another take that comes in under ×3 (its run-up's end too), the smoothest of them; measuring still: no action yet
     let better: Extract<Act, { do: "take" }> | null = null;
     for (const [k, t] of c.takes.entries()) {
       const v = items?.find((j) => j.take === t.id)?.in ?? null;
-      if (t.id !== c.take.id && v !== null && v <= SHOWS && (t.measure?.handover ?? 0) <= SHOWS && (!better || v < better.figure)) better = { do: "take", clip: c.id, take: t.id, number: k + 1, figure: v };
+      if (t.id !== c.take.id && v !== null && v <= SHOWS && (t.measure?.handover ?? 0) <= SHOWS && !cutsAtJoin(t.measure) && (!better || v < better.figure)) better = { do: "take", clip: c.id, take: t.id, number: k + 1, figure: v };
     }
     const act = !items ? undefined : better ?? render([c]);
     rows.push({ key: `join:${c.id}`, kind: "join", ids: [c.id], warn: true, figure: worst, act });

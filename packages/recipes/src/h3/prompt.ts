@@ -23,20 +23,30 @@ interface H3Fields {
 /** Whether a text is already in H3's layout: it is then sent as written. */
 export const isH3Layout = (text: string) => /integrated_multimodal_description:|subject_definitions:/i.test(text);
 
+/** A clip that carries on from another: its run-up (the clip before's last moments) and its own part, in seconds, and whether it lands on the clip after. */
+export interface H3Run {
+  overlap: number;
+  seconds: number;
+  lands: boolean;
+}
+
+const secs = (n: number) => n.toFixed(2);
+
 /**
  * Said before the description of a clip that carries on from another: what its opening frames are and what to keep
  * across the join. Measured 2026-10-08 on a full-step chain, it kept a little more detail (+9 %) on top of the exact
  * latent. Not shown in the form: it is the same for every continuation, and a text already in H3's layout is sent as written.
+ * In positive words only: H3's text encoder reads a negation as what it names, and the list it had ("Do not … cut, fade,
+ * add titles") named the very things a join must not do (card #161)
  */
-function continuationPreamble(c: { overlap: number; seconds: number; lands: boolean }): string {
-  const s = (n: number) => n.toFixed(2);
+function continuationPreamble(c: H3Run): string {
   return [
-    `This clip carries on the previous shot without a break. Its first ${s(c.overlap)} seconds replay the end of that shot as hidden context: match it there exactly, the same people, place, light, motion, camera and sound, and carry its pace and camera movement on without freezing them.`,
-    `The ${s(c.seconds)} seconds after them are new${c.lands ? ", and they end exactly where the next shot begins" : ""}. Do not restart the action, repeat what was already said, cut, fade, add titles, loop, or change anyone's identity.`,
+    `This clip carries on the previous shot as one continuous take. Its first ${secs(c.overlap)} seconds replay the end of that shot as hidden context and match it exactly: the same people, place, light, motion, camera and sound, its pace and camera movement flowing on.`,
+    `The ${secs(c.seconds)} seconds after them are new${c.lands ? ", and they end exactly where the next shot begins" : ""}: the same take goes on in the same place, light and camera, the action moving forward from where it was, the voices saying new lines, everyone keeping their own face and look to the last frame.`,
   ].join(" ");
 }
 
-export function h3Prompt(mode: H3Mode, seconds: number, f: H3Fields, continuing?: { overlap: number; seconds: number; lands: boolean }): string {
+export function h3Prompt(mode: H3Mode, seconds: number, f: H3Fields, continuing?: H3Run): string {
   if (isH3Layout(f.description)) return f.description.trim();
   const said = continuing ? `${continuationPreamble(continuing)}\nNext: ${f.description.trim()}` : f.description.trim();
   const description = /^\s*\[shot 1\]/i.test(said) ? said : `[Shot 1] ${said}`;
@@ -65,6 +75,8 @@ interface H3References {
   voice: boolean;
   /** The clip carries on from another one: its first frames are given. */
   continues: boolean;
+  /** How long its run-up and its own part are, when it carries on: said, as the frame-and-words route says them (card #161). */
+  run?: H3Run;
   /** The clip opens on a picture, given as one more picture after the references. */
   opening: boolean;
   /** That picture is the first one itself rather than one more (a voice alone: who speaks, and the frame the clip opens on). */
@@ -97,8 +109,15 @@ export function h3ReferencePrompt(f: H3Fields & { subject?: string }, ref: H3Ref
   const voiceTag = ref.voice ? `<Audio ${audios + 1}>` : "";
   // the opening picture is the last picture too: its place, outfit and pose are references
   const opening = ref.opening && !ref.continues ? `<Picture ${ref.opensOnFirst ? 1 : pics.length + 1}>` : "";
+  // a clip that carries on: one take with the clip before, its run-up timed as the frame-and-words route times it. Said
+  // with no timing, the reference route cut to a new shot on the first new frame in 6 of 65 joins with a reference picture
+  // (Timeline 17's guitarist out of his garden into a shed), and in none of 44 without one (card #161, 2026-10-30). In
+  // positive words only, here and in the lines below for a continuation: H3 reads a negation as what it names
+  const run = ref.run;
   const opens = ref.continues
-    ? " The video continues seamlessly from the given opening frames."
+    ? run
+      ? ` [Shot 1] is one continuous take that carries on the previous shot: its first ${secs(run.overlap)} seconds are the given opening frames, the end of that shot, matched exactly (the same people, place, light, motion, camera and sound); the ${secs(run.seconds)} seconds after them carry the same take on in the same place, light and camera${run.lands ? ", ending exactly where the next shot begins" : ""}, the action moving forward from where it was.`
+      : " [Shot 1] is one continuous take that carries on from the given opening frames, in the same place, light and camera."
     : opening
       ? ` ${opening} is the first frame of [Shot 1]: the video opens exactly on it, then the action follows the description.`
       : "";
@@ -110,8 +129,11 @@ export function h3ReferencePrompt(f: H3Fields & { subject?: string }, ref: H3Ref
   const notPlace = [...pics.filter((_p, i) => ref.roles[i] !== "place"), ...vids.filter((v) => v.role !== "place").map((v) => v.tag)];
   // (a place picture is the setting itself: its own line says so)
   const scene = ref.voiceOnly || !notPlace.length ? "" : ref.continues ? "the given opening frames" : hasPlace ? "" : opening ? opening : "the description of [Shot 1]";
+  // (carrying on, the opening frames are the scene, and the pictures are said by what they give alone)
   const onlyRefs = !ref.voiceOnly && notPlace.length
-    ? ` ${list(notPlace)} ${notPlace.length > 1 ? "are references" : "is a reference"} for who and what appears, not for the scene: ${notPlace.length > 1 ? "their" : "its"} background, framing and pose are not reused, and ${notPlace.length > 1 ? "none of them is" : "it is not"} a frame of the video.`
+    ? ref.continues
+      ? ` ${list(notPlace)} ${notPlace.length > 1 ? "give" : "gives"} who and what appears: identity and look only.`
+      : ` ${list(notPlace)} ${notPlace.length > 1 ? "are references" : "is a reference"} for who and what appears, not for the scene: ${notPlace.length > 1 ? "their" : "its"} background, framing and pose are not reused, and ${notPlace.length > 1 ? "none of them is" : "it is not"} a frame of the video.`
     : "";
   const kinds = [opening ? "keyframe completion" : "", "reference generation", vids.length ? "video reference" : "", ref.continues ? "video continuation" : "", voiceTag || soundtracks.length ? "audio reference" : ""].filter(Boolean);
   const defs: string[] = [];
@@ -125,7 +147,7 @@ export function h3ReferencePrompt(f: H3Fields & { subject?: string }, ref: H3Ref
     keeps.push(
       `<Subject 1> (appears in [Shot 1]): fully_preserved - identity and look stay consistent${
         ref.voiceOnly ? ", setting too" : opening ? `; the opening matches ${opening}, then expression and pose follow the description` : "; expression, pose and framing follow the description"
-      }${ref.voiceOnly ? "" : `; only the identity and look are taken from ${list(people)}, not ${people.length > 1 ? "their" : "its"} background`}.`,
+      }${ref.voiceOnly ? "" : `; only the identity and look are taken from ${list(people)}${ref.continues ? "" : `, not ${people.length > 1 ? "their" : "its"} background`}`}.`,
     );
   }
   // every picture, then every video, that is not a person is a subject of its own; a video adds how it moves
@@ -158,7 +180,7 @@ export function h3ReferencePrompt(f: H3Fields & { subject?: string }, ref: H3Ref
       (opening ? `\n${opening} is the opening-frame anchor for [Shot 1].` : ""),
     `summary:\n[${kinds.join(" + ")}] Use ${list(uses) || "the description"}${voiceTag ? ` and the voice character of ${voiceTag}` : ""}.${opens}${onlyRefs}`,
     `retention_analysis:\n${keeps.join("\n")}` +
-      (scene ? `\nThe setting of [Shot 1]: comes from ${scene}, never from ${list(notPlace)}.` : "") +
+      (scene ? (ref.continues ? `\nThe setting of [Shot 1]: the place, light and camera of ${scene}, all through the take.` : `\nThe setting of [Shot 1]: comes from ${scene}, never from ${list(notPlace)}.`) : "") +
       (opening ? `\n${opening} ([Shot 1] first frame): fully_preserved - opening composition anchor.` : "") +
       soundtracks.map((v) => `\n${v.audio}: reference - the voice timbre is followed without copying the signal.`).join("") +
       (voiceTag ? `\n${voiceTag}: reference - timbre and delivery are followed without copying the signal.` : ""),

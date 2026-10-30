@@ -161,3 +161,33 @@ export const leadInBefore = (start: number) => Math.max(0, Math.min(LEAD_IN_S, s
  * timeline say the head is sung (the window's `leadIn`): said with less, the player handed over early into the model's guess.
  */
 export const leadInCovers = (pre: number, frames: number, fps: number) => frames > 0 && pre >= frames / fps - 1e-6;
+
+/**
+ * Past this, a take that carries on cuts at the join: its `handover` figure (how much the picture jumps where its run-up
+ * ends and its own frames begin, against its own motion right after; the server's runUpBreak) is above it. Read on the
+ * 109 H3 joins of 2026-10-07 to 10-30 (card #161): the 6 that cut on their first new frame read ×5.7 to ×20, every one
+ * that flows ×2.8 or under. The figure a timeline's other join checks show from (×3).
+ */
+export const RUN_UP_CUT = 3;
+
+/** What a take's measure says of its join with the clip before (the server's Measure, as much of it as this reads). */
+export interface RunUpMeasure {
+  handover?: number;
+  /** The first hard cut in the first second after the run-up (the server's runUpCut), null when there is none. */
+  runUpCut?: { atMs: number; db: number } | null;
+}
+
+/**
+ * Whether a take cuts at its join with the clip before: a hard cut found within a second after its run-up, or the step
+ * where its run-up ends measured past RUN_UP_CUT (a take measured before the cut was looked for has only that).
+ */
+export const cutsAtJoin = (m: RunUpMeasure | null | undefined): boolean => Boolean(m?.runUpCut) || (m?.handover != null && m.handover > RUN_UP_CUT);
+
+/** The figure a cut at the join is said with: where it cuts, else how much the run-up's end jumps. */
+export const cutAtJoinFigure = (m: RunUpMeasure) => (m.runUpCut ? (m.runUpCut.atMs ? `${(m.runUpCut.atMs / 1000).toFixed(2)} s in` : "first frame") : `×${(m.handover ?? 0).toFixed(1)}`);
+
+/** A cut at the join said in words, with what was measured: the circle's hint, the take's chip, the MCP's read. */
+export const cutAtJoinSaid = (m: RunUpMeasure) =>
+  m.runUpCut
+    ? `the take cuts to another shot ${m.runUpCut.atMs ? `${(m.runUpCut.atMs / 1000).toFixed(2)} s after its run-up` : "on the first frame after its run-up"} (two frames ${m.runUpCut.db.toFixed(1)} dB apart, at least 6 dB further apart than the frames around them). The model left the clip before there: render a new take`
+    : `the take cuts at the join: where its run-up ends the picture jumps ×${(m.handover ?? 0).toFixed(1)} against its own motion (×${RUN_UP_CUT} and under carries on). The model left the clip before there: render a new take`;

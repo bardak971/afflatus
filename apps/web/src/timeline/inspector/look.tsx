@@ -4,6 +4,7 @@ import type { Clip, Take, Timeline } from "../../api";
 import { Chip, cx, Help } from "../../ui";
 import { change, DRIFT, driftOf, sharpOf, driftWords, past, pct, runSeries, runTicks, signed, type RunPoint } from "../lookDrift";
 import { SHOWS } from "../attention";
+import { cutAtJoinFigure, cutAtJoinSaid, cutsAtJoin } from "@afflatus/core";
 
 /**
  * How the take looks, measured on its own frames when it was rendered, and how far it has moved from the clip
@@ -71,7 +72,7 @@ export function LookTable({ timeline, index, take, onSelectClip }: { timeline: T
         <span className="grow" />
         {/* at most the head's width, the words cut short there: the full warning is its tip */}
         {warning && <Chip tone="attention" className="max-w-full font-mono" tip={warning}><span className="min-w-0 truncate">{warning}</span></Chip>}
-        {m.handover != null && m.handover > DRIFT.handover && <Chip tone="attention" className="font-mono" tip="The model stepped away from its guide where the run-up ends: the join shows. Render a new take.">run-up end ×{m.handover.toFixed(1)}</Chip>}
+        {cutsAtJoin(m) && <Chip tone="attention" className="font-mono" tip={`Seamless, but ${cutAtJoinSaid(m)}.`}>cut at the join · {cutAtJoinFigure(m)}</Chip>}
         </div>
       <div className="px-3 pt-1.5 pb-1 text-xs">
         <div className={cx("grid items-center gap-x-2.5", grid)}>

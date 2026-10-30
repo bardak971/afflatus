@@ -13,6 +13,15 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 - **A source made with Swap character gives every window Swap character**, the windows that carry on too. They were made Motion transfer after the first one, a leftover of the retired Swap motion. A window can still be given Motion transfer on its own (its form menu), and then carries on from the swap before it as it did.
 
 ### Fixed
+- **H3 seamless joins with a reference picture no longer cut to another shot as often.**
+  - **The prompt:** a clip that carries on with a reference picture (Video with audio, Lip sync) is now told how long its run-up is and that the rest is the same continuous take, in the same place, light and camera, as the frame-and-words route always was.
+  - **Why:** the latent continuation itself held (the run-up is the clip before's own frames), but on 8721's 109 H3 joins the model cut to a new shot on the first new frame in 6 of 65 with a reference picture and none of 44 without one.
+  - **Positive words only:** both routes now say a continuation in positive words only, since H3 reads a negation as what it names ("Do not … cut, fade, add titles").
+- **A seamless join that cut is said on the timeline.**
+  - **On the track and the takes:** the circle between two clips turns attention-coloured with what was measured and its figure, and the take's row and the hover card say "cut at the join ×N", with New take beside it.
+  - **When:** a hard cut within a second after the run-up (two frames under 17 dB apart, 6 dB more than the frames around them), or the run-up's end jumping past ×3 against the take's own motion. Timeline 17's read ×20 while its circle said seamless; two of Oct 27 cut 10 and 13 frames on, where the step at the join read ×0.5. On 8721's joins it found the 11 cuts seen in their frames and nothing else.
+  - **Through MCP:** `read_timeline` says it on the join, the take and Needs a look.
+  - **Takes already made:** the takes that carry on are looked at once in the background, at the backfill's slow pace.
 - **"ComfyUI is offline" no longer comes for an answer missed.** It was said, on Telegram too, the moment ComfyUI missed one 5-second status poll while it rendered, which a ComfyUI loading a model or on a PC short of memory does and renders on. It is now said once ComfyUI has stayed silent for 30 s in a row while it renders. A render that loses ComfyUI is still said at once.
 
 ## [0.8.2] - 2026-10-29

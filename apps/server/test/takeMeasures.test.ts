@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import sharp from "sharp";
 import { filmStrip } from "../src/cut";
 import { lookOf, measureOf, meansAlong, takeMeasures } from "../src/measure";
-import { joinJump, lastFrameAt, LEAST_MOTION, runUpBreak } from "../src/joinScore";
+import { joinJump, lastFrameAt, LEAST_MOTION, runUpBreak, runUpCut } from "../src/joinScore";
 import { measureLanded } from "../src/precompute";
 import { keptKey, keptMotion } from "../src/timelineMedia";
 import { FFMPEG_TIMEOUT, ffmpegMade, ffmpegThere } from "./clipKit";
@@ -97,7 +97,7 @@ describe.skipIf(!ffmpegThere)("a take measured once", { timeout: FFMPEG_TIMEOUT 
   it("puts the motion, strip and means where the editor finds them done, with the look and its run-up step", async () => {
     const put = new Map<string, Uint8Array>();
     const look = await measureLanded(async (k, b) => void put.set(k, b), "abcd1234", file, "mp4", { durationMs: 3000, hasSound: true }, 1500);
-    expect(look).toEqual({ ...(await lookOf(file, "mp4", 1500)), handover: await runUpBreak(file, "mp4", 1500) });
+    expect(look).toEqual({ ...(await lookOf(file, "mp4", 1500)), handover: await runUpBreak(file, "mp4", 1500), runUpCut: await runUpCut(file, "mp4", 1500) });
     expect([...put.keys()].sort()).toEqual([keptKey.means("abcd1234"), keptKey.motion("abcd1234"), keptKey.strip("abcd1234")].sort());
     expect(JSON.parse(Buffer.from(put.get(keptKey.motion("abcd1234"))!).toString())).toEqual(keptMotion(await measureOf(file, "mp4")));
     // nothing to read: no look, nothing put

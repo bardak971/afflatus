@@ -46,7 +46,30 @@ describe("H3's reference prompt: the pictures say who, never the scene", () => {
   });
 
   it("a clip that carries on: the setting carries on from its frames", () => {
-    expect(prompt({ continues: true })).toContain("The setting of [Shot 1]: comes from the given opening frames");
+    expect(prompt({ continues: true })).toContain("The setting of [Shot 1]: the place, light and camera of the given opening frames, all through the take.");
+  });
+});
+
+// card #161: carrying on with a person picture, the reference route cut to a new shot on the first new frame (6 of 65 such
+// joins, none of 44 without a picture); it was told nothing of the run-up's length, and several negations
+describe("H3's reference prompt carrying on: one take with the clip before, in positive words", () => {
+  const run = { overlap: 22 / 24, seconds: 5, lands: false };
+  const p = prompt({ roles: ["person"], continues: true, run });
+
+  it("times the run-up and the new part, and says they are one continuous take in the same place, light and camera", () => {
+    expect(p).toContain("[Shot 1] is one continuous take that carries on the previous shot: its first 0.92 seconds are the given opening frames, the end of that shot, matched exactly");
+    expect(p).toContain("the 5.00 seconds after them carry the same take on in the same place, light and camera, the action moving forward from where it was.");
+    expect(prompt({ roles: ["person"], continues: true, run: { ...run, lands: true } })).toContain("ending exactly where the next shot begins");
+  });
+
+  it("names no negation: no not, never, no, without, do not", () => {
+    expect(p).not.toMatch(/\b(not|never|no|without|don't)\b/i);
+    expect(p).toContain("<Picture 1> gives who and what appears: identity and look only.");
+    expect(p).toContain("only the identity and look are taken from <Picture 1>.");
+  });
+
+  it("a clip that does not carry on keeps its wording: the pictures are not the scene", () => {
+    expect(prompt({ roles: ["person"] })).toContain("<Picture 1> is a reference for who and what appears, not for the scene");
   });
 });
 

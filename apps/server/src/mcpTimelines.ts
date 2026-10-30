@@ -1,4 +1,4 @@
-import { CUT_WINDOW_MOST, OWN_MODEL, plural, recordingSpecOf, TRANSITION_KINDS, TRANSITION_MS, type InputSpec, type Recipe } from "@afflatus/core";
+import { CUT_WINDOW_MOST, cutAtJoinFigure, cutAtJoinSaid, cutsAtJoin, OWN_MODEL, plural, recordingSpecOf, TRANSITION_KINDS, TRANSITION_MS, type InputSpec, type Recipe } from "@afflatus/core";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { httpError } from "./errors";
@@ -85,6 +85,8 @@ function takeSaid(x: TakeView, takes: TakeView[]) {
     ...(x.trimStartMs || x.trimEndMs ? { trims: { startMs: x.trimStartMs, endMs: x.trimEndMs } } : {}),
     ...(x.finishedFrom ? { finishOf: draft ? `take ${draft}` : "a take removed since" } : {}),
     ...(x.joinKind ? { joinsBefore: x.joinKind } : {}),
+    // a seamless take that cut to another shot where its run-up ends (card #161)
+    ...(cutsAtJoin(x.measure) ? { cutAtJoin: `${cutAtJoinFigure(x.measure!)}: ${cutAtJoinSaid(x.measure!)}` } : {}),
     ...(x.facePass ? { facePass: true } : {}),
   };
 }
@@ -164,6 +166,10 @@ async function needsALook(s: Services, at: Seen, view: View) {
       ? { clips: chain, what: `clip ${b} carries on from clip ${a}, which has no take: its render is refused until clip ${a} has one`, mend: `render_clips with both (clip ${a} first: they are queued in order), or make their join a cut (edit_timeline join)` }
       : { clips: chain, what: `clips ${a + 1}–${b} each carry on from the clip before, which has no take: each one's render is refused until the clip before has one`, mend: `render_clips with clips ${a}–${b} (they are queued in order), or make a join a cut (edit_timeline join)` });
   }
+  // a seamless join whose take cut to another shot where its run-up ends: a new take mends it (card #161)
+  for (const c of view.clips) {
+    if (c.joined === "continue" && c.join === "fresh" && cutsAtJoin(c.take?.measure)) rows.push({ clips: [n(c)], what: `clip ${n(c)}: ${cutAtJoinSaid(c.take!.measure!)}`, mend: "render_clips it again (a new take), then use_take the one that carries on" });
+  }
   const stale = view.clips.filter((c) => c.join === "stale");
   if (stale.length) rows.push({ clips: stale.map(n), what: `${plural(stale.length, "join")} no longer follow on: the clip before changed after ${stale.length > 1 ? "they were" : "it was"} rendered`, mend: "render_clips them again" });
   const failed = view.clips.filter((c) => c.failed && !c.take);
@@ -209,6 +215,7 @@ async function timelineSaid(s: Services, view: View) {
         with: `clip ${i}`, joined: c.joined === "continue" ? "seamless" : "cut",
         state: c.join === "fresh" ? "follows on" : c.join === "stale" ? "stale: the clip before changed since it was rendered" : c.join === "cut" ? "a cut" : "not rendered yet",
         ...(c.transition ? { transition: c.transition } : {}),
+        ...(c.joined === "continue" && c.join === "fresh" && cutsAtJoin(c.take?.measure) ? { cutsHere: `${cutAtJoinFigure(c.take!.measure!)}: the take that plays cut to another shot after its run-up` } : {}),
       },
       // rendered to end where the next clip begins: a landing, when that one carries on from it
       ...(c.fitNext && view.clips[i + 1]?.joined === "continue" ? { landsOnNext: true } : {}),

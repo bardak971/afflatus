@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight } from "lucide-react";
+import { cutsAtJoin } from "@afflatus/core";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { api, type Clip, type Timeline } from "../api";
@@ -165,7 +166,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
   const badJoin = (c: Clip) => {
     const figure = joinsOf.get(c.id);
     const carry = carryOf(c);
-    return (figure !== undefined && figure !== null && figure > SHOWS) || (carry !== null && carry > SHOWS);
+    return (figure !== undefined && figure !== null && figure > SHOWS) || (carry !== null && carry > SHOWS) || cutsAtJoin(c.take?.measure);
   };
   const figured = joined.filter((c) => typeof joinsOf.get(c.id) === "number");
   const loading = joined.some((c) => joinsOf.get(c.id) === undefined);

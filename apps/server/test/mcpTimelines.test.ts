@@ -123,6 +123,17 @@ describe.skipIf(!ffmpegThere)("the timelines from outside", { timeout: FFMPEG_TI
     expect(read.clips[1].join.state).toBe("follows on");
     expect(read.length.rendered).toBe(3);
 
+    // card #161: a seamless take that cut to another shot where its run-up ends is said on the join, the take and Needs a look
+    const made = await s.t.db.selectFrom("assets").select("generation_id").where("id", "=", read.clips[1].take.item).executeTakeFirstOrThrow();
+    const measured = await s.t.db.selectFrom("generations").select("measure").where("id", "=", made.generation_id!).executeTakeFirstOrThrow();
+    await s.t.db.updateTable("generations").set({ measure: JSON.stringify({ luma: 100, sharp: 10, handover: 20 }) }).where("id", "=", made.generation_id!).execute();
+    const cuts = await ok(c, "read_timeline", { timeline: id });
+    expect(cuts.clips[1].join.cutsHere).toMatch(/^×20\.0: the take that plays cut to another shot/);
+    expect(cuts.clips[1].take.cutAtJoin).toMatch(/^×20\.0: the take cuts at the join/);
+    expect(cuts.clips[2].join.cutsHere).toBeUndefined();
+    expect(cuts.needsALook).toContainEqual({ clips: [2], what: expect.stringMatching(/^clip 2: the take cuts at the join: where its run-up ends the picture jumps ×20\.0/), mend: expect.stringMatching(/render_clips it again/) });
+    await s.t.db.updateTable("generations").set({ measure: measured.measure }).where("id", "=", made.generation_id!).execute();
+
     // the contact sheet: a frame each, and the frames around each join
     const sheet = await c.callTool({ name: "view_timeline", arguments: { timeline: id } });
     expect(sheet.isError).toBeFalsy();

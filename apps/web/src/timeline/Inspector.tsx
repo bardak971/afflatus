@@ -199,7 +199,7 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   };
   const playingDiff = take ? takeDiff(take, formNow) : null;
   const playingSaid = playingDiff ? diffWords(playingDiff) : null;
-  const takesInner = clip.takes.length > 0 ? <TakeList clip={clip} take={take} joinOf={joinOf} smoothest={smoothest} form={formNow} onPreview={onPreview} onPatch={onPatch} onRemoveTake={onRemoveTake} onFacePass={offersFace && !facePass.isPending ? (t) => facePass.mutate(t) : undefined} /> : null;
+  const takesInner = clip.takes.length > 0 ? <TakeList clip={clip} take={take} joinOf={joinOf} smoothest={smoothest} form={formNow} onPreview={onPreview} onPatch={onPatch} onRemoveTake={onRemoveTake} onFacePass={offersFace && !facePass.isPending ? (t) => facePass.mutate(t) : undefined} onRetake={recipe && !why && !busy && !clip.job ? () => onRender(1) : undefined} /> : null;
   const takesHelp = clip.takes.length > 1 ? `Hover a take to preview it, click to make it play.${joins.data ? ` The join figures say how much the picture jumps at In and at Out (×1 = like the clip's own motion; past ×${SHOWS} the join shows); the smoothest is marked.` : joins.isFetching ? " Measuring the joins…" : ""}` : "Each render adds a take; the one you pick plays.";
   const durationInner = still || take ? <Duration clip={clip} take={take} room={room} rendered={Boolean(recipe)} onPatch={onPatch} /> : null;
   const lookInner = take?.measure && !still ? <LookTable timeline={timeline} index={index} take={take} onSelectClip={onSelectClip} /> : null;

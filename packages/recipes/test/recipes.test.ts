@@ -277,6 +277,41 @@ describe("h3.video", () => {
     expect(h3Prompt("start", 5, { description: own })).toBe(own);
   });
 
+  it("tells a clip that carries on what its run-up is in positive words only (card #161: \"Do not … cut, fade, add titles\" named them)", () => {
+    const words = h3Prompt("free", 6, { description: "She waves." }, { overlap: 22 / 24, seconds: 5, lands: true });
+    expect(words).toContain("This clip carries on the previous shot as one continuous take. Its first 0.92 seconds replay the end of that shot");
+    expect(words).toContain("The 5.00 seconds after them are new, and they end exactly where the next shot begins: the same take goes on in the same place, light and camera");
+    expect(words).toContain("Next: She waves.");
+    expect(words).not.toMatch(/\b(not|never|no|without|don't|do not)\b/i);
+  });
+
+  it("carries a hybrid turbo clip with a person picture on in the clip before's latent, the run-up timed in its reference prompt (card #161, Timeline 17)", () => {
+    const input = parseInput(h3Video, {
+      model: "DasiwaMinimaxH3_dasiwaHybridTurboV3_int8.safetensors", description: "He keeps strumming, then a string snaps.", fast: true, turboSteps: 8,
+      previous: { asset: "c1", at: 5167 }, context: "22", joinFrom: "Latent", references: [{ asset: "r1", role: "person" }],
+    });
+    const b = h3Video.build(input, dryContext({
+      has: () => true, slots: { unet: "minimax_h3_fl2va.safetensors", clip: "c.safetensors", videoVae: "v.safetensors", audioVae: "a.safetensors", turbo: "t.safetensors", refUnet: "minimax_h3_ref2va.safetensors" },
+      uploads: { previous: "c1.mp4", "previous.latent": "c1.safetensors", "references.0": "r1.png" },
+      media: { previous: { width: 576, height: 1024, frames: 22, fps: 24, hasSound: true, latentFrames: 124 }, "references.0": { width: 1206, height: 2622 } },
+    }));
+    const id = (cls: string) => Object.entries(b.graph).filter(([, n]) => n.class_type === cls).map(([k]) => k);
+    const [loaded] = id("AfflatusLoadH3Latent");
+    const [win] = id("MiniMaxH3GuidedContinuationWindow");
+    const [ref] = id("MiniMaxH3ReferenceToVideo");
+    const [tail] = id("MiniMaxH3LatentTailGuide");
+    // the continuation reaches the sampler: the window as its latent, the tail guide on the reference model's conditioning
+    expect(b.graph[win!]!.inputs).toMatchObject({ previous_av_latent: [loaded, 0], overlap_frames: 22 });
+    expect(b.graph[tail!]!.inputs).toMatchObject({ positive: [ref, 0], previous_av_latent: [loaded, 0], target_av_latent: [win, 0] });
+    const sampler = one(b, "SamplerCustomAdvanced")[0]!;
+    expect(sampler.inputs.latent_image).toEqual([win, 0]);
+    expect(b.graph[(sampler.inputs.guider as [string, number])[0]]!.inputs.conditioning).toEqual([tail, 0]);
+    expect(one(b, "BasicScheduler")[0]!.inputs.steps).toBe(8);
+    expect(b.overlap).toEqual({ headMs: 917, tailMs: 0, latent: true, seam: true });
+    // and the reference prompt says the run-up and the one take, which it did not
+    expect(String(b.graph[ref!]!.inputs.prompt)).toContain("its first 0.92 seconds are the given opening frames, the end of that shot");
+  });
+
   it("is 8 steps with the turbo LoRA, and the full count (20, left alone) without it or with Fast off", () => {
     expect(build().totalSteps).toBe(20);
     const fast = build({ fast: true });
@@ -2004,7 +2039,7 @@ describe("H3's upscale pass", () => {
     expect(node(b, "MiniMaxH3AddGuide")).toHaveLength(0);
     // the continuation is told what its opening frames are, before what happens in it
     const words = String(node(b, "MiniMaxH3ImageToVideo")[0]!.inputs.prompt);
-    expect(words).toMatch(/carries on the previous shot without a break/);
+    expect(words).toMatch(/carries on the previous shot as one continuous take/);
     expect(words).toMatch(/Next: a/);
     // decoded as one piece with the clip before: its own last tokens in front of the window's new ones (the join then
     // matches the whole chain decoded at once), the window itself kept as the clip's latent

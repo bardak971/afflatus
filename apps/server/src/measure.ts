@@ -40,6 +40,11 @@ export interface Measure {
   drift?: { width: number };
   /** A continuation: how much the picture jumps where the run-up ends and the clip's own frames begin, against its own motion right after (×1 = it carries on; ×3 and past, the model stepped away from its guide and a cut shows there). */
   handover?: number;
+  /**
+   * A continuation: the first hard cut in the first second of its own frames (runUpCut), where the model left the clip before
+   * for another shot after its run-up; null when there is none. Takes measured before 2026-10-30 get it from the background.
+   */
+  runUpCut?: { atMs: number; db: number } | null;
 }
 
 /**

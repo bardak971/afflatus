@@ -13,6 +13,7 @@ import { PIN_WORDS, pinInputs, takeTrouble, type PinMirror, type PinWhere, type 
 import { pinMenuItems } from "../menus";
 import { flipped, MirrorMark } from "../MirrorMark";
 import { SHOWS } from "../attention";
+import { cutAtJoinFigure, cutAtJoinSaid, cutsAtJoin } from "@afflatus/core";
 import { useRecipes } from "../../data";
 import { useTileMenu } from "../../TileMenu";
 import { Viewer } from "../../viewer/LazyViewer";
@@ -94,7 +95,7 @@ type TakeSort = "newest" | "smoothest" | "face";
  * its length, how its joins jump and its face figure on a meta line under its name, and its "···" (or a right-click)
  * offers the library's actions on its video (Download, Keep, Compare…) after the take's own (Face refine, Remove).
  */
-export function TakeList({ clip, take, joinOf, smoothest, form, onPreview, onPatch, onRemoveTake, onFacePass }: {
+export function TakeList({ clip, take, joinOf, smoothest, form, onPreview, onPatch, onRemoveTake, onFacePass, onRetake }: {
   clip: Clip;
   take: Take | null;
   joinOf(take: string): { in: number | null; out: number | null } | undefined;
@@ -107,6 +108,8 @@ export function TakeList({ clip, take, joinOf, smoothest, form, onPreview, onPat
   onRemoveTake(id: string): void;
   /** A Face refine of this take alone, as a new take (the mock's takes): only where the clip's model offers it. */
   onFacePass?(take: Take): void;
+  /** Render a new take of the clip, offered beside a take that cut at the join; left out while it cannot render. */
+  onRetake?(): void;
 }) {
   // past ×3 the join shows, as Needs a look counts it
   const bad = (v: number) => v > SHOWS;
@@ -218,6 +221,7 @@ export function TakeList({ clip, take, joinOf, smoothest, form, onPreview, onPat
                   {smoothest === t.id && clip.takes.length > 1 && <Chip size="xs" tip="The smoothest joins of the takes">smoothest</Chip>}
                   {closest === t.id && <Chip size="xs" tip="The face closest to its person's picture, of the takes measured">closest face</Chip>}
                   {formOf(t) && <Chip size="xs" tip="The form it was rendered with: this clip's takes come from more than one">{formOf(t)}</Chip>}
+                  {cutsAtJoin(t.measure) && <Chip size="xs" tone="attention" tip={`Seamless, but ${cutAtJoinSaid(t.measure!)}.`}>cut at the join · {cutAtJoinFigure(t.measure!)}</Chip>}
                 </span>
                 {/* the figures, a step under the name: how long it plays (a trimmed take says so), its joins, its face */}
                 <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 font-mono text-meta text-ink-3">
@@ -239,6 +243,7 @@ export function TakeList({ clip, take, joinOf, smoothest, form, onPreview, onPat
                 {t.made && <MadeLine made={t.made} recipe={form?.recipes.find((r) => r.id === t.made!.recipe)} diff={takeDiff(t, form)} />}
               </span>
             </button>
+            {on && onRetake && cutsAtJoin(t.measure) && <Button size="sm" className="mr-1 shrink-0" data-tip="Render a new take of this clip, carrying on from the same take of the clip before: the model makes it anew, and most takes carry on" onClick={onRetake}>New take</Button>}
             <IconButton size={28} label={`Take ${i + 1}: more`} tip="Face refine, Download, Keep, Compare, Remove…" aria-haspopup="menu" onClick={(e) => menu.open(e, t.asset)} className="mr-1 opacity-60 group-hover/take:opacity-100 focus-visible:opacity-100">
               <MoreHorizontal size={15} />
             </IconButton>
