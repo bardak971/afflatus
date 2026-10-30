@@ -397,3 +397,62 @@ describe("what it costs", () => {
     await c.close();
   });
 });
+
+describe("a pod a token did not start (card #182, #183)", () => {
+  const USER_DEPLOY = { gpu: "NVIDIA A40", cloud: "SECURE", template: "afflatus", volume: "", disk: 120, idleMinutes: 10, idleDo: "terminate", watchdogMinutes: 15 };
+  /** The user's own pod, deployed from the page and running. */
+  async function usersPod(): Promise<string> {
+    const res = await t.app.inject({ method: "POST", url: "/api/runpod/deploy", payload: USER_DEPLOY });
+    expect(res.statusCode, res.body).toBe(200);
+    await until(async () => (await t.services.rented.poll(), runpod.pods[0]?.status === "RUNNING"));
+    await t.services.rented.poll();
+    return res.json().id as string;
+  }
+
+  it("start_pod on the user's pod already up is refused: it stays the user's, in its settings and its run", async () => {
+    const machine = await usersPod();
+    const c = await connect((await made("spend", { spendCapUsd: 5 })).token);
+    const starts = () => runpod.calls.filter((x) => x.includes("start")).length;
+    const before = starts();
+    await refusedWith(c, "start_pod", { machine }, /already running on RunPod: start_pod starts a stopped pod/);
+    expect(starts()).toBe(before);
+    expect((await readSettings(t.db)).machines.find((m) => m.id === machine)!.rented!.mcpToken || "").toBe("");
+    await t.services.rented.poll();
+    const run = await t.db.selectFrom("rent_sessions").selectAll().where("machine_id", "=", machine).where("ended_at", "is", null).executeTakeFirstOrThrow();
+    expect(run.mcp_token_id).toBeNull();
+    expect(runpod.pods[0]!.status).toBe("RUNNING");
+    await c.close();
+  });
+
+  it("edit_machine only shortens the idle stop and watchdog of the user's pod; its own pod's it lengthens", async () => {
+    const machine = await usersPod();
+    const c = await connect((await made("all", { spendCapUsd: 1 })).token);
+    await refusedWith(c, "edit_machine", { machine, idleMinutes: 1440 }, /the user's pod: its bill is not counted against this token's cap.*idle minutes 10 → 1440/);
+    await refusedWith(c, "edit_machine", { machine, watchdogMinutes: 60 }, /watchdog 15 → 60 min/);
+    await refusedWith(c, "edit_machine", { machine, idleDo: "stop" }, /idle action terminate → stop/);
+    expect((await readSettings(t.db)).machines.find((m) => m.id === machine)!.rented).toMatchObject({ idleMinutes: 10, watchdogMinutes: 15, idleDo: "terminate" });
+    // shorter is always fine
+    expect((await ok(c, "edit_machine", { machine, idleMinutes: 3, watchdogMinutes: 5 })).pod).toMatchObject({ idleMinutes: 3 });
+    expect((await readSettings(t.db)).machines.find((m) => m.id === machine)!.rented).toMatchObject({ idleMinutes: 3, watchdogMinutes: 5 });
+    // set to never stop when idle: any minutes are shorter than never
+    await updateSettings(t.db, (x) => ({ machines: x.machines.map((m) => (m.id === machine && m.rented ? { ...m, rented: { ...m.rented, idleMinutes: 0 } } : m)) }));
+    expect((await ok(c, "edit_machine", { machine, idleMinutes: 30 })).pod).toMatchObject({ idleMinutes: 30 });
+    await c.close();
+  });
+
+  it("a fetch onto the user's pod is refused; onto the token's own, its next hour is asked of the cap", async () => {
+    await updateSettings(t.db, () => ({ downloadModels: true }));
+    const users = await usersPod();
+    const { token, id } = await made("all", { spendCapUsd: 5 });
+    const c = await connect(token);
+    const file = { folder: "loras", file: "zz-test.safetensors", url: "https://huggingface.co/o/r/resolve/main/zz-test.safetensors" };
+    await refusedWith(c, "download", { ...file, machine: users }, /is the user's pod: a pod fetching files is busy, billed/);
+    // its own pod, up: with the cap lowered under that pod's next hour ($0.46), a fetch there has no room (it was asked $0)
+    const own = (await ok(c, "deploy_pod", DEPLOY)).machine as string;
+    await until(async () => (await t.services.rented.poll(), runpod.pods.filter((p) => p.status === "RUNNING").length === 2));
+    await t.services.rented.poll();
+    expect((await t.app.inject({ method: "POST", url: `/api/mcp/tokens/${id}`, payload: { spendCapUsd: 0.4 } })).statusCode).toBe(200);
+    await refusedWith(c, "download", { ...file, machine: own }, /This token's cap is \$0\.40 .*This call adds \$0\.46: the next hour of .*, busy fetching/);
+    await c.close();
+  });
+});

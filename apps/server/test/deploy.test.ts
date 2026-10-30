@@ -395,6 +395,33 @@ describe("a deploy", () => {
     expect((await readSettings(t.db)).pendingDeploys).toEqual([]);
   });
 
+  it("a deploy that ends while the read of RunPod is under way: its pod kept, the read's settings being from before (card #184)", async () => {
+    const res = await deploy();
+    expect(res.statusCode).toBe(200);
+    const pod = runpod.pods[0]!;
+    const machine = (await readSettings(t.db)).machines.find((m) => m.id === res.json().id)!;
+    // the read the deploy set off, over first
+    await t.services.rented.poll();
+    // as the read finds it: the deploy under way, its name pending, no machine yet
+    await updateSettings(t.db, (current) => ({ machines: current.machines.filter((m) => m.id !== machine.id), pendingDeploys: [{ name: pod.name, secret: machine.rented!.secret, at: new Date().toISOString() }] }));
+    const rented = t.services.rented as unknown as { deploying: boolean };
+    rented.deploying = true;
+    // while RunPod lists the pods, the deploy ends: its machine saved with its name settled, then `deploying` false (rentedDeploy.ts)
+    const list = Runpod.prototype.pods;
+    const spy = vi.spyOn(Runpod.prototype, "pods").mockImplementation(async function (this: Runpod) {
+      const pods = await list.call(this);
+      await updateSettings(t.db, (current) => ({ machines: [...current.machines, machine], pendingDeploys: current.pendingDeploys.filter((p) => p.name !== pod.name) }));
+      rented.deploying = false;
+      return pods;
+    });
+    await t.services.rented.poll();
+    spy.mockRestore();
+    expect(pod.status).not.toBe("TERMINATED");
+    expect(runpod.calls.filter((c) => c.endsWith("terminate"))).toEqual([]);
+    expect((await readSettings(t.db)).pendingDeploys).toEqual([]);
+    expect((await readSettings(t.db)).machines.some((m) => m.id === machine.id)).toBe(true);
+  });
+
   it("an image that never pulls: terminated 20 min after the deploy, said on its card, its secret gone", async () => {
     runpod.bootMs = 10_000_000;
     const id = (await deploy()).json().id as string;

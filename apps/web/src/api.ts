@@ -344,8 +344,9 @@ export const api = {
   /** Each ComfyUI asked now: whether it answers, its version, its GPU and the node pack it loaded. */
   machines: (o?: Asked) => call<MachineProbe[]>("GET", "/machines", undefined, o?.signal),
   /** Lock a ComfyUI to Afflatus (the node pack's lock), or change its lock: `renew` makes a new token, `local` lets calls from its own computer in. Checked before it counts. */
-  lockMachine: (id: string, o: { local?: boolean; renew?: boolean } = {}) => call<{ ok: true; tokenEnd: string }>("POST", `/machines/${encodeURIComponent(id)}/lock`, o),
-  unlockMachine: (id: string) => call<{ ok: true }>("POST", `/machines/${encodeURIComponent(id)}/unlock`, {}),
+  /** Unlocking, or "No token needed from this PC" on: a sign-in of the last 10 minutes, or the password with it (`current`). */
+  lockMachine: (id: string, o: { local?: boolean; renew?: boolean; current?: string } = {}) => call<{ ok: true; tokenEnd: string }>("POST", `/machines/${encodeURIComponent(id)}/lock`, o),
+  unlockMachine: (id: string, current?: string) => call<{ ok: true }>("POST", `/machines/${encodeURIComponent(id)}/unlock`, current ? { current } : {}),
   /** A token made elsewhere, pasted: kept only when the ComfyUI lets it in. */
   machineToken: (id: string, token: string) => call<{ ok: true; tokenEnd: string }>("POST", `/machines/${encodeURIComponent(id)}/token`, { token }),
   /** The token itself, asked for on purpose (Copy token). */

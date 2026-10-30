@@ -28,6 +28,8 @@ const DEPLOY_SLOW_MS = 12 * 60_000;
 
 /** After this long running without an answer, its card says so (it is billed meanwhile). */
 const BOOT_SLOW_MS = 2 * 60_000;
+/** How long a token's start_pod waits for a pod being stopped here to say so on RunPod, before refusing it as up. */
+const STOPPING_WAIT_MS = 30_000;
 
 /** How long a network volume's size, as RunPod says it, is kept before it is asked again (a volume is grown seldom). */
 const VOLUME_SIZE_MS = 10 * 60_000;
@@ -280,16 +282,23 @@ export class Rented extends RentedDeploy {
     }
     // one running pod per volume, as for a deploy: a stopped pod's volume may have gone to another pod meanwhile
     if (s.runpodKey) await this.volumeFree(m, s);
+    // a token's start_pod starts a stopped pod, never claims one already up: written as the token's, the user's pod (or
+    // another token's) would be steered onto, spared its idle tail and stopped at this token's cap (card #182)
+    if (mcpToken) await this.mustBeStopped(m, s.runpodKey);
     const unprepared = await this.prepareBoot(m, s.runpodKey);
-    // whose run this is, written before RunPod is asked: its session is opened from it at the first read of it running
-    if (m.rented.mcpToken !== mcpToken) await updateSettings(this.db, (current) => ({ machines: current.machines.map((x) => (x.id === m.id && x.rented ? { ...x, rented: { ...x.rented, mcpToken } } : x)) }));
+    // whose run this is, written before RunPod is asked: its session is opened from it at the first read of it running;
+    // put back when RunPod refuses the start, or a pod left stopped would stay the token's
+    const was = m.rented.mcpToken;
+    const owner = (mcpToken: string) => updateSettings(this.db, (current) => ({ machines: current.machines.map((x) => (x.id === m.id && x.rented ? { ...x, rented: { ...x.rented, mcpToken } } : x)) }));
+    if (was !== mcpToken) await owner(mcpToken);
     // stopped during its first boot: still a first boot (its deploy's files handed at its first answer), its deadline from
     // this Start, never from its deploy hours ago (terminated at its first read as a boot that never came up)
     if (m.rented.deployedAt) {
       const at = new Date(this.now()).toISOString();
       await updateSettings(this.db, (current) => ({ machines: current.machines.map((x) => (x.id === m.id && x.rented?.deployedAt ? { ...x, rented: { ...x.rented, deployedAt: at } } : x)) }));
     }
-    await this.act(m, "start", null).catch((err: Error & { statusCode?: number }) => {
+    await this.act(m, "start", null).catch(async (err: Error & { statusCode?: number }) => {
+      if (was !== mcpToken) await owner(was);
       // its GPU was taken while it was stopped: a stopped pod is bound to its host, and RunPod has none free there. Every
       // Start of the 0.8.1 re-check met this (7 of 7, one 2 min after its stop): the page offers Deploy on its volume
       // (redeployOffer), which `redeploy` marks
@@ -301,6 +310,23 @@ export class Rented extends RentedDeploy {
     // said on its card for the run: it may run open until it is up and locked
     this.seenOf(m.id).bootNote = unprepared;
     return this.view(m)!;
+  }
+
+  /**
+   * Refused unless RunPod says the pod is stopped (or failed): what this app last saw is not enough, a pod started on
+   * RunPod's site since is up. One stopping a moment ago gets prepareBoot's wait first.
+   */
+  private async mustBeStopped(m: Machine, key: string): Promise<void> {
+    if (!key) throw httpError("No RunPod API key: set it in Settings › Rented GPUs.", 409);
+    const client = this.client(key);
+    let pod = await client.pod(m.rented!.pod).catch((err: Error) => {
+      throw httpError(`RunPod did not say whether ${m.name || m.id} is stopped (${err.message}): not started.`, 502);
+    });
+    for (const ends = this.now() + STOPPING_WAIT_MS; pod && this.seen.get(m.id)?.stopping && BILLED.has(pod.status) && this.now() < ends; ) {
+      await new Promise((r) => setTimeout(r, this.settleEveryMs));
+      pod = await client.pod(m.rented!.pod).catch(() => pod);
+    }
+    if (pod && BILLED.has(pod.status)) throw httpError(`${m.name || m.id} is already ${pod.status.toLowerCase()} on RunPod: start_pod starts a stopped pod. Its run stays whoever's it is; this token's own work goes there by run_on or use_only, counted.`, 409);
   }
 
   /**

@@ -514,7 +514,12 @@ const cancel = tool({
   async run({ job: id }, ctx) {
     const row = await jobRow(ctx.s, id);
     await mayTouch(ctx.s, ctx, row);
-    if (!(await ctx.s.queue.cancel(id))) throw httpError(`“${row.label}” is not waiting or running: it ended (${row.status}).`);
+    // whose it is held in the write too: one another token's run_on or use_only took since it was read is not cancelled
+    if (!(await ctx.s.queue.cancel(id, { mcpToken: ctx.token.id }))) {
+      const now = await jobRow(ctx.s, id);
+      await mayTouch(ctx.s, ctx, now);
+      throw httpError(`“${row.label}” is not waiting or running: it ended (${now.status}).`);
+    }
     ctx.said(`Cancelled ${quoted(row.label)}`);
     return { cancelled: id, was: row.status === "running" ? "running" : "waiting" };
   },

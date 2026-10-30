@@ -6,6 +6,7 @@ import { withoutPaths, type DownloadView } from "./downloads";
 import { httpError } from "./errors";
 import { beginDownload, downloadBody } from "./fetchFile";
 import { familyIsOn, formArgs, formAsked, machineName, machineOf, seen, statusOf } from "./mcpForms";
+import { committedSpend, workCommitted } from "./mcpRender";
 import { quoted, tool, type ToolCtx } from "./mcpTool";
 import { refusal } from "./mcpTokens";
 import { modelSetsOf } from "./modelSets";
@@ -169,11 +170,19 @@ async function targetOf(s: Services, asked: string | undefined): Promise<Machine
   return (await s.machines())[0]?.machine;
 }
 
-/** Whether this token may have files fetched onto a rented pod: Spend, and room left under its cap. A pod fetching is busy, billed. */
+/**
+ * Whether this token may have files fetched onto a rented pod: Spend, and only onto a pod it started (a pod fetching is
+ * busy, billed: on the user's pod or another token's, nobody's cap would count it), with room under its cap for that pod's
+ * next hour beside its work running and waiting, as start_pod asks a first hour (card #183: it was asked for $0).
+ */
 async function mayFetchOnto(ctx: ToolCtx, m: Machine | undefined): Promise<void> {
   if (!m?.rented) return;
   if (!ctx.token.scopes.includes("spend")) throw refusal(`This token cannot spend on rented GPUs, and ${machineName(m)} is one: a pod fetching files is busy, billed. Tick Spend on it in Settings › Access, or fetch onto a machine of the user's own.`);
-  await ctx.maySpend(0);
+  if (m.rented.mcpToken !== ctx.token.id) throw refusal(`${quoted(machineName(m))} is ${m.rented.mcpToken ? "a pod another token started" : "the user's pod"}: a pod fetching files is busy, billed, and its bill is not counted against this token's cap. Fetch onto a pod this token started, or the user fetches onto it in Afflatus.`);
+  const rate = ctx.s.rented.view(m)?.rate;
+  if (rate === null || rate === undefined) throw refusal(`${machineName(m)}'s price is not known yet, so this token's spend cap cannot be held: wait until it answers.`);
+  const work = await committedSpend(ctx.s, (await readSettings(ctx.s.db)).machines, ctx.token.id);
+  await ctx.maySpend(rate + work.usd, { committed: workCommitted(work), adds: { what: `the next hour of ${quoted(machineName(m))}, busy fetching`, usd: rate } });
 }
 
 /** Refused when a file comes under a preset's licence the user has not accepted: the user accepts it, never an agent. */
@@ -192,7 +201,7 @@ const download = tool({
   name: "download",
   scope: "manage",
   title: "Download a model",
-  description: "Fetch a model file into a ComfyUI of the user's own or onto a rented pod, through the app's downloads line with its checks: from an address (Hugging Face, a direct https link; a gated Hugging Face file with the user's token) or a Civitai version (`civitai`, with `pick`/`sha256` to name one of its files), into a model folder. Needs Download missing models on in Settings › Models (a family's usual file excepted). A file under a preset's licence the user has not accepted is refused. Onto a pod needs Spend (a pod fetching is billed). Answers the download; downloads follows it.",
+  description: "Fetch a model file into a ComfyUI of the user's own or onto a rented pod, through the app's downloads line with its checks: from an address (Hugging Face, a direct https link; a gated Hugging Face file with the user's token) or a Civitai version (`civitai`, with `pick`/`sha256` to name one of its files), into a model folder. Needs Download missing models on in Settings › Models (a family's usual file excepted). A file under a preset's licence the user has not accepted is refused. Onto a pod needs Spend and a pod this token started, with room under its cap for that pod's next hour (a pod fetching is billed). Answers the download; downloads follows it.",
   input: {
     folder: z.string().min(1).max(120).describe("The ComfyUI model folder (loras, checkpoints, diffusion_models…), as find_models says it."),
     file: z.string().max(400).optional().describe("The name it gets; left out for a Civitai version: Civitai's name."),
@@ -304,7 +313,7 @@ const editModelSet = tool({
   name: "edit_model_set",
   scope: "manage",
   title: "Change a Model set",
-  description: "Make, change, duplicate or delete a Model set, as Settings › Models › Model sets does; or `get` its files a machine lacks onto it (a ComfyUI of the user's own through the downloads line, a pod through what it fetches: that needs Spend). A preset under a licence the user has not accepted is refused: the user accepts it in Afflatus.",
+  description: "Make, change, duplicate or delete a Model set, as Settings › Models › Model sets does; or `get` its files a machine lacks onto it (a ComfyUI of the user's own through the downloads line, a pod through what it fetches: that needs Spend and a pod this token started, with room under its cap for its next hour). A preset under a licence the user has not accepted is refused: the user accepts it in Afflatus.",
   input: {
     action: z.enum(["new", "edit", "duplicate", "delete", "get"]),
     set: z.string().max(80).optional().describe("The set's id (not for new)."),

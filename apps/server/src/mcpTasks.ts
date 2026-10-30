@@ -1,4 +1,5 @@
 import { ProtocolError, ProtocolErrorCode, type CallToolResult } from "@modelcontextprotocol/server";
+import { plural } from "@afflatus/core";
 import { z } from "zod";
 import { newId, type Tables } from "./db";
 import { machineName } from "./mcpForms";
@@ -147,8 +148,14 @@ export async function cancelTask(s: Services, ctx: ToolCtx, taskId: string): Pro
     if ("jobs" in follow) {
       const going = follow.jobs.length ? await s.db.selectFrom("jobs").selectAll().where("id", "in", follow.jobs).where("status", "in", ["queued", "running"]).execute() : [];
       for (const r of going) await mayTouch(s, ctx, r);
-      for (const r of going) await s.queue.cancel(r.id);
-      said = `${said}: cancelled ${going.map((r) => quoted(r.label)).join(", ") || "nothing (its jobs had ended)"}`;
+      // only what this token queued: a task that joined a job of the user's already on its way (an export asked twice, a
+      // clip's take already waiting) follows it, and a client cancelling the task on leaving must not stop the user's work
+      // (card #188). Its own held in the write too
+      const mine = going.filter((r) => r.mcp_token_id === token.id);
+      const cancelled: string[] = [];
+      for (const r of mine) if (await s.queue.cancel(r.id, { mcpToken: token.id, mine: true })) cancelled.push(quoted(r.label));
+      const left = going.length - cancelled.length;
+      said = `${said}: cancelled ${cancelled.join(", ") || "nothing"}${!going.length ? " (its jobs had ended)" : left ? `; ${plural(left, "job")} not queued by this token left as ${left === 1 ? "it is" : "they are"}` : ""}`;
     } else said = `${said}: the pod stays up (its idle stop, or stop_pod, stops it)`;
   } catch (err) {
     await s.mcp.tokens.record({ tokenId: token.id, tool: "tasks/cancel", said: `${said}: refused`, refused: true, why: (err as Error).message }).catch((e) => console.warn("[mcp] activity not written:", (e as Error).message));

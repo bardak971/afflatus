@@ -257,6 +257,28 @@ describe("cancel_waiting", () => {
   });
 });
 
+describe("cancel and cancel_waiting: whose a job is, held in the write (card #188)", () => {
+  it("leave a job of the user's another token took between the read and the cancel", async () => {
+    const mine = await made("make");
+    const theirs = await made("make");
+    const c = await connect(mine.token);
+    const [one, two] = await users(2);
+    // token B's run_on or use_only makes the user's job its own while A's call is between its read and its write
+    const taken = async (id: string) => void (await t.db.updateTable("jobs").set({ mcp_token_id: theirs.id }).where("id", "=", id).execute());
+    const cancel = t.services.queue.cancel.bind(t.services.queue);
+    const one$ = vi.spyOn(t.services.queue, "cancel").mockImplementation(async (id, by) => (await taken(id), cancel(id, by)));
+    await refusedWith(c, "cancel", { job: one! }, /queued by another token/);
+    one$.mockRestore();
+    expect((await row(one!)).status).toBe("queued");
+    const all = t.services.queue.cancelWaiting.bind(t.services.queue);
+    const two$ = vi.spyOn(t.services.queue, "cancelWaiting").mockImplementation(async (ids, by) => (await taken(two!), all(ids, by)));
+    expect(await ok(c, "cancel_waiting")).toMatchObject({ cancelled: 0 });
+    two$.mockRestore();
+    expect((await row(two!)).status).toBe("queued");
+    await c.close();
+  });
+});
+
 describe("order_queue and unload_models", () => {
   it("puts the jobs named first, in that order", async () => {
     const [x, y, z] = await users(3);

@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, KeyRound, Lock, LockOpen } from "lucide-react";
-import { ask } from "../../Confirm";
+import { ask, askText } from "../../Confirm";
 import type { MenuItem } from "../../ContextMenu";
-import { api, type MachineProbe } from "../../api";
+import { api, ApiError, type MachineProbe } from "../../api";
 import { useCopied, useFlash } from "../../hooks";
 import { queryKeys } from "../../queryKeys";
 import { Button, ButtonLink, cx, ErrorNote, fieldClass, Spinner, Toggle } from "../../ui";
@@ -27,6 +27,21 @@ function plainAway(url: string): boolean {
 }
 
 /**
+ * A change that loosens a lock (Unlock, "No token needed from this PC" on): the server holds it behind a sign-in of the last
+ * 10 minutes (access.ts mayChange); without one, the password is asked and the call made again with it.
+ */
+async function withPassword<T>(run: (current?: string) => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    if (!(err instanceof ApiError && err.said.needPassword)) throw err;
+  }
+  const current = await askText({ title: "This change needs the password (no sign-in in the last 10 minutes)", value: "", placeholder: "Password", yes: "Confirm", password: true });
+  if (!current) throw new Error("Not changed: it needs the password.");
+  return run(current);
+}
+
+/**
  * A machine's token actions, for its card's menu and foot: copy the token (into the clipboard), renew it, unlock the
  * ComfyUI; each asked first where it cannot be undone. A lock set by the machine's environment (a pod's) has no renew or
  * unlock: it is the environment's.
@@ -39,7 +54,7 @@ export function useAccessActions(id: string, label: string, probe: MachineProbe 
   };
   const copyToken = useMutation({ mutationFn: () => api.copyMachineToken(id), onSuccess: ({ token }) => copy(token) });
   const renew = useMutation({ mutationFn: (local: boolean) => api.lockMachine(id, { renew: true, local }), onSuccess: told });
-  const unlock = useMutation({ mutationFn: () => api.unlockMachine(id), onSuccess: told });
+  const unlock = useMutation({ mutationFn: () => withPassword((current) => api.unlockMachine(id, current)), onSuccess: told });
   const access = probe?.access;
   const locked = access?.state === "locked";
   const askRenew = () => void ask({ title: `Renew ${label}'s token?`, text: "What used the old one is refused from then on.", yes: "Renew" }).then((yes) => yes && renew.mutate(Boolean(access?.local)));
@@ -90,7 +105,7 @@ export function AccessRow({ id, label, probe, url, rented = false, compact = fal
   const told = () => {
     for (const queryKey of [queryKeys.machines(), queryKeys.settings(), queryKeys.queue(), queryKeys.setup()]) void client.invalidateQueries({ queryKey });
   };
-  const lock = useMutation({ mutationFn: (o: { local?: boolean; renew?: boolean }) => api.lockMachine(id, o), onSuccess: (_, o) => { if (!o.renew && o.local === undefined) flashChecks(true); told(); } });
+  const lock = useMutation({ mutationFn: (o: { local?: boolean; renew?: boolean }) => (o.local ? withPassword((current) => api.lockMachine(id, { ...o, current })) : api.lockMachine(id, o)), onSuccess: (_, o) => { if (!o.renew && o.local === undefined) flashChecks(true); told(); } });
   const paste = useMutation({ mutationFn: (token: string) => api.machineToken(id, token), onSuccess: () => { setPasted(""); told(); } });
   const actions = useAccessActions(id, label, probe);
   const access = probe?.access;

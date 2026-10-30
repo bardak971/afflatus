@@ -789,7 +789,7 @@ const exportTool = tool({
   async run({ timeline, ...opts }, ctx) {
     const { s } = ctx;
     const view = await viewOf(s, timeline);
-    const { id } = await exportTimeline(s, timeline, exportBody.parse(opts));
+    const { id } = await exportTimeline(s, timeline, exportBody.parse(opts), { mcpToken: ctx.token.id });
     const waiting = view.clips.filter((c) => c.job).length;
     ctx.said(`Exported “${view.name}”`);
     return { job: id, ...(view.exporting?.id === id ? { said: "an export of it was on its way already: this is that one" } : {}), ...(waiting ? { waitsFor: `${plural(waiting, "clip")} rendering or in the queue` } : {}) };
