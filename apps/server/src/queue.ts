@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { ComfyAway, ComfyCancelled, ComfyError, ComfyFailed, ComfyLost, ComfyUnreachable, filesIn, systemLoadFromStatus, waitForOutputs, type Measured } from "@afflatus/comfy";
-import { expandWildcards, fileKey, modelFileName, modelOf, modelStart, parseInput, removedSaid, sameFile, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
+import { expandWildcards, fileKey, lorasOverSaid, modelFileName, modelOf, modelStart, parseInput, removedSaid, sameFile, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
 import { Comfy, NO_COMFY_URL, type MachineComfy } from "./comfy";
 import { fileName } from "./media";
 import type { Insertable } from "kysely";
@@ -548,6 +548,8 @@ export class Queue {
     if (opts.machine && !pin && isPodMachineId(opts.machine)) throw httpError(POD_GONE, 409);
     // a file no machine has and none can get (its pod gone, card #139): refused now, not at its build with the job's turn come
     if (!opts.warm) await this.refuseNowhere(recipe, input);
+    // more LoRAs than a list takes, Turbo's row counted as the form counts it (card #189): the schema sees the hand rows alone
+    if (!opts.warm) await this.refuseLoras(recipe, input, pin && pin !== this.firstId ? this.lane(pin).core : this.core);
     if (!opts.warm) {
       // with the files of the machine it is pinned to, not the first's: a render pinned to a pod with a clean set was refused
       // for this PC's (card #119, B18). The first's still, while that one cannot be asked (a pod booting): its files would
@@ -567,6 +569,20 @@ export class Queue {
       mcp_token_id: opts.mcpToken ?? null,
       created_at: at, started_at: null, finished_at: null, updated_at: at,
     } satisfies Insertable<Tables["jobs"]>;
+  }
+
+  /**
+   * A LoRA list over its `max` once the rows the recipe adds itself are counted (lorasOverSaid, as the form's "n of 6"): a row
+   * comes with Turbo on and its file there, the family's slot read from the machine's last scan. A ComfyUI not answering
+   * gives no slot: a row whose file only the slot names is not counted then, rather than refusing for a file not known.
+   */
+  private async refuseLoras(recipe: Recipe<any>, input: Record<string, unknown>, core: QueueCore): Promise<void> {
+    const specs = recipe.inputs as InputSpec[];
+    if (!specs.some((s) => s.type === "loras" && s.added?.length)) return;
+    const scan = await core.comfy().then((c) => c.scan()).catch(() => null);
+    const slots = Object.fromEntries((scan?.families.find((f) => f.id === recipe.family)?.slots ?? []).flatMap((s) => (s.file ? [[s.id, s.file]] : [])));
+    const over = lorasOverSaid(specs, input, slots);
+    if (over) throw httpError(over);
   }
 
   /**

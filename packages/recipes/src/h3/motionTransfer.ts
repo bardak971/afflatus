@@ -2,10 +2,10 @@ import { defineRecipe, gridAtOrBefore, type BuildContext, type BuiltGraph, type 
 import { H3_MOTION_GUIDE } from "./guide";
 import { H3_FPS, H3_GRID } from "./family";
 import { H3_NO_TAGS, h3Inputs, type H3Video } from "./inputs";
-import { MOTION_TURBO_ROW, withTurboRow } from "./turboRow";
+import { MOTION_STARTS, MOTION_TURBO_ROW, withTurboRow } from "./turboRow";
 import { buildH3, h3Video, SHOT_WORDS } from "./video";
 import { H3_CONTINUATION_NODES, H3_SEAM, H3_TRIM } from "./join";
-import { H3_STARTS, modelOf, referenceNeeds, turboNeeds, vedaNeeds } from "./model";
+import { modelOf, referenceNeeds, turboNeeds, vedaNeeds } from "./model";
 import { latentUpscaleNeeds } from "./latent-upscale";
 import { upscaleNeeds } from "../video/upscale";
 import { rifeNeeds } from "../shared/finish";
@@ -281,7 +281,7 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
   },
   inputs,
   chapters: [MOTION_CHAPTER],
-  starts: H3_STARTS,
+  starts: MOTION_STARTS,
   presets: h3Video.presets,
   // a window after a swap needs what the swap's do (its model, unless picked), less its LoRA and SAM 3; any other is read
   // on the window as it is built (asWindow): a window carrying on asks for the reference model its frame before is given by

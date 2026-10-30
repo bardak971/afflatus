@@ -405,8 +405,9 @@ export const wanVideo = defineRecipe<WanVideo>({
     },
     { id: "turboSteps", type: "number", label: "Turbo steps", note: "4 is what the turbo LoRAs are made for; some fine-tunes ask for 6 or 8", min: 2, max: 12, step: 1, default: 4, showWhen: "fast", advanced: true, perModel: true },
     {
-      // (drawn as the weight of Turbo's row in the high-noise LoRA list, card #160)
-      id: "turboStrength", type: "number", label: "High-noise turbo", min: 0.2, max: 1.2, step: 0.05, default: 1, showWhen: "fast", advanced: true, perModel: true, inList: "loras",
+      // (drawn as the weight of Turbo's row in the high-noise LoRA list, card #160; at 0, as every row, it is not loaded: the
+      // row offers 0, and a minimum of 0.2 refused the render)
+      id: "turboStrength", type: "number", label: "High-noise turbo", min: 0, max: 1.2, step: 0.05, default: 1, showWhen: "fast", advanced: true, perModel: true, inList: "loras",
       note: "the turbo LoRA's strength on the high-noise model. 1 is the LoRAs' own. 0.6 to 0.8 on the high-noise half brings back motion the 4-step LoRA flattens; the low-noise half stays at 1",
     },
     {

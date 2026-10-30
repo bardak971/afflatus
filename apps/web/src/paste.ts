@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Asset } from "./api";
-import { plural } from "./format";
+import { plural, verb } from "./format";
 import { projectForNew } from "./project";
 import type { Banner } from "./store";
 
@@ -167,7 +167,7 @@ export async function pasteIntoLibrary(files: File[], o: { folder: string | null
   const id = `paste:${Date.now()}`;
   const media = files.filter((f) => kindOfFile(f));
   const left = files.length - media.length;
-  const leftOut = left ? `Left out: ${plural(left, "file")} that ${left === 1 ? "is" : "are"} no image, video or audio file.` : null;
+  const leftOut = left ? `Left out: ${plural(left, "file")} that ${verb(left, "is", "are")} no image, video or audio file.` : null;
   if (!media.length) {
     o.say({ id, tone: "bad", title: `Nothing pasted into ${o.name}`, text: leftOut ?? undefined });
     return;

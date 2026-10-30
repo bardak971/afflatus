@@ -3,6 +3,7 @@ import { endsIn, MODEL_EXTS } from "./modelFiles";
 import { withinPixels } from "./frame";
 import { gridAtOrBefore, type FrameGrid } from "./frameGrid";
 import { sigmaOfOldDenoise } from "./sigmas";
+import { plural, verb } from "./text";
 
 /**
  * The closed vocabulary of controls. A recipe declares its inputs as a list of these; the composer
@@ -162,6 +163,29 @@ export function addedRows(spec: InputSpec, values: Record<string, unknown>, slot
     const typed = Number(values[added.weight]);
     return [{ added, file, weight: hand >= 0 ? list[hand]!.weight : values[added.weight] !== undefined && Number.isFinite(typed) ? typed : 1, hand }];
   });
+}
+
+/**
+ * How many LoRAs a list puts on, against its `max`: the rows added by hand, and each row the recipe adds itself (a Turbo row
+ * takes a place of the list's six, card #160); a hand row folded into one of those is that row, counted once. The form's
+ * "n of 6" and the server's refusal (lorasOverSaid) both count this way.
+ */
+export const lorasCounted = (list: readonly LoraValue[], rows: readonly AddedRow[]) =>
+  list.length - new Set(rows.map((r) => r.hand).filter((i) => i >= 0)).size + rows.length;
+
+/** The first LoRA list of a form holding more than it takes, said as a refusal; null when each is within its `max`. */
+export function lorasOverSaid(specs: readonly InputSpec[], values: Record<string, unknown>, slots: Record<string, string>): string | null {
+  for (const spec of specs) {
+    if (spec.type !== "loras") continue;
+    const list = Array.isArray(values[spec.id]) ? (values[spec.id] as LoraValue[]) : [];
+    const rows = addedRows(spec, values, slots);
+    const count = lorasCounted(list, rows);
+    if (count > spec.max) {
+      const own = rows.map((r) => r.added.label);
+      return `${spec.label}: ${plural(count, "LoRA")}, ${spec.max} at most${own.length ? ` (${own.join(" and ")} ${verb(own.length, "takes a place", "take a place each")}, as ${verb(own.length, "its row is", "their rows are")} put on too)` : ""}`;
+    }
+  }
+  return null;
 }
 interface SizeInput extends Base {
   type: "size";

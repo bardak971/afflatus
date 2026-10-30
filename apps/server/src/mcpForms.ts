@@ -103,6 +103,8 @@ export function inputSaid(spec: InputSpec, options?: string[]) {
         ...(spec.added?.length ? {
           addedByRecipe: spec.added.map((a) => ({ label: a.label, file: a.file, weight: a.weight, ...(a.toggle ? { toggle: a.toggle } : { needed: true }), note: a.note })),
           addedSaid: "the same file in this list is that LoRA, loaded once at the weight given here",
+          // as the form counts them, and as a render is refused over them (lorasOverSaid)
+          maxSaid: `max counts each row the recipe puts on (Turbo's while on) besides the list's own: with Turbo on, ${spec.max - 1} of your own`,
         } : {}),
       };
     case "size":

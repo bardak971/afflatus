@@ -815,7 +815,7 @@ export async function finishPlan(s: Services, timeline: string, b: z.infer<typeo
       if (typeof kept !== "string") {
         push({ kind: "render", recipe: kept.recipe, input: { ...asDrafted(kept.inputs, draft.asset), seed: kept.seed, upscale: "Off", faceRefine: true, faceRefineOnly: true, faceRefineDenoise: b.faceDenoise ?? 0.45, ...faceModelOver(b) }, opts: {
           label: `${label} · Face refine`, clip: { id: clip.id, fit: false, mirror: kept.mirror }, look: clip.look ?? view.look, folder, finishedFrom: from,
-        }, then: { cut: { ...cut, faceFirst: b.faceDenoise ?? 0.45 }, label } });
+        }, then: { cut: { ...cut, faceFirst: b.faceDenoise ?? 0.45, ...(b.faceModel ? { faceFirstModel: b.faceModel } : {}) }, label } });
         continue;
       }
       skipped.push({ clip: i + 1, why: `no Face refine (${kept}): finished with ${route === "rtx" ? "RTX VSR" : route === "model" ? "the pixel model" : "SeedVR2"} alone` });
@@ -852,8 +852,9 @@ const defaultDenoise = (recipe: { inputs: InputSpec[] }): number => {
 function cutKey(c: CutOptions): string {
   if (c.route === "face") return JSON.stringify({ route: "face", fd: c.faceDenoise ?? 0.45 });
   const route = c.route ?? "seedvr";
-  // (a model picked counted only when there is one: the finishes made before it keep their key)
-  return JSON.stringify({ route, f: c.by, colour: route === "seedvr" ? c.colour ?? "lab" : null, frames: route === "seedvr" ? c.seedvrFrames ?? 0 : null, model: route === "model" ? c.upscaleModel ?? "" : null, sharpen: c.sharpen ?? 0, face: c.faceFirst ?? null, ...(c.seedvrModel ? { sm: c.seedvrModel } : {}) });
+  // (a model picked counted only when there is one: the finishes made before it keep their key; the Face refine's before the
+  // cut too, as renderKey counts it on a render, or a redo with another face model said every clip finished already)
+  return JSON.stringify({ route, f: c.by, colour: route === "seedvr" ? c.colour ?? "lab" : null, frames: route === "seedvr" ? c.seedvrFrames ?? 0 : null, model: route === "model" ? c.upscaleModel ?? "" : null, sharpen: c.sharpen ?? 0, face: c.faceFirst ?? null, ...(c.seedvrModel ? { sm: c.seedvrModel } : {}), ...(c.faceFirst !== undefined && c.faceFirstModel ? { fm: c.faceFirstModel } : {}) });
 }
 function renderKey(i: Record<string, unknown>): string | null {
   const fm = i.faceRefineModel ? { fm: i.faceRefineModel } : {};
