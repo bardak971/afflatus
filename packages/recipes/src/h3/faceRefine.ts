@@ -73,7 +73,7 @@ const notH3Model = (spec: InputSpec): InputSpec =>
   spec.id === "faceRefine" ? { ...spec, note: `${spec.note}. Redrawn with an H3 model (this model is not H3's): the fused turbo, unless Face refine model names another` }
   // (card #204: the model picked here as on H3's forms, H3's files alone; no clip's own to offer, the clip's model cannot
   // redraw an H3 crop. Left out, the fused turbo of Settings › Models, as the pass ran before the input was there)
-  : spec.id === "faceRefineModel" && spec.type === "model" ? { ...withoutOwn(spec), note: `left out, the fused turbo of Settings › Models; another H3 file is a second model in RAM. 4 steps on a turbo, ${FACE_REFINE_FULL_STEPS} on a full model` }
+  : spec.id === "faceRefineModel" && spec.type === "model" ? { ...withoutOwn(spec), family: "h3", note: `left out, the fused turbo of Settings › Models; another H3 file is a second model in RAM. 4 steps on a turbo, ${FACE_REFINE_FULL_STEPS} on a full model` }
   : spec;
 
 /**

@@ -170,7 +170,8 @@ async function recipeChoices(
       const all = input.folder === "diffusion_models" ? [...(await files(input.folder)), ...(await files(GGUF_LISTS.diffusion_models!))] : await files(input.folder);
       // what a form starts on comes first: the family's own file when the input stands for a slot
       const usual = input.slot ? slots.find((s) => s.id === input.slot)?.file : null;
-      const family = families.find((x) => x.id === r.family);
+      // (an input of another family's model, Face refine's H3 one on an LTX form, is judged as that family's)
+      const family = families.find((x) => x.id === (input.family ?? r.family));
       // a file named or known as another version of the family's model (LTX 2.5's under 2.3) is another family's for this
       const otherVersion = (f: string) => { const v = family?.line ? versionOf(family.line, f, undefined, infoOf(input.folder, f)) : null; return Boolean(v && v !== family!.line!.own); };
       const named = input.match ? all.filter((f) => !otherVersion(f) && input.match!.some((p) => new RegExp(p, "i").test(f))) : [];
@@ -187,7 +188,10 @@ async function recipeChoices(
       // (an input that offers the clip's own model, Face refine's, runs on any of them: the reference model is one to pick)
       const taken = input.slot && !own?.onlyFor && !input.own ? slots.filter((s) => s.id !== input.slot && !choices.has(s.id) && s.folder === input.folder && s.file && s.file !== usual).map((s) => s.file) : [];
       // a LoRA the recipe adds itself (Turbo's): the files named for that use first, then every other LoRA (any may be put in its place)
-      options[input.id] = input.blank ? [...new Set([...(usual ? [usual] : []), ...named, ...all])] : [...new Set([...(usual ? [usual] : []), ...(input.own ? [OWN_MODEL] : []), ...fits, ...all.filter((f) => !foreign.includes(f)), ...foreign])].filter((f) => !taken.includes(f));
+      options[input.id] = input.blank ? [...new Set([...(usual ? [usual] : []), ...named, ...all])]
+        // another family's model offers that family's files alone: the recipe's own would fail there
+        : input.family && input.family !== r.family ? [...new Set([...(usual ? [usual] : []), ...fits])]
+        : [...new Set([...(usual ? [usual] : []), ...(input.own ? [OWN_MODEL] : []), ...fits, ...all.filter((f) => !foreign.includes(f)), ...foreign])].filter((f) => !taken.includes(f));
       // with a slot, a missing file is the slot's to report; with a file of its own (an imported workflow's), the list is not needed
       if (!options[input.id]!.length && !input.slot && !input.default) emptyInputs.push(input.id);
     } else if (input.type === "loras") {
@@ -372,7 +376,7 @@ export async function plannedScan(families: Family[], recipes: Recipe<any>[], at
     for (const input of r.inputs) {
       // a model input offers its own family's files: the folder holds every family's (SDXL's checkpoints listed SAM 3's)
       if (input.type === "model") {
-        const own = new Set((families.find((f) => f.id === r.family)?.slots ?? []).filter((s) => s.get && s.folder === input.folder && (!input.slot || s.id === input.slot || (input.blank && input.match?.some((p) => new RegExp(p, "i").test(s.get!.file))))).map((s) => s.get!.file));
+        const own = new Set((families.find((f) => f.id === (input.family ?? r.family))?.slots ?? []).filter((s) => s.get && s.folder === input.folder && (!input.slot || s.id === input.slot || (input.blank && input.match?.some((p) => new RegExp(p, "i").test(s.get!.file))))).map((s) => s.get!.file));
         options[input.id] = (options[input.id] ?? []).filter((f) => own.has(f) || (input.own && f === OWN_MODEL));
         continue;
       }

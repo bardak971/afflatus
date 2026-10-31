@@ -100,6 +100,12 @@ interface ModelInput extends Base {
    */
   own?: true;
   /**
+   * A model of another family than the recipe's (Face refine's H3 model on an LTX 2.5 or SCAIL-2 form): its list is that
+   * family's files alone, named for it or known by their weights. Not the recipe's own models: an LTX file there cannot
+   * redraw an H3 crop, and the pass would fail (card #204).
+   */
+  family?: string;
+  /**
    * Left empty, the recipe takes the file of the first of its slots that suits the clip (AddedLora.slots: H3's reference
    * turbo LoRA for a reference clip, the usual one otherwise): the form starts empty. Its list is the files named for that use
    * first (`match`), then every other file of the folder: any may be put in its place.

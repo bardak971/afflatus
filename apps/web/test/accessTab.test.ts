@@ -14,7 +14,8 @@ function texts(): string[] {
       if (e.isDirectory()) {
         // a migration says what the place was called when it was written: history, as the CHANGELOG
         if (e.name !== "node_modules" && e.name !== "dist" && e.name !== "migrations") walk(path);
-      } else if (/\.(ts|tsx|md|json)$/.test(e.name)) found.push(path);
+        // (a review report is history too, and kept out of the repository: only on the machine it was written on)
+      } else if (/\.(ts|tsx|md|json)$/.test(e.name) && !/^code-review-.*\.md$/.test(e.name)) found.push(path);
     }
   };
   for (const dir of ["apps/server/src", "apps/web/src", "apps/server/test", "apps/web/test", "docs", ...readdirSync(join(ROOT, "packages")).map((p) => `packages/${p}/src`)]) walk(dir);

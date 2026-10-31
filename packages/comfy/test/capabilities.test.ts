@@ -125,6 +125,15 @@ describe("scan", () => {
     expect((await scan(new ComfyClient(fake.url), [withFace], [face])).recipes[0]!.options.faceModel).toEqual([OWN_MODEL, "toy_ref.safetensors"]);
   });
 
+  it("offers another family's model input that family's files alone, never the recipe's own (card #204)", async () => {
+    const other = defineFamily({ ...family, id: "other", name: "Other", slots: [{ id: "face", label: "Face turbo", folder: "diffusion_models", detect: ["other.*turbo"], hint: "", optional: true }] });
+    const face = defineRecipe<ToyInput>({ ...recipe, id: "toy.face", inputs: [...recipe.inputs, { id: "faceModel", type: "model", label: "Face refine model", folder: "diffusion_models", slot: "face", match: ["other"], family: "other" }] });
+    fake = await startFakeComfy({ catalog, models: { vae: ["toy_vae.safetensors"], loras: [], checkpoints: ["m.safetensors"], diffusion_models: ["other_turbo.safetensors", "toy_video.safetensors", "other_ref.safetensors"] } });
+    const s = await scan(new ComfyClient(fake.url), [family, other], [face]);
+    // the toy family's own video model would fail where an Other model is wanted: not offered at all
+    expect(s.recipes[0]!.options.faceModel).toEqual(["other_turbo.safetensors", "other_ref.safetensors"]);
+  });
+
   it("says what is missing: a required file, a model to pick, a node", async () => {
     const { Sampler: _gone, ...without } = catalog;
     const s = await run({ catalog: without, models: { vae: [], loras: [], checkpoints: [] } });
