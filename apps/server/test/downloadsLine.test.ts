@@ -16,7 +16,7 @@ import { until } from "./helpers";
 describe("the downloads' line", () => {
   let comfy: Server;
   let dir = "";
-  let posted: Array<{ filename: string; dir?: string }>;
+  let posted: Array<{ filename: string; dir?: string; sha256?: string }>;
   let packVersion = "0.36.9";
   const was = process.env.CIVITAI_URL;
   let made: Downloads[] = [];
@@ -78,7 +78,7 @@ describe("the downloads' line", () => {
     made.push(d);
     return d;
   };
-  const ask = (d: Downloads, n: string, more: { place?: string } = {}) =>
+  const ask = (d: Downloads, n: string, more: { place?: string; sha256?: string } = {}) =>
     d.start(stub, "http://127.0.0.1:2", { file: `${n}.safetensors`, folder: "loras", title: n, source: `http://127.0.0.1:1/${n}.safetensors`, ask: { file: `${n}.safetensors`, folder: "loras", url: `https://x.test/${n}` }, ...more });
   const turns = (d: Downloads) => Object.fromEntries(d.list().map((v) => [v.file.replace(".safetensors", ""), v.turn]));
 
@@ -141,5 +141,15 @@ describe("the downloads' line", () => {
     await ask(d, "b", { place: "/workspace/extra/loras" });
     await until(() => posted.length === 2);
     expect(posted.map((p) => p.dir)).toEqual(["/workspace/extra/loras", undefined]);
+  });
+
+  it("hands the node pack the file's sha256 as its source lists it, and nothing that is not one", async () => {
+    const d = open();
+    const sha = "AB".repeat(32);
+    await ask(d, "a", { sha256: sha });
+    await ask(d, "b", { sha256: "not a hash" });
+    await until(() => posted.length === 2);
+    // lower case, as the pack checks it (Civitai lists it in capitals)
+    expect(posted.map((p) => p.sha256)).toEqual([sha.toLowerCase(), undefined]);
   });
 });

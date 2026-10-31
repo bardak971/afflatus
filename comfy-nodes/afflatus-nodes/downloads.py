@@ -20,7 +20,7 @@ left: an Afflatus in a container or behind a proxy calls from another address th
 
 Routes (registered by __init__.py on ComfyUI's server; a JSON body only, which a page of another site cannot send
 without asking first):
-  POST   /afflatus/download {url, folder, filename, total}  → {id, path}
+  POST   /afflatus/download {url, folder, filename, total, sha256?}  → {id, path}
   GET    /afflatus/download/<id>  → {state: downloading|done|error|stopped, bytes, total, error, note, expired}
   POST   /afflatus/download/<id>/url {url}  → a fresh signed link for a download whose link expired (`expired` true)
   DELETE /afflatus/download/<id>  → stops it, and removes its .part (`?keep=1`, 0.36.6: keeps it, for the next download of
@@ -33,10 +33,24 @@ without asking first):
 Afflatus always says the file's size (the one-time address answers with its length): a download whose size is not
 known is refused, and one that sends more than it said is cut off there, so a source cannot fill the disk. At most
 MAX_JOBS run at once (a 429 past that).
+
+A big file on a source's own link (0.44.0) comes over several connections at once: Civitai serves each connection at
+20–33 MB/s and no more, and 8 at once came at 233–256 MB/s on a pod (Afflatus card #199), a file of 21 GB in ~85 s
+instead of ~15 min. The link is asked for one byte first: a 206 with the file's size and the file splits into pieces,
+each asked for with its own Range by CONNECTIONS threads and written at its offset into `<name>.<id>.parts` (another
+name than the .part, which an interrupted download hands to the next one as bytes from the first on: these are not).
+The connections are shared by every download of this ComfyUI (two files at once share the 8). Whatever ends it, the
+.parts is cut back to the bytes whole from the first on and becomes the .part again, so a stop asked to keep it, a
+failure that passes, or a source that stops answering parts (carried on over one connection) lose no more than the
+pieces under way. A sha256 Afflatus says (Civitai lists it) is checked before the file is named, read as the pieces
+come.
 """
 
 import asyncio
+import collections
+import contextlib
 import errno
+import hashlib
 import os
 import shutil
 import re
@@ -51,7 +65,7 @@ MODEL_FILE = re.compile(r"\.(safetensors|ckpt|gguf|sft|pt|pth|bin|onnx)$", re.I)
 # what a name must not hold on any system: a path's separators, a drive's colon, Windows' reserved characters
 BAD_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 # a model download's .part: this pack's (with its download's id) or Afflatus's own
-PART = re.compile(r"\.(safetensors|ckpt|gguf|sft|pt|pth|bin|onnx)(\.[0-9a-f]{8})?\.part$", re.I)
+PART = re.compile(r"\.(safetensors|ckpt|gguf|sft|pt|pth|bin|onnx)(\.[0-9a-f]{8})?\.parts?$", re.I)
 RELAY = re.compile(r"^/api/downloads/fetch/[\w-]{1,64}$")
 # the hosts a signed download link of Hugging Face or Civitai is on (Civitai's files are served from Cloudflare R2)
 DIRECT_HOSTS = ("huggingface.co", "hf.co", "civitai.com", "r2.cloudflarestorage.com")
@@ -65,6 +79,16 @@ KEEP_S = 3600
 MAX_JOBS = 2
 # a .part not written to for this long belongs to no download under way: one cut short by ComfyUI stopping
 STALE_PART_S = 3600
+# the connections all downloads of this ComfyUI share (measured on pods: 8 give 233–256 MB/s from Civitai, 16 up to 599
+# but no more on a pod's disk and line most of the time); a file from this size on is fetched over them, smaller over one
+CONNECTIONS = 8
+PARTS_FROM = 256 * 2**20
+# the size of a piece: a connection asks for one at a time, so that two downloads at once share the connections piece by
+# piece, and the last pieces of a file are not left to one connection for long
+PIECE_MIN = 32 * 2**20
+PIECE_MAX = 256 * 2**20
+_SLOTS = threading.BoundedSemaphore(CONNECTIONS)
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 class Refused(ValueError):
@@ -304,8 +328,10 @@ _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedire
 
 
 class Job:
-    def __init__(self, url, path, total=0):
+    def __init__(self, url, path, total=0, sha256=None):
         self.id = uuid.uuid4().hex
+        # the file's sha256 as its source lists it: checked before the file is named (0.44.0)
+        self.sha256 = sha256.lower() if isinstance(sha256, str) and SHA256.match(sha256.lower()) else None
         self.url = url
         # a signed link of the source itself (not Afflatus's address): it may expire half way, and be sent again
         self.direct = direct_ok(url)
@@ -333,6 +359,11 @@ class Job:
     def part(self):
         # its own .part: a download stopped and asked for again at once never shares one with the first, still letting go
         return f"{self.path}.{self.id[:8]}.part"
+
+    @property
+    def parts(self):
+        # the file while its pieces come over several connections: holes in it, so never taken for a .part's first bytes
+        return self.part + "s"
 
     def view(self):
         return {"state": self.state, "bytes": self.bytes, "total": self.total, "error": self.error, "note": self.note, "expired": self.expired}
@@ -438,27 +469,270 @@ def _taken_over(job):
     return best[1]
 
 
-def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeout=60, renew_wait=RENEW_WAIT_S):
+@contextlib.contextmanager
+def _slot(job, slots):
+    """One of the connections every download shares, waited for as long as it takes; a stop ends the wait."""
+    while not slots.acquire(timeout=0.5):
+        if job.cancelled.is_set():
+            raise _Stopped()
+    try:
+        yield
+    finally:
+        slots.release()
+
+
+class _NoParts(Exception):
+    """The source no longer answers parts of the file (a 200 to a Range, a 429, links refused again and again): the rest
+    comes over one connection."""
+
+
+class _Piece:
+    __slots__ = ("start", "end", "done")
+
+    def __init__(self, start, end):
+        self.start, self.end, self.done = start, end, 0
+
+    @property
+    def left(self):
+        return self.end - self.start - self.done
+
+
+def _answers_parts(job, have, opener, timeout):
+    """Whether the source answers parts of the file: a 206 to one byte at `have`, saying the file's size (held to the one
+    Afflatus said). Any other answer, a refusal or a cut leaves the file to one connection, which says what is wrong."""
+    req = urllib.request.Request(job.url, headers={"User-Agent": "afflatus-nodes", "Range": f"bytes={have}-{have}"})
+    try:
+        with opener(req, timeout=timeout) as res:
+            got = re.match(r"^bytes (\d+)-(\d+)/(\d+)$", res.headers.get("Content-Range") or "")
+            if res.status != 206 or not got or int(got.group(1)) != have:
+                return False
+            job.total = _within(job, int(got.group(3)))
+            return have < job.total
+    except Refused:
+        raise
+    except Exception:
+        return False
+
+
+def _read_piece(job, url, piece, f, opener, chunk, timeout, moved):
+    """One piece from where it was left, written at its offset: `piece.done` counts what is on disk."""
+    at = piece.start + piece.done
+    req = urllib.request.Request(url, headers={"User-Agent": "afflatus-nodes", "Range": f"bytes={at}-{piece.end - 1}"})
+    with opener(req, timeout=timeout) as res:
+        got = re.match(r"^bytes (\d+)-(\d+)/(\d+|\*)$", res.headers.get("Content-Range") or "")
+        if res.status != 206 or not got:
+            raise _NoParts("the source sent the whole file to a request for part of it")
+        if int(got.group(1)) != at or int(got.group(2)) != piece.end - 1 or (got.group(3) != "*" and int(got.group(3)) != job.total):
+            raise Refused(f"the source sent bytes {got.group(1)}-{got.group(2)}/{got.group(3)} for {at}-{piece.end - 1}/{job.total}")
+        f.seek(at)
+        while piece.left:
+            if job.cancelled.is_set():
+                raise _Stopped()
+            block = res.read(min(chunk, piece.left + 1))
+            if not block:
+                raise ConnectionError(f"the connection was cut {piece.left} bytes before the end of a part")
+            if len(block) > piece.left:
+                raise Refused("more than the part asked for came")
+            view = memoryview(block)
+            while view:
+                n = f.write(view)
+                view = view[n:]
+                piece.done += n
+                moved(n)
+
+
+def _in_parts(job, have, opener, attempts, backoff, chunk, timeout, renew_wait, slots, width, piece_size=None):
+    """
+    The rest of the file from byte `have` over `width` connections at once, a piece each at a time, into job.parts (the
+    .part taken over first, when there is one). Returns (bytes whole from the first on, the file's sha256 when it is known
+    and all of it came, else None). However it ends, job.parts is cut back to its bytes whole from the first on and
+    becomes job.part again, for a stop that keeps it, a failure that passes, or one connection to carry on from: the
+    pieces beyond the first not whole are lost, never taken for bytes they are not.
+    """
+    if have:
+        os.replace(job.part, job.parts)
+    else:
+        open(job.parts, "wb").close()
+    size = piece_size or min(PIECE_MAX, max(PIECE_MIN, (job.total - have) // (width * 4)))
+    pieces = [_Piece(a, min(job.total, a + size)) for a in range(have, job.total, size)]
+    todo = collections.deque(pieces)
+    lock = threading.Lock()
+    renewing = threading.Lock()
+    ended = []
+    renewals = [0]
+    over = threading.Event()
+
+    def whole():
+        # the bytes whole from the first on: up to the first piece not all there, and what of it came
+        for p in pieces:
+            if p.left:
+                return p.start + p.done
+        return job.total
+
+    def moved(n):
+        with lock:
+            job.bytes += n
+
+    def end(e):
+        with lock:
+            if not ended:
+                ended.append(e)
+
+    def connection():
+        fails = 0
+        try:
+            with open(job.parts, "r+b", buffering=0) as f:
+                while True:
+                    with lock:
+                        if ended or not todo:
+                            return
+                        piece = todo.popleft()
+                    try:
+                        while piece.left:
+                            if ended or job.cancelled.is_set():
+                                return
+                            before = piece.done
+                            url = job.url
+                            try:
+                                with _slot(job, slots):
+                                    _read_piece(job, url, piece, f, opener, chunk, timeout, moved)
+                                continue
+                            except urllib.error.HTTPError as e:
+                                if e.code in (401, 403, 410):
+                                    # a signed link refused: it expired, and one connection asks Afflatus for a fresh one
+                                    # while the others wait for it. Refused again and again, the source may not want this
+                                    # many connections: the rest over one
+                                    with renewing:
+                                        if job.url == url and not ended:
+                                            renewals[0] += 1
+                                            if renewals[0] > 2:
+                                                raise _NoParts(f"the source refused its link {renewals[0]} times")
+                                            if not job.wait_renewed(renew_wait):
+                                                raise Refused("the download link expired, and Afflatus sent no fresh one")
+                                    continue
+                                if e.code == 429:
+                                    raise _NoParts("the source answered 429 to several connections at once")
+                                if e.code < 500:
+                                    raise Refused(f"the source answered {e.code}: the download is no longer there")
+                                why = f"the source answered {e.code}"
+                            except (_Stopped, Refused, _NoParts):
+                                raise
+                            except Exception as e:  # a cut, a timeout, a reset: this piece tried again
+                                if isinstance(e, OSError) and e.errno in DISK_FULL:
+                                    raise Refused(f"the disk is full ({e.strerror or e})")
+                                why = str(e) or type(e).__name__
+                            fails = 1 if piece.done > before else fails + 1
+                            if fails >= attempts:
+                                raise _Passing(f"the download failed {attempts} times in a row ({why})")
+                            job.note = f"{why}: trying that part again ({fails + 1} of {attempts})."
+                            if job.cancelled.wait(backoff * 2 ** (fails - 1)):
+                                return
+                    finally:
+                        if piece.left:
+                            with lock:
+                                todo.appendleft(piece)
+        except BaseException as e:  # noqa: BLE001 -- whatever ends one connection ends them all, said once
+            end(e)
+
+    digest = [None]
+
+    def follow():
+        # the sha256 read as the bytes become whole from the first on (the pages just written, still in memory): the
+        # check costs no wait at the end
+        sha = hashlib.sha256()
+        at = 0
+        # unbuffered: a buffered read would read ahead into bytes not written yet, and serve them later as the file's
+        with open(job.parts, "rb", buffering=0) as r:
+            while True:
+                edge = whole()
+                while at < edge:
+                    block = r.read(min(8 << 20, edge - at))
+                    if not block:
+                        break
+                    sha.update(block)
+                    at += len(block)
+                if at >= job.total:
+                    digest[0] = sha.hexdigest()
+                    return
+                if over.is_set() and at >= whole():
+                    return
+                over.wait(0.2)
+
+    threads = [threading.Thread(target=connection, name=f"afflatus-download-{job.id[:8]}-{n}", daemon=True) for n in range(width)]
+    hasher = threading.Thread(target=follow, name=f"afflatus-sha256-{job.id[:8]}", daemon=True) if job.sha256 else None
+    try:
+        for t in threads + ([hasher] if hasher else []):
+            t.start()
+        for t in threads:
+            t.join()
+    finally:
+        # every connection let go first (a stop is seen within a block): nothing writes while the file is cut back
+        for t in threads:
+            t.join()
+        over.set()
+        if hasher:
+            hasher.join()
+        have = whole()
+        try:
+            os.truncate(job.parts, have)
+            os.replace(job.parts, job.part)
+        except OSError:
+            _remove(job.parts)
+            have = 0
+        job.bytes = have
+    if ended and not isinstance(ended[0], _NoParts):
+        raise ended[0]
+    if job.cancelled.is_set():
+        raise _Stopped()
+    if ended:
+        job.note = f"{ended[0]}: the rest over one connection, from byte {have}."
+    return have, digest[0] if have == job.total else None
+
+
+def _sha256_of(path):
+    sha = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(8 << 20), b""):
+            sha.update(block)
+    return sha.hexdigest()
+
+
+def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeout=60, renew_wait=RENEW_WAIT_S,
+        slots=_SLOTS, width=CONNECTIONS, parts_from=PARTS_FROM, piece_size=None):
     """Fetch `job.url` into `job.path`, through `<path>.part`: picked up with a Range after a cut (or from what an earlier
     download of it left, _taken_over), tried again with a growing wait, named only once whole. Sets job.state to done,
-    error or stopped; the .part outlives only a stop asked to keep it and a failure that passes (_Passing)."""
+    error or stopped; the .part outlives only a stop asked to keep it and a failure that passes (_Passing). A big file on a
+    source's own link that answers parts of it comes over `width` connections at once first (_in_parts); every request
+    takes one of `slots`, the connections all downloads share."""
     part = job.part
     have = 0
     fails = 0
+    digest = None
+    # all of it came over several connections: nothing left for one
+    came = False
     try:
         _remove(part)
+        _remove(job.parts)
         os.makedirs(os.path.dirname(job.path), exist_ok=True)
         have = _taken_over(job)
         job.bytes = have
         if have:
             job.note = f"Carrying on from byte {have}, as an earlier download of it left it."
-        while True:
+        # only a source's own link: Afflatus's one-time address streams one request at a time (a second lets the first go)
+        if job.direct and width > 1 and job.total >= parts_from and have < job.total:
+            with _slot(job, slots):
+                parts = _answers_parts(job, have, opener, timeout)
+            if parts and job.total >= parts_from:
+                _room(job, have)
+                have, digest = _in_parts(job, have, opener, attempts, backoff, chunk, timeout, renew_wait, slots, width, piece_size)
+                came = have == job.total
+        while not came:
             if job.cancelled.is_set():
                 raise _Stopped()
             before = have
             try:
                 req = urllib.request.Request(job.url, headers={"User-Agent": "afflatus-nodes", **({"Range": f"bytes={have}-"} if have else {})})
-                with opener(req, timeout=timeout) as res:
+                with _slot(job, slots), opener(req, timeout=timeout) as res:
                     got = re.match(r"^bytes (\d+)-\d+/(\d+|\*)$", res.headers.get("Content-Range") or "") if res.status == 206 else None
                     if have and got and int(got.group(1)) == have:
                         mode = "ab"
@@ -529,6 +803,12 @@ def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeou
         # never over a file that is there: ComfyUI may have it in use
         if os.path.exists(job.path):
             raise Refused("a file of that name is in the folder already")
+        if job.sha256:
+            if not digest:
+                job.note = "Checking the file against the sha256 its source lists."
+                digest = _sha256_of(part)
+            if digest != job.sha256:
+                raise Refused(f"the file that came is not the one its source lists (sha256 {digest[:12]}…, {job.sha256[:12]}… listed)")
         os.replace(part, job.path)
         job.state = "done"
         job.note = None
@@ -619,7 +899,7 @@ def register(routes, web, folder_paths):
             free = await asyncio.to_thread(lambda: shutil.disk_usage(root).free) - reserved()
             if free < total:
                 return web.Response(status=507, text=f"the disk has {max(0, free)} bytes free, the file is {int(total)}")
-        job = Job(body["url"], path, total)
+        job = Job(body["url"], path, total, body.get("sha256"))
         job.reserved = lambda: reserved(job)
         job.busy_parts = lambda: {j.part for j in jobs.values() if j is not job and j.alive}
         jobs[job.id] = job
