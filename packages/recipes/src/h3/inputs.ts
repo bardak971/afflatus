@@ -102,10 +102,6 @@ export const REF_VIDEOS_WHAT = "short videos of a person, a place, clothes, an o
 export const H3_NO_TAGS = "No <Picture 1> or <Video 1> to type: Afflatus adds H3's tags, saying which picture is whom.";
 
 /**
- * Every H3 form's Sound card (card #170): the sound effects and the music H3 makes, the source's sound kept and its audio guide,
- * a recording's start and loudness. Reached under the Inputs tab, so that the four forms keep the same six tabs.
- */
-/**
  * The rows Swap and Motion transfer share for their source video, written once so that their words cannot drift (every H3
  * form alike): the part's start, keeping the source's sound, and that sound as H3's guide.
  */
@@ -121,7 +117,12 @@ export const SOURCE_SOUND_INPUTS: InputSpec[] = [
   },
 ];
 
-export const H3_SOUND_CHAPTER = { id: "sound", label: "Sound", under: "inputs", help: "The sound H3 makes with the picture (its effects and music) and what it is given to hear: a recording, the source's own sound as an audio guide, a voice sample brought to one loudness." };
+/**
+ * Every H3 form's Sound card (card #170): the sound settings alone, the source's sound kept and its audio guide, a recording's
+ * start and loudness (Sound effects and Music are prompt text, in the Prompt card: card #210). Reached under the Inputs tab, so
+ * that the four forms keep the same six tabs; a form with none of these rows shown has no Sound card.
+ */
+export const H3_SOUND_CHAPTER = { id: "sound", label: "Sound", under: "inputs", help: "What H3 is given to hear: a recording, the source's own sound as an audio guide, a voice sample brought to one loudness. The sound effects and the music it makes are written in the Prompt card." };
 
 export const h3Inputs: InputSpec[] = [
   {
@@ -133,8 +134,9 @@ export const h3Inputs: InputSpec[] = [
     placeholder: "She walks to the railing and looks out at the sea. The camera follows her slowly. (S1) says <d>[English] What a view.</d> softly.",
     note: H3_NO_TAGS,
   },
-  { id: "soundscape", type: "prompt", weights: false, label: "Sound effects", style: "sentences", optional: true, chapter: "sound", placeholder: "waves, a light wind, seagulls far away" },
-  { id: "music", type: "prompt", weights: false, label: "Music", style: "sentences", optional: true, chapter: "sound", placeholder: "none" },
+  // H3's prompt text, so in the Prompt card under What happens on every H3 form (card #210), not with the sound settings
+  { id: "soundscape", type: "prompt", weights: false, label: "Sound effects", style: "sentences", optional: true, placeholder: "waves, a light wind, seagulls far away" },
+  { id: "music", type: "prompt", weights: false, label: "Music", style: "sentences", optional: true, placeholder: "none" },
   { id: "start", type: "image", role: "start", label: "First frame", note: "the first frame", optional: true },
   { id: "end", type: "image", role: "end", label: "Last frame", note: "the last frame. Not used with reference pictures, videos or a voice sample: the reference model takes no last frame", optional: true },
   { id: "mid", type: "image", role: "mid", at: "midAt", label: "Keyframe", note: "a picture the clip passes through, at the time set below", optional: true, advanced: true },

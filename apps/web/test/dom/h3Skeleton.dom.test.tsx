@@ -34,21 +34,25 @@ describe("the four H3 forms on one skeleton", () => {
     const drawn = draw(<Form recipe={info(id)} status={undefined} stored={{}} onChange={() => {}} onClear={() => {}} />);
     expect(tabs()).toEqual(TABS);
     const own = id === "h3.swap" ? ["mask"] : id === "h3.motion" ? ["motion"] : [];
-    // Video with audio's Sound card holds Sound effects and Music: there on every form
-    expect(cards()).toEqual(["model", "prompt", "inputs", ...own, "sound", "sampling", "output", "advanced"]);
+    // the Sound card holds the sound settings alone (card #210): with nothing to hear yet, Video with audio and Lip sync have
+    // none; Swap and Motion transfer show Keep the source's sound
+    const sound = id === "h3.swap" || id === "h3.motion" ? ["sound"] : [];
+    expect(cards()).toEqual(["model", "prompt", "inputs", ...own, ...sound, "sampling", "output", "advanced"]);
     drawn.unmount();
   });
 
-  it.each(FORMS)("%s: What happens is the main box, the sound rows in Sound", (id) => {
+  it.each(FORMS)("%s: What happens is the main box, Sound effects and Music under it, the sound settings in Sound", (id) => {
     const recipe = info(id);
     const l = layoutOf(recipe, { keepSound: false, voice: "v", recording: "r" }, "");
     expect(l.mainText?.label).toBe("What happens");
+    // H3's prompt text in the Prompt card, first under What happens (card #210); a swap takes none
+    expect(l.texts.map((i) => i.label).slice(0, 2)).toEqual(id === "h3.swap" ? ["How they look", "In the source"] : ["Sound effects", "Music"]);
     const sound = l.chapters.find((ch) => ch.id === "sound")!.items.map((i) => i.label);
     const want = {
-      "h3.video": ["Sound effects", "Music", "Normalize loudness"],
-      "h3.lipsync": ["Sound effects", "Music", "Speech starts at", "Normalize loudness"],
+      "h3.video": ["Normalize loudness"],
+      "h3.lipsync": ["Speech starts at", "Normalize loudness"],
       "h3.swap": ["Keep the source's sound"],
-      "h3.motion": ["Keep the source's sound", "Sound effects", "Music"],
+      "h3.motion": ["Keep the source's sound"],
     }[id];
     expect(sound).toEqual(want);
     // nothing of the sound left in Sampling
