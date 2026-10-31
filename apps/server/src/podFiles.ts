@@ -17,7 +17,7 @@ import { olderThan } from "./version";
 
 /**
  * The model files a rented pod is getting, per pod: what its waiting jobs need first, in the order the queue asked for
- * them, then the files asked for "ahead" (a model set's, a job's that went home this time) with what the line has left.
+ * them, then the files asked for "ahead" (a model set's, a job's pinned to that pod or waiting for one) with what the line has left.
  * Each comes from its site straight onto the pod (the node pack's download, from the site's own link: the pod cannot reach
  * Afflatus), or, for a file no site is known for, is sent from this computer (podUpload.ts).
  *

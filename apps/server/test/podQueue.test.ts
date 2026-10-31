@@ -11,8 +11,8 @@ import { CHECKPOINT, complete, get, job, makeApp, makeFake, post, referenceCatal
 
 /**
  * A deployed pod that lacks a job's model file (queue.ts with podFiles.ts): the job may still go there, its file sent
- * first, when that is where it ends soonest; where this computer is sooner it stays home and the file is sent ahead; a
- * file that cannot be had keeps the job off the pod, and never keeps the pod billed.
+ * first, when that is where it ends soonest; where this computer is sooner it stays home and the pod is sent nothing for
+ * it (card #211); a file that cannot be had keeps the job off the pod, and never keeps the pod billed.
  */
 
 const KEY = "rpa_test_key_0123456789";
@@ -107,12 +107,15 @@ describe("a job whose model file a pod lacks", () => {
     expect(home.prompts.size).toBe(0);
   });
 
-  it("stays home when home is sooner, and its file is sent to the pod ahead, for later", async () => {
+  it("stays home when home is sooner, and its file is not sent to the pod: the pod's idle time is not held for it", async () => {
     const id = await deployed();
     const a = await enqueue();
     await until(() => home.prompts.size === 1);
-    await until(() => t.services.podFiles.view(id)[0]?.state === "ready", 15_000);
-    expect(t.services.podFiles.view(id)[0]).toMatchObject({ file: CHECKPOINT, tier: "ahead", jobs: [] });
+    // a few passes later, nothing came: sent "ahead, for later", a test pod fetched the owner's models (card #211)
+    await new Promise((r) => setTimeout(r, 300));
+    t.services.queue.nudge();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(t.services.podFiles.view(id)).toEqual([]);
     expect(pod.prompts.size).toBe(0);
     complete(home, [...home.prompts.keys()][0]!);
     await until(async () => (await row(a)).status === "done");
@@ -177,7 +180,7 @@ describe("a job whose model file a pod lacks", () => {
     // this computer busy with one job, a second waiting: home is still sooner than the pod with its file to come
     const a = await enqueue();
     await until(() => home.prompts.size === 1);
-    // the file the first job's sending ahead put on the pod is taken off it again, and the pod looked at again
+    // the pod has nothing of it (a job planned home sends none ahead), and is looked at again
     await until(() => t.services.podFiles.view(id)[0]?.state !== "fetching");
     t.services.podFiles.forget(id);
     rmSync(join(podDisk, "checkpoints", CHECKPOINT), { force: true });
@@ -203,7 +206,7 @@ describe("a pod's files planned from the waiting jobs", () => {
     const id = await deployed();
     const a = (await post(t.app, "/api/jobs", { ...job(), machine: await homeId() })).json().ids[0] as string;
     await until(() => home.prompts.size === 1);
-    // a few passes later (a free job's file is sent ahead within them: "stays home when home is sooner"), nothing came
+    // a few passes later, nothing came
     await new Promise((r) => setTimeout(r, 300));
     t.services.queue.nudge();
     await new Promise((r) => setTimeout(r, 300));
@@ -263,11 +266,12 @@ describe("a pod's files planned from the waiting jobs", () => {
     ]));
   });
 
-  it("are sent ahead to a pod deployed while the queue is paused, which stays up while they move and stops 10 min after they are in", async () => {
-    // Pause all with this computer alone, a job waiting; then a pod deployed
+  it("are sent ahead to a pod deployed while the queue is paused when its deploy names them, which stays up while they move and stops 10 min after they are in", async () => {
+    // Pause all with this computer alone, a job waiting; then a pod deployed with the job's file ticked (Your waiting jobs):
+    // the user's choice, as this computer could run the job and the plan sends the pod none of its files (card #211)
     await post(t.app, "/api/queue/pause", {});
     const a = await enqueue();
-    const id = await deployed();
+    const id = await deployed({ files: [{ file: CHECKPOINT, folder: "checkpoints" }] });
     await until(() => t.services.podFiles.view(id)[0]?.state === "ready", 15_000);
     expect(t.services.podFiles.view(id)).toEqual([expect.objectContaining({ file: CHECKPOINT, tier: "ahead", jobs: [] })]);
     // nothing starts while paused: no work for it, its files in, nothing moving any more
@@ -295,7 +299,7 @@ describe("a pod's files planned from the waiting jobs", () => {
 });
 
 describe("a pod deployed after Pause all", () => {
-  it("of several machines joins paused: nothing starts on it, its files come ahead, and Resume all sends the jobs", async () => {
+  it("of several machines joins paused: nothing starts on it, nothing comes for jobs this computer can run, and Resume all sends the jobs", async () => {
     const second = await makeFake();
     try {
       await t.app.inject({ method: "PUT", url: "/api/settings", payload: { machines: [{ id: await homeId(), url: home.url, dir: comfyDir }, { id: "m2", url: second.url }] } });
@@ -303,9 +307,9 @@ describe("a pod deployed after Pause all", () => {
       const a = await enqueue();
       const id = await deployed();
       expect((await t.services.queue.status()).machines.find((m) => m.id === id)?.paused).toBe(true);
-      await until(() => t.services.podFiles.view(id)[0]?.state === "ready", 15_000);
-      expect(t.services.podFiles.view(id)[0]).toMatchObject({ file: CHECKPOINT, tier: "ahead" });
-      await new Promise((r) => setTimeout(r, 100));
+      t.services.queue.nudge();
+      await new Promise((r) => setTimeout(r, 300));
+      expect(t.services.podFiles.view(id)).toEqual([]);
       expect(pod.prompts.size + home.prompts.size + second.prompts.size).toBe(0);
       expect((await row(a)).status).toBe("queued");
       // Resume all: every machine, the pod too, and the job goes
@@ -321,8 +325,8 @@ describe("a pod deployed after Pause all", () => {
     await post(t.app, "/api/queue/pause", {});
     const a = await enqueue();
     const id = await deployed();
-    await until(() => t.services.podFiles.view(id)[0]?.state === "ready", 15_000);
-    await new Promise((r) => setTimeout(r, 100));
+    t.services.queue.nudge();
+    await new Promise((r) => setTimeout(r, 300));
     expect(pod.prompts.size + home.prompts.size).toBe(0);
     expect(await t.services.queue.pausedOn(id)).toBe(true);
     await post(t.app, "/api/queue/resume", {});

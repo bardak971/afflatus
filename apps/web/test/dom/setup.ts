@@ -34,4 +34,8 @@ afterEach(() => {
     // no storage here: nothing was kept
   }
   vi.unstubAllGlobals();
+  // a request the page sends once its test ended (a timeline's batched reads go a timer later, measures.ts) is answered
+  // here too: let through, it went to happy-dom's own fetch at the page's address, localhost:3000, and the run logged
+  // ECONNREFUSED (card #211)
+  vi.stubGlobal("fetch", fakeApi.fetch);
 });

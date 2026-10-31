@@ -4,6 +4,9 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Fixed
+- **A rented GPU no longer fetches the models of jobs bound for your own machine.** A job the queue plans on a machine of your own had its files sent "ahead, for later" to any idle pod, and a download holds a pod's idle stop: a pod deployed for one job pinned to it fetched, between its renders, 13.5 GB and more for jobs then rendered on your PC, billed meanwhile. A pod is now sent the files of the jobs planned on it, pinned to it, or waiting there behind another job; with every machine paused, those of a job only a rented GPU can run. The waiting jobs' files you tick in Deploy are fetched as before (card #211).
+
 ## [0.9.0] - 2026-10-31
 
 Rented GPUs ranked by $ per render and fetching big Civitai files over 8 connections (pod image 0.1.44, node pack 0.44.1), H3 that lets go of its text encoder before sampling, pod renders that no longer freeze at seamless joins, Settings › Model files safer and Settings in twelve tabs, the four H3 forms on one skeleton with their sound prompts beside the prompt, FLUX.1 and Klein's Upscale 2x at the real noise its field says, and the 0.9.0 review's money, data and security fixes.

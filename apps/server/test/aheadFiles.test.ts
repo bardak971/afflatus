@@ -4,9 +4,12 @@ import type { JobRow, Lane } from "../src/queueModel";
 
 /**
  * Which pods are sent a waiting job's files, and when they are dropped. A job's files went "ahead" to every pod that could
- * take it: two pods busy with other work pulled 40 GB each for jobs that ran on a third (2026-10-18). Now: "need" to the
- * pod a job is planned on; "ahead" only for a job planned on no pod, to one pod (the one that began its copy, else an idle
- * one); and, at every pass, what a pod was sent for jobs that may no longer run there is dropped.
+ * take it: two pods busy with other work pulled 40 GB each for jobs that ran on a third (2026-10-18). Then a test pod
+ * deployed for one job pinned to it fetched, idle between its renders, the models of the owner's jobs waiting for his PC
+ * (card #211). Now: "need" to the pod a job is planned on; "ahead" to the pod a job is pinned to, and for a job placed
+ * nowhere (Pause all) that no machine of the user's own can run, to one pod (the one that began its copy, else an idle
+ * one); nothing for a job planned on a machine of the user's own; and, at every pass, what a pod was sent for jobs that
+ * may no longer run there is dropped.
  */
 
 const file = (name: string) => ({ file: name, folder: "diffusion_models" });
@@ -27,7 +30,8 @@ function planner(lanes: Lane[], o: { allPaused?: boolean; holds?: Record<string,
   return { p, sent, kept };
 }
 const row = (id: string, pin: string | null = null) => ({ id, pin_machine: pin }) as JobRow;
-const able = (fetch: Record<string, string[]>): Able => ({ can: new Set(Object.keys(fetch)), lacks: {}, fetch: Object.fromEntries(Object.entries(fetch).map(([l, f]) => [l, { files: f.map(file), ms: 0 }])) });
+/** `own`: the machines of the user's own that can run it too, with nothing to fetch. */
+const able = (fetch: Record<string, string[]>, own: string[] = []): Able => ({ can: new Set([...Object.keys(fetch), ...own]), lacks: {}, fetch: Object.fromEntries(Object.entries(fetch).map(([l, f]) => [l, { files: f.map(file), ms: 0 }])) });
 
 describe("the files sent to pods for the waiting jobs", () => {
   it("go to the pod each job is planned on: three takes on three idle pods, each its own", () => {
@@ -42,19 +46,37 @@ describe("the files sent to pods for the waiting jobs", () => {
     ]);
   });
 
-  it("go ahead, for a job planned on this PC, to one idle pod only: never to a busy one, one busy outside Afflatus, or one with work planned", () => {
+  it("go to no pod for the jobs planned on this PC: a pod idle between the renders of the job pinned to it fetches none of theirs", () => {
+    // card #211's run: a test pod deployed for one job pinned to it, that job done; the owner's two jobs waiting for his PC,
+    // which runs a third. The pod, idle, could take either once sent its model, and had begun one's (13.5 GB) a pass before
+    const { p, sent, kept } = planner([lane("m1", { rented: false, running: true }), lane("pod")], { holds: { pod: ["a"] } });
+    const rows = [row("a"), row("b")];
+    const s = p.sendFiles(rows, new Map([["a", able({ pod: ["muse.safetensors"] }, ["m1"])], ["b", able({ pod: ["krea.safetensors"] }, ["m1"])]]), new Map([["a", { lane: "m1" }], ["b", { lane: "m1" }]]));
+    p.dropUnsought(rows, s);
+    expect(sent).toEqual([]);
+    // the copy it had begun is stopped (what is in stays: dropUnsought leaves a file that came)
+    expect(kept(["a", "b"])).toEqual({ pod: [] });
+  });
+
+  it("go ahead, for a job placed nowhere (Pause all) that only a pod can run, to one idle pod only: never to a busy one, one busy outside Afflatus, or one with work planned", () => {
     const lanes = [lane("home", { rented: false }), lane("busy", { running: true }), lane("outside", { outside: true }), lane("planned"), lane("idle1"), lane("idle2")];
-    const { p, sent } = planner(lanes);
+    const { p, sent } = planner(lanes, { allPaused: true });
     const rows = [row("a"), row("b")];
     const fetch = { busy: ["x.safetensors"], outside: ["x.safetensors"], planned: ["x.safetensors"], idle1: ["x.safetensors"], idle2: ["x.safetensors"] };
-    p.sendFiles(rows, new Map([["a", able(fetch)], ["b", able({})]]), new Map([["a", { lane: "home" }], ["b", { lane: "planned" }]]));
+    p.sendFiles(rows, new Map([["a", able(fetch)], ["b", able({})]]), new Map([["b", { lane: "planned" }]]));
     expect(sent).toEqual([{ lane: "idle1", tier: "ahead", job: "a", files: ["x.safetensors"] }]);
   });
 
+  it("go to no pod for a job placed nowhere (Pause all) that a machine of the user's own can run: Resume decides where", () => {
+    const { p, sent } = planner([lane("home", { rented: false }), lane("p1")], { allPaused: true });
+    p.sendFiles([row("a")], new Map([["a", able({ p1: ["x.safetensors"] }, ["home"])]]), new Map());
+    expect(sent).toEqual([]);
+  });
+
   it("stay ahead on the pod that began the copy, busy since or not: never a second copy elsewhere", () => {
-    const { p, sent } = planner([lane("home", { rented: false }), lane("p1", { running: true }), lane("p2")], { holds: { p1: ["a"] } });
+    const { p, sent } = planner([lane("home", { rented: false }), lane("p1", { running: true }), lane("p2")], { allPaused: true, holds: { p1: ["a"] } });
     const rows = [row("a")];
-    p.sendFiles(rows, new Map([["a", able({ p1: ["x.safetensors"], p2: ["x.safetensors"] })]]), new Map([["a", { lane: "home" }]]));
+    p.sendFiles(rows, new Map([["a", able({ p1: ["x.safetensors"], p2: ["x.safetensors"] })]]), new Map());
     expect(sent).toEqual([{ lane: "p1", tier: "ahead", job: "a", files: ["x.safetensors"] }]);
   });
 

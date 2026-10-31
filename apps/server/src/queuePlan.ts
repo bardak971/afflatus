@@ -77,7 +77,7 @@ export interface PodFetch {
   short(machine: string, files: Lack["files"]): Promise<string | null>;
   /** How long until these files (and node packs) are on that machine (ms): what is left of each, at the slow end of the speeds measured. */
   untilThere(machine: string, files: Lack["files"], packs?: string[]): Promise<number>;
-  /** Have them sent for a job: one that will run there ("need"), or one that went elsewhere this time ("ahead": files only, never packs, which restart its ComfyUI). */
+  /** Have them sent for a job: one that will run there ("need"), or one bound for it later ("ahead": files only, never packs, which restart its ComfyUI). */
   want(machine: string, files: Lack["files"], tier: "need" | "ahead", job: string, packs?: string[]): void;
   /** Drop what was sent there for jobs none of which may run there any more (podFiles.ts dropUnsought): files and node packs. */
   drop(machine: string, mayRun: (job: string) => boolean): void;
@@ -446,14 +446,17 @@ export class Planner {
 
   /**
    * The files the plan needs on rented pods, asked for: a job planned onto a pod lacking only files has them sent there
-   * first ("need"). One that runs on no pod (planned on this PC, or not placed while all is paused) has its files sent ahead,
-   * for later, to one idle pod: nothing running or starting there, nothing planned on it, no work from outside Afflatus.
+   * first ("need"). One planned on a machine of the user's own has none sent anywhere: sent ahead "for later" to an idle
+   * pod, the owner's jobs bound for this PC had 13.5 GB fetched onto a test pod deployed for one job pinned to it, the pod's
+   * idle stop held while they came (podFiles.ts moving; card #211). A job pinned to a pod has its files sent ahead there,
+   * and one placed nowhere (every machine paused) to one idle pod (nothing running or starting there, nothing planned on
+   * it, no work from outside Afflatus) when no machine of the user's own can run it: a pod is where it will go on Resume.
    * Sent ahead to every pod that could take it, a job pulled its 40 GB onto pods busy with other work, each (2026-10-18).
    * A job pinned to a machine has none ahead elsewhere (ableOf), and a pod paused on its own while others go (Use only this
-   * PC) gets files ahead only for a job pinned to it: what waits goes to the others. With every machine paused (Pause all)
-   * an idle pod gets them, as the whole line waits for Resume. An "ahead" copy stays on the pod it began on, busy since or
-   * not: picked afresh at every pass, one job's files went to one pod, then to another. What comes back: for each job
-   * looked at, the pods its files may be on now (dropUnsought drops them from the others).
+   * PC) gets files ahead only for a job pinned to it. What the user ticks at a deploy (its waiting jobs' files) is theirs,
+   * not the plan's (podFiles.ts byUser). An "ahead" copy stays on the pod it began on, busy since or not: picked afresh at
+   * every pass, one job's files went to one pod, then to another. What comes back: for each job looked at, the pods its
+   * files may be on now (dropUnsought drops them from the others).
    */
   sendFiles(rows: JobRow[], able: ReadonlyMap<string, Able>, where: ReadonlyMap<string, { lane: string }>): Map<string, Set<string>> {
     const sent = new Map<string, Set<string>>();
@@ -484,6 +487,8 @@ export class Planner {
       // a job pinned to a pod has its files there, busy or not (they were dropped from the very pod it waits for)
       const pinned = r.pin_machine && may.includes(r.pin_machine) ? r.pin_machine : undefined;
       if (!pinned && kept.length) continue;
+      // planned on a machine of the user's own, or placed nowhere (all paused) while one of them could run it: the plan means it for no pod
+      if (!pinned && (on || [...(able.get(r.id)?.can ?? [])].some((id) => !this.d.lane(id)?.machine?.rented))) continue;
       const ahead = pinned ?? may.find((lane) => this.d.podFetch!.holdsFor(lane, r.id)) ?? may.find(idle);
       if (ahead) {
         this.d.podFetch.want(ahead, fetch[ahead]!.files, "ahead", r.id);
