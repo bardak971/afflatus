@@ -27,6 +27,12 @@ export const REFUSED = "The site refused the download. For Civitai, save a key i
 export const REFUSED_HF = "Hugging Face refused the download: the file is gated. Accept the model's licence on its Hugging Face page, signed in with the account whose token is in Settings › Models › Hugging Face token, and give the token read access to gated repositories.";
 /** Civitai refusing the key itself: a 401 although one was sent. */
 export const KEY_REFUSED = "Civitai refused the API key (expired, revoked or mistyped): save a new one in Settings › Models › Civitai API key.";
+/** Civitai's 401 for a file its creator closed: `{"error":"Unauthorized","message":"The creator of this asset has disabled downloads on this file"}`, key or none (card #206). */
+export const DOWNLOADS_DISABLED = "The creator disabled downloads of this file on Civitai: no key or account gets it there.";
+/** What a 401's message says when it is about who asks (a key, an account): anything else is the file itself refused. */
+const ABOUT_WHO = /\b(api ?key|key|token|auth\w*|log(?:ged)? ?in|sign(?:ed)? ?in|session|account)\b/i;
+/** A refusal a key saved in the Settings may undo: the key refused, or none sent where Civitai wants an account. Any other is the file's own. */
+export const keyMayDo = (said: string): boolean => said === KEY_REFUSED || said === REFUSED;
 /** What a refusal is said as: Hugging Face's gated files get their own words. */
 export const refusedSaid = (source: string): string => (/^https:\/\/(huggingface\.co|hf\.co)\//i.test(source) ? REFUSED_HF : REFUSED);
 
@@ -62,6 +68,11 @@ export async function refusalOf(res: Response, source: string, headers: Record<s
       .then((r) => (r.ok ? (r.json() as Promise<{ paidAccess?: { endsAt?: string | null } | null }>) : null)).catch(() => null) : null;
     return paidSaid(version ? `${origin}/model-versions/${version}` : null, v?.paidAccess?.endsAt);
   }
+  // a 401 is Civitai's answer to the creator closing the file too (card #206: a valid key was told it was refused): its
+  // message says which. Only one about the key or an account is a key refused; one saying nothing, as before
+  const message = typeof body?.message === "string" ? body.message : "";
+  if (res.status === 401 && /disabled downloads/i.test(message)) return DOWNLOADS_DISABLED;
+  if (res.status === 401 && message && !ABOUT_WHO.test(message)) return `Civitai refused the download (${said}).`;
   if (res.status === 401) return keyed ? KEY_REFUSED : REFUSED;
   if (res.status === 403 && said) return `Civitai refused the download (${said}).`;
   return REFUSED;

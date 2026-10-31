@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { firstFree, gpuKey, rankGpus, roughSpeed, type RankAsk, type RankOffer } from "../src/gpuRank";
+import { firstFree, GUESS_ERROR, gpuKey, rankGpus, roughSpeed, TIE, type RankAsk, type RankOffer } from "../src/gpuRank";
 
 const offer = (id: string, name: string, price: number, memory = 24, availability: RankOffer["availability"] = "HIGH", dataCenters: RankOffer["dataCenters"] = [{ id: "EU-RO-1", availability }]): RankOffer => ({ id, name, price, memory, availability, dataCenters });
 const OFFERS = [
@@ -19,7 +19,8 @@ describe("a GPU's name", () => {
     expect(gpuKey("NVIDIA GeForce RTX 4090")).toBe("rtx 4090");
     expect(gpuKey("RTX 4090")).toBe("rtx 4090");
     expect(gpuKey("NVIDIA RTX 6000 Ada Generation")).toBe("rtx 6000 ada");
-    expect(roughSpeed("NVIDIA RTX 6000 Ada Generation")).toBe(0.95);
+    expect(roughSpeed("NVIDIA RTX 6000 Ada Generation")).toBe(0.7);
+    expect(roughSpeed("NVIDIA A40")).toBe(0.39);
     expect(roughSpeed("L40S")).toBe(0.85);
     expect(roughSpeed("NVIDIA L40")).toBe(0.75);
     expect(roughSpeed("L4")).toBe(0.3);
@@ -34,8 +35,8 @@ describe("the ranking", () => {
     const r = rankGpus(OFFERS, RENDERS, HOME, ASK);
     const by = Object.fromEntries(r.map((g) => [g.name, g]));
     expect(by["RTX 4090"]).toMatchObject({ seconds: 100, learned: 30, timeSaid: "from 30 of your renders", fit: "yes", stock: "free" });
-    expect(by["H100 SXM"]).toMatchObject({ seconds: Math.round(100 / 1.9), learned: 0, timeSaid: "a guess" });
-    expect(by["A40"]!.seconds).toBe(Math.round(100 / 0.45));
+    expect(by["H100 SXM"]).toMatchObject({ seconds: Math.round(100 / 1.9), learned: 0, guess: true });
+    expect(by["A40"]!.seconds).toBe(Math.round(100 / roughSpeed("A40")!));
     expect(by["RTX 4090"]!.cost).toBeCloseTo((0.69 * 100) / 3600);
     // value: the 4090 (1.9 ¢ a render), the A40 (2.7 ¢), the H100 (3.9 ¢), the L4 (4.0 ¢)
     expect(r.map((g) => g.name)).toEqual(["RTX 4090", "A40", "H100 SXM", "L4"]);
@@ -57,7 +58,7 @@ describe("the ranking", () => {
     // the owner's 4070 Ti at the common pace on more renders, an A40 pod at 0.76 though the table puts it under the 4070 Ti
     const learned = { gpus: [{ gpu: "NVIDIA GeForce RTX 4070 Ti", pace: 1, renders: 40 }, { gpu: "NVIDIA A40", pace: 0.76, renders: 6 }], rented: ["NVIDIA A40"], oom: [] };
     const h100 = rankGpus(OFFERS, RENDERS, learned, ASK).find((g) => g.name === "H100 SXM")!;
-    expect(h100).toMatchObject({ timeSaid: "a guess", seconds: Math.round((100 * 0.76 * roughSpeed("A40")!) / roughSpeed("H100 SXM")!) });
+    expect(h100).toMatchObject({ guess: true, seconds: Math.round((100 * 0.76 * roughSpeed("A40")!) / roughSpeed("H100 SXM")!) });
     const home = rankGpus(OFFERS, RENDERS, { ...learned, rented: [] }, ASK).find((g) => g.name === "H100 SXM")!;
     expect(home.seconds).toBe(Math.round((100 * roughSpeed("RTX 4070 Ti")!) / roughSpeed("H100 SXM")!));
   });
@@ -68,12 +69,12 @@ describe("the ranking", () => {
     const by = Object.fromEntries(r.map((g) => [g.name, g]));
     expect(by["RTX 4090"]!.seconds).toBe(150);
     expect(by["H100 SXM"]!.seconds).toBe(Math.round(100 / 1.9 + 50));
-    expect(by["A40"]!.seconds).toBe(Math.round(100 / 0.45 + 50));
+    expect(by["A40"]!.seconds).toBe(Math.round(100 / roughSpeed("A40")! + 50));
   });
 
   it("with no GPU learned, no time: value falls back to the price", () => {
     const r = rankGpus(OFFERS, RENDERS, { gpus: [], oom: [] }, ASK);
-    expect(r.every((g) => g.seconds === null && g.cost === null && g.timeSaid === "not known yet")).toBe(true);
+    expect(r.every((g) => g.seconds === null && g.cost === null && g.timeSaid === "not known yet" && !g.guess)).toBe(true);
     expect(r.map((g) => g.name)).toEqual(["L4", "A40", "RTX 4090", "H100 SXM"]);
     // nor with renders whose time is not known
     expect(rankGpus(OFFERS, [{ files: [], ms: null }], HOME, ASK).every((g) => g.seconds === null)).toBe(true);
@@ -113,13 +114,13 @@ describe("the ranking", () => {
       const by = Object.fromEntries(r.map((g) => [g.name, g]));
       expect(by["A40"]).toMatchObject({ seconds: Math.round(230.046 * 0.762), learned: 13, timeSaid: "from 13 of your renders" });
       // a guess from the 4070 Ti (the anchor, 122 renders): 0.55 against 0.2 of a 4090
-      expect(by["RTX 2000 Ada"]).toMatchObject({ seconds: Math.round((230.046 * 1.0085 * 0.55) / 0.2), learned: 0, timeSaid: "a guess" });
+      expect(by["RTX 2000 Ada"]).toMatchObject({ seconds: Math.round((230.046 * 1.0085 * 0.55) / 0.2), learned: 0, guess: true });
       expect(r.map((g) => g.name)).toEqual(["A40", "RTX 2000 Ada"]);
       expect(by["RTX 2000 Ada"]!.cost!).toBeGreaterThan(by["A40"]!.cost!);
     }
     // one slow render on a GPU never ranks it as learned, nor two
     const two = rankGpus(OFFERS, RENDERS, { gpus: [...HOME.gpus, { gpu: "NVIDIA A40", pace: 1.5, renders: 2 }], oom: [] }, ASK).find((g) => g.name === "A40")!;
-    expect(two).toMatchObject({ seconds: Math.round(100 / 0.45), learned: 0, timeSaid: "a guess" });
+    expect(two).toMatchObject({ seconds: Math.round(100 / roughSpeed("A40")!), learned: 0, guess: true });
   });
 
   it("home alone: the table's GPUs get a time from the owner's card, whether the record lists it or not", () => {
@@ -131,9 +132,9 @@ describe("the ranking", () => {
     for (const learned of [listed, alone]) {
       const by = Object.fromEntries(rankGpus(offers, [{ files: [], ms }], learned, ASK).map((g) => [g.name, g]));
       expect(by["RTX 4070 Ti"]).toMatchObject({ seconds: 510, learned: 122, timeSaid: "from 122 of your renders" });
-      expect(by["RTX 4090"]).toMatchObject({ seconds: Math.round(510 * 0.55), timeSaid: "a guess" });
-      expect(by["A40"]).toMatchObject({ seconds: Math.round((510 * 0.55) / 0.45), timeSaid: "a guess" });
-      expect(by["RTX A4000"]).toMatchObject({ seconds: Math.round((510 * 0.55) / 0.27), timeSaid: "a guess" });
+      expect(by["RTX 4090"]).toMatchObject({ seconds: Math.round(510 * 0.55), guess: true });
+      expect(by["A40"]).toMatchObject({ seconds: Math.round((510 * 0.55) / roughSpeed("A40")!), guess: true });
+      expect(by["RTX A4000"]).toMatchObject({ seconds: Math.round((510 * 0.55) / 0.27), guess: true });
     }
     // two GPUs never compared: neither is the common pace, nothing is told
     const two = { gpus: [], oom: [], rendered: [{ gpu: "NVIDIA GeForce RTX 4070 Ti", renders: 50 }, { gpu: "NVIDIA A40", renders: 2 }] };
@@ -181,5 +182,102 @@ describe("the ranking", () => {
     expect(pinned.map((g) => [g.name, g.stock])).toEqual([["RTX 4090", "none free"], ["A40", "a few free"]]);
     expect(firstFree(pinned)?.name).toBe("A40");
     expect(firstFree(rankGpus(offers, RENDERS, HOME, { ...ASK, dataCenter: "EU-RO-1", leftOut: ["NVIDIA A40"] }))).toBeNull();
+  });
+});
+
+describe("$ per render (card #201)", () => {
+  // the #201 pod series on H3 Video: the L40S at the common pace (61 s a warm render), the A40 104 s, the 6000 Ada 71 s
+  const H3 = "minimax-h3";
+  const A40 = offer("NVIDIA A40", "A40", 0.601, 48);
+  const L40S = offer("NVIDIA L40S", "L40S", 1.101, 48);
+  const ADA = offer("NVIDIA RTX 6000 Ada Generation", "RTX 6000 Ada", 1.001, 48);
+  const h3 = [{ files: [], ms: 61_000, family: H3 }];
+  const measured = {
+    gpus: [
+      { gpu: "NVIDIA L40S", pace: 1, renders: 3, families: { [H3]: 1 } },
+      // fast against the L40S overall (SDXL, say), slow on H3
+      { gpu: "NVIDIA A40", pace: 0.5, renders: 20, families: { [H3]: 104 / 61 } },
+      { gpu: "NVIDIA RTX 6000 Ada Generation", pace: 71 / 61, renders: 3, families: { [H3]: 71 / 61 } },
+    ],
+    rented: ["NVIDIA L40S"],
+    oom: [],
+  };
+
+  it("reads each card at its pace on the form waiting: the A40, fast overall, is ranked at its H3 time", () => {
+    const by = Object.fromEntries(rankGpus([A40, L40S, ADA], h3, measured, ASK).map((g) => [g.name, g]));
+    expect(by["A40"]).toMatchObject({ seconds: 104, learned: 20, guess: false });
+    expect(by["L40S"]).toMatchObject({ seconds: 61, learned: 3 });
+    expect(by["RTX 6000 Ada"]).toMatchObject({ seconds: 71 });
+    expect(by["A40"]!.perRender).toBeCloseTo((0.601 * 104) / 3600, 10);
+    // another form: its pace overall, the A40 then the fastest and the cheapest
+    const flux = rankGpus([A40, L40S, ADA], [{ files: [], ms: 61_000, family: "flux" }], measured, ASK);
+    expect(flux.find((g) => g.name === "A40")!.seconds).toBe(Math.round(61 * 0.5));
+    expect(flux[0]!.name).toBe("A40");
+    // several forms waiting: each at its own pace, their mean
+    const both = rankGpus([A40], [...h3, { files: [], ms: 61_000, family: "flux" }], measured, ASK);
+    expect(both[0]!.seconds).toBe(Math.round((104 + 30.5) / 2));
+  });
+
+  it("a tie within 10 % a render goes to the faster card: the L40S before the A40, the 6000 Ada after", () => {
+    // $0.0173 (A40, 104 s), $0.0187 (L40S, 61 s: 7.5 % dearer), $0.0197 (6000 Ada: 14 % dearer than the A40)
+    const r = rankGpus([A40, L40S, ADA], h3, measured, ASK);
+    expect(r.map((g) => g.name)).toEqual(["L40S", "A40", "RTX 6000 Ada"]);
+    expect(firstFree(r)?.name).toBe("L40S");
+    // the Costs tab's order, without the tie: the cheapest a render first
+    expect(rankGpus([A40, L40S, ADA], h3, measured, { ...ASK, ties: false }).map((g) => g.name)).toEqual(["A40", "L40S", "RTX 6000 Ada"]);
+    // fast and cheap are not value: no tie there
+    expect(rankGpus([A40, L40S, ADA], h3, measured, { ...ASK, mode: "cheap" }).map((g) => g.name)).toEqual(["A40", "RTX 6000 Ada", "L40S"]);
+  });
+
+  it("at 9 % dearer the faster card is first, at 11 % the cheaper one", () => {
+    // a card at the common pace for $0.36/h (1 ¢ a render of 100 s), one twice as fast whose hour makes it 9 % or 11 % dearer
+    const learned = { gpus: [{ gpu: "NVIDIA A40", pace: 1, renders: 10 }, { gpu: "NVIDIA L40S", pace: 0.5, renders: 10 }], oom: [] };
+    const at = (dearer: number) => rankGpus([offer("NVIDIA A40", "A40", 0.36, 48), offer("NVIDIA L40S", "L40S", 0.36 * 2 * (1 + dearer), 48)], [{ files: [], ms: 100_000 }], learned, ASK).map((g) => g.name);
+    expect(TIE).toBe(0.1);
+    expect(at(0.09)).toEqual(["L40S", "A40"]);
+    expect(at(0.11)).toEqual(["A40", "L40S"]);
+    // dearer and slower within 10 %: never first
+    const slow = rankGpus([offer("NVIDIA A40", "A40", 0.36, 48), offer("NVIDIA L40S", "L40S", 0.18 * 1.05, 48)], [{ files: [], ms: 100_000 }], { gpus: [{ gpu: "NVIDIA A40", pace: 1, renders: 10 }, { gpu: "NVIDIA L40S", pace: 2, renders: 10 }], oom: [] }, ASK);
+    expect(slow.map((g) => g.name)).toEqual(["A40", "L40S"]);
+  });
+
+  it("a card never rendered on is a guess counted 30 % dearer: it wins only when clearly cheaper, and never a tie", () => {
+    const learned = { gpus: [measured.gpus[0]!], rented: ["NVIDIA L40S"], oom: [] };
+    const l40s = (1.101 * 61) / 3600;
+    // the 6000 Ada guessed from the L40S by the table: 61 s × 0.85 / 0.7
+    const adaSeconds = (61 * roughSpeed("L40S")!) / roughSpeed("RTX 6000 Ada")!;
+    const priced = (share: number) => offer("NVIDIA RTX 6000 Ada Generation", "RTX 6000 Ada", (l40s * share * 3600) / adaSeconds, 48);
+    const rank = (share: number) => rankGpus([L40S, priced(share)], h3, learned, ASK);
+    const ada = rank(0.8).find((g) => g.name === "RTX 6000 Ada")!;
+    expect(ada).toMatchObject({ guess: true, learned: 0, seconds: Math.round(adaSeconds), timeSaid: "a guess from your L40S's renders, may be 30 % off" });
+    expect(ada.perRender).toBeCloseTo(l40s * 0.8, 10);
+    expect(GUESS_ERROR).toBe(0.3);
+    // 20 % cheaper by its guess: counted 4 % dearer, behind
+    expect(rank(0.8).map((g) => g.name)).toEqual(["L40S", "RTX 6000 Ada"]);
+    // 30 % cheaper: counted 9 % cheaper, a tie, which a guess never wins
+    expect(rank(0.7).map((g) => g.name)).toEqual(["L40S", "RTX 6000 Ada"]);
+    // 40 % cheaper: counted 22 % cheaper, first
+    expect(rank(0.6).map((g) => g.name)).toEqual(["RTX 6000 Ada", "L40S"]);
+    // every card a guess: their order as their guesses say
+    const guesses = rankGpus([A40, L40S, ADA], h3, { gpus: [{ gpu: "NVIDIA GeForce RTX 4090", pace: 1, renders: 30 }], oom: [] }, { ...ASK, ties: false });
+    expect(guesses.every((g) => g.guess)).toBe(true);
+    expect(guesses.map((g) => g.perRender)).toEqual([...guesses.map((g) => g.perRender)].sort((a, b) => a! - b!));
+  });
+
+  it("a deploy's overhead is shared by every render waiting, not by the few the ranking reads", () => {
+    // 10 min of boot, fetch and idle; the server hands the first renders of the line alone, and says how many wait
+    const learned = { ...measured, overheadMs: 10 * 60_000 };
+    const one = rankGpus([A40, L40S], h3, learned, ASK);
+    const a40 = one.find((g) => g.name === "A40")!;
+    expect(a40.overhead).toBeCloseTo(0.601 / 6, 10);
+    expect(a40.perRender).toBeCloseTo(a40.cost! + a40.overhead!, 10);
+    // one render: the cheaper hour carries less overhead, the A40 well first
+    expect(one.map((g) => g.name)).toEqual(["A40", "L40S"]);
+    // 200 waiting: a twentieth of a cent each, and the L40S within 10 % again: the faster first
+    const many = rankGpus([A40, L40S], h3, learned, { ...ASK, waiting: 200 });
+    expect(many.find((g) => g.name === "A40")!.perRender).toBeCloseTo(a40.cost! + a40.overhead! / 200, 10);
+    expect(many.map((g) => g.name)).toEqual(["L40S", "A40"]);
+    // no session yet: a render's own cost
+    expect(rankGpus([A40], h3, measured, ASK)[0]!.perRender).toBeCloseTo((0.601 * 104) / 3600, 10);
   });
 });

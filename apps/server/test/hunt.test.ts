@@ -265,6 +265,49 @@ describe("the hunt", () => {
     expect(said(say, "huntGaveUp")[0]?.body).toMatch(/^A spending cap is reached/);
   });
 
+  it("a tie that ranks the dearer hour first changes no cap: the ceiling leaves it out, a cap reached deploys nothing (card #201)", async () => {
+    // the 4090 at 500 ms a step, the A40 at 745: the A40 5 % cheaper a render, the 4090 1.5 times as fast, a tie it wins
+    const at = new Date().toISOString();
+    const stat = (id: string, gpuName: string, stepMs: number) => ({
+      id, owner_id: "local", recipe_id: "sdxl.text-to-picture", family: "sdxl", model: "illustrious", model_file: "illustrious", time_key: "steps=28", kind: "image" as const,
+      width: 832, height: 1216, duration_ms: null, steps: 28, status: "done" as const, whole: 1, cold: 0, waited_ms: 0, total_ms: stepMs * 28 + 1000, load_ms: 1000, sample_ms: stepMs * 28,
+      refine_ms: 0, finish_ms: 0, step_ms: stepMs, expected_ms: null, work: 832 * 1216, vram_peak: null, heat_peak: null, asset_id: null, machine_id: "m1", gpu: gpuName, created_at: at,
+    });
+    await t.db.insertInto("render_stats").values([..."abc"].map((id) => stat(id, "cuda:0 NVIDIA GeForce RTX 4090 : cudaMallocAsync", 500)).concat([..."def"].map((id) => stat(id, "cuda:0 NVIDIA A40 : cudaMallocAsync", 745)))).execute();
+    await queue();
+    const ranking = (await post(t.app, "/api/hunt/rank", { mode: "value", ceiling: 1 })).json().ranking as Array<{ name: string; perRender: number; seconds: number }>;
+    const by = Object.fromEntries(ranking.map((g) => [g.name, g]));
+    expect(by["RTX 4090"]!.perRender / by["A40"]!.perRender).toBeGreaterThan(1);
+    expect(by["RTX 4090"]!.perRender / by["A40"]!.perRender).toBeLessThan(1.1);
+    expect(ranking.map((g) => g.name)).toEqual(["RTX 4090", "A40"]);
+    // under the 4090's price: the A40 is deployed, never the tie's pick
+    free("NVIDIA A40");
+    free("NVIDIA GeForce RTX 4090");
+    await start({ ceiling: 0.5 });
+    await t.services.hunt.tick();
+    expect(creates()).toBe(1);
+    expect(runpod.pods.at(-1)!.gpu).toBe("NVIDIA A40");
+  });
+
+  it("a tie's pick at a spending cap: nothing is made and the hunt ends, as for any GPU (card #201)", async () => {
+    const at = new Date().toISOString();
+    const stat = (id: string, gpuName: string, stepMs: number) => ({
+      id, owner_id: "local", recipe_id: "sdxl.text-to-picture", family: "sdxl", model: "illustrious", model_file: "illustrious", time_key: "steps=28", kind: "image" as const,
+      width: 832, height: 1216, duration_ms: null, steps: 28, status: "done" as const, whole: 1, cold: 0, waited_ms: 0, total_ms: stepMs * 28 + 1000, load_ms: 1000, sample_ms: stepMs * 28,
+      refine_ms: 0, finish_ms: 0, step_ms: stepMs, expected_ms: null, work: 832 * 1216, vram_peak: null, heat_peak: null, asset_id: null, machine_id: "m1", gpu: gpuName, created_at: at,
+    });
+    await t.db.insertInto("render_stats").values([..."abc"].map((id) => stat(id, "cuda:0 NVIDIA GeForce RTX 4090 : cudaMallocAsync", 500)).concat([..."def"].map((id) => stat(id, "cuda:0 NVIDIA A40 : cudaMallocAsync", 745)))).execute();
+    await queue();
+    await start();
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 1, month: 0 } } });
+    await t.db.insertInto("rent_sessions").values(costToday("s1")).execute();
+    free("NVIDIA A40");
+    free("NVIDIA GeForce RTX 4090");
+    await t.services.hunt.tick();
+    expect(creates()).toBe(0);
+    expect((await hunt()).hunt).toBeNull();
+  });
+
   it("RunPod's balance too low ends it at once; any other refusal ends it at the third in a row", async () => {
     await queue();
     await start();
@@ -621,13 +664,16 @@ describe("the dialog's live ranking", () => {
     // its files fetched for 3 min after its boot, before its render: a deploy without a volume fetches them again
     await t.db.insertInto("pod_fetches").values({ id: "zz-f", machine_id: "rp-zz", file: "checkpoints/zz.safetensors", folder: "checkpoints", via: "hf", bytes: 6e9, started_at: iso(t0 + 5 * 60_000), ended_at: iso(t0 + 8 * 60_000) }).execute();
     await queue();
-    const res = (await post(t.app, "/api/hunt/rank", { mode: "value", ceiling: 5 })).json() as { ranking: Array<{ name: string; price: number; cost: number | null; timeSaid: string; overhead: number | null }>; overhead: unknown };
+    const res = (await post(t.app, "/api/hunt/rank", { mode: "value", ceiling: 5 })).json() as { ranking: Array<{ name: string; price: number; cost: number | null; perRender: number | null; timeSaid: string; overhead: number | null }>; overhead: unknown; held: number };
     const by = Object.fromEntries(res.ranking.map((g) => [g.name, g]));
-    expect(by["H100 SXM"]).toMatchObject({ timeSaid: "a guess" });
+    expect(by["H100 SXM"]).toMatchObject({ guess: true, timeSaid: "a guess from your RTX 4090's renders, may be 30 % off" });
     // its time guessed from the 4090's by the table (1.9 times as fast), not its own render (4 times)
     expect(by["H100 SXM"]!.cost! / by["RTX 4090"]!.cost!).toBeCloseTo(2.69 / 1.9 / 0.69, 6);
     expect(res.overhead).toEqual({ bootMs: 5 * 60_000, idleMs: 10 * 60_000, fetchMs: 3 * 60_000, sessions: 1 });
     for (const g of res.ranking) expect(g.overhead).toBeCloseTo((g.price * 18) / 60, 10);
+    // a render all told: its own cost and its share of the deploy's among the renders waiting (two: one runs at home)
+    expect(res.held).toBe(2);
+    for (const g of res.ranking) if (g.cost !== null) expect(g.perRender).toBeCloseTo(g.cost + g.overhead! / 2, 10);
   });
 
   it("times learned from the user's renders by GPU, guessed elsewhere; a file that ran out of memory on a GPU makes it too small", async () => {

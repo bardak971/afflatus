@@ -198,14 +198,15 @@ async function huntSaid(s: Services, ctx: ToolCtx, view: ReturnType<Services["hu
 
 const rankedSaid = (g: NonNullable<ReturnType<Services["hunt"]["view"]>["ranking"]>[number]) => ({
   rank: g.rank, gpu: g.id, name: g.name, usdPerHour: g.price, usable: g.fit === "yes", ...(g.fit !== "yes" ? { why: g.fits } : {}), stock: g.stock,
-  ...(g.seconds !== null ? { secondsEach: Math.round(g.seconds) } : {}), ...(g.cost !== null ? { usdEach: Math.round(g.cost * 1000) / 1000 } : {}), time: g.timeSaid,
+  ...(g.seconds !== null ? { secondsEach: Math.round(g.seconds) } : {}), ...(g.cost !== null ? { usdEach: Math.round(g.cost * 1000) / 1000 } : {}),
+  ...(g.perRender !== null ? { usdPerRender: Math.round(g.perRender * 1000) / 1000 } : {}), ...(g.guess ? { guess: true } : {}), time: g.timeSaid,
 });
 
 const hunt = tool({
   name: "hunt",
   scope: "look",
   title: "GPU hunt",
-  description: "Hunt a GPU, read: the hunt under way (none: null) with its state (hunting, deploying, up), its choices, who started it and what it found, and the GPUs as it last ranked them for the renders waiting (price, usable or why not, how free, the time and cost of a render there). With `rank`, the ranking for those choices now, as the Hunt dialog shows it as it is filled (RunPod read at most every 20 s), hunt or not.",
+  description: "Hunt a GPU, read: the hunt under way (none: null) with its state (hunting, deploying, up), its choices, who started it and what it found, and the GPUs as it last ranked them for the renders waiting (price, usable or why not, how free, the time and cost of a render there). Best value ranks by usdPerRender: a render's time on that GPU for these forms at its price, plus its share of a deploy's usual boot, fetch and idle among the renders waiting; within 10 % the faster GPU first; a time guessed from another GPU (guess) counted 30 % dearer, never first in a tie with a learned one. With `rank`, the ranking for those choices now, as the Hunt dialog shows it as it is filled (RunPod read at most every 20 s), hunt or not.",
   input: {
     rank: z.object({
       mode: modeArg.optional(), ceiling: ceilingArg, leftOut: leftOutArg.optional(),

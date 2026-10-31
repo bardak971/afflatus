@@ -306,7 +306,7 @@ export class Hunt {
       const family = this.s.registry.recipe(r.recipe_id)?.family;
       const f = family ? await this.s.queue.forecastMs(r).catch(() => null) : null;
       if (!f || !family) return { files, ms: null };
-      return { files, ms: f.ms - f.loadMs, loadMs: (await loadOf(family)) ?? f.loadMs };
+      return { files, ms: f.ms - f.loadMs, loadMs: (await loadOf(family)) ?? f.loadMs, family };
     }));
   }
 
@@ -345,7 +345,8 @@ export class Hunt {
     // a pod pinned to a data center has a network volume there (dataCenterOf): its files are kept, not fetched at each deploy
     const overhead = await deployOverhead(this.s.db, this.now(), { volume: o.dataCenter !== null });
     const [renders, learned] = await Promise.all([this.renders(rows), this.learned(overhead)]);
-    return { ranking: rankGpus(offers, renders, learned, o), overhead };
+    // a deploy's overhead is shared by every render waiting, not by the first RANKED_RENDERS the ranking reads
+    return { ranking: rankGpus(offers, renders, learned, { ...o, waiting: rows.length }), overhead };
   }
 
   /**

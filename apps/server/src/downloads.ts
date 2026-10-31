@@ -85,6 +85,11 @@ export interface DownloadView {
    * (a node pack whose line is full, 429): it waits, but no longer in the line, and cannot be moved (move()).
    */
   begun?: boolean;
+  /**
+   * Failed as its source refused it (a Refused: a 401 or a 403, the creator's downloads disabled, a paid version): asking it
+   * again there changes nothing. The pod's files (podFiles.ts) take it from elsewhere then (card #206).
+   */
+  refused?: true;
 }
 
 /**
@@ -116,6 +121,8 @@ export const PACK_BUSY_MS = 120_000;
 
 /** What a download onto a machine that cannot reach Afflatus (a rented pod) is refused with when its source gives no link of its own. */
 export const NO_DIRECT = "Its source gives no download link of its own, and a rented GPU cannot reach Afflatus to be sent the file through it.";
+/** What a download is refused with when ComfyUI's machine would have to fetch it through Afflatus at an address it cannot reach. */
+export const NO_SELF = "ComfyUI runs on another machine and cannot reach Afflatus at this URL. Open Afflatus by its network URL, or set PUBLIC_URL to it.";
 
 interface Download extends DownloadView {
   /** Its place among the waiting ones: the lowest starts first (move()). */
@@ -153,6 +160,11 @@ interface Download extends DownloadView {
   direct?: boolean;
   /** Only from the source's own signed link: ComfyUI's machine cannot reach Afflatus (a rented pod). */
   directOnly?: boolean;
+  /**
+   * The address Afflatus was asked at is not one ComfyUI's machine reaches (localhost, no PUBLIC_URL): only a link it fetches
+   * itself will do, the source's own signed one or a Hugging Face address Manager reads (fetchFile.ts beginDownload).
+   */
+  noSelf?: boolean;
   /** The pack fetches the source's own signed link (signedLink): no bytes pass through Afflatus; a fresh link is sent when it expires. */
   signed?: boolean;
   /** How many fresh links were sent, and when the last was. */
@@ -354,12 +366,12 @@ export class Downloads {
   /** What the browser is told of a download: never its source, its key or its one-time address. */
   private view(d: Download): DownloadView {
     this.measure(d);
-    const { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen, machine, quiet, shown } = d;
+    const { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen, machine, quiet, shown, refused } = d;
     const turn = status === "starting" || status === "downloading" ? d.turn : undefined;
     const rate = status === "downloading" && d.rate ? Math.round(d.rate) : undefined;
     const again = (status === "error" || status === "stopped") && d.ask !== undefined ? (true as const) : undefined;
     const begun = status === "starting" && d.begun ? true : undefined;
-    const all: DownloadView = { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen, machine, quiet, shown, turn, rate, again, at: d.finishedAt, begun };
+    const all: DownloadView = { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen, machine, quiet, shown, turn, rate, again, at: d.finishedAt, begun, refused };
     for (const k of Object.keys(all) as Array<keyof DownloadView>) if (all[k] === undefined) delete all[k];
     return all;
   }
@@ -433,9 +445,10 @@ export class Downloads {
     this.events.emit("downloads");
   }
 
-  private fail(d: Download, error: string): void {
+  private fail(d: Download, error: string, refused = false): void {
     if (d.status === "done" || d.status === "error" || d.status === "stopped") return;
     d.status = "error";
+    if (refused) d.refused = true;
     // an fs error names the file's whole path (EACCES, ENOSPC on "D:\models\loras\x.part"): said by its name only
     d.error = withoutPaths(error);
     d.finishedAt = Date.now();
@@ -609,6 +622,8 @@ export class Downloads {
   async start(comfy: Comfy, self: string, want: {
     file: string; folder: string; title: string; source: string; headers?: Record<string, string>; total?: number; comfyDir?: string; machine?: string;
     directOnly?: boolean; quietPassing?: boolean; filesRead?: boolean;
+    /** ComfyUI's machine cannot reach Afflatus at `self` (Download.noSelf). */
+    noSelf?: boolean;
     /** The place chosen for its folder (settings.ts downloadPlaces): one of the paths ComfyUI lists for it. */
     place?: string;
     /** The file's sha256 as its source lists it: the node pack checks the file against it before naming it. */
@@ -659,11 +674,14 @@ export class Downloads {
       ...(want.sha256 && /^[0-9a-f]{64}$/i.test(want.sha256) && route.via === "pack" ? { sha256: want.sha256.toLowerCase() } : {}),
       ...(base ? { base } : {}),
       ...(want.directOnly ? { directOnly: true } : {}),
+      ...(want.noSelf ? { noSelf: true } : {}),
       ...(want.quietPassing ? { quietPassing: true } : {}),
       ...(want.filesRead ? { filesRead: true as const } : {}),
     };
     // a machine that cannot reach Afflatus takes its files from the node pack only, and from the source's own link
     if (want.directOnly && route.via !== "pack") throw httpError("A rented GPU gets its files through the Afflatus node pack (0.12.0 or later), which this one does not answer with.");
+    // Manager handed the one-time address, which its machine cannot reach: refused before it is asked
+    if (want.noSelf && route.via === "manager" && !route.direct) throw httpError(NO_SELF);
     if (route.via === "afflatus") {
       try {
         const dest = await placeIn(route.root, sub, name);
@@ -899,7 +917,7 @@ export class Downloads {
     } catch (err) {
       // stopped: said so already, and the .part is gone
       if (d.abort.signal.aborted) return;
-      this.fail(d, err instanceof Refused ? err.message : `The download did not finish: ${(err as Error).message}`);
+      this.fail(d, err instanceof Refused ? err.message : `The download did not finish: ${(err as Error).message}`, err instanceof Refused);
     } finally {
       this.pump();
     }
@@ -916,6 +934,7 @@ export class Downloads {
       }) : null;
       d.signed = Boolean(signed);
       if (!signed && d.directOnly) throw new Error(NO_DIRECT);
+      if (!signed && d.noSelf) throw new Error(NO_SELF);
       // the place chosen for the folder, to a pack that takes one (an older one keeps to ComfyUI's first path)
       const dir = d.place && version && !olderThan(version, PACK_PLACE) ? { dir: d.place } : {};
       const body = JSON.stringify({ url: signed ?? this.oneTime(d.self!, d), folder: d.folder, filename: d.file.replace(/\\/g, "/"), total: d.total, ...dir, ...(d.sha256 ? { sha256: d.sha256 } : {}) });
@@ -990,7 +1009,7 @@ export class Downloads {
       }
     } catch (err) {
       d.upstream?.abort();
-      this.fail(d, unreachable(err) ? "ComfyUI is not answering." : (err as Error).message);
+      this.fail(d, unreachable(err) ? "ComfyUI is not answering." : (err as Error).message, err instanceof Refused);
     } finally {
       this.pump();
     }

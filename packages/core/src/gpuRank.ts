@@ -1,4 +1,5 @@
 import { modelStem } from "./modelFiles";
+import { shortGpu } from "./text";
 
 /**
  * The GPUs RunPod offers, ranked for the renders that wait (the server's hunt.ts, the Hunt a GPU dialog): which are usable
@@ -50,6 +51,11 @@ export interface RankRender {
    * is, not at the GPU's pace. Left out, `ms` holds whatever load there is.
    */
   loadMs?: number | null;
+  /**
+   * Its recipe's family ("minimax-h3", "flux"): a GPU's pace is read on the models of that family where the record compared
+   * it on them, its pace overall elsewhere (a card is not as fast against another on every model).
+   */
+  family?: string | null;
 }
 
 /**
@@ -58,7 +64,8 @@ export interface RankRender {
  * ran out of memory on a GPU.
  */
 export interface Learned {
-  gpus: Array<{ gpu: string; pace: number; renders: number }>;
+  /** `families`: its pace on the models of each family it was compared on, on the same scale (forecast.ts paceScales). */
+  gpus: Array<{ gpu: string; pace: number; renders: number; families?: Record<string, number> }>;
   /** The GPUs the user rented (RunPod's names): a guess is anchored on one of them first. */
   rented?: string[];
   oom: Array<{ gpu: string; file: string }>;
@@ -93,7 +100,31 @@ export interface RankAsk {
   leftOut: string[];
   /** The data center a network volume pins the pod to; null: any. */
   dataCenter: string | null;
+  /**
+   * How many renders wait in all, which a deploy's overhead is shared by: the renders handed to the ranking are the first of
+   * the line only (hunt.ts RANKED_RENDERS). Left out, those handed.
+   */
+  waiting?: number;
+  /**
+   * Value only: a cost all told within TIE of the cheapest goes to the faster GPU (true when not said). The Costs tab gives
+   * false: its guess is the cheapest a render, as it says.
+   */
+  ties?: boolean;
 }
+
+/**
+ * In value, GPUs whose cost all told is within this of the cheapest of them are a tie, the faster ranked first: the owner's
+ * rule (card #201), since on H3 Video an A40, an L40S and an RTX 6000 Ada came within ~10 % a render while the A40 took
+ * 1.7 times as long.
+ */
+export const TIE = 0.1;
+
+/**
+ * How much dearer a guessed GPU is counted in value than its guess says: the rough table (SPEEDS) is a GPU's speed overall,
+ * and a model's own kernels move it a lot (the 6000 Ada read 0.95 there and rendered H3 at 0.70). A guess wins over a GPU
+ * learned from the user's renders only when it is cheaper by more than this, and never wins a tie against one.
+ */
+export const GUESS_ERROR = 0.3;
 
 export interface RankedGpu {
   id: string;
@@ -110,7 +141,14 @@ export interface RankedGpu {
   learned: number;
   /** What a deploy of it bills besides its renders: the usual boot and idle at its price (USD); null when not known. */
   overhead: number | null;
-  /** What the time rests on, as said: "from 12 of your renders", "a guess", or "not known yet". */
+  /**
+   * What a render costs there all told: `cost` and its share of `overhead` among the renders waiting (USD); null when its
+   * time is not known. What value ranks by.
+   */
+  perRender: number | null;
+  /** Whether its time is a guess from another GPU (the rough table), not learned on it: counted GUESS_ERROR dearer in value. */
+  guess: boolean;
+  /** What the time rests on, as said: "from 12 of your renders", "a guess from your L40S's renders, may be 30 % off", or "not known yet". */
   timeSaid: string;
   /** How free it is, where the pod would go (the volume's data center), else anywhere. */
   stock: Stock;
@@ -139,7 +177,9 @@ export function gpuKey(name: string): string {
  */
 const SPEEDS: Array<[RegExp, number]> = [
   [/\brtx pro 6000\b/, 1.4],
-  [/\brtx 6000 ada\b/, 0.95],
+  // the 6000 Ada and the A40 against the L40S at 0.85, as the three ran one H3 Video recipe on 2026-10-31 (card #201's pod
+  // series: 5.5, 9.8 and 4.5 s a step, the 6000 Ada's before its host throttled): one recipe, one host each
+  [/\brtx 6000 ada\b/, 0.7],
   [/\brtx 4000 ada\b/, 0.3],
   [/\brtx 2000 ada\b/, 0.2],
   [/\b5090\b/, 1.35],
@@ -170,7 +210,7 @@ const SPEEDS: Array<[RegExp, number]> = [
   [/\ba5000\b/, 0.4],
   [/\ba4500\b/, 0.33],
   [/\ba4000\b/, 0.27],
-  [/\ba40\b/, 0.45],
+  [/\ba40\b/, 0.39],
 ];
 
 /** A GPU's rough speed against an RTX 4090; null when the table does not know it (a laptop's is not a desktop's of the same name). */
@@ -203,7 +243,7 @@ function stockOf(o: RankOffer, dataCenter: string | null): Stock {
  * compared): either way a GPU under LEARNED_RENDERS is a guess. With none learned and one GPU alone in the record, that GPU
  * is the common pace (1): the owner's PC before any pod, which the table's guesses are anchored on.
  */
-function learnedGpus(learned: Learned): Array<{ gpu: string; pace: number; renders: number }> {
+function learnedGpus(learned: Learned): Learned["gpus"] {
   const least = Math.max(1, learned.minRenders ?? LEARNED_RENDERS);
   const known = learned.gpus.filter((g) => g.renders >= least && g.pace > 0);
   if (known.length || !learned.rendered?.length) return known;
@@ -213,57 +253,84 @@ function learnedGpus(learned: Learned): Array<{ gpu: string; pace: number; rende
 }
 
 /**
- * The GPUs ranked for these renders: the usable ones first, by the mode's key (value: what the deploy costs for the renders
- * waiting, its usual boot and idle with them when learned, then cost a render; fast: time; cheap: price), then the rest.
- * Value counts the overhead because a deploy pays it whatever the GPU's pace: with one render waiting and 10 min of usual
- * boot and idle, a $2/h GPU 5 times faster than a $0.50/h one cost about 4 times as much for the session.
+ * The GPUs ranked for these renders: the usable ones first, by the mode's key (value: what a render costs all told, its time
+ * there at its price and its share of the usual boot and idle among the renders waiting, a guessed GPU counted GUESS_ERROR
+ * dearer and a tie within TIE going to the faster; fast: time; cheap: price), then the rest. Value counts the overhead
+ * because a deploy pays it whatever the GPU's pace: with one render waiting and 10 min of usual boot and idle, a $2/h GPU 5
+ * times faster than a $0.50/h one cost about 4 times as much for the session.
  */
 export function rankGpus(offers: readonly RankOffer[], renders: readonly RankRender[], learned: Learned, ask: RankAsk): RankedGpu[] {
   const timed = renders.filter((r) => r.ms !== null && r.ms > 0);
-  const meanMs = timed.length ? timed.reduce((a, r) => a + r.ms!, 0) / timed.length : null;
-  const meanLoad = timed.length ? timed.reduce((a, r) => a + Math.max(0, r.loadMs ?? 0), 0) / timed.length : 0;
   const largest = Math.max(0, ...renders.flatMap((r) => r.files.map((f) => f.size ?? 0)));
   const needed = new Set(renders.flatMap((r) => r.files.map((f) => fileKey(f.file))));
   const known = learnedGpus(learned).map((g) => ({ ...g, key: gpuKey(g.gpu) }));
+  // a GPU's pace on a render: on its family's models where it was compared on them, else overall
+  const paceFor = (g: (typeof known)[number], r: RankRender) => (r.family ? g.families?.[r.family] : undefined) ?? g.pace;
+  // a render's seconds there, the mean of those waiting: each at the pace its family reads, its load added as it is
+  const meanSeconds = (pace: (r: RankRender) => number) => timed.reduce((a, r) => a + r.ms! * pace(r) + Math.max(0, r.loadMs ?? 0), 0) / timed.length / 1000;
   // the GPU a guess is anchored on: a learned one the table knows, a rented one first (a home card shares its memory with
   // the desktop and spills the larger models), then the one with the most renders behind it
   const rented = new Set((learned.rented ?? []).map(gpuKey));
   const anchor = known.filter((g) => roughSpeed(g.gpu) !== null).sort((a, b) => Number(rented.has(b.key)) - Number(rented.has(a.key)) || b.renders - a.renders)[0] ?? null;
   const ceilingSaid = `over your $${ask.ceiling.toFixed(2)}/h`;
-  const rows = offers.map((o) => {
+  const waiting = Math.max(1, ask.waiting ?? renders.length);
+  const rows = offers.map((o): RankedGpu => {
     const keys = new Set([gpuKey(o.id), gpuKey(o.name)]);
     const own = known.filter((g) => keys.has(g.key)).sort((a, b) => b.renders - a.renders)[0];
     let seconds: number | null = null;
     let learnedFrom = 0;
-    if (meanMs !== null && own) {
-      seconds = (meanMs * own.pace + meanLoad) / 1000;
+    if (timed.length && own) {
+      seconds = meanSeconds((r) => paceFor(own, r));
       learnedFrom = own.renders;
-    } else if (meanMs !== null && anchor) {
+    } else if (timed.length && anchor) {
       const speed = roughSpeed(o.name) ?? roughSpeed(o.id);
-      if (speed) seconds = ((meanMs * anchor.pace * roughSpeed(anchor.gpu)!) / speed + meanLoad) / 1000;
+      if (speed) seconds = meanSeconds((r) => (paceFor(anchor, r) * roughSpeed(anchor.gpu)!) / speed);
     }
+    const guess = seconds !== null && !learnedFrom;
     const oom = learned.oom.some((x) => keys.has(gpuKey(x.gpu)) && needed.has(fileKey(x.file)));
     const small = (o.memory > 0 && largest > o.memory * GIB) || oom;
     const fit: RankedGpu["fit"] = ask.leftOut.includes(o.id) ? "left" : small ? "small" : o.price > ask.ceiling ? "price" : "yes";
     const fits = fit === "left" ? "left out by you" : fit === "small" ? "too small for these files" : fit === "price" ? ceilingSaid : "yes";
-    const timeSaid = learnedFrom ? `from ${learnedFrom} of your renders` : seconds !== null ? "a guess" : "not known yet";
+    const timeSaid = learnedFrom ? `from ${learnedFrom} of your renders` : guess ? `a guess from your ${shortGpu(anchor!.gpu)}'s renders, may be ${Math.round(GUESS_ERROR * 100)} % off` : "not known yet";
     const overhead = learned.overheadMs ? (o.price * learned.overheadMs) / 3_600_000 : null;
-    return { id: o.id, name: o.name, price: o.price, memory: o.memory, fit, fits, seconds: seconds === null ? null : Math.round(seconds), cost: seconds === null ? null : (o.price * seconds) / 3600, learned: learnedFrom, overhead, timeSaid, stock: stockOf(o, ask.dataCenter), rank: 0 };
+    const cost = seconds === null ? null : (o.price * seconds) / 3600;
+    const perRender = cost === null ? null : cost + (overhead ?? 0) / waiting;
+    return { id: o.id, name: o.name, price: o.price, memory: o.memory, fit, fits, seconds: seconds === null ? null : Math.round(seconds), cost, learned: learnedFrom, overhead, perRender, guess, timeSaid, stock: stockOf(o, ask.dataCenter), rank: 0 };
   });
   // a GPU whose time is not known comes after those whose time is, by its price ("value" falls back to the price with none known)
-  const session = (g: RankedGpu): number | null => (g.cost === null ? null : renders.length * g.cost + (g.overhead ?? 0));
-  const key = (g: RankedGpu): number | null => (ask.mode === "cheap" ? g.price : ask.mode === "fast" ? g.seconds : session(g));
+  const value = (g: RankedGpu): number | null => (g.perRender === null ? null : g.perRender * (g.guess ? 1 + GUESS_ERROR : 1));
+  const key = (g: RankedGpu): number | null => (ask.mode === "cheap" ? g.price : ask.mode === "fast" ? g.seconds : value(g));
   const order = (a: RankedGpu, b: RankedGpu) => {
     if ((a.fit === "yes") !== (b.fit === "yes")) return a.fit === "yes" ? -1 : 1;
     const ka = key(a);
     const kb = key(b);
     if (ka !== null && kb !== null && ka !== kb) return ka - kb;
     if ((ka === null) !== (kb === null)) return ka === null ? 1 : -1;
-    // value at the same cost for the session: the lower cost a render
+    // value at the same cost all told: the lower cost a render
     if (ask.mode === "value" && a.cost !== null && b.cost !== null && a.cost !== b.cost) return a.cost - b.cost;
     return a.price - b.price || a.name.localeCompare(b.name);
   };
-  return rows.sort(order).map((g, i) => ({ ...g, rank: i + 1 }));
+  const sorted = rows.sort(order);
+  return (ask.mode === "value" && ask.ties !== false ? tied(sorted, value) : sorted).map((g, i) => ({ ...g, rank: i + 1 }));
+}
+
+/**
+ * Value's ties: the usable GPUs with a cost all told (the head of the order), cut into runs within TIE of each run's
+ * cheapest, each run put fastest first. A learned GPU goes before a guessed one in its run whatever their times: a guess
+ * never wins a tie. Runs rather than a comparator within TIE, so that the order holds whichever two are compared.
+ */
+function tied(sorted: readonly RankedGpu[], value: (g: RankedGpu) => number | null): RankedGpu[] {
+  const head = sorted.findIndex((g) => g.fit !== "yes" || value(g) === null);
+  const end = head === -1 ? sorted.length : head;
+  const out: RankedGpu[] = [];
+  for (let i = 0; i < end; ) {
+    const cheapest = value(sorted[i]!)!;
+    let j = i + 1;
+    while (j < end && value(sorted[j]!)! <= cheapest * (1 + TIE)) j++;
+    out.push(...sorted.slice(i, j).sort((a, b) => Number(a.guess) - Number(b.guess) || a.seconds! - b.seconds! || value(a)! - value(b)!));
+    i = j;
+  }
+  return [...out, ...sorted.slice(end)];
 }
 
 /** The GPU to deploy now: the best-ranked usable one that is free where the pod would go; null when none is. */

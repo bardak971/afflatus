@@ -1082,7 +1082,7 @@ async function costRows(rows: readonly RenderLine[], onPod: (r: RenderLine) => b
       // the hunt's ranking anchored on this model's own p50 on the cheapest GPU it ran on: that GPU at the common pace, the
       // others guessed from it by the hunt's rough table of speeds
       const learned = { gpus: mine.map((x) => ({ gpu: x.on, pace: (x.ms ?? 0) / mine[0]!.ms!, renders: x.renders })), oom: [], minRenders: 1 };
-      const ranked = rankGpus(offers, [{ files: head.model_file ? [{ file: head.model_file, size: null }] : [], ms: mine[0]!.ms! }], learned, { mode: "value", ceiling: Infinity, leftOut: [], dataCenter: null });
+      const ranked = rankGpus(offers, [{ files: head.model_file ? [{ file: head.model_file, size: null }] : [], ms: mine[0]!.ms! }], learned, { mode: "value", ceiling: Infinity, leftOut: [], dataCenter: null, ties: false });
       const tried = new Set(mine.map((x) => x.on.toLowerCase()));
       const guess = ranked.find((g) => g.learned === 0 && g.cost !== null && g.seconds !== null && g.fit === "yes" && !tried.has(gpuShort(g.name).toLowerCase()));
       if (guess) mine.push({ key: m.key, model, file, where: "guess", on: gpuShort(guess.name), ms: guess.seconds! * 1000, renders: 0, usd: guess.cost, local: null, wh: null, best: false });
