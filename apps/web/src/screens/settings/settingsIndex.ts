@@ -9,7 +9,6 @@ export type Tab = (typeof TABS)[number]["id"];
 export const MOVED: Record<string, Tab> = SETTING_TABS_MOVED;
 
 /** Every setting, by the words someone would look for (core's settingsIndex.ts: the server names a setting's tab by it too). */
-export type { SettingSpot } from "@afflatus/core";
 export const INDEX = SETTING_INDEX;
 
 /** A tab's address: ComfyUI's is Settings itself. */
