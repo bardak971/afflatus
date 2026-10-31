@@ -34,20 +34,25 @@ const TURBO_STEPS = 4;
 export const FACE_REFINE_INPUTS: InputSpec[] = [
   {
     id: "faceRefine", type: "toggle", label: "Face refine", default: false, section: "out",
-    note: "after the render, the face is cropped, redrawn against the person's picture (the cast's, else a person reference picture, else the picture the clip opens on) and pasted back. The pose, light and expression stay the render's. Best on slow-moving shots: when the person moves a lot, the face follows the source's expression less, and arms over the head can be redrawn into the hair",
+    // against the cast's picture, else a person reference picture, else the picture the clip opens on; when the person moves
+    // a lot, the face follows the source's expression less, and arms over the head can be redrawn into the hair
+    note: "a FaceDetailer-style pass after the render: each face cropped, redrawn against the person's picture, pasted back. Pose, light and expression stay. Best on slow shots",
   },
   {
     // the owner, 2026-10-29 (card #159): a swap's job held its swap model and the fused turbo at once, and every job reloaded
     // the other one. Left out (a clip made before), the fused turbo of Settings › Models, else the clip's own
     id: "faceRefineModel", type: "model", label: "Face refine model", folder: "diffusion_models", slot: "faceRefineUnet", match: [SWAP_MODELS, H3_HYBRIDS], own: true, showWhen: "faceRefine", section: "out",
-    note: `the model the faces are redrawn with. ${OWN_MODEL}: the clip's model, with its turbo when Turbo is on, so nothing more is loaded (a clip made by the frames model, which follows no picture, takes the fused turbo, else the reference model, and its job says so). Any other file is a second model to load beside the clip's: more RAM, and the time to load it. 4 steps on a fused or distilled turbo (its name says turbo or a step count) or the clip's model with its turbo, ${FACE_REFINE_FULL_STEPS} on a full model`,
+    // with Turbo on, the clip's model takes its turbo; a clip made by the frames model, which follows no picture, takes the fused
+    // turbo, else the reference model, and its job says so. A turbo file is told by its name (turbo, or a step count)
+    note: `${OWN_MODEL}: the clip's model, nothing more loaded; another file is a second model in RAM. 4 steps on a turbo, ${FACE_REFINE_FULL_STEPS} on a full model`,
   },
   {
     id: "faceRefineDenoise", type: "number", label: "Face refine denoise", min: 0.3, max: 0.6, step: 0.05, default: 0.45, showWhen: "faceRefine", advanced: true, section: "out",
     // ComfyUI's denoise at the model's shift, kept as it is (card #144, 2026-10-28): on H3 the whole range starts the
     // redraw near σ 0.84–0.96 (0.45 over 4 steps: 0.92), and that strength is what refines a small face (likeness 0.34 →
     // 0.63 on Timeline 6's clip 22); a real σ on a karras tail stopped it refining, and the owner preferred this by eye
-    note: "ComfyUI's denoise at the model's shift, so the face is redrawn strongly: on H3 the whole range starts near 0.84–0.96 of real noise, and a step of 0.05 changes little (0.45 and 0.5 are the same). It applies in full to the smallest faces (30 px and under); a face of 120 px and more gets about a third of it, as it holds detail of its own. More is closer to the picture and further from the render",
+    // a step of 0.05 changes little (0.45 and 0.5 are the same); a face of 120 px and more holds detail of its own
+    note: "denoise at the model's shift (on H3, 0.84–0.96 of real noise): full on faces of 30 px and under, a third at 120 px and up. Higher is closer to the picture",
   },
   {
     // 0 since card #159: by the model, as its sampling needs (a value typed stays the form's)

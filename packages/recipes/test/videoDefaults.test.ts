@@ -271,7 +271,7 @@ describe("LTX 2.5's reference pictures and voice (the MSR LoRA)", () => {
 
   it("says under Reference images that a picture the clip opens on wins over the reference for the face", () => {
     for (const recipe of [ltx25Video, ltx25LipSync]) {
-      expect(recipe.inputs.find((i) => i.id === "references")!.note).toContain("A clip that opens on a picture (a start frame, or carried on from the clip before) takes the face from that frame rather than from the reference.");
+      expect(recipe.inputs.find((i) => i.id === "references")!.note).toContain("A clip that opens on a picture takes the face from that frame");
     }
   });
 
@@ -351,7 +351,7 @@ describe("LTX 2.5's reference pictures and voice (the MSR LoRA)", () => {
     ]);
     expect(build({ references: r.references, shape: { width: 704, height: 704 }, short: 704 }, r.uploads, { msr }, before).warnings).toBeUndefined();
     // the "?" says it
-    expect(ltx25Video.inputs.find((i) => i.id === "refFaceCrop")!.note).toContain("to the clip's frame shape");
+    expect(ltx25Video.inputs.find((i) => i.id === "refFaceCrop")!.note).toContain("at the clip's shape");
   });
 
   // card #81, from #85's series: every reference clip redid the photo's own setting (a stone arch, a slicker) rather than the

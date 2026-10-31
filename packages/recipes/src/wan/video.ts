@@ -376,7 +376,9 @@ export const wanVideo = defineRecipe<WanVideo>({
     FACE_PHOTO,
     {
       id: "previous", type: "clip", role: "previous", label: "Previous clip", optional: true, frames: SVI_FRAMES, fps: WAN_FPS, advanced: true,
-      note: "the clip this one carries on from, through SVI 2.0 Pro: its last frames go in the latent, so that the motion carries over, not only the last picture; on a timeline, the clip before. Its colours are matched to where that clip ends (SVI shifts them a little, clip after clip). Style LoRAs inside an SVI chain can slow its motion down to slow motion. Needs SVI's two LoRAs (Settings › Models) and KJNodes: without them, or with a Last frame, the clip opens on that clip's last frame, still (a cut). A First frame is not used with it",
+      // its colours are matched to where that clip ends (SVI shifts them a little, clip after clip); style LoRAs inside an SVI
+      // chain can slow its motion down to slow motion; a First frame is not used with it
+      note: "SVI 2.0 Pro continuation: the clip before's last frames go in the latent, so the motion carries over. Needs SVI's two LoRAs and KJNodes; without them, or with a Last frame, a cut on its last frame",
     },
     { id: "seconds", type: "number", label: "Duration", min: 1, max: 10, step: 0.5, default: 5, unit: " s", note: "the model is made for about 5 seconds: longer clips drift" },
     {
@@ -414,7 +416,9 @@ export const wanVideo = defineRecipe<WanVideo>({
       // off by default since card #108 (2026-10-26): every split tried ghosted. A draft, a model's saved settings or a take's
       // inputs that hold it on keep it on; a draft that never touched it follows the default, as a draft's other settings do
       id: "turboHybrid", type: "toggle", label: "Hybrid turbo", default: false, showWhen: "fast", advanced: true, perModel: true,
-      note: "the 3-sampler split: Turbo's first step (two from 6) runs on the high-noise model WITHOUT the turbo LoRA, at the full CFG scale (the motion is decided there), then the LoRAs take over at CFG 1 for the rest. The turbo LoRAs alone make Wan's motion slower (about four fifths of a full render's); the split brings it back, but can ghost on some clips: a double exposure of the person from about 2 s, which is why it is off by default. Only with the turbo LoRAs, not with a distilled model",
+      // Turbo's first step (two from 6) on the high-noise model at full CFG decides the motion; the turbo LoRAs alone make
+      // Wan's motion about four fifths of a full render's. The ghost: a double exposure of the person from about 2 s
+      note: "3-sampler split: the first high-noise step without the turbo LoRA, at full CFG, for Wan's full motion. Can ghost a double exposure: off by default. Turbo LoRAs only",
     },
     {
       id: "nag", type: "toggle", label: "NAG", default: true, showWhen: "fast", advanced: true, perModel: true,

@@ -48,8 +48,8 @@ export const motionControlInputs: InputSpec[] = [
   { id: "poseHands", type: "toggle", label: "Hands", default: true, chapter: "motion", note: "the fingers drawn too, so that the hands move as the video's" },
   { id: "poseFace", type: "toggle", label: "Face", default: true, chapter: "motion", note: "the face's landmarks drawn too: the mouth and the expression follow the video's (the face itself is the picture's)" },
   { id: "controlStrength", type: "number", label: "Control strength", min: 0, max: 2, step: 0.05, default: 1, chapter: "motion", note: "MiniMaxH3FunControlNetApply's strength: 1 is the ControlNet's own, the strongest it was trained at; above 1 only when the moves drift" },
-  { id: "controlStart", type: "number", label: "Control from", min: 0, max: 1, step: 0.05, default: 0, chapter: "motion", advanced: true, note: "start_percent: the part of the sampling the pose holds. Later lets the first steps lay the scene out freely" },
-  { id: "controlEnd", type: "number", label: "Control until", min: 0, max: 1, step: 0.05, default: 1, chapter: "motion", advanced: true, note: "end_percent: ending early lets the last steps finish the detail freely. On a turbo of 4 steps, each step is a quarter" },
+  { id: "controlStart", type: "number", label: "Control start %", min: 0, max: 1, step: 0.05, default: 0, chapter: "motion", advanced: true, note: "start_percent: the part of the sampling the pose holds. Later lets the first steps lay the scene out freely" },
+  { id: "controlEnd", type: "number", label: "Control end %", min: 0, max: 1, step: 0.05, default: 1, chapter: "motion", advanced: true, note: "end_percent: ending early lets the last steps finish the detail freely. On a turbo of 4 steps, each step is a quarter" },
 ];
 
 /** The nodes a pose and its control take, by where the pose comes from. */

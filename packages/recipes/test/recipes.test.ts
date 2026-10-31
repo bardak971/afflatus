@@ -1184,7 +1184,7 @@ describe("ltx.video", () => {
 
   it("carries on with the run-up asked (card #87): 9, 25 or 41 frames of the clip before, as H3's 5, 22 or 39", () => {
     const runUp = ltxVideo.inputs.find((i) => i.id === "context");
-    expect(runUp).toMatchObject({ type: "choice", label: "Frames from the clip before", options: ["9", "25", "41"], default: "41", showWhen: "previous", advanced: true, section: "rare" });
+    expect(runUp).toMatchObject({ type: "choice", label: "Overlap frames", options: ["9", "25", "41"], default: "41", showWhen: "previous", advanced: true, section: "rare" });
     expect(ltxVideo.inputs.find((i) => i.id === "previous")).toMatchObject({ frames: [25, 9], framesFrom: "context" });
     // the same choice on every LTX form, in the same place: right after the clip it is about
     for (const r of [ltxVideo, ltxLipSync, ltx25LipSync]) expect(r.inputs.findIndex((i) => i.id === "context")).toBe(r.inputs.findIndex((i) => i.id === "previous") + 1);

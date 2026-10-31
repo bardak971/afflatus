@@ -125,7 +125,7 @@ export interface VideoTraits {
     least: number;
     carried: number;
     /**
-     * The input that sets the frames carried (H3's "Frames from the clip before"), and the counts it takes: a source's
+     * The input that sets the frames carried (H3's "Overlap frames"), and the counts it takes: a source's
      * windows are cut for the count its form has (windowShapeOf), `carried` when it has none.
      */
     runUp?: { input: string; counts: number[] };

@@ -39,8 +39,8 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       { id: "size", type: "size", label: "Size", default: "tall", grid: 16, min: 256, max: 2048, shapes: spec.shapes, ...(spec.maxPixels ? { maxPixels: spec.maxPixels } : {}) },
       ...(spec.look
         ? ([
-          { id: "look", type: "image", role: "guide", label: "Look from a picture", optional: true, note: "its style, colours and subject are added to the prompt (Redux): the new picture is like it, not a copy" },
-          { id: "lookStrength", type: "number", label: "Look strength", note: "1 follows the picture closely and the prompt little; 0.3 to 0.6 keeps the prompt in charge", min: 0.05, max: 1.5, step: 0.05, default: 0.5, showWhen: "look" },
+          { id: "look", type: "image", role: "guide", label: "Redux image", optional: true, note: "its style, colours and subject are added to the prompt (Redux): the new picture is like it, not a copy" },
+          { id: "lookStrength", type: "number", label: "Redux strength", note: "1 follows the picture closely and the prompt little; 0.3 to 0.6 keeps the prompt in charge", min: 0.05, max: 1.5, step: 0.05, default: 0.5, showWhen: "look" },
         ] satisfies InputSpec[])
         : []),
       ...DETAIL_INPUTS,

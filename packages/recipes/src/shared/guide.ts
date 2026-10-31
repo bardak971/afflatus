@@ -38,11 +38,11 @@ const GUIDE_NO_MODEL = "A guide picture needs a ControlNet: put one in ComfyUI's
 const GUIDE_PREFER = ["union.*promax", "union", "xinsir", "."];
 
 export const guideInputs = (union: string): InputSpec[] => [
-  { id: "guide", type: "image", role: "guide", label: "Guide picture", optional: true, note: "the new picture follows its edges, depth or pose (ControlNet)" },
+  { id: "guide", type: "image", role: "guide", label: "Control image", optional: true, note: "the new picture follows its edges, depth or pose (ControlNet)" },
   { id: "guideFollows", type: "choice", label: "Follow", options: [FOLLOW_EDGES, FOLLOW_DEPTH, FOLLOW_POSE, FOLLOW_MAP], default: FOLLOW_EDGES, showWhen: "guide", note: "edges keep shapes and outlines; depth keeps what is near and far; pose keeps how people stand" },
-  { id: "guideStrength", type: "number", label: "Guide strength", note: "how closely it is followed: 0.5 leaves room, 1 holds tight", min: 0.1, max: 1.5, step: 0.05, default: 0.7, showWhen: "guide" },
-  { id: "guideStart", type: "number", label: "Guide from", note: "the part of the sampling it holds: ending early lets the model finish the details freely", min: 0, max: 1, step: 0.05, default: 0, showWhen: "guide", advanced: true },
-  { id: "guideEnd", type: "number", label: "Guide until", min: 0, max: 1, step: 0.05, default: 0.8, showWhen: "guide", advanced: true },
+  { id: "guideStrength", type: "number", label: "ControlNet strength", note: "how closely it is followed: 0.5 leaves room, 1 holds tight", min: 0.1, max: 1.5, step: 0.05, default: 0.7, showWhen: "guide" },
+  { id: "guideStart", type: "number", label: "ControlNet start %", note: "start_percent / end_percent: the part of the sampling it holds. Ending early lets the model finish the details freely", min: 0, max: 1, step: 0.05, default: 0, showWhen: "guide", advanced: true },
+  { id: "guideEnd", type: "number", label: "ControlNet end %", min: 0, max: 1, step: 0.05, default: 0.8, showWhen: "guide", advanced: true },
   { id: "guideLow", type: "number", label: "Edge low threshold", note: "lower finds fainter edges", min: 0.01, max: 0.99, step: 0.01, default: 0.4, showWhen: { input: "guideFollows", in: [FOLLOW_EDGES] }, advanced: true },
   { id: "guideHigh", type: "number", label: "Edge high threshold", min: 0.01, max: 0.99, step: 0.01, default: 0.8, showWhen: { input: "guideFollows", in: [FOLLOW_EDGES] }, advanced: true },
   { id: "guideModel", type: "choice", label: "ControlNet", note: "a union ControlNet does every kind; another follows only what it was made for", options: { node: "ControlNetLoader", input: "control_net_name" }, default: union, prefer: GUIDE_PREFER, showWhen: "guide", advanced: true },

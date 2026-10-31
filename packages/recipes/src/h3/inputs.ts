@@ -130,7 +130,9 @@ export const h3Inputs: InputSpec[] = [
   },
   {
     id: "cueSound", type: "choice", label: "In the take", options: [...CUE_SOUND], default: CUE_SOUND[0], showWhen: "cues",
-    note: "the file's sound: each cue's part is laid into the take at its moment, over H3's own sound there (added over a recording or a source's sound, which play on unchanged under it). H3's own: H3 makes the sound it hears at the cue, which may or may not be the file, and the file only guides it. Over a recording or a source's sound kept, the part is laid in either way: H3's sound is not in that file",
+    // the file's sound goes over H3's own there, and over a recording or a source's sound, which play on under it; over those,
+    // the part is laid in either way, H3's sound not being in that file
+    note: "the file's sound: each cue's part laid into the take at its moment. H3's own: H3 makes the sound, the file only guides it",
   },
   {
     id: "previous", type: "clip", role: "previous", label: "Previous clip", optional: true, frames: H3_JOIN_FRAMES, framesFrom: "context", fps: H3_FPS, look: "matched",
@@ -141,12 +143,14 @@ export const h3Inputs: InputSpec[] = [
     note: "H3 often holds its last frames still. When the clip before ends still for a quarter second or more, this clip carries on from its last lively moment and that clip is trimmed to it",
   },
   {
-    id: "context", type: "choice", label: "Frames from the clip before", options: [...H3_LANDINGS], default: "22", showWhen: "previous", advanced: true, section: "rare",
+    id: "context", type: "choice", label: "Overlap frames", options: [...H3_LANDINGS], default: "22", showWhen: "previous", advanced: true, section: "rare",
     note: "pinned at the start as the run-up: 5 is a position, 22 brings its motion and voice too, 39 a long run-in. When the join jumps, try another count",
   },
   {
     id: "joinFrom", type: "choice", label: "Continue from", options: ["Latent", "Frames"], renamed: { Auto: "Latent", Hybrid: "Latent" }, default: "Latent", showWhen: "previous", advanced: true, section: "rare",
-    note: "what of the clip before guides this one. Latent: its exact latent (picture, motion and sound as the model made them), decoded as one piece with it so that the join is a plain cut, like the whole chain decoded at once (needs the Afflatus node pack and the clip before's saved latent; without them, frames). Frames: its last frames and sound re-encoded and pinned, as ComfyUI alone does it; a chain of these softens clip after clip",
+    // Latent: picture, motion and sound as the model made them, as if the whole chain were decoded at once; without the Afflatus
+    // node pack or the clip before's saved latent, frames
+    note: "Latent: the clip before's latent, decoded as one piece with it (a clean cut; Afflatus nodes). Frames: its last frames re-encoded, as plain ComfyUI; softens over a chain",
   },
   {
     id: "next", type: "clip", role: "next", label: "Next clip", optional: true, frames: H3_JOIN_FRAMES, framesFrom: "landing", fps: H3_FPS, advanced: true,

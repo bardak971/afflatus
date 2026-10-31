@@ -501,7 +501,7 @@ export function inspectorProps(e: LoadedEditor, current: Clip): ComponentProps<t
     busy: render.isPending,
     // a render that failed for this clip, not for another one
     error: render.isError && render.variables?.clips.some((c) => c.id === current.id) ? render.error.message : null,
-    // the run-up of a clip the source made (Frames from the clip before, under All settings): the source's, every window
+    // the run-up of a clip the source made (Overlap frames, under All settings): the source's, every window
     // carrying on from that many frames, so the source is cut again for it (its rendered clips at the start kept)
     onInputs: (next) => {
       const src = clipSourceOf(e, current);

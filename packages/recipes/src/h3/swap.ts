@@ -170,7 +170,8 @@ export const swapInputs: InputSpec[] = [
     // the designer writes it, by the swap's own guide: from what the user says of the video and the picture (owner, 2026-10-18)
     id: "who", type: "prompt", weights: false, label: "Prompt as sent", style: "sentences", noCast: true, designed: true, optional: true,
     default: "", placeholder: SWAP_CAPTION,
-    note: "the whole prompt, as it is sent. Left empty, it is written from the parts above (the swap LoRA's caption first, as it was trained); typed, it is yours and the parts wait. <Video 1> is the source's window, <Picture 1> the person's picture (the reference, or the cast person's first photo): typed with them, it is sent as it is; without them, its words are who is replaced in the caption. The words do not choose who is replaced: the click on the stage does, else the largest face",
+    // empty, the swap LoRA's caption comes first, as it was trained; typed without the tags, its words are who is replaced in it
+    note: "empty: written from the parts above; typed: sent as is. <Video 1> is the source, <Picture 1> the person. The click on the stage picks who is replaced, not the words",
   },
   {
     id: "source", type: "clip", role: "source", label: "Source video", frames: [SWAP_FRAMES], fps: H3_FPS, whole: true, pick: true,
@@ -194,7 +195,7 @@ export const swapInputs: InputSpec[] = [
     if (spec.id === "faceRefineModel" && spec.type === "model") return [{ ...spec, default: OWN_MODEL }];
     // Turbo's row, on the swap's own model (card #160)
     if (spec.id === "loras" && spec.type === "loras") return [{ ...spec, added: [SWAP_TURBO_ROW] }];
-    // the window before, on a timeline's source lane: continued in its latent, its last frames (Frames from the clip before) the run-up
+    // the window before, on a timeline's source lane: continued in its latent, its last frames (Overlap frames) the run-up
     if (spec.id === "previous" && spec.type === "clip") {
       return [{ ...spec, advanced: true, note: "on a timeline's source lane, the window before: its last frames and their sound start this one, so that the person does not jump at the join" }];
     }
@@ -231,7 +232,7 @@ export const swapInputs: InputSpec[] = [
     id: "track", type: "prompt", weights: false, style: "sentences", noCast: true, line: true, label: "Track", default: "person", chapter: "mask", showWhen: "maskOn",
     note: "what SAM 3 looks for (its text prompt): person by default; man, woman or dancer when it misses the one to replace or catches someone else",
   },
-  { id: "grow", type: "number", label: "Grow", min: 0, max: 400, step: 4, default: 100, unit: " px", chapter: "mask", showWhen: "maskOn", note: "Swap Mask's grow: how far past the person H3 may redraw. Wider for a new person of another build, fast limbs or long hair" },
+  { id: "grow", type: "number", label: "Mask grow", min: 0, max: 400, step: 4, default: 100, unit: " px", chapter: "mask", showWhen: "maskOn", note: "Swap Mask's grow: how far past the person H3 may redraw. Wider for a new person of another build, fast limbs or long hair" },
   {
     // Difference: the wall H3 redrew close to the source's is the source's again, so it does not waver around the person
     // (the owner's Timeline 19 "aura", 2026-10-18); Mask as tested since 2026-10-16
@@ -260,7 +261,7 @@ export function framesOf(input: H3Swap, ctx: Pick<BuildContext, "media">): numbe
   const have = ctx.media.source?.frames ?? Math.round(input.sourceSeconds * H3_FPS);
   return Math.max(SWAP_LEAST, gridAtOrBefore(Math.min(SWAP_FRAMES, have), H3_GRID));
 }
-/** The frames of the window before pinned at the start, when there is one: as handed over (Frames from the clip before), none without. */
+/** The frames of the window before pinned at the start, when there is one: as handed over (Overlap frames), none without. */
 export const carriedOf = (input: H3Swap, ctx: Pick<BuildContext, "media">) => (input.previous ? ctx.media.previous?.frames ?? SWAP_CARRIED : 0);
 
 /** The short side a swap renders at: the source's own (within H3's 384 to 1088), or the height asked for. */
@@ -488,7 +489,7 @@ export const h3Swap = defineRecipe<H3Swap>({
   // who is replaced and how, apart from the source (the owner, 2026-10-18): the click and Show the mask are the screen's, the
   // rest the nodes' own inputs
   // (under the Inputs tab, with Sound: every H3 form keeps the same six tabs, card #170)
-  chapters: [{ id: "mask", label: "Mask", under: "inputs", help: "Experimental: the redrawn zone can show around the person (a wavering edge, a re-drawn wall), and a clip continued from a masked one starts from its unpasted latent. Who is replaced and what of the frame H3 redraws: SAM 3 tracks the person clicked on the stage, the Swap Mask grows the zone H3 redraws and the band the render is pasted back over. Show the mask draws them over the source before you render." }, H3_SOUND_CHAPTER],
+  chapters: [{ id: "mask", label: "Mask", under: "inputs", help: "SAM 3 tracks the person clicked on the stage; the Swap Mask grows the zone H3 redraws and the paste-back band. Experimental: the edge can waver. Show the mask draws them first." }, H3_SOUND_CHAPTER],
   presets: SWAP_PRESETS,
   starts: SWAP_STARTS,
   needs: ["swapLora", "swapUnet"],
