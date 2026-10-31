@@ -77,7 +77,7 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
       id: "hiresUpscaler", type: "choice", label: "Upscaler", note: "from your upscale models", showWhen: "hires", advanced: true, perModel: true,
       options: { node: "UpscaleModelLoader", input: "model_name" }, default: "RealESRGAN_x4plus.pth", prefer: UPSCALER_PREFER,
     },
-    { id: "hiresDenoise", type: "number", label: "Denoising strength", note: "how much the second pass may redraw", min: 0.05, max: 0.9, step: 0.05, default: krea2Spec.hires!.denoise!, showWhen: "hires", advanced: true, perModel: true },
+    { id: "hiresDenoise", type: "number", label: "Denoising strength", note: `how much the second pass may redraw; ${krea2Kit.noiseWords(krea2Spec.hires!.denoise!, krea2Spec.hires!.steps!, [{ size: { width: 1024, height: 1024 }, where: "at every size" }])}`, min: 0.05, max: 0.9, step: 0.05, default: krea2Spec.hires!.denoise!, showWhen: "hires", advanced: true, perModel: true },
     { id: "hiresSteps", type: "number", label: "Hires steps", min: 1, max: 60, step: 1, default: krea2Spec.hires!.steps!, showWhen: "hires", advanced: true, perModel: true },
     ...HIRES_PASS_INPUTS,
     ...tileInputs("hires"),

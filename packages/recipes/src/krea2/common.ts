@@ -34,7 +34,7 @@ export const krea2Spec: FlowSpec = {
     load: (g, slots) => g.out("CLIPLoader", { clip_name: slots.clip, type: "krea2", device: "default" }),
     files: (slots) => [`text_encoders/${slots.clip}`],
   },
-  shift: { node: "ModelSamplingAuraFlow", default: 0, note: "0 leaves the model's own. Some fine-tunes ask for another (4, for example)" },
+  shift: { node: "ModelSamplingAuraFlow", default: 0, note: "0 leaves the model's own. Some fine-tunes ask for another (4, for example)", own: { mu: 1.15 } },
   negative: { default: "", note: "only acts with a CFG scale above 1", empty: "zero" },
   sampling: { steps: 8, stepsNote: "8 for Turbo and its fine-tunes", cfg: 1, cfgNote: "1 for Turbo", sampler: "euler", scheduler: "simple" },
   // a 1.5× pass that redraws little in Turbo's own few steps: more redraw than 0.35 starts to change the picture

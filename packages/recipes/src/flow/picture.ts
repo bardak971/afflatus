@@ -21,11 +21,16 @@ const LOOK_NEEDED = "The look of a picture needs FLUX.1 Redux and its vision mod
 
 /** txt2img, with hires fix: an upscale, then a second pass over the larger picture (in tiles past about twice the model's size each side). */
 export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
-  const { inputs, loadNodes, SOMETIMES, load, shifted, cond, sample, tuned } = kit;
+  const { inputs, loadNodes, SOMETIMES, load, shifted, cond, sample, tuned, noiseWords } = kit;
   const files = spec.files;
   /** The area the model draws at, and the size a hires pass enlarges to. */
   const AREA = spec.megapixels * 1024 * 1024;
   const largeOf = (input: FlowPicture) => ({ width: roundTo(roundTo(input.size.width, 16) * input.hiresScale, 16), height: roundTo(roundTo(input.size.height, 16) * input.hiresScale, 16) });
+  // the hires pass's "?": the real noise its default starts from, on the form's first shape at its default scale (card #146)
+  const shape = spec.shapes.find((s) => s.id === "tall") ?? spec.shapes[0]!;
+  const hiresDefault = { scale: spec.hires?.scale ?? 1.25, denoise: spec.hires?.denoise ?? 0.4, steps: spec.hires?.steps ?? Math.max(4, Math.round(spec.sampling.steps / 2)) };
+  const hiresAt = { width: roundTo(shape.width * hiresDefault.scale, 16), height: roundTo(shape.height * hiresDefault.scale, 16) };
+  const hiresNoise = noiseWords(hiresDefault.denoise, hiresDefault.steps, [{ size: hiresAt, where: `at ${hiresAt.width}×${hiresAt.height}` }]);
   return defineRecipe<FlowPicture>({
     id: `${spec.family}.text-to-picture`,
     family: spec.family,
@@ -51,8 +56,8 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
         id: "hiresUpscaler", type: "choice", label: "Upscaler", note: "from your upscale models", showWhen: "hires", advanced: true, perModel: true,
         options: { node: "UpscaleModelLoader", input: "model_name" }, default: "RealESRGAN_x4plus.pth", prefer: UPSCALER_PREFER,
       },
-      { id: "hiresDenoise", type: "number", label: "Denoising strength", note: "how much the second pass may redraw", min: 0.05, max: 0.9, step: 0.05, default: spec.hires?.denoise ?? 0.4, showWhen: "hires", advanced: true, perModel: true },
-      { id: "hiresSteps", type: "number", label: "Hires steps", min: 1, max: 60, step: 1, default: spec.hires?.steps ?? Math.max(4, Math.round(spec.sampling.steps / 2)), showWhen: "hires", advanced: true, perModel: true },
+      { id: "hiresDenoise", type: "number", label: "Denoising strength", note: ["how much the second pass may redraw", hiresNoise].filter(Boolean).join("; "), min: 0.05, max: 0.9, step: 0.05, default: hiresDefault.denoise, showWhen: "hires", advanced: true, perModel: true },
+      { id: "hiresSteps", type: "number", label: "Hires steps", min: 1, max: 60, step: 1, default: hiresDefault.steps, showWhen: "hires", advanced: true, perModel: true },
       ...HIRES_PASS_INPUTS,
       ...tileInputs("hires"),
       inputs.at(-1)!,

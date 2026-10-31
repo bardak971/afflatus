@@ -1,12 +1,19 @@
 import { defineRecipe, GraphBuilder, type Recipe } from "@afflatus/core";
+import { sigmaWords } from "../shared/sigmaWords";
 import type { FlowBase, FlowKit, FlowSpec } from "./kit";
 
 export interface FlowRedraw extends FlowBase { source: string; prompt: string; strength: number }
 
 /** img2img: a picture you have, drawn again from a prompt, a little (the same picture, cleaner) or a lot (the same layout, a new picture). */
 export function flowRedraw(spec: FlowSpec, kit: FlowKit): Recipe<FlowRedraw> {
-  const { inputs, loadNodes, SOMETIMES, load, shifted, cond, sample, sizeOf, tuned } = kit;
+  const { inputs, loadNodes, SOMETIMES, load, shifted, cond, sample, sizeOf, tuned, startSigma } = kit;
   const files = spec.files;
+  // the "?": the real noise the field starts from (card #146). On Z-Image, a face redrawn from 0.40 of it was the same person,
+  // from 0.56 it drifted, and from the default's 0.80 it was another person
+  const [d55, d30, d20] = [0.55, 0.3, 0.2].map((d) => startSigma(d, spec.sampling.steps, { width: 1024, height: 1024 }));
+  const strengthNote = d55 == null
+    ? "0.3 keeps it close, 0.7 only keeps the layout"
+    : `denoise at the model's shift: at 1 MP, 0.55 starts from ${sigmaWords(d55)} of real noise, 0.3 from ${sigmaWords(d30!)}, 0.2 from ${sigmaWords(d20!)}. A face stays the same person up to about 0.4 of real noise`;
   return defineRecipe<FlowRedraw>({
     id: `${spec.family}.redraw`,
     family: spec.family,
@@ -18,7 +25,7 @@ export function flowRedraw(spec: FlowSpec, kit: FlowKit): Recipe<FlowRedraw> {
       spec.model,
       { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
       { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: "what the picture shows, as it should come out" },
-      { id: "strength", type: "number", label: "Denoising strength", note: "0.3 keeps it close, 0.7 only keeps the layout", min: 0.05, max: 1, step: 0.05, default: 0.55 },
+      { id: "strength", type: "number", label: "Denoising strength", note: strengthNote, min: 0.05, max: 1, step: 0.05, default: 0.55 },
       ...inputs,
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),

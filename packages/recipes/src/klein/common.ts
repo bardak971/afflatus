@@ -1,6 +1,7 @@
-import { roundTo, type BuildContext, type GraphBuilder, type InputSpec, type LoraValue, type Phase, type Preset, type ReferenceValue, type Ref } from "@afflatus/core";
+import { flowStartSigma, flux2ForSigma, flux2StartSigma, roundTo, type BuildContext, type GraphBuilder, type InputSpec, type LoraValue, type Phase, type Preset, type ReferenceValue, type Ref } from "@afflatus/core";
 import { detailModel, detailSampler, sharpenRange, usesDaemon, type DetailSettings } from "../shared/detail";
 import { loadUnet, unetNodes } from "../shared/unet";
+import { sigmaWords } from "../shared/sigmaWords";
 
 /** What every Klein recipe asks for besides its own inputs. */
 export interface KleinBase {
@@ -49,6 +50,29 @@ export function kleinSize(of: { width: number; height: number } | undefined, meg
   const k = Math.sqrt((megapixels * 1024 * 1024) / (of.width * of.height));
   return { width: roundTo(of.width * k, 16), height: roundTo(of.height * k, 16) };
 }
+
+/**
+ * A light pass that starts from the real σ `sigma` (Upscale 2x, card #146): the round(steps × sigma) steps ComfyUI's cut would
+ * run, from a Flux2Scheduler laid out over as many steps as it takes for them to start there. Cut at `sigma` itself, Klein's
+ * schedule (its mu is 2.2 already at 1 MP) starts 0.25 from 0.73–0.75 of real noise and narrows a face; side by side on a
+ * pod, the owner took the real σ, which "invents less".
+ */
+export function kleinRealPass(size: { width: number; height: number }, steps: number, sigma: number) {
+  const laid = flux2ForSigma(Math.max(1, Math.round(steps * sigma)), size.width, size.height, sigma);
+  return { steps: laid.steps, strength: laid.denoise };
+}
+
+/** Klein's FaceDetailer passes sample on the model's own schedule, FLUX's mu at 2.02 (card #146). */
+const KLEIN_OWN = { mu: 2.02 };
+
+/** A denoise's "?" words on Klein: the real noise it starts from. */
+export const kleinNoise = {
+  /** A pass of Flux2Scheduler's `steps` cut at `strength`, at each size given. */
+  split: (strength: number, steps: number, at: Array<{ size: { width: number; height: number }; where: string }>) =>
+    `${strength} starts from ${at.map(({ size, where }, i) => `${sigmaWords(flux2StartSigma(steps, size.width, size.height, strength))}${i ? "" : " of real noise"} ${where}`).join(", ")}`,
+  /** A FaceDetailer pass (KSampler's simple schedule on the model's own). */
+  detailer: (strength: number, steps: number) => `denoise at Klein's shift: ${strength} starts from ${sigmaWords(flowStartSigma(KLEIN_OWN, steps, strength))} of real noise`,
+};
 
 export interface Klein {
   model: Ref;

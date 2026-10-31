@@ -101,6 +101,8 @@ const spec: FlowSpec = {
     files: (slots) => [`text_encoders/${slots.clipL}`, `text_encoders/${slots.t5}`],
   },
   shift: { node: "ModelSamplingFlux", default: 0, note: "0 is the model's own (1.15 at one megapixel, more for larger pictures, as FLUX.1 was trained). Otherwise the largest shift: higher gives the first steps more weight" },
+  // Upscale 2x from the real σ: card #146 (FlowSpec.sharperRealSigma)
+  sharperRealSigma: true,
   guidance: { default: 3.5, note: "how closely the prompt is followed: 3.5 is the usual one, 4.5 for Krea dev (its authors' setting), 2 to 2.5 looks more like a photograph. Schnell ignores it" },
   negative: { default: "", note: "only acts with a CFG scale above 1, which FLUX.1 is not made for", empty: "zero" },
   sampling: { steps: 20, stepsNote: "20 for dev and Krea dev, 4 for schnell", cfg: 1, cfgNote: "1 is what FLUX.1 is made for: its Guidance does that job. Above 1 the negative prompt acts and every step takes twice as long", sampler: "euler", scheduler: "simple" },
