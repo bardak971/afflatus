@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { extraDirs, insideDir, modelDirs, readLocalHeader } from "../src/modelFiles";
+import { extraDirs, extraPaths, insideDir, modelDirs, readLocalHeader } from "../src/modelFiles";
 
 const yaml = `#Rename this to extra_model_paths.yaml and ComfyUI will load it
 
@@ -50,6 +50,22 @@ describe("ComfyUI's model folders on this computer", () => {
     expect(extraDirs(yaml, comfy, "embeddings")).toEqual([]);
   });
 
+  it("puts an is_default section's directories first, as ComfyUI does, the last one listed the first", async () => {
+    const comfy = mkdtempSync(join(tmpdir(), "afflatus-comfy-"));
+    made.push(comfy);
+    for (const d of ["models/loras", "store/a", "store/b", "store/c", "other"]) mkdirSync(join(comfy, ...d.split("/")), { recursive: true });
+    const base = comfy.replace(/\\/g, "/");
+    // is_default after the folders it applies to (ComfyUI pops it before reading them), and a plain section after
+    const file = ["plain:", `  base_path: ${base}`, "  loras: other", "shared:", `  base_path: ${base}/store`, "  loras: |", "    a", "    b", "  is_default: true", "late:", `  base_path: ${base}/store`, "  is_default: True", "  loras: c", ""].join("\n");
+    writeFileSync(join(comfy, "extra_model_paths.yaml"), file);
+    expect(extraPaths(file, comfy, "loras").map((d) => d.isDefault)).toEqual([false, true, true, true]);
+    expect(await modelDirs(comfy, "loras")).toEqual([join(comfy, "store", "c"), join(comfy, "store", "b"), join(comfy, "store", "a"), join(comfy, "models", "loras"), join(comfy, "other")]);
+    // a default directory listed already is moved first, not listed twice
+    writeFileSync(join(comfy, "extra_model_paths.yaml"), ["mine:", `  base_path: ${base}`, "  is_default: true", "  loras: models/loras", "  checkpoints: other", ""].join("\n"));
+    expect(await modelDirs(comfy, "loras")).toEqual([join(comfy, "models", "loras")]);
+    expect(extraPaths("x:\n  is_default: false\n  loras: a\n", comfy, "loras")).toEqual([{ path: join(comfy, "a"), isDefault: false }]);
+  });
+
   const made: string[] = [];
   afterEach(() => {
     for (const d of made.splice(0)) rmSync(d, { recursive: true, force: true });
@@ -72,7 +88,8 @@ describe("ComfyUI's model folders on this computer", () => {
     safetensors(join(comfy, "models", "diffusion_models", "Krea2", "muse.safetensors"), header);
     safetensors(join(comfy, "models", "unet", "old.safetensors"), { "input_blocks.0.0.weight": { dtype: "F16", shape: [320, 4, 3, 3], data_offsets: [0, 0] } });
     const dirs = await modelDirs(comfy, "diffusion_models");
-    expect(dirs).toEqual([join(comfy, "models", "diffusion_models"), join(comfy, "models", "unet")]);
+    // in ComfyUI's order (folder_paths.py): models/unet first, the file it loads by a name both hold
+    expect(dirs).toEqual([join(comfy, "models", "unet"), join(comfy, "models", "diffusion_models")]);
     expect(await readLocalHeader(dirs, "Krea2\\muse.safetensors")).toEqual(header);
     expect(await readLocalHeader(dirs, "Krea2/muse.safetensors")).toEqual(header);
     expect(await readLocalHeader(dirs, "old.safetensors")).toMatchObject({ "input_blocks.0.0.weight": { shape: [320, 4, 3, 3] } });

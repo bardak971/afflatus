@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { realpath, stat, unlink } from "node:fs/promises";
+import { lstat, realpath, stat, unlink } from "node:fs/promises";
 import { dirname, join, parse, resolve } from "node:path";
 import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -11,8 +11,10 @@ import { FAMILY_BASES } from "./browse";
 import { civitaiGet } from "./civitai";
 import { now, type Tables } from "./db";
 import { httpError } from "./errors";
+import { oneAtATime } from "./keyedLock";
 import { asideRoot, erase, inBinOrAside, moveBack, moveNoClobber, moveOut, systemBin, Taken, type BinFinder, type Place } from "./modelBin";
-import { filesIn, HASHED_FOLDERS, identityOf, type Found } from "./modelHashes";
+import { placesOf } from "./modelDownload";
+import { filesIn, HASHED_FOLDERS, identityOf, msOf, type Found } from "./modelHashes";
 import { insideDir, modelDirsSaid } from "./modelFiles";
 import { nameOf } from "./modelPages";
 import { setsWithFiles } from "./modelSets";
@@ -105,6 +107,15 @@ export interface Library {
 }
 
 type Lib = Pick<Services, "db" | "registry" | "shippedPresets" | "queue" | "machines" | "comfy" | "hashes">;
+
+/**
+ * Delete, Put back, Empty and the passes that settle what they moved, one at a time: a Put back racing an Empty had its
+ * move's rollback remove the only name left (Empty erasing the file the Put back had just linked back).
+ */
+const inTurn = <T>(s: Pick<Services, "db">, work: () => Promise<T>) => oneAtATime(s.db, "model-files", work);
+
+/** Whether a kept hash row is of the file as it is now: its size and date the same (a file replaced is hashed again). */
+const sameFile = (row: { size: number | string; mtime: number | string }, f: { size: number; mtime: number }) => Number(row.size) === f.size && Number(row.mtime) === f.mtime;
 
 const machineName = (m: Machine) => m.name || m.url;
 /** The machines whose ComfyUI is this computer's folder: the first one, and any other given the same folder. */
@@ -227,39 +238,61 @@ async function awayRows(s: Pick<Services, "db">): Promise<Removed[]> {
  * bin's entry behind: removed with it), one gone from a folder that is there taken as emptied. A drive away for now
  * changes nothing. Run by the writes of Model files, and by the hourly pass (services.ts).
  */
-export async function settleAway(s: Pick<Services, "db">): Promise<void> {
-  const rows = await s.db.selectFrom("model_removed").selectAll().where("restored_at", "is", null).where("emptied_at", "is", null).where("pending", "=", 0).execute();
-  for (const r of rows) {
-    const st = await stateOf(r);
-    if (st === "back" && r.info_path) await unlink(r.info_path).catch(() => {});
-    if (st === "back" || st === "gone") await s.db.updateTable("model_removed").set(st === "back" ? { restored_at: now() } : { emptied_at: now() }).where("id", "=", r.id).execute();
-  }
+export function settleAway(s: Pick<Services, "db">): Promise<void> {
+  return inTurn(s, async () => {
+    const rows = await s.db.selectFrom("model_removed").selectAll().where("restored_at", "is", null).where("emptied_at", "is", null).where("pending", "=", 0).execute();
+    for (const r of rows) {
+      const st = await stateOf(r);
+      if (st === "back" && r.info_path) await unlink(r.info_path).catch(() => {});
+      if (st === "back" || st === "gone") await s.db.updateTable("model_removed").set(st === "back" ? { restored_at: now() } : { emptied_at: now() }).where("id", "=", r.id).execute();
+    }
+  });
+}
+
+/** Whether two paths are one file on disk: the same volume and file index (none given: not known to be). */
+async function oneFile(a: string, b: string): Promise<boolean> {
+  const [x, y] = await Promise.all([stat(a, { bigint: true }).catch(() => null), stat(b, { bigint: true }).catch(() => null)]);
+  return Boolean(x && y && x.ino !== 0n && x.dev === y.dev && x.ino === y.ino);
 }
 
 /**
  * The moves cut short (Afflatus stopped between writing where a file was going and its move ending), settled at the start:
  * a file found where it was going and gone from its place is away (its row kept, for Put back); one still in its place
  * did not move (the bin entry made for it removed, the row with it). Neither: its drive is away, asked again next start.
+ *
+ * Found in both: stopped between the move's link and its unlink, the two names one file, whose move is undone (the name
+ * where it was going removed, the file stays in its place). Two files: the moved one is away, and its place was filled again
+ * since (ComfyUI-Manager fetching the missing model): its row is kept, or the moved file was left where nothing lists or
+ * empties it.
  */
-export async function settlePending(s: Pick<Services, "db">): Promise<void> {
-  const rows = await s.db.selectFrom("model_removed").selectAll().where("pending", "=", 1).execute();
-  for (const r of rows) {
-    if ((await exists(r.stored_path)) && !(await exists(r.path_was))) {
-      await s.db.updateTable("model_removed").set({ pending: 0 }).where("id", "=", r.id).execute();
-    } else if (await exists(r.path_was)) {
-      if (r.info_path && !(await exists(r.stored_path))) await unlink(r.info_path).catch(() => {});
-      await s.db.deleteFrom("model_removed").where("id", "=", r.id).execute();
+export function settlePending(s: Pick<Services, "db">): Promise<void> {
+  return inTurn(s, async () => {
+    const rows = await s.db.selectFrom("model_removed").selectAll().where("pending", "=", 1).execute();
+    for (const r of rows) {
+      const [stored, was] = [await exists(r.stored_path), await exists(r.path_was)];
+      if (stored && was && !(await oneFile(r.stored_path, r.path_was))) {
+        await s.db.updateTable("model_removed").set({ pending: 0 }).where("id", "=", r.id).execute();
+      } else if (stored && !was) {
+        await s.db.updateTable("model_removed").set({ pending: 0 }).where("id", "=", r.id).execute();
+      } else if (was) {
+        // the name the move made, of the very file still in its place: removed, never the file itself
+        if (stored) await unlink(r.stored_path).catch(() => {});
+        if (r.info_path && !(await exists(r.stored_path))) await unlink(r.info_path).catch(() => {});
+        await s.db.deleteFrom("model_removed").where("id", "=", r.id).execute();
+      }
     }
-  }
+  });
 }
 
 /**
  * One row per file on disk: the places that are the same file (its identity) folded into the one Afflatus used most (else
  * the first found), the others said in its `also`; their uses, takes, needs and families added to it. Its size counts once.
  */
-function oneRowEach(rows: Array<{ f: LibraryFile; identity: string | undefined }>): LibraryFile[] {
+function oneRowEach(rows: Array<{ f: LibraryFile; identity: string | undefined; link?: boolean }>): LibraryFile[] {
   const groups = new Map<string, LibraryFile[]>();
   const out: LibraryFile[] = [];
+  /** The places that are a link to the file: never the row's own, which Delete moves (a link is not moved). */
+  const links = new Set(rows.filter((r) => r.link).map((r) => r.f));
   for (const { f, identity } of rows) {
     if (!identity || f.removed) out.push(f);
     else if (groups.has(identity)) groups.get(identity)!.push(f);
@@ -271,7 +304,7 @@ function oneRowEach(rows: Array<{ f: LibraryFile; identity: string | undefined }
   return out.map((f) => {
     const same = [...groups.values()].find((g) => g[0] === f);
     if (!same || same.length < 2) return f;
-    const [main, ...rest] = [...same].sort((a, b) => b.uses - a.uses);
+    const [main, ...rest] = [...same].sort((a, b) => Number(links.has(a)) - Number(links.has(b)) || b.uses - a.uses);
     const months = { ...main!.months };
     for (const x of rest) for (const [m, n] of Object.entries(x.months)) months[m] = (months[m] ?? 0) + n;
     const needs = [...main!.needs];
@@ -297,7 +330,7 @@ export async function library(s: Lib, machine?: string): Promise<Library> {
   const families = scan?.families ?? [];
   const hashStatus = await s.hashes.status();
   /** A file listed: here (with its path), moved away by Delete (its row), or another machine's (its name only). */
-  type Listed = { folder: string; file: string; size: number | null; mtime: number | null; path: string | null; identity?: string; shadowed?: boolean; away?: Awaited<ReturnType<typeof awayRows>>[number] };
+  type Listed = { folder: string; file: string; size: number | null; mtime: number | null; path: string | null; identity?: string; shadowed?: boolean; link?: boolean; away?: Awaited<ReturnType<typeof awayRows>>[number] };
   const listed: Listed[] = [];
   let noFolder = false;
   if (!readOnly) {
@@ -307,13 +340,17 @@ export async function library(s: Lib, machine?: string): Promise<Library> {
     // a file Delete moved, seen where it is now through a junction to a folder above its model folder (filesIn walks
     // neither the set-aside folder nor a bin, this is the last word): the moved file itself, never a place of its own nor
     // "a copy that stays", which Empty would erase believing another was kept (card #185)
-    const moved = new Set<string>();
+    // (of the moved file's size too: a file system that repeats file indexes never hides a file in place behind one moved)
+    const moved = new Map<string, number>();
+    /** The rows whose hash is of the bytes away: recorded with their date (0104), and the moved file still of that size and date. */
+    const trusted = new Set<string>();
     for (const r of away) {
       const st = await stat(r.stored_path, { bigint: true }).catch(() => null);
-      if (st) moved.add((await identityOf(r.stored_path, st)).identity);
+      if (st) moved.set((await identityOf(r.stored_path, st)).identity, Number(st.size));
+      if (r.mtime !== null && r.mtime !== undefined && (!st || (Number(st.size) === Number(r.size) && msOf(st.mtimeNs) === Number(r.mtime)))) trusted.add(r.id);
     }
-    for (const [folder, list] of dirs) for (const f of (await filesIn(list, folder)).files) if (!moved.has(f.identity)) listed.push(f);
-    for (const r of away) listed.push({ folder: r.folder, file: r.file, size: Number(r.size), mtime: null, path: r.path_was, away: r });
+    for (const [folder, list] of dirs) for (const f of (await filesIn(list, folder)).files) if (moved.get(f.identity) !== f.size) listed.push(f);
+    for (const r of away) listed.push({ folder: r.folder, file: r.file, size: Number(r.size), mtime: null, path: r.path_was, away: trusted.has(r.id) ? r : { ...r, sha256: null } });
   } else if (scan?.comfy.online) {
     // another machine: its scan's lists, by what its recipes offer, and its families' files (names only)
     const seen = new Set<string>();
@@ -340,17 +377,20 @@ export async function library(s: Lib, machine?: string): Promise<Library> {
   const hashRows = await s.db.selectFrom("model_hashes").selectAll().execute();
   const hashes = new Map(hashRows.map((r) => [`${r.folder}|${r.file}`, r]));
   // a file another one's name shadows: its own hash, by its path, and what the sites said of those bytes under any name
-  const places = new Map((await s.db.selectFrom("model_hash_places").select(["path", "sha256"]).execute()).map((r) => [r.path, r.sha256]));
+  const places = new Map((await s.db.selectFrom("model_hash_places").select(["path", "sha256", "size", "mtime"]).execute()).map((r) => [r.path, r]));
   const matchOf = new Map(hashRows.map((r) => [r.sha256, r]));
-  const placeHash = (path: string | null) => {
-    const sha256 = path ? places.get(path) : undefined;
+  // a kept hash is the file's only while its size and date are those it was hashed at: a file replaced since (a v2 over
+  // its v1) is not hashed again yet, and its old hash made a backup of v1 "a copy that stays" of it, Empty erasing v1
+  const fresh = <R extends { size: number | string; mtime: number | string }>(row: R | undefined, f: Listed) => (row && (f.size === null || f.mtime === null || sameFile(row, { size: f.size, mtime: f.mtime })) ? row : undefined);
+  const placeHash = (f: Listed) => {
+    const sha256 = f.path ? fresh(places.get(f.path), f)?.sha256 : undefined;
     return sha256 ? { civitai_version: null, hf_url: null, matched_at: null, civitai_base: null, ...matchOf.get(sha256), sha256 } : undefined;
   };
 
   /** What is known of one file, by its folder and name (and hash), whatever machine lists it. */
   const describe = (f: Listed): LibraryFile => {
     const k = `${f.folder}|${f.file}`;
-    const h = f.away ? (f.away.sha256 ? { sha256: f.away.sha256, civitai_version: null, hf_url: null, matched_at: null, civitai_base: null } : undefined) : f.shadowed ? placeHash(f.path) : hashes.get(k);
+    const h = f.away ? (f.away.sha256 ? { sha256: f.away.sha256, civitai_version: null, hf_url: null, matched_at: null, civitai_base: null } : undefined) : f.shadowed ? placeHash(f) : fresh(hashes.get(k), f);
     // what is kept by name (its header's title, its page, its uses, what needs it) is of the file ComfyUI loads by the
     // name: a shadowed one has only what its own bytes say (its uses by its hash, from files of it since gone)
     const byName = !f.shadowed;
@@ -376,7 +416,7 @@ export async function library(s: Lib, machine?: string): Promise<Library> {
       removed: f.away ? { id: f.away.id, place: f.away.place, at: f.away.removed_at, batch: f.away.batch } : null,
     };
   };
-  const files = oneRowEach(listed.map((f) => ({ f: describe(f), identity: f.identity })));
+  const files = oneRowEach(listed.map((f) => ({ f: describe(f), identity: f.identity, link: f.link })));
   // the same hash in two files on disk: the same model, kept twice
   const bySha = new Map<string, LibraryFile[]>();
   for (const f of files) if (f.sha256 && !f.removed) bySha.set(f.sha256, [...(bySha.get(f.sha256) ?? []), f]);
@@ -446,7 +486,11 @@ export interface DeleteAsk {
    * By name, and by path for a row of the list: a name held in two of a folder's directories is two files, and the path
    * says which (without it, the one ComfyUI loads by the name, the first directory's).
    */
-  files: Array<{ folder: string; file: string; path?: string }>;
+  files: Array<{
+    folder: string; file: string; path?: string;
+    /** The size and date (ms) the list showed: a file found otherwise now is left in place (another file took the row). */
+    size?: number; mtime?: number;
+  }>;
   to: Place;
   /** The user saw what needs them and said Delete all: a preset's or a set's file goes too. */
   anyway?: boolean;
@@ -469,7 +513,11 @@ export interface DeleteDone {
  * written before it moves, with where it is going (pending), and completed once moved: a file is never away without a
  * row to put it back by. A row that cannot be written stops the move; one that cannot be completed puts the file back.
  */
-export async function deleteFiles(s: Lib, ask: DeleteAsk, bin: BinFinder = systemBin): Promise<DeleteDone> {
+export function deleteFiles(s: Lib, ask: DeleteAsk, bin: BinFinder = systemBin): Promise<DeleteDone> {
+  return inTurn(s, () => deleteNow(s, ask, bin));
+}
+
+async function deleteNow(s: Lib, ask: DeleteAsk, bin: BinFinder): Promise<DeleteDone> {
   await settleAway(s);
   const settings = await readSettings(s.db);
   const dirs = await folderDirs(settings.comfyDir);
@@ -518,6 +566,18 @@ export async function deleteFiles(s: Lib, ask: DeleteAsk, bin: BinFinder = syste
       done.left.push({ file: name, why: isModelFile(f.file) ? "it is not in ComfyUI's folders any more" : "it is not a model file" });
       continue;
     }
+    // the row the user saw: a list read before a file was moved away in Explorer may name another file now (the one a
+    // later directory holds, no longer shadowed, took the row's id), never deleted in its stead
+    const found = foundOf(f);
+    if ((f.size !== undefined && f.size !== (found?.size ?? at.size)) || (f.mtime !== undefined && found && f.mtime !== found.mtime)) {
+      done.left.push({ file: name, why: "it is not the file the list showed any more (changed or replaced since): look at the list again" });
+      continue;
+    }
+    // a link moved would be the link, not the file: the file it leads to is deleted from its own place
+    if (found?.link || (await lstat(at.path).catch(() => null))?.isSymbolicLink()) {
+      done.left.push({ file: name, why: `it is a link to ${await realpath(at.path).catch(() => "another file")}: delete that file instead` });
+      continue;
+    }
     // asked again for each file, just before it moves: a job sent meanwhile counts
     const busy = await inUse(s);
     const all = places.length ? places : [f];
@@ -525,10 +585,12 @@ export async function deleteFiles(s: Lib, ask: DeleteAsk, bin: BinFinder = syste
       done.left.push({ file: name, why: "a job waiting or running uses it" });
       continue;
     }
-    // its own hash: a file another one's name shadows has it by its path, the name's row being the other file's
-    const sha = foundOf(f)?.shadowed
-      ? (await s.db.selectFrom("model_hash_places").select("sha256").where("path", "=", foundOf(f)!.path).executeTakeFirst())?.sha256 ?? null
-      : (await s.db.selectFrom("model_hashes").select("sha256").where("folder", "=", f.folder).where("file", "=", f.file.replace(/\\/g, "/")).executeTakeFirst())?.sha256 ?? null;
+    // its own hash: a file another one's name shadows has it by its path, the name's row being the other file's. Only a
+    // row of these bytes (its size and date the file's): a stale one, kept, made Put back file it and pods get other bytes
+    const hashRow = found?.shadowed
+      ? await s.db.selectFrom("model_hash_places").select(["sha256", "size", "mtime"]).where("path", "=", found.path).executeTakeFirst()
+      : await s.db.selectFrom("model_hashes").select(["sha256", "size", "mtime"]).where("folder", "=", f.folder).where("file", "=", f.file.replace(/\\/g, "/")).executeTakeFirst();
+    const sha = hashRow && found && sameFile(hashRow, found) ? hashRow.sha256 : null;
     const id = randomUUID();
     let written = false;
     try {
@@ -539,7 +601,7 @@ export async function deleteFiles(s: Lib, ask: DeleteAsk, bin: BinFinder = syste
           const row = { place: p.place, stored_path: p.stored, info_path: p.info };
           if (written) await s.db.updateTable("model_removed").set(row).where("id", "=", id).execute();
           else await s.db.insertInto("model_removed").values({
-            id, batch, folder: f.folder, file: f.file.replace(/\\/g, "/"), path_was: at.path, size: at.size, sha256: sha, ...row,
+            id, batch, folder: f.folder, file: f.file.replace(/\\/g, "/"), path_was: at.path, size: at.size, sha256: sha, mtime: found?.mtime ?? null, ...row,
             removed_at: now(), restored_at: null, emptied_at: null, pending: 1,
           }).execute();
           written = true;
@@ -579,7 +641,11 @@ async function changed(s: Lib): Promise<void> {
 }
 
 /** Put back: the moved files (by their ids, or one Delete's batch) returned where they were. */
-export async function putBack(s: Lib, which: { ids?: string[]; batch?: string }): Promise<{ back: number; left: Array<{ file: string; why: string }> }> {
+export function putBack(s: Lib, which: { ids?: string[]; batch?: string }): Promise<{ back: number; left: Array<{ file: string; why: string }> }> {
+  return inTurn(s, () => putBackNow(s, which));
+}
+
+async function putBackNow(s: Lib, which: { ids?: string[]; batch?: string }): Promise<{ back: number; left: Array<{ file: string; why: string }> }> {
   await settleAway(s);
   let q = s.db.selectFrom("model_removed").selectAll().where("restored_at", "is", null).where("emptied_at", "is", null).where("pending", "=", 0);
   if (which.batch) q = q.where("batch", "=", which.batch);
@@ -591,15 +657,17 @@ export async function putBack(s: Lib, which: { ids?: string[]; batch?: string })
     try {
       await moveBack({ stored: r.stored_path, info: r.info_path, was: r.path_was });
       await s.db.updateTable("model_removed").set({ restored_at: now() }).where("id", "=", r.id).execute();
-      // hashed again in moments: the same bytes, its hash kept (asked again of the sites, once)
-      if (r.sha256) {
-        const st = await stat(r.path_was).catch(() => null);
+      // hashed again in moments: the same bytes, its hash kept (asked again of the sites, once). Only for the bytes it was
+      // recorded with, still of their size and date: a row from before 0104, or a file changed while away, is hashed again
+      const big = r.sha256 && r.mtime !== null && r.mtime !== undefined ? await stat(r.path_was, { bigint: true }).catch(() => null) : null;
+      if (r.sha256 && big && Number(big.size) === Number(r.size) && msOf(big.mtimeNs) === Number(r.mtime)) {
+        const st = { size: Number(big.size), mtime: msOf(big.mtimeNs) };
         // under its name when it is the file ComfyUI loads by it; by its path when another directory's holds the name first
         dirs ??= await folderDirs((await readSettings(s.db)).comfyDir);
-        const first = st ? await pathOf(dirs, r.folder, r.file) : null;
-        if (st && first && first.path !== resolve(r.path_was)) await s.db.insertInto("model_hash_places").values({ path: r.path_was, folder: r.folder, file: r.file, size: st.size, mtime: Math.round(st.mtimeMs), sha256: r.sha256, hashed_at: now() })
+        const first = await pathOf(dirs, r.folder, r.file);
+        if (first && first.path !== resolve(r.path_was)) await s.db.insertInto("model_hash_places").values({ path: r.path_was, folder: r.folder, file: r.file, ...st, sha256: r.sha256, hashed_at: now() })
           .onConflict((oc) => oc.column("path").doNothing()).execute();
-        else if (st) await s.db.insertInto("model_hashes").values({ folder: r.folder, file: r.file, size: st.size, mtime: Math.round(st.mtimeMs), sha256: r.sha256, hashed_at: now(), civitai_version: null, hf_url: null, matched_at: null })
+        else await s.db.insertInto("model_hashes").values({ folder: r.folder, file: r.file, ...st, sha256: r.sha256, hashed_at: now(), civitai_version: null, hf_url: null, matched_at: null })
           .onConflict((oc) => oc.columns(["folder", "file"]).doNothing()).execute();
       }
       out.back++;
@@ -615,18 +683,20 @@ export async function putBack(s: Lib, which: { ids?: string[]; batch?: string })
  * Empty: what Delete moved, erased for good (the bin's entries and the set-aside folder's files). The only erase there is.
  * A file whose drive is away now is left for a later Empty.
  */
-export async function emptyAway(s: Pick<Services, "db">): Promise<{ erased: number; bytes: number }> {
-  await settleAway(s);
-  let erased = 0;
-  let bytes = 0;
-  for (const r of await awayRows(s)) {
-    if (!(await exists(r.stored_path))) continue;
-    await erase({ stored: r.stored_path, info: r.info_path });
-    await s.db.updateTable("model_removed").set({ emptied_at: now() }).where("id", "=", r.id).execute();
-    erased++;
-    bytes += Number(r.size);
-  }
-  return { erased, bytes };
+export function emptyAway(s: Pick<Services, "db">): Promise<{ erased: number; bytes: number }> {
+  return inTurn(s, async () => {
+    await settleAway(s);
+    let erased = 0;
+    let bytes = 0;
+    for (const r of await awayRows(s)) {
+      if (!(await exists(r.stored_path))) continue;
+      await erase({ stored: r.stored_path, info: r.info_path });
+      await s.db.updateTable("model_removed").set({ emptied_at: now() }).where("id", "=", r.id).execute();
+      erased++;
+      bytes += Number(r.size);
+    }
+    return { erased, bytes };
+  });
 }
 
 /**
@@ -674,7 +744,10 @@ export async function addFile(s: Lib, folder: string, name: string, body: Readab
   const clean = baseName(name.trim());
   const bad = badName(clean);
   if (bad) throw httpError(`${clean || "That file"} is refused: ${bad}.`, 400);
-  const dir = (await modelDirsSaid((await readSettings(s.db)).comfyDir, folder)).dirs[0];
+  // into models/<folder> when it is there, whatever ComfyUI reads first (models/unet before diffusion_models, a default
+  // directory of extra_model_paths.yaml), as a download goes (placesOf)
+  const comfyDir = (await readSettings(s.db)).comfyDir;
+  const dir = placesOf((await modelDirsSaid(comfyDir, folder)).dirs, folder, comfyDir.trim() || null)[0]?.path;
   if (!dir) throw httpError("ComfyUI's folder on this computer is not known (Settings › ComfyUI › Folder on this computer).", 409);
   const path = insideDir(dir, clean);
   if (!path) throw httpError("That name leads out of the folder.", 400);

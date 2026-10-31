@@ -40,9 +40,11 @@ export function DeleteDialog({ files, all, bin, since, onClose, onDone }: { file
   }
   const rest = files.filter((f) => !needy.includes(f));
   const bytes = (fs: ModelFile[]) => fs.reduce((n, f) => n + (f.size ?? 0), 0);
+  // a name two of a folder's directories hold is two rows alike: the one asked is told by where it is
+  const twice = (f: ModelFile) => all.some((x) => x !== f && !x.removed && x.folder === f.folder && x.file === f.file);
   const now = Date.now();
   const del = useMutation({
-    mutationFn: ({ fs, anyway }: { fs: ModelFile[]; anyway: boolean }) => api.deleteModelFiles({ files: fs.map((f) => ({ folder: f.folder, file: f.file, ...(f.path ? { path: f.path } : {}) })), to, anyway }),
+    mutationFn: ({ fs, anyway }: { fs: ModelFile[]; anyway: boolean }) => api.deleteModelFiles({ files: fs.map((f) => ({ folder: f.folder, file: f.file, ...(f.path ? { path: f.path } : {}), ...(f.size !== null ? { size: f.size } : {}), ...(f.mtime !== null ? { mtime: f.mtime } : {}) })), to, anyway }),
     onSuccess: (done) => {
       sayDone(done, to, () => void api.putBackModelFiles({ batch: done.batch }).catch(said("Could not put them back")).finally(() => void client.invalidateQueries({ queryKey: queryKeys.modelInfo.all() })));
       onDone(files.map((f) => f.id));
@@ -78,6 +80,7 @@ export function DeleteDialog({ files, all, bin, since, onClose, onDone }: { file
           <div key={f.id} className={cx("grid grid-cols-[minmax(0,1fr)_auto_76px] gap-3 border-b border-line/60 px-3 py-1.5 last:border-b-0", needy.includes(f) && "bg-attention-wash/50")}>
             <span className="flex min-w-0 flex-col">
               <span className="truncate font-mono text-xs">{f.folder}/{f.file}</span>
+              {f.path && twice(f) && <span className="truncate text-xs text-ink-3" data-tip={f.path}>in {f.path}</span>}
               {f.also.length > 0 && <span className="truncate text-xs text-ink-3" data-tip={f.also.map((a) => `${a.folder}/${a.file}`).join(", ")}>the same file, also seen as {f.also.map((a) => `${a.folder}/${a.file}`).join(", ")}: gone from there too</span>}
             </span>
             <span className="text-xs text-ink-3">{lastSaid(f, since, (iso) => dayOf(iso, now), (iso) => when(iso, now)).text}</span>

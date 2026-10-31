@@ -94,6 +94,12 @@ export interface Found {
    * this one's hash is kept by its path (model_hash_places), and Delete moves it only when asked by its path.
    */
   shadowed: boolean;
+  /**
+   * A symbolic link to a file: ComfyUI loads the file through it by its name (os.path.isfile follows it), so it takes the
+   * name and is listed with the file's own size, date and identity (one file with the place it is linked from). Delete
+   * never moves a link (modelLibrary.ts): it would move the link, not the file.
+   */
+  link?: boolean;
 }
 
 /** A path as one place on disk, whatever folder it is reached through (junctions, links resolved), for comparing. */
@@ -117,7 +123,7 @@ export async function identityOf(path: string, st: { dev: bigint; ino: bigint; n
 }
 
 /** A bigint stat's date as a plain stat's `Math.round(mtimeMs)`: kept dates and the pod's check compare with that one. */
-const msOf = (ns: bigint) => Math.round(Number(ns / 1000n) / 1000);
+export const msOf = (ns: bigint) => Math.round(Number(ns / 1000n) / 1000);
 
 /**
  * The model files under a folder's directories, sub-folders included, and whether every directory of it could be read: a
@@ -127,13 +133,17 @@ const msOf = (ns: bigint) => Math.round(Number(ns / 1000n) / 1000);
  * is. A junction to a folder above a model folder (models/checkpoints/a1111 → A1111's models) reaches the set-aside folder
  * made beside that model folder: its file, listed, was "a copy that stays" of the one moved there, and Empty erased that
  * only copy (card #185). Nor a directory the walk is inside already (a junction to its own parent), walked for ever else.
+ *
+ * Two files with one volume and file index but another size or date are two files all the same: ReFS (a Dev Drive) says
+ * its 64-bit index may repeat, and some network or FUSE mounts give one to several files. Taken as one, the second vanished
+ * into the first one's row, a Delete said it gone too, and it was given the first one's hash (a pod sent the wrong bytes):
+ * each is then told by its real path.
  */
 export async function filesIn(dirs: string[], folder: string): Promise<{ files: Found[]; whole: boolean }> {
-  const out: Found[] = [];
+  const seen: Array<Omit<Found, "identity" | "inode" | "shadowed">> = [];
+  const stats: Array<{ dev: bigint; ino: bigint; nlink: bigint }> = [];
   let whole = true;
-  /** The file on disk ComfyUI loads by each name: the first directory's that holds it. */
-  const loaded = new Map<string, string>();
-  const walk =async (root: string, dir: string, depth: number, inside: string[]): Promise<void> => {
+  const walk = async (root: string, dir: string, depth: number, inside: string[]): Promise<void> => {
     if (depth > 6) return;
     const real = await realOf(dir);
     if (real && (inBinOrAside(real) || inside.includes(real))) return;
@@ -145,22 +155,45 @@ export async function filesIn(dirs: string[], folder: string): Promise<{ files: 
     for (const e of entries) {
       const path = join(dir, e.name);
       // a folder linked in (a junction, a directory symlink) is walked as ComfyUI walks it (os.walk, followlinks): what it
-      // holds may be listed elsewhere too, one file on disk then seen in two places (identity). A link to a file is not
-      // followed: moving it would move the link, not the file
-      if (e.isDirectory() || (e.isSymbolicLink() && (await stat(path).catch(() => null))?.isDirectory())) await walk(root, path, depth + 1, real ? [...inside, real] : inside);
-      else if (e.isFile() && MODEL_EXT.test(e.name)) {
-        const st = await stat(path, { bigint: true }).catch(() => null);
+      // holds may be listed elsewhere too, one file on disk then seen in two places (identity). A link to a file holds its
+      // name as ComfyUI reads it (a link leading nowhere does not)
+      const target = e.isSymbolicLink() ? await stat(path, { bigint: true }).catch(() => null) : null;
+      if (e.isDirectory() || target?.isDirectory()) await walk(root, path, depth + 1, real ? [...inside, real] : inside);
+      else if ((e.isFile() || target?.isFile()) && MODEL_EXT.test(e.name)) {
+        const st = target ?? await stat(path, { bigint: true }).catch(() => null);
         if (!st) continue;
         const file = relative(root, path).replace(/\\/g, "/");
-        const id = await identityOf(path, st);
-        // the same file seen again under the name (a directory listed twice) is not another one
-        const first = loaded.get(file);
-        if (first === undefined) loaded.set(file, id.identity);
-        out.push({ folder, file, path, size: Number(st.size), mtime: msOf(st.mtimeNs), ...id, shadowed: first !== undefined && first !== id.identity });
+        seen.push({ folder, file, path, size: Number(st.size), mtime: msOf(st.mtimeNs), ...(target ? { link: true } : {}) });
+        stats.push(st);
       }
     }
   };
   for (const d of dirs) await walk(d, d, 0, []);
+  const ids: Array<{ identity: string; inode: string }> = [];
+  for (const [i, f] of seen.entries()) ids.push(await identityOf(f.path, stats[i]!));
+  // an index shared by files of another size or date: those are told apart by their real paths
+  const first = new Map<string, { size: number; mtime: number }>();
+  const clash = new Set<string>();
+  for (const [i, f] of seen.entries()) {
+    const id = ids[i]!.identity;
+    const was = first.get(id);
+    if (!was) first.set(id, { size: f.size, mtime: f.mtime });
+    else if (was.size !== f.size || was.mtime !== f.mtime) clash.add(id);
+  }
+  /** The file on disk ComfyUI loads by each name: the first directory's that holds it. */
+  const loaded = new Map<string, string>();
+  const out: Found[] = [];
+  for (const [i, f] of seen.entries()) {
+    let id = ids[i]!;
+    if (clash.has(id.identity)) {
+      const real = `path:${(await realOf(f.path)) ?? f.path}`;
+      id = { identity: real, inode: real };
+    }
+    // the same file seen again under the name (a directory listed twice) is not another one
+    const name = loaded.get(f.file);
+    if (name === undefined) loaded.set(f.file, id.identity);
+    out.push({ ...f, ...id, shadowed: name !== undefined && name !== id.identity });
+  }
   return { files: out, whole };
 }
 
@@ -263,16 +296,17 @@ export class ModelHashes {
       return !k || Number(k.size) !== f.size || Number(k.mtime) !== f.mtime;
     }).sort((a, b) => a.size - b.size);
     // one file on disk seen in two places (a folder listed twice, a hard link) is read once: its hash, known in one place
-    // and the same size and date there, goes to the other
+    // and the same size and date there, goes to the other, of the same size and date too (an index shared by two files
+    // on a file system that repeats them never gives one the other's hash)
     type Known = { sha256: string; civitai_version: number | null; hf_url: string | null; matched_at: string | null };
-    const known = new Map<string, Known>();
+    const known = new Map<string, Known & { size: number; mtime: number }>();
     for (const f of byName) {
       const k = have.get(keyOf(f.folder, f.file));
-      if (k && Number(k.size) === f.size && Number(k.mtime) === f.mtime) known.set(f.inode, { sha256: k.sha256, civitai_version: k.civitai_version === null ? null : Number(k.civitai_version), hf_url: k.hf_url, matched_at: k.matched_at });
+      if (k && Number(k.size) === f.size && Number(k.mtime) === f.mtime) known.set(f.inode, { sha256: k.sha256, civitai_version: k.civitai_version === null ? null : Number(k.civitai_version), hf_url: k.hf_url, matched_at: k.matched_at, size: f.size, mtime: f.mtime });
     }
     for (const f of shadowed) {
       const k = havePlace.get(f.path);
-      if (k && Number(k.size) === f.size && Number(k.mtime) === f.mtime && !known.has(f.inode)) known.set(f.inode, { sha256: k.sha256, civitai_version: null, hf_url: null, matched_at: null });
+      if (k && Number(k.size) === f.size && Number(k.mtime) === f.mtime && !known.has(f.inode)) known.set(f.inode, { sha256: k.sha256, civitai_version: null, hf_url: null, matched_at: null, size: f.size, mtime: f.mtime });
     }
     /** A shadowed file's hash, kept by its path: never the name's row, which is the other file's. */
     const keepPlace = async (f: Found, sha256: string) => {
@@ -284,7 +318,8 @@ export class ModelHashes {
     try {
       for (const f of todo) {
         if (this.stopped) return;
-        const same = known.get(f.inode);
+        const kept = known.get(f.inode);
+        const same: Known | undefined = kept && kept.size === f.size && kept.mtime === f.mtime ? { sha256: kept.sha256, civitai_version: kept.civitai_version, hf_url: kept.hf_url, matched_at: kept.matched_at } : undefined;
         if (same && f.shadowed) {
           await keepPlace(f, same.sha256);
           continue;
@@ -310,7 +345,7 @@ export class ModelHashes {
         }
         const sha256 = await this.hashOf(worker, f);
         if (!sha256 || this.stopped) continue;
-        known.set(f.inode, { sha256, civitai_version: null, hf_url: null, matched_at: null });
+        known.set(f.inode, { sha256, civitai_version: null, hf_url: null, matched_at: null, size: f.size, mtime: f.mtime });
         if (f.shadowed) {
           await keepPlace(f, sha256);
           continue;
