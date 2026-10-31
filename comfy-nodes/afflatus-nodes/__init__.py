@@ -109,6 +109,7 @@ from .swap_mask import AfflatusSwapMask, AfflatusSwapMaskPreview, AfflatusSwapMa
 from .face_refine import AfflatusH3AudioLock  # noqa: E402
 from .colour_follow import AfflatusColorFollow  # noqa: E402
 from .room_tone import AfflatusRoomTone  # noqa: E402
+from .text_encoder import AfflatusFreeTextEncoder  # noqa: E402
 
 
 def _version() -> str:
@@ -155,6 +156,8 @@ class AfflatusExtension(ComfyExtension):
             # a Motion transfer clip's colours brought to its driving video's, moment by moment
             AfflatusColorFollow,
             AfflatusRoomTone,
+            # H3's text encoder let go once its prompt is encoded, before the sampler (the RAM it held on 32 GB, card #202)
+            AfflatusFreeTextEncoder,
             # a face's likeness to some photos, for the pictures a Motion transfer is made from, and a person's picture cut to
             # their face (LTX 2.5's references): only with insightface installed
             *([AfflatusFaceMatch, AfflatusFaceAt, AfflatusFaceCrop, AfflatusFaceFrame, AfflatusFaceBackdrop] if face_available() else []),

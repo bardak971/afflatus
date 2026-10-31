@@ -1,6 +1,7 @@
 import { OWN_MODEL, packOfNode, wanted, type BuildContext, type GraphBuilder, type InputSpec, type Ref } from "@afflatus/core";
 import { addedLora } from "../shared/model";
 import { loadUnet } from "../shared/unet";
+import { FREE_TEXT_ENCODER, freeTextEncoder } from "./condition";
 import { H3_HYBRIDS, SWAP_MODELS } from "./family";
 import type { H3Video } from "./inputs";
 import { modelOf, namedFor, uses } from "./model";
@@ -304,9 +305,11 @@ export function faceRefined(
     model, av_latent: held, transform: [track, 1], denoise_multiplier_small_face: 1, denoise_multiplier_large_face: 0.35,
     scale_mode: "absolute_px", face_px_small: 30, face_px_large: 120, gamma: 1, smooth_frames: 9,
   });
+  // its prompt is encoded once the clip is sampled (its size is the face track's): the text encoder loads again for it, and
+  // is let go again before the pass samples
   const sampler = g.add("SamplerCustomAdvanced", {
     noise: g.out("RandomNoise", { noise_seed: ctx.seed }),
-    guider: g.out("BasicGuider", { model: [scaled, 2], conditioning: [r2v, 0] }),
+    guider: g.out("BasicGuider", { model: [scaled, 2], conditioning: freeTextEncoder(g, ctx, clip, [r2v, 0])[0] }),
     sampler: g.out("KSamplerSelect", { sampler_name: "er_sde" }),
     sigmas: g.out("BasicScheduler", { model: [scaled, 2], scheduler: "simple", steps: picked.steps, denoise: input.faceRefineDenoise }),
     latent_image: [scaled, 0],
@@ -337,4 +340,4 @@ export const FACE_REFINE_OWN_SLOTS = { faceClip: "qwen3vl_minimax_h3.safetensors
 
 /** The nodes a clip with Face refine on is built with, beside the clip's own (none required: it is done without when missing). */
 // (its reference model's conditioning is the clip's own: a clip with a person's picture is made by the reference route)
-export const FACE_REFINE_OPTIONAL = [...FACE_REFINE_NODES, ...FACE_REFINE_MASK, AUDIO_LOCK, "ImageScaleToTotalPixels"];
+export const FACE_REFINE_OPTIONAL = [...FACE_REFINE_NODES, ...FACE_REFINE_MASK, AUDIO_LOCK, "ImageScaleToTotalPixels", FREE_TEXT_ENCODER];
