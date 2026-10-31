@@ -110,6 +110,9 @@ const MOTION_SHOWS: Record<string, InputSpec["showWhen"]> = {
   refVideos: OWN_MODEL,
 };
 
+/** H3's two sound texts, drawn with this form's prompt rather than where H3's inputs come. */
+const SOUND_TEXTS = new Set(["soundscape", "music"]);
+
 const inputs: InputSpec[] = [
   {
     id: "source", type: "clip", role: "source", label: "Source video", frames: [SWAP_FRAMES], fps: H3_FPS, whole: true,
@@ -123,6 +126,8 @@ const inputs: InputSpec[] = [
     id: "picture", type: "image", role: "source", label: "Picture", opensOnly: true, showWhen: OWN_MODEL,
     note: "what moves, its first frame: its room, its light and its people are kept, only the motion comes from the video. In the source video's shape: the video is cut to the picture's from the centre. A window after a swap needs none: it carries on from it",
   },
+  // Sound effects and Music, H3's prompt text: in the Prompt card first under What happens, as on every H3 form (card #210)
+  ...h3Inputs.filter((spec) => SOUND_TEXTS.has(spec.id)).map((spec) => ({ ...spec, showWhen: MOTION_SHOWS[spec.id] }) as InputSpec),
   // the prompt's parts (card #34): the prompt as sent written from them while it is left empty (motionFromParts)
   { id: "look", type: "prompt", weights: false, label: "How they look", style: "sentences", line: true, optional: true, noCast: true, designed: true, holds: "subject", placeholder: "short brown hair, a white shirt and jeans", note: `the person of the picture, in a few words: what H3 keeps of them. Shared by a source's windows. ${H3_NO_TAGS}` },
   { id: "happens", type: "prompt", weights: false, label: "What happens", style: "sentences", optional: true, noCast: true, designed: true, main: true, placeholder: "He dances in the living room, turning on the spot and raising his arms.", note: `in this part, in the present tense. Each window of a source keeps its own. ${H3_NO_TAGS}` },
@@ -132,12 +137,12 @@ const inputs: InputSpec[] = [
     placeholder: "The man with short brown hair, in a white shirt and jeans, dances in the living room, turning on the spot and raising his arms.",
     note: `who is in the picture and what they do in this part, in the present tense: optional, it helps H3 keep what is there. Left empty, it is written from the parts above; typed, it is sent as it is and the parts wait. Each clip of a source keeps its own. ${H3_NO_TAGS} After a swap, tags typed are taken out`,
   },
-  // the Sound card's first rows: Sound effects and Music after them show while the take makes its own sound
+  // the Sound card's rows
   ...SOURCE_SOUND_INPUTS,
   // H3's colour match pulls towards the first frame: here the picture
   // H3's Model is this form's own: a window after a swap shows the swap's in its place (the one it runs on)
   // (Turbo's row in the LoRA list on whichever model the window runs on, card #160)
-  ...withTurboRow(h3Inputs, MOTION_TURBO_ROW).filter((spec) => !NOT_TAKEN.has(spec.id)).flatMap((spec): InputSpec[] => (spec.showWhen === "start" ? [{ ...spec, showWhen: "picture" }] : spec.id === "model" ? [{ ...spec, showWhen: OWN_MODEL }, SWAP_MODEL] : MOTION_SHOWS[spec.id] ? [{ ...spec, showWhen: MOTION_SHOWS[spec.id] } as InputSpec] : [spec])),
+  ...withTurboRow(h3Inputs, MOTION_TURBO_ROW).filter((spec) => !NOT_TAKEN.has(spec.id) && !SOUND_TEXTS.has(spec.id)).flatMap((spec): InputSpec[] => (spec.showWhen === "start" ? [{ ...spec, showWhen: "picture" }] : spec.id === "model" ? [{ ...spec, showWhen: OWN_MODEL }, SWAP_MODEL] : MOTION_SHOWS[spec.id] ? [{ ...spec, showWhen: MOTION_SHOWS[spec.id] } as InputSpec] : [spec])),
   ...motionControlInputs,
   {
     // set where a source's window comes from a swap (windowFrom, the migration of Swap motion): not a choice made up front

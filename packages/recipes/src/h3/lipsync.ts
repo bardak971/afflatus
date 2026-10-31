@@ -63,7 +63,8 @@ const lipSyncInputs: InputSpec[] = h3Inputs.flatMap((spec): InputSpec[] => {
       ...recording.filter((i) => !IN_SOUND.has(i.id)),
     ];
   }
-  // the Sound card (card #170): Sound effects and Music as on every H3 form, then when the words start and the loudness
+  // the Sound card (card #170): when the words start and the loudness. Sound effects and Music stay prompt text, in the Prompt
+  // card as on every H3 form (card #210)
   if (spec.id === "music") return [spec, ...recording.filter((i) => IN_SOUND.has(i.id)).map((i): InputSpec => ({ ...i, chapter: "sound" }))];
   // the recording is the voice: no reference video gives its sound here (build)
   if (spec.id === "refVideos") return [{ ...spec, note: `${REF_VIDEOS_WHAT} Their sound is left out: the recording is the voice` }];
