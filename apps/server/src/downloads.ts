@@ -127,6 +127,8 @@ interface Download extends DownloadView {
   sample?: { bytes: number; at: number };
   /** The node pack's: the place chosen for its folder, asked of the pack (PACK_PLACE). */
   place?: string;
+  /** The node pack's: the file's sha256 as its source lists it (Civitai), checked by a pack from 0.44.0 on, passed over by an older one. */
+  sha256?: string;
   /** ComfyUI's own folder as it says it: where `shown` is worked out from. */
   base?: string;
   /** Its asker reads the ComfyUI's files again itself once it is there (a pod's files, podFiles.ts landed): not done here too. */
@@ -609,6 +611,8 @@ export class Downloads {
     directOnly?: boolean; quietPassing?: boolean; filesRead?: boolean;
     /** The place chosen for its folder (settings.ts downloadPlaces): one of the paths ComfyUI lists for it. */
     place?: string;
+    /** The file's sha256 as its source lists it: the node pack checks the file against it before naming it. */
+    sha256?: string;
     /** What it was asked with through the page (fetchFile.ts), kept to ask it again: a restart while it waits, a Try again. */
     ask?: unknown;
   }): Promise<DownloadView> {
@@ -652,6 +656,7 @@ export class Downloads {
       ...(want.machine ? { machine: want.machine } : {}),
       ...(want.ask !== undefined ? { ask: want.ask, from: self } : {}),
       ...(want.place && route.via === "pack" ? { place: want.place } : {}),
+      ...(want.sha256 && /^[0-9a-f]{64}$/i.test(want.sha256) && route.via === "pack" ? { sha256: want.sha256.toLowerCase() } : {}),
       ...(base ? { base } : {}),
       ...(want.directOnly ? { directOnly: true } : {}),
       ...(want.quietPassing ? { quietPassing: true } : {}),
@@ -913,7 +918,7 @@ export class Downloads {
       if (!signed && d.directOnly) throw new Error(NO_DIRECT);
       // the place chosen for the folder, to a pack that takes one (an older one keeps to ComfyUI's first path)
       const dir = d.place && version && !olderThan(version, PACK_PLACE) ? { dir: d.place } : {};
-      const body = JSON.stringify({ url: signed ?? this.oneTime(d.self!, d), folder: d.folder, filename: d.file.replace(/\\/g, "/"), total: d.total, ...dir });
+      const body = JSON.stringify({ url: signed ?? this.oneTime(d.self!, d), folder: d.folder, filename: d.file.replace(/\\/g, "/"), total: d.total, ...dir, ...(d.sha256 ? { sha256: d.sha256 } : {}) });
       const ask = () => d.comfy.client.raw("/afflatus/download", { method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(15_000), body });
       let res = await ask();
       // its line full (429: the pack takes so many at once): one just stopped there may not have heard its stop yet. Waited
