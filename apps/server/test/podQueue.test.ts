@@ -451,7 +451,7 @@ describe("a job pinned to a pod still booting", () => {
     const id = await booting();
     // files that take long to come: asked for, never there during the test
     const want = vi.fn();
-    t.services.queue.podFetch = { failed: () => null, short: async () => null, untilThere: async () => 5 * 60_000, want, drop: () => {}, holdsFor: () => false, jobState: () => "waiting", holding: () => false, moving: () => false, failingPacks: () => new Map() };
+    t.services.queue.podFetch = { failed: () => null, short: async () => null, untilThere: async () => 5 * 60_000, want, drop: () => {}, holdsFor: () => false, jobState: () => "waiting", holding: () => false, moving: () => false, stalled: () => null, failingPacks: () => new Map() };
     const a = await pinned(id);
     await answers();
     await until(() => want.mock.calls.some(([m, , tier, j]) => m === id && tier === "need" && j === a));
@@ -462,5 +462,73 @@ describe("a job pinned to a pod still booting", () => {
     await t.services.rented.poll();
     expect(runpod.pods[0]!.status).toBe("RUNNING");
     expect(pod.prompts.size).toBe(0);
+  });
+});
+
+// card #198: on 2026-10-25 a clip pinned to an A40 (idle 3 min) whose model was never fetched kept wants() true, and the pod
+// billed 33 min after its last render until it was stopped by hand. A job planned on a pod whose files are not coming is no
+// work: the pod's idle stop runs, and the job's row says why it waits. Files that do come keep it up
+describe("a job pinned to a pod whose files are not coming", () => {
+  /** A pod up (idle 3 min), this computer paused, a job pinned to the pod that lacks its checkpoint there, planned onto it. */
+  async function planned(): Promise<{ id: string; a: string }> {
+    const id = await deployed({ idleMinutes: 3 });
+    await post(t.app, "/api/queue/pause", { machine: await homeId() });
+    const a = (await post(t.app, "/api/jobs", { ...job(), machine: id })).json().ids[0] as string;
+    await until(async () => (await t.services.queue.status()).waiting.find((w) => w.id === a)?.fetch?.[id] !== undefined);
+    return { id, a };
+  }
+  /** The rented poll at `minutes` past now: whether the pod still runs after it. */
+  async function upAfter(minutes: number, real: number): Promise<boolean> {
+    t.services.rented.now = () => real + minutes * 60_000;
+    await t.services.rented.poll();
+    return runpod.pods[0]?.status === "RUNNING";
+  }
+
+  it("never asked for there: the pod stops at its idle time, and the job says why it waits", async () => {
+    // the 10-25 case: its model never asked of the pod's line
+    vi.spyOn(t.services.podFiles, "want").mockImplementation(() => {});
+    const real = Date.now();
+    const { id, a } = await planned();
+    expect(await t.services.queue.wants(id)).toBe(false);
+    const waiting = (await t.services.queue.status()).waiting.find((w) => w.id === a);
+    expect(waiting).toMatchObject({ machine: id, stalled: `${CHECKPOINT} was never asked for there` });
+    expect(await upAfter(2, real)).toBe(true);
+    expect(await upAfter(4, real)).toBe(false);
+    expect((await row(a)).status).toBe("queued");
+    expect(pod.prompts.size).toBe(0);
+  });
+
+  it("asked for, but left in the pod's line with nothing starting it: the pod stops at its idle time", async () => {
+    const files = t.services.podFiles;
+    vi.spyOn(files, "tick").mockResolvedValue();
+    files.nextGraceMs = 0;
+    const real = Date.now();
+    const { id, a } = await planned();
+    await until(() => files.view(id).some((f) => f.file === CHECKPOINT && f.state === "next" && f.jobs.includes(a)));
+    expect(await t.services.queue.wants(id)).toBe(false);
+    expect((await t.services.queue.status()).waiting.find((w) => w.id === a)?.stalled).toBe(`${CHECKPOINT} waits in the pod's line and nothing starts it`);
+    expect(await upAfter(4, real)).toBe(false);
+  });
+
+  it("while a file comes to the pod, it is kept up past its idle time, and nothing is said stuck", async () => {
+    const files = t.services.podFiles;
+    vi.spyOn(files, "tick").mockResolvedValue();
+    files.nextGraceMs = 0;
+    const real = Date.now();
+    const { id, a } = await planned();
+    await until(() => files.view(id).some((f) => f.file === CHECKPOINT && f.jobs.includes(a)));
+    // its bytes moving on the pod (said so here: the real upload would be done in a moment)
+    vi.spyOn(files, "moving").mockReturnValue(true);
+    expect(await t.services.queue.wants(id)).toBe(true);
+    expect((await t.services.queue.status()).waiting.find((w) => w.id === a)?.stalled).toBeNull();
+    expect(await upAfter(4, real)).toBe(true);
+  });
+
+  it("just put in the pod's line (within its grace), it is coming: the job holds the pod", async () => {
+    const files = t.services.podFiles;
+    vi.spyOn(files, "tick").mockResolvedValue();
+    const { id, a } = await planned();
+    await until(() => files.view(id).some((f) => f.file === CHECKPOINT && f.jobs.includes(a)));
+    expect(await t.services.queue.wants(id)).toBe(true);
   });
 });

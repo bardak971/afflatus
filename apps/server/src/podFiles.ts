@@ -73,6 +73,8 @@ interface Entry extends PodFileView {
   /** Put back in line after a passing failure (ComfyUI not answering, its line full): how many times, and not before when. */
   tries?: number;
   notBefore?: number;
+  /** When it was last put in line ("next"): one that does not start within nextGraceMs is not coming (stalled). */
+  nextAt?: number;
   /** Afflatus put it there (downloaded or sent), not found there: only such a file is ever deleted to make room. */
   fetched?: boolean;
   /** When a job last asked for it, or it came: the longest unused goes first when room is made. */
@@ -147,6 +149,8 @@ const RETRY_MS = 15_000;
 const LANDINGS_MS = 5_000;
 /** How long a file under way may bring no new byte and still hold its pod's idle time (moving()). */
 const STALL_MS = 5 * 60_000;
+/** How long a file in line may wait to start, nothing else moving on its pod, and still be taken as coming (stalled). */
+const NEXT_GRACE_MS = 60_000;
 /**
  * A disk that is full, as the node pack says it (downloads.py: a write that found no room, a file that does not fit beside
  * the downloads under way; uploads.py and a download asked for with its size: 507). It stays full: never asked again as is.
@@ -175,6 +179,8 @@ export class PodFiles {
   uploadBackoffMs = 2000;
   /** How long a file may bring nothing and still hold its pod's idle time (shorter in tests). */
   stallMs = STALL_MS;
+  /** How long a file may wait in line, nothing moving, and still count as coming (shorter in tests). */
+  nextGraceMs = NEXT_GRACE_MS;
   /** How old a disk read may be when a file is held against it before it starts (0 in tests). */
   diskFreshMs = 5_000;
   /** Each pod's disk as last read; null: its node pack is too old to say (before 0.19.0). */
@@ -413,6 +419,7 @@ export class PodFiles {
     if (e.downloadId) this.d.downloads.stop(e.downloadId, true);
     e.upload?.abort();
     e.state = "next";
+    e.nextAt = Date.now();
     e.bytes = 0;
     delete e.downloadId;
     delete e.flowingAt;
@@ -498,7 +505,7 @@ export class PodFiles {
       const key = keyOf(f.folder, f.file);
       let e = pod.get(key);
       if (!e) {
-        e = { file: f.file, folder: f.folder, state: "next", tier: o.tier, bytes: 0, total: f.size ?? 0, jobs: [], needAt: o.tier === "need" ? ++this.seq : Infinity };
+        e = { file: f.file, folder: f.folder, state: "next", nextAt: Date.now(), tier: o.tier, bytes: 0, total: f.size ?? 0, jobs: [], needAt: o.tier === "need" ? ++this.seq : Infinity };
         if (f.url) e.url = f.url;
         if (f.civitai) e.civitai = f.civitai;
         pod.set(key, e);
@@ -518,6 +525,7 @@ export class PodFiles {
         if (!e.total && f.size) e.total = f.size;
         if (e.state === "failed" && e.error === NO_SOURCE) {
           e.state = "next";
+          e.nextAt = Date.now();
           delete e.error;
           delete e.source;
         } else if (e.state === "next" && e.source === null) delete e.source;
@@ -583,6 +591,36 @@ export class PodFiles {
     const pack = packs.find((p) => p.state === "failed");
     if (pack) return { state: "failed", error: `the node pack ${pack.name}: ${pack.error ?? "it was not installed"}`, files };
     return { state: mine.every((e) => e.state === "ready") && packs.every((p) => p.state === "ready") ? "ready" : "waiting", files };
+  }
+
+  /**
+   * Why a job the queue's plan gives this pod cannot start there soon, its files (`only`: the ones it is sent for now) and
+   * node packs not coming; null while they come or are there. Coming: a file under way whose bytes moved within stallMs
+   * (moving), one in line while another moves on the pod or its ComfyUI restarts for node packs, one put in line within
+   * nextGraceMs or waiting out a retry, a node pack installing (podPacks.ts gives those up by itself). Not coming: a file
+   * never asked for there, one that failed, one in line with nothing moving and nothing starting it, a node pack failed or
+   * never asked for. Such a job does not hold the pod's idle time (queue.ts wants): on
+   * 2026-10-25 a clip pinned to an A40 whose model never came kept it billed 33 minutes after its last render (card #198).
+   */
+  stalled(machine: string, job: string, only: ReadonlyArray<{ file: string; folder: string }>, packs: readonly string[] = []): string | null {
+    const now = Date.now();
+    const pod = this.pods.get(machine);
+    const mine = only.map((f) => ({ f, e: pod?.get(keyOf(f.folder, f.file)) }));
+    const asked = mine.find(({ e }) => !e);
+    if (asked) return `${fileName(asked.f.file)} was never asked for there`;
+    const failed = mine.find(({ e }) => e!.state === "failed");
+    if (failed) return `${fileName(failed.f.file)}: ${failed.e!.error ?? "it could not be had"}`;
+    const left = mine.map(({ e }) => e!).filter((e) => e.state !== "ready");
+    // its ComfyUI restarting for node packs (or about to) holds the line: it starts again once back (podPacks.ts bounds the wait)
+    if (left.length && !this.moving(machine) && !this.holding(machine)) {
+      const stuck = left.find((e) => !(e.state === "next" && (now - (e.nextAt ?? 0) < this.nextGraceMs || (e.notBefore ?? 0) > now)));
+      if (stuck) return stuck.state === "fetching" ? `${fileName(stuck.file)} has brought nothing for ${Math.round(this.stallMs / 60_000)} min` : `${fileName(stuck.file)} waits in the pod's line and nothing starts it`;
+    }
+    const pack = this.packs.jobPacks(machine, job).find((p) => packs.includes(p.name) && p.state === "failed");
+    if (pack) return `the node pack ${pack.name}: ${pack.error ?? "it was not installed"}`;
+    const unasked = packs.find((name) => !this.packs.jobPacks(machine, job).some((p) => p.name === name));
+    if (unasked) return `the node pack ${unasked} was never asked for there`;
+    return null;
   }
 
   /** Files the user left out of the pod (unticked at its deploy): never fetched there, and the jobs that use one stay elsewhere. */
@@ -717,6 +755,7 @@ export class PodFiles {
     for (const e of pod?.values() ?? []) {
       if (e.state !== "failed" || !(NO_ROOM.test(e.error ?? "") || DISK_FULL.test(e.error ?? ""))) continue;
       e.state = "next";
+      e.nextAt = Date.now();
       e.bytes = 0;
       delete e.error;
       delete e.downloadId;
@@ -1011,6 +1050,7 @@ export class PodFiles {
     if (e.tier === "need" && this.makes(machine) && !e.roomTried) {
       e.roomTried = true;
       e.state = "next";
+      e.nextAt = Date.now();
       e.bytes = 0;
       delete e.downloadId;
       this.d.changed?.();

@@ -83,6 +83,8 @@ export async function status(
   able: ReadonlyMap<string, { can: ReadonlySet<string>; lacks: Record<string, Lack>; fetch?: Record<string, { files: Lack["files"]; ms: number }>; startPod?: string }> = new Map(),
   /** Of a waiting job on a machine of the user's own: the node packs it waits for there, and where they stand (queuePacks.ts). */
   packWait: (job: string) => PackWait | undefined = () => undefined,
+  /** Of a waiting job planned onto a rented pod: why it cannot start there soon, what it waits for there not coming (queue.ts stalledOn). */
+  stalledOf: (job: string) => string | null = () => null,
 ) {
   const rows = await core.db
     .selectFrom("jobs")
@@ -152,6 +154,11 @@ export async function status(
     fetch: r.status === "queued" && Object.keys(able.get(r.id)?.fetch ?? {}).length ? able.get(r.id)!.fetch! : null,
     /** Of a waiting render: the node packs it waits for on a machine of the user's own, and where they stand (Install and restart, Run without). */
     packs: r.status === "queued" ? packWait(r.id) ?? null : null,
+    /**
+     * Of a waiting render planned onto a rented pod: why it cannot start there soon (its files or node packs not coming:
+     * never asked for, failed, stuck in the pod's line). It does not keep that pod up: the pod's idle stop runs (card #198).
+     */
+    stalled: r.status === "queued" ? stalledOf(r.id) : null,
   });
   const idle = (r: JobRow) => (r.recipe_id === EXPORT_JOB ? ("exporting" as const) : r.recipe_id === CUT_JOB ? ("cutting" as const) : ("waiting" as const));
   /** A running job with its figures, from its lane's monitor; a job a ComfyUI had when this process last stopped, not picked up again yet, has none. */
