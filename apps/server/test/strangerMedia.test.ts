@@ -4,12 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { probeMediaFile } from "../src/cut";
-import { firstFrame, localInputs, tools } from "../src/video";
+import { firstFrame, tools } from "../src/video";
 import { FFMPEG_TIMEOUT, ffmpegMade, ffmpegThere } from "./clipKit";
 import { makeApp, type TestApp } from "./helpers";
 
 /**
- * A file from a stranger (an upload, MCP's import_from_url) is read only as a real container (video.ts strangerInput): an
+ * A file from a stranger (an upload, MCP's import_from_url) is read only as a real container (video.ts readAs): an
  * HLS or DASH manifest naming a file elsewhere on the disk is refused before ffmpeg opens what it names. With only the
  * `file` protocol allowed, the frame of that other file came back. Skipped where ffmpeg is not installed.
  */
@@ -34,9 +34,9 @@ afterAll(async () => {
 
 describe.skipIf(!ffmpegThere)("a file from a stranger", () => {
   it("gives no frame of the file a playlist names, which a run limited to files alone gave", async () => {
-    // the gap itself: limited to the file protocol, the playlist was read and the other file's frame came out
+    // the gap itself: limited to the file protocol alone, the playlist was read and the other file's frame came out
     const out = join(dir, "leak.png");
-    await new Promise<void>((done) => execFile(tools.ffmpeg, localInputs(["-y", "-loglevel", "error", "-i", hls, "-frames:v", "1", out]), { windowsHide: true }, () => done()));
+    await new Promise<void>((done) => execFile(tools.ffmpeg, ["-y", "-loglevel", "error", "-protocol_whitelist", "file,pipe", "-i", hls, "-frames:v", "1", out], { windowsHide: true }, () => done()));
     expect((await stat(out)).size).toBeGreaterThan(0);
     expect(await firstFrame(hls)).toBeNull();
     expect(await probeMediaFile(hls)).toBeNull();

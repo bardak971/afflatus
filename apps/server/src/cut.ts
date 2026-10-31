@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { FRAME_SLACK_MS } from "@afflatus/core";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { factsOf, ffmpegMajor, ffmpegSaid, localInputs, strangerInput, tools, type ProbeInfo, type VideoFacts } from "./video";
+import { factsOf, ffmpegMajor, ffmpegSaid, localInputs, readAs, tools, type ProbeInfo, type VideoFacts } from "./video";
 import { ffmpegPool } from "./pool";
 import { aiVideoArgs } from "./aiMark";
 
@@ -146,8 +146,8 @@ const LISTS = new Set(["hls", "applehttp", "dash", "concat"]);
  * ffprobe says everything.
  */
 export async function probeMediaFile(file: string): Promise<ProbedMedia | null> {
-  // read only as a real container: a manifest is refused before ffprobe opens what it names (video.ts strangerInput)
-  const out = await must(tools.ffprobe, strangerInput(["-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height,avg_frame_rate:format=format_name,duration", "-of", "json", file])).catch(() => null);
+  // read only as a real container: a manifest is refused before ffprobe opens what it names (video.ts readAs)
+  const out = await must(tools.ffprobe, readAs("stranger", ["-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height,avg_frame_rate:format=format_name,duration", "-of", "json", file])).catch(() => null);
   if (!out) return null;
   try {
     const info = JSON.parse(out) as { streams?: Array<{ codec_type?: string; codec_name?: string }>; format?: { format_name?: string; duration?: string } };
@@ -589,9 +589,6 @@ export async function soundPart(source: Media, ext: string, opts: { start: numbe
   });
 }
 
-/** The containers browsers' recorders make (webm, ogg, mp4), and WAV: ffmpeg's demuxers a take is read with, and no other. */
-const TAKE_FORMATS = "matroska,webm,ogg,mov,mp4,wav";
-
 /**
  * A take recorded from the microphone (the browser's webm/opus, or whatever its recorder makes) as the WAV the models are
  * given: 48 kHz 16-bit, its channels as recorded, cut to `trim` (seconds) when the silence at its ends was trimmed off.
@@ -601,7 +598,7 @@ const TAKE_FORMATS = "matroska,webm,ogg,mov,mp4,wav";
  */
 export async function recordingWav(input: string, out: string, trim?: { from: number; to: number }): Promise<void> {
   const cut = trim ? ["-ss", trim.from.toFixed(3), "-to", trim.to.toFixed(3)] : [];
-  await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-format_whitelist", TAKE_FORMATS, "-i", input, ...cut, "-vn", "-ar", "48000", "-c:a", "pcm_s16le", out]);
+  await must(tools.ffmpeg, readAs("recording", ["-y", "-loglevel", "error", "-i", input, ...cut, "-vn", "-ar", "48000", "-c:a", "pcm_s16le", out]));
 }
 
 /**

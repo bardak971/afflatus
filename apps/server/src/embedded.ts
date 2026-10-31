@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { inflateSync } from "node:zlib";
 import { modelStem } from "@afflatus/core";
 import { PICTURE_MOST, pictureTooLarge } from "./media";
-import { localInputs, strangerInput, tools } from "./video";
+import { localInputs, readAs, tools } from "./video";
 
 /**
  * What a picture or a video carries inside it about how it was made:
@@ -160,7 +160,7 @@ function exifUserComment(exif: Buffer): string | null {
 async function tagsOfFile(file: string): Promise<Record<string, string>> {
   try {
     const out = await new Promise<string>((done) => {
-      execFile(tools.ffprobe, localInputs(strangerInput(["-v", "error", "-show_entries", "format_tags", "-of", "json", file])), { encoding: "utf8", timeout: 30_000, maxBuffer: 32 * 1024 * 1024, windowsHide: true }, (err, stdout) => done(err ? "" : stdout));
+      execFile(tools.ffprobe, localInputs(readAs("stranger", ["-v", "error", "-show_entries", "format_tags", "-of", "json", file])), { encoding: "utf8", timeout: 30_000, maxBuffer: 32 * 1024 * 1024, windowsHide: true }, (err, stdout) => done(err ? "" : stdout));
     });
     const tags = (JSON.parse(out || "{}") as { format?: { tags?: Record<string, string> } }).format?.tags ?? {};
     return Object.fromEntries(Object.entries(tags).map(([k, v]) => [k.toLowerCase(), v]));
