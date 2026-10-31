@@ -76,7 +76,8 @@ export interface ExtraDir {
 /**
  * The directories a ComfyUI extra_model_paths.yaml names for a folder: each top section has a
  * `base_path` and, per folder, one path or a `|` block of several, relative to that base. Read with a
- * small reader of its own: the file is simple and a YAML library is not worth carrying for it.
+ * small reader of its own: the file is simple and a YAML library is not worth carrying for it. The paths alone, for the
+ * tests: Afflatus reads extraPaths, with is_default. @internal
  */
 export function extraDirs(yaml: string, comfyDir: string, folder: string): string[] {
   return extraPaths(yaml, comfyDir, folder).map((d) => d.path);
