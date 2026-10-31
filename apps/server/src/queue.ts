@@ -1311,8 +1311,9 @@ export class Queue {
           // a render waiting for the machine it was lost on: that machine is asked again soon, and the wait ends in its time
           if (gpuRows.some((r) => !taken.has(r.id) && this.heldOn(r))) this.retryLater();
         } else if (gpuRows.length) {
-          // Pause all: nothing starts, but a pod (one deployed meanwhile) is sent the waiting jobs' files ahead, so that it
-          // is ready on Resume. Its idle time is held while they move (podFiles.ts moving), and runs again once they are in
+          // Pause all: nothing starts, but a pod (one deployed meanwhile) is sent ahead the files of the jobs only a pod can
+          // run (or pinned to it), so that it is ready on Resume. Its idle time is held while they move (podFiles.ts moving),
+          // and runs again once they are in
           judged = await this.planner.ableOf([...gpuRows, ...after]);
           sent = this.planner.sendFiles(gpuRows, judged, where);
         }
