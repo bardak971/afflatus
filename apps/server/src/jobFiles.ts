@@ -466,6 +466,8 @@ async function toolLoadedOn(core: QueueCore, row: Pick<JobRow, "id" | "recipe_id
     const slots = (core.registry.family(face.family)?.slots ?? []).filter((x) => face.slots.includes(x.id) && FACE_LOADERS[x.id] && (x.id !== "faceSam" || sam));
     const named = podSlotFiles({ needs: slots.map((x) => x.id) }, {}, slots, on ? (slotsIn(on.scan) ?? []) : null, slotsIn(mineScan));
     for (const x of slots) add(named[x.id]!, x.folder, FACE_LOADERS[x.id]![0], FACE_LOADERS[x.id]![1], x.id);
+    // the H3 model picked in Finish is sent as it is, in place of the fused turbo's slot (card #192)
+    if (face.model) add(face.model, "diffusion_models", ...FACE_LOADERS.faceRefineUnet!);
   }
   if (!on) {
     keep({ key, stable: "" }, { files, absent: files });

@@ -64,19 +64,26 @@ export const FACE_REFINE_INPUTS: InputSpec[] = [
 ];
 
 /**
+ * What the Face refine toggle of a model that is not H3's adds: which model redraws, where its form has no choice of it
+ * (card #192: a model picked in Finish was silently left out on these clips, and nothing said which one ran).
+ */
+const notH3Model = (spec: InputSpec): InputSpec =>
+  spec.id === "faceRefine" ? { ...spec, note: `${spec.note}. Redrawn with H3's fused turbo (this model is not H3's); Finish › Face refine can pick another H3 model` } : spec;
+
+/**
  * Face refine on a recipe that is not H3's (SCAIL-2 at 24 fps): no "only" input (its finish redraws the take's own frames,
  * it keeps no latent), and 0.35 to start on: on a SCAIL dance (Timeline 26, 2026-10-21) 0.45 stopped the mouth following
  * the source (r 0.60 to 0.15) and smeared a frame, where 0.35 kept 90 % of the likeness and the source's mouth, eyes and head.
  */
 export const FACE_REFINE_OTHER_INPUTS: InputSpec[] = FACE_REFINE_INPUTS.filter((spec) => spec.id !== "faceRefineOnly" && spec.id !== "faceRefineModel").map((spec) =>
-  spec.id === "faceRefineDenoise" && spec.type === "number" ? { ...spec, default: 0.35, note: `${spec.note}. 0.35 here: 0.45 stopped the mouth following the source` } : spec);
+  spec.id === "faceRefineDenoise" && spec.type === "number" ? { ...spec, default: 0.35, note: `${spec.note}. 0.35 here: 0.45 stopped the mouth following the source` } : notH3Model(spec));
 
 /**
  * Face refine on a model that keeps no H3 latent for a finish to redraw from (LTX 2.5): H3's own settings, words and
  * defaults (every form alike), less the internal "only" a finish of a kept H3 latent sets. A finish redraws the take's frames.
  */
 // (the Face refine model is H3's choice: a clip of another model has no H3 model of its own to redraw with, card #159)
-export const FACE_REFINE_TAKE_INPUTS: InputSpec[] = FACE_REFINE_INPUTS.filter((spec) => spec.id !== "faceRefineOnly" && spec.id !== "faceRefineModel");
+export const FACE_REFINE_TAKE_INPUTS: InputSpec[] = FACE_REFINE_INPUTS.filter((spec) => spec.id !== "faceRefineOnly" && spec.id !== "faceRefineModel").map(notH3Model);
 
 /**
  * The H3 nodes Face refine runs on beside a model that is not H3's (the text encoder, VAEs, loader and scheduler are ComfyUI's

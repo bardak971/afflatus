@@ -775,7 +775,7 @@ export async function finishPlan(s: Services, timeline: string, b: z.infer<typeo
       // own: the form's, else that default
       const denoise = defaultDenoise(refining) === FACE_DENOISE ? b.faceDenoise ?? FACE_DENOISE : typeof gen!.inputs.faceRefineDenoise === "number" ? gen!.inputs.faceRefineDenoise : defaultDenoise(refining);
       push({ kind: "cut", label, video: { width: a.width ?? null, height: a.height ?? null, durationMs: a.durationMs ?? null, fps: a.fps ?? null },
-        cut: { asset: a.id, startMs: 0, endMs: a.durationMs ?? 0, action: "finish", route: "face", by: 1, faceDenoise: denoise, picture: towards, family: refining.family, clip: clip.id, finishedFrom: from } });
+        cut: { asset: a.id, startMs: 0, endMs: a.durationMs ?? 0, action: "finish", route: "face", by: 1, faceDenoise: denoise, picture: towards, family: refining.family, ...(b.faceModel ? { faceModel: b.faceModel } : {}), clip: clip.id, finishedFrom: from } });
       continue;
     }
     if (b.route === "face") {
@@ -850,7 +850,8 @@ const defaultDenoise = (recipe: { inputs: InputSpec[] }): number => {
  * refine). One reading for a job queued and a job done (finishedWith), so the two cannot drift.
  */
 function cutKey(c: CutOptions): string {
-  if (c.route === "face") return JSON.stringify({ route: "face", fd: c.faceDenoise ?? 0.45 });
+  // (its model only when one was picked: the finishes made before card #192 keep their key)
+  if (c.route === "face") return JSON.stringify({ route: "face", fd: c.faceDenoise ?? 0.45, ...(c.faceModel ? { fm: c.faceModel } : {}) });
   const route = c.route ?? "seedvr";
   // (a model picked counted only when there is one: the finishes made before it keep their key; the Face refine's before the
   // cut too, as renderKey counts it on a render, or a redo with another face model said every clip finished already)

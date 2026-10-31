@@ -153,7 +153,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, models = { face: 
             </FieldRow>
           )}
           {(v.route === "face" || v.face) && refined > 0 && (
-            <FieldRow label="Face refine model" note={`As each clip's form: the one its form says. ${OWN_MODEL}: the clip's model, nothing more loaded; another file is a second model in RAM. H3 clips; the others keep their own`}>
+            <FieldRow label="Face refine model" note={`As each clip's form: the one its form says. ${OWN_MODEL}: the clip's model, nothing more loaded; another file is a second model in RAM. On SCAIL-2 and LTX 2.5, whose model is not H3's, ${OWN_MODEL} is the fused turbo`}>
               <Select label="Face refine model" value={v.faceModel ?? ""} onChange={(faceModel) => setV({ ...v, faceModel })} options={[{ value: "", label: "As each clip's form" }, ...(models.face.includes(OWN_MODEL) ? [{ value: OWN_MODEL, label: OWN_MODEL }] : []), ...models.face.filter((m) => m !== OWN_MODEL).map((m) => ({ value: m, label: fileLabel(m) }))]} />
             </FieldRow>
           )}
