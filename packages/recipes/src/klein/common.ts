@@ -1,6 +1,7 @@
-import { roundTo, type BuildContext, type GraphBuilder, type InputSpec, type LoraValue, type Phase, type Preset, type ReferenceValue, type Ref } from "@afflatus/core";
+import { flowStartSigma, flux2ForSigma, flux2StartSigma, roundTo, type BuildContext, type GraphBuilder, type InputSpec, type LoraValue, type Phase, type Preset, type ReferenceValue, type Ref } from "@afflatus/core";
 import { detailModel, detailSampler, sharpenRange, usesDaemon, type DetailSettings } from "../shared/detail";
 import { loadUnet, unetNodes } from "../shared/unet";
+import { PASS_NOISE, sigmaWords, type PassNoise } from "../shared/passNoise";
 
 /** What every Klein recipe asks for besides its own inputs. */
 export interface KleinBase {
@@ -49,6 +50,33 @@ export function kleinSize(of: { width: number; height: number } | undefined, meg
   const k = Math.sqrt((megapixels * 1024 * 1024) / (of.width * of.height));
   return { width: roundTo(of.width * k, 16), height: roundTo(of.height * k, 16) };
 }
+
+/**
+ * A light second pass (hires fix, Upscale 2x) as `passNoise` reads its denoise (card #146, shared/passNoise.ts): ComfyUI's way,
+ * `steps` of Flux2Scheduler for the pass's size cut at `strength` (Klein's mu is already 2.2 at 1 MP and grows with the size);
+ * the schedule of one megapixel; or the schedule laid out over as many steps as it takes to run the same steps from the
+ * field's own real σ. `size` is what the scheduler is told, not the picture's.
+ */
+export function kleinPass(mode: PassNoise | undefined, size: { width: number; height: number }, steps: number, strength: number) {
+  if (mode === PASS_NOISE.oneMp) return { steps, strength, size: { width: 1024, height: 1024 } };
+  if (mode === PASS_NOISE.real) {
+    const laid = flux2ForSigma(Math.max(1, Math.round(steps * strength)), size.width, size.height, strength);
+    return { steps: laid.steps, strength: laid.denoise, size };
+  }
+  return { steps, strength, size };
+}
+
+/** Klein's FaceDetailer passes sample on the model's own schedule, FLUX's mu at 2.02 (card #146). */
+const KLEIN_OWN = { mu: 2.02 };
+
+/** A denoise's "?" words on Klein: the real noise it starts from. */
+export const kleinNoise = {
+  /** A pass of Flux2Scheduler's `steps` cut at `strength`, at each size given. */
+  split: (strength: number, steps: number, at: Array<{ size: { width: number; height: number }; where: string }>) =>
+    `${strength} starts from ${at.map(({ size, where }, i) => `${sigmaWords(flux2StartSigma(steps, size.width, size.height, strength))}${i ? "" : " of real noise"} ${where}`).join(", ")}`,
+  /** A FaceDetailer pass (KSampler's simple schedule on the model's own). */
+  detailer: (strength: number, steps: number) => `denoise at Klein's shift: ${strength} starts from ${sigmaWords(flowStartSigma(KLEIN_OWN, steps, strength))} of real noise`,
+};
 
 export interface Klein {
   model: Ref;

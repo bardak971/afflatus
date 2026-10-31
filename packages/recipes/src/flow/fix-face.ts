@@ -7,8 +7,10 @@ export interface FlowFixFace extends FlowBase, FaceSettings { source: string; pr
 
 /** The face detailer: the Impact Pack's FaceDetailer with this model, every face found, redrawn larger, and put back with a soft edge. */
 export function flowFixFace(spec: FlowSpec, kit: FlowKit): Recipe<FlowFixFace> {
-  const { inputs, loadNodes, SOMETIMES, load, shifted, cond, tuned } = kit;
+  const { inputs, loadNodes, SOMETIMES, load, shifted, cond, tuned, noiseWords } = kit;
   const files = spec.files;
+  // the "?": the real noise the default starts from, the face redrawn at 1024 and its shift (card #146)
+  const noise = noiseWords(0.4, spec.sampling.steps, [{ size: { width: 1024, height: 1024 }, where: "at 1 MP" }]);
   return defineRecipe<FlowFixFace>({
     id: `${spec.family}.fix-face`,
     family: spec.family,
@@ -20,7 +22,7 @@ export function flowFixFace(spec: FlowSpec, kit: FlowKit): Recipe<FlowFixFace> {
       spec.model,
       { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
       { id: "prompt", type: "prompt", label: "Prompt", note: "the face and who it is: eye colour, hair, expression", style: "sentences", optional: true, default: "" },
-      { id: "strength", type: "number", label: "Denoising strength", note: "0.3 cleans the face, 0.6 can make another one", min: 0.1, max: 0.8, step: 0.05, default: 0.4 },
+      { id: "strength", type: "number", label: "Denoising strength", note: ["0.3 cleans the face, 0.6 can make another one", noise].filter(Boolean).join("; "), min: 0.1, max: 0.8, step: 0.05, default: 0.4 },
       DETECTOR_INPUT,
       ...FACE_INPUTS,
       ...inputs,

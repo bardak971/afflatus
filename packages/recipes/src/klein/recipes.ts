@@ -6,10 +6,11 @@ import {
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { redrawInTiles, tileInputs, tileNodes, TILE_NODES, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import {
-  introduce, KLEIN_PRESETS, kleinCond, kleinInputs, kleinModel, kleinNeeds, kleinSample, kleinSampleLatent, kleinSize, LOAD_NODES, loadKlein, REFERENCE_NODES, SAMPLE_NODES, withIntro,
+  introduce, KLEIN_PRESETS, kleinCond, kleinInputs, kleinModel, kleinNeeds, kleinNoise, kleinPass, kleinSample, kleinSampleLatent, kleinSize, LOAD_NODES, loadKlein, REFERENCE_NODES, SAMPLE_NODES, withIntro,
   type KleinBase,
 } from "./common";
 import { DETECTOR_INPUT } from "../shared/detector";
+import { PASS_NOISE, PASS_NOISE_INPUT, type PassNoise } from "../shared/passNoise";
 
 const files = { unet: "flux-2-klein-base-4b.safetensors", clip: "qwen_3_4b.safetensors", vae: "flux2-vae.safetensors" };
 const photo = { width: 1536, height: 2048 };
@@ -26,6 +27,7 @@ interface KleinPicture extends KleinBase, DetailSettings, TileSettings {
   hiresUpscaler: string;
   hiresDenoise: number;
   hiresSteps: number;
+  passNoise?: PassNoise;
 }
 
 /** The size a hires pass enlarges to. */
@@ -67,9 +69,14 @@ export const kleinPicture = defineRecipe<KleinPicture>({
       id: "hiresUpscaler", type: "choice", label: "Upscaler", note: "from your upscale models", showWhen: "hires", advanced: true, perModel: true,
       options: { node: "UpscaleModelLoader", input: "model_name" }, default: "RealESRGAN_x4plus.pth", prefer: UPSCALER_PREFER,
     },
-    { id: "hiresDenoise", type: "number", label: "Denoising strength", note: "how much the second pass may redraw", min: 0.05, max: 0.9, step: 0.05, default: 0.35, showWhen: "hires", advanced: true, perModel: true },
+    {
+      id: "hiresDenoise", type: "number", label: "Denoising strength", min: 0.05, max: 0.9, step: 0.05, default: 0.35, showWhen: "hires", advanced: true, perModel: true,
+      // the real noise the default starts from on the base model's 8 steps, the default shape enlarged 1.5× (card #146)
+      note: `how much the second pass may redraw; denoise at Klein's schedule: ${kleinNoise.split(0.35, Math.round(8 / 0.35), [{ size: { width: 1248, height: 1824 }, where: "at 1248×1824" }])}`,
+    },
     { id: "hiresSteps", type: "number", label: "Hires steps", note: "the steps the second pass runs: 2 or 3 for a distilled model", min: 1, max: 60, step: 1, default: 8, showWhen: "hires", advanced: true, perModel: true },
     ...tileInputs("hires"),
+    PASS_NOISE_INPUT,
     ...kleinInputs,
   ],
   nodes: (input) => [
@@ -97,20 +104,22 @@ export const kleinPicture = defineRecipe<KleinPicture>({
     g.phase("upscaling");
     const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.hiresUpscaler }), image: first.image });
     const scaled = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: large.width, height: large.height, crop: "disabled" });
-    const second = { steps: Math.max(input.hiresSteps, Math.round(input.hiresSteps / input.hiresDenoise)), strength: input.hiresDenoise };
+    const comfy = { steps: Math.max(input.hiresSteps, Math.round(input.hiresSteps / input.hiresDenoise)), strength: input.hiresDenoise };
     let image: Ref;
     let pass: { node: string; steps: number; pixels?: number } = { node: "", steps: 0 };
     if (inTiles(input, large, REFINE_WHOLE_PIXELS / 4)) {
       g.phase("refining");
       // each tile is shown its own piece of the picture as the reference it keeps, as Upscale 2× does
       image = redrawInTiles(g, ctx, scaled, k.vae, large, input, (latent, tiles, tile) => {
-        const done = kleinSampleLatent(g, k, kleinCond(g, k, SAME, [tiles]), latent, { width: tile, height: tile }, ctx.seed, { ...second, phase: "refining" });
+        const second = kleinPass(input.passNoise, { width: tile, height: tile }, comfy.steps, comfy.strength);
+        const done = kleinSampleLatent(g, k, kleinCond(g, k, SAME, [tiles]), latent, second.size, ctx.seed, { ...second, phase: "refining" });
         pass = tilePass(done.pass, large, input);
         return done.sampled;
       });
     } else {
       g.phase("refining");
-      const done = kleinSample(g, k, cond, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), large, ctx.seed, { ...second, detail });
+      const second = kleinPass(input.passNoise, large, comfy.steps, comfy.strength);
+      const done = kleinSample(g, k, cond, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), second.size, ctx.seed, { ...second, detail });
       image = done.image;
       pass = done.pass;
     }
@@ -125,6 +134,9 @@ export const kleinPicture = defineRecipe<KleinPicture>({
     { name: "from words on the 9B, with its own encoder", input: { prompt: "a" }, slots: { unet: "flux-2-klein-9b.safetensors", clip8b: "qwen_3_8b_fp8mixed.safetensors", vae: files.vae } },
     { name: "detail boost", input: { prompt: "a", detail: true }, slots: files, has: withoutDaemon },
     { name: "hires fix, whole", input: { prompt: "a", hires: true, hiresUpscaler: "u.pth" }, slots: files },
+    // card #146's two other readings of the denoise, for side-by-sides
+    { name: "hires fix at the 1 MP schedule", input: { prompt: "a", hires: true, hiresUpscaler: "u.pth", passNoise: PASS_NOISE.oneMp }, slots: files },
+    { name: "hires fix from the real σ", input: { prompt: "a", hires: true, hiresUpscaler: "u.pth", passNoise: PASS_NOISE.real }, slots: files },
     { name: "hires fix 2.5× in tiles, with detail boost", input: { prompt: "a", detail: true, hires: true, hiresScale: 2.5, hiresUpscaler: "u.pth" }, slots: files, has: withoutDaemon },
     {
       name: "a person in a place, with a LoRA",
@@ -219,7 +231,7 @@ export const kleinPaintOver = defineRecipe<KleinPaintOver>({
     { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
     { id: "mask", type: "image", role: "mask", of: "source", label: "Inpaint mask", note: "the part to redo, painted over the picture" },
     { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: "Replace the cup with a glass of orange juice. Keep everything else the same." },
-    { id: "strength", type: "number", label: "Denoising strength", note: "1 redoes the masked part from the prompt; lower only touches it up", min: 0.1, max: 1, step: 0.05, default: 1 },
+    { id: "strength", type: "number", label: "Denoising strength", note: `1 redoes the masked part from the prompt; lower only touches it up. Below 0.9, denoise at Klein's schedule: ${kleinNoise.split(0.5, 20, [{ size: { width: 1024, height: 1024 }, where: "at 1 MP" }])}`, min: 0.1, max: 1, step: 0.05, default: 1 },
     { id: "references", type: "references", label: "Reference images", max: 3, roles: [...ALL_ROLES], note: "optional: the person whose face it is, the thing to put there", advanced: true },
     ...MASK_INPUTS,
     ...kleinInputs,
@@ -346,6 +358,7 @@ export const kleinReshape = defineRecipe<KleinReshape>({
 
 interface KleinSharper extends KleinBase, UpscaleSettings, TileSettings, RefineColourMatch {
   source: string;
+  passNoise?: PassNoise;
   upscaler: string;
   refine: boolean;
 }
@@ -367,9 +380,14 @@ export const kleinSharper = defineRecipe<KleinSharper>({
     { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
     { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "RealESRGAN_x4plus.pth", prefer: ["x4plus(?!.*anime)", ...UPSCALER_PREFER], section: "out" },
     FACTOR_INPUT,
-    { id: "refine", type: "toggle", label: "img2img pass after upscale", note: "a light pass with the model; past about 2.5 megapixels it is made in tiles", default: true, section: "out" },
+    {
+      id: "refine", type: "toggle", label: "img2img pass after upscale", default: true, section: "out",
+      // its fixed 0.25 as the real noise it starts from, on the base model's 20 steps (card #146)
+      note: `a light pass with the model; past about 2.5 megapixels it is made in tiles. Its denoise at Klein's schedule: ${kleinNoise.split(0.25, 20, [{ size: { width: 1376, height: 1824 }, where: "on a 1376×1824 gone over whole" }, { size: { width: 1024, height: 1024 }, where: "in tiles" }])}; a distilled model runs one step of its 4`,
+    },
     REFINE_COLOUR_MATCH_INPUT,
     ...tileInputs("refine"),
+    PASS_NOISE_INPUT,
     ...kleinInputs,
   ],
   nodes: () => ["LoadImage", "UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "PreviewImage"],
@@ -399,14 +417,16 @@ export const kleinSharper = defineRecipe<KleinSharper>({
       g.phase("refining");
       // each tile is shown its own piece of the picture as the reference it keeps
       image = redrawInTiles(g, ctx, sized, k.vae, size, input, (latent, tiles, tile) => {
-        const done = kleinSampleLatent(g, k, kleinCond(g, k, SAME, [tiles]), latent, { width: tile, height: tile }, ctx.seed, { strength: 0.25, phase: "refining" });
+        const at = kleinPass(input.passNoise, { width: tile, height: tile }, input.steps, 0.25);
+        const done = kleinSampleLatent(g, k, kleinCond(g, k, SAME, [tiles]), latent, at.size, ctx.seed, { ...at, phase: "refining" });
         pass = tilePass(done.pass, size, input);
         return done.sampled;
       });
     } else {
       const cond = kleinCond(g, k, SAME, [source]);
       g.phase("refining");
-      const done = kleinSample(g, k, cond, g.out("VAEEncode", { pixels: sized, vae: k.vae }), size, ctx.seed, { strength: 0.25 });
+      const at = kleinPass(input.passNoise, size, input.steps, 0.25);
+      const done = kleinSample(g, k, cond, g.out("VAEEncode", { pixels: sized, vae: k.vae }), at.size, ctx.seed, at);
       image = done.image;
       pass = done.pass;
     }
@@ -416,6 +436,8 @@ export const kleinSharper = defineRecipe<KleinSharper>({
   },
   variants: [
     { name: "enlarged and gone over", input: { source: "p", upscaler: "u.pth" }, slots: files, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } },
+    { name: "gone over from the real σ", input: { source: "p", upscaler: "u.pth", passNoise: PASS_NOISE.real }, slots: files, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } },
+    { name: "gone over at the 1 MP schedule, in tiles", input: { source: "p", upscaler: "u.pth", passNoise: PASS_NOISE.oneMp }, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
     { name: "only enlarged", input: { source: "p", upscaler: "u.pth", refine: false }, slots: files, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } },
     { name: "gone over, no colour match", input: { source: "p", upscaler: "u.pth", colourMatch: false }, slots: files, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } },
     { name: "too large to go over whole: in tiles", input: { source: "p", upscaler: "u.pth" }, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
@@ -469,7 +491,7 @@ export const kleinFixFace = defineRecipe<KleinFixFace>({
       id: "second", type: "references", label: "Reference images of the second person", max: 4, roles: ["person"],
       note: "only with two people in the picture: the one on the RIGHT. Each face is then redrawn from its own person's pictures.",
     },
-    { id: "strength", type: "number", label: "Denoising strength", note: "0.5 pulls the face back to the reference images", min: 0.1, max: 0.8, step: 0.05, default: 0.5 },
+    { id: "strength", type: "number", label: "Denoising strength", note: `0.5 pulls the face back to the reference images; ${kleinNoise.detailer(0.5, 20)}`, min: 0.1, max: 0.8, step: 0.05, default: 0.5 },
     // its strength pulls a face to a person's pictures, which the hand values were not measured for: they stay the classic detailers'
     { ...DETECTOR_INPUT, whenChosen: undefined },
     ...FACE_INPUTS,

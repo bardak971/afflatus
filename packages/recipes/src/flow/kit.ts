@@ -1,9 +1,10 @@
-import { roundTo, type BuildContext, type GraphBuilder, type InputSpec, type LoraValue, type Preset, type Ref } from "@afflatus/core";
+import { denoiseForSigma, flowStartSigma, fluxMu, roundTo, type BuildContext, type FlowSampling, type GraphBuilder, type InputSpec, type LoraValue, type Preset, type Ref } from "@afflatus/core";
 import { kSample, type DetailSettings } from "../shared/detail";
 import { addedLora, applyLoras, loraLoads, putAdded } from "../shared/model";
 import { addedInputs, addedRow, type AddedSpec } from "../shared/addedRows";
 import { TILE_NODES } from "../shared/tiles";
 import { GGUF_LOADER, loadUnet, unetNodes } from "../shared/unet";
+import { PASS_NOISE, sigmaWords, type PassNoise } from "../shared/passNoise";
 
 /**
  * The picture models that are built the same way in ComfyUI (a diffusion model in a file of its own, one
@@ -18,8 +19,11 @@ export interface FlowSpec {
   model: InputSpec;
   /** The text encoder(s): the loader node(s) they need, how they are loaded, and their files. */
   encoder: { nodes: string[]; load(g: GraphBuilder, slots: Record<string, string>): Ref; files(slots: Record<string, string>): string[] };
-  /** The node that sets the shift, when one is typed. Flux's follows the size of the picture. */
-  shift: { node: "ModelSamplingFlux" | "ModelSamplingAuraFlow"; default: number; note: string };
+  /**
+   * The node that sets the shift, when one is typed. Flux's follows the size of the picture. `own`: how the model samples
+   * with none typed (Krea 2's constant mu), for the noise level a denoise starts from (card #146); Flux's is worked out by size.
+   */
+  shift: { node: "ModelSamplingFlux" | "ModelSamplingAuraFlow"; default: number; note: string; own?: FlowSampling };
   /** Flux's guidance: a number the model was taught to follow, not the CFG scale. */
   guidance?: { default: number; note: string };
   /** A LoRA that makes the model work in a few steps at CFG 1, when the family has one. */
@@ -215,6 +219,46 @@ export function flowKit(spec: FlowSpec) {
     return { latent: sampled, pass: { node: sampled[0], steps } };
   }
 
+  /**
+   * How the model samples a pass of this size, for the σ a denoise starts from (card #146): FLUX.1's mu for the size (the shift
+   * typed as its max_shift), the shift typed, else the model's own when the family says it; null when it is not known.
+   */
+  const samplingOf = (shift: number, size: { width: number; height: number }): FlowSampling | null => {
+    if (spec.shift.node === "ModelSamplingFlux") return { mu: fluxMu(size.width, size.height, shift > 0 ? shift : 1.15) };
+    return shift > 0 ? { shift } : spec.shift.own ?? null;
+  };
+
+  /**
+   * A denoise's "?" words: the real noise it starts from on the simple schedule at the form's defaults, at each size given
+   * ("at 1344×1728", "in tiles"). Empty when the model's sampling is not known.
+   */
+  const startSigma = (denoise: number, steps: number, size: { width: number; height: number }): number | null => {
+    const s = samplingOf(spec.shift.default, size);
+    return s ? flowStartSigma(s, steps, denoise) : null;
+  };
+  const noiseWords = (denoise: number, steps: number, at: Array<{ size: { width: number; height: number }; where: string }>): string => {
+    const known = at.flatMap(({ size, where }) => {
+      const sigma = startSigma(denoise, steps, size);
+      return sigma === null ? [] : [{ sigma, where }];
+    });
+    // a shift that does not follow the size starts every size at the same noise: said once
+    const same = known.length > 1 && known.every((k) => sigmaWords(k.sigma) === sigmaWords(known[0]!.sigma));
+    const said = (same ? [{ sigma: known[0]!.sigma, where: "at every size" }] : known).map(({ sigma, where }, i) => `${sigmaWords(sigma)}${i ? "" : " of real noise"} ${where}`);
+    return said.length ? `denoise at the model's shift: ${denoise} starts from ${said.join(", ")}` : "";
+  };
+
+  /**
+   * The model and the denoise a light second pass (hires fix, Upscale 2x) samples with at this size, read as `passNoise`
+   * says (card #146, shared/passNoise.ts): ComfyUI's way, the shift of 1 MP (FLUX.1's; the others' does not follow the size),
+   * or the denoise that starts from the field's own real σ on the simple schedule.
+   */
+  const secondPass = (g: GraphBuilder, model: Ref, input: FlowBase & { passNoise?: PassNoise }, size: { width: number; height: number }, steps: number, denoise: number) => {
+    const mode = input.passNoise ?? PASS_NOISE.comfy;
+    const at = mode === PASS_NOISE.oneMp ? { width: 1024, height: 1024 } : size;
+    const s = mode === PASS_NOISE.real ? samplingOf(input.shift, at) : null;
+    return { model: shifted(g, model, input, at), denoise: s ? denoiseForSigma(s, steps, denoise) : denoise };
+  };
+
   /** The size a picture (or a part of one) is worked on at: its own shape, both edges multiples of 16, at most about `megapixels`. */
   function sizeOf(of: { width: number; height: number } | undefined, megapixels = spec.megapixels, least = 0.6) {
     if (!of?.width || !of.height) return { width: 1024, height: 1024 };
@@ -237,6 +281,6 @@ export function flowKit(spec: FlowSpec) {
   /** The family's files with a turbo LoRA among them, for each operation's "Turbo with its LoRA" variant; null without Turbo. */
   const turboFiles = spec.turbo ? { ...spec.files, [spec.turbo.slot]: "turbo.safetensors" } : null;
 
-  return { inputs, loadNodes, SOMETIMES, SECOND_PASS, load, shifted, condFrom, cond, sample, sizeOf, tuned, turboNeeds, turboFiles };
+  return { inputs, loadNodes, SOMETIMES, SECOND_PASS, load, shifted, condFrom, cond, sample, sizeOf, tuned, turboNeeds, turboFiles, samplingOf, startSigma, noiseWords, secondPass };
 }
 export type FlowKit = ReturnType<typeof flowKit>;
