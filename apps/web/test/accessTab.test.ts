@@ -44,7 +44,7 @@ describe("Settings › Sign-in and Agents (MCP) (card #168: the Access tab, spli
     const arrow = "\\s*(›|>|→|&rsaquo;|\\\\u203a)\\s*";
     const gone = [
       ["Interface", "Access"], ["Interface", "Notifications"], ["Settings", "Access(?! Tokens)"], ["Settings", "Designer"], ["Settings", "Command bar"],
-      ["ComfyUI", "Electricity"], ["ComfyUI", "First launch"],
+      ["ComfyUI", "Electricity"], ["ComfyUI", "First launch"], ["Rented GPUs", "Caps"],
     ].map(([a, b]) => new RegExp(`${a}${arrow}${b}`, "i"));
     const said = texts().flatMap((f) => {
       const text = readFileSync(join(ROOT, f), "utf8");

@@ -1,5 +1,5 @@
 /**
- * A spending cap as typed in its box (Settings › Rented GPUs › Caps), in dollars: 0 when the box is empty (no cap), null
+ * A spending cap as typed in its box (Settings › Costs › Caps), in dollars: 0 when the box is empty (no cap), null
  * when the text does not read as one amount for sure. A cap is money: a text that could mean two amounts is refused
  * (the box goes back to the cap as saved) rather than read as the wrong one. "1,000" is a thousand, never $1.
  */
