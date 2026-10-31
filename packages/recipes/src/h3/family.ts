@@ -39,7 +39,9 @@ export const h3 = defineFamily({
       get: { file: "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", url: `${HF}/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` },
     },
     {
-      id: "videoVae", label: "VAE (image)", folder: "vae", detect: ["minimax_h3_video_vae.*fp16", "minimax_h3_video_vae"],
+      // the int8 one first: it decodes in half the time and 2 GB less RAM, at 56–61 dB from the fp16 on the owner's takes,
+      // where no eye tells them apart (card #171, 2026-10-30); the fp16 one still found when it is the only one
+      id: "videoVae", label: "VAE (image)", folder: "vae", detect: ["minimax_h3_video_vae.*int8", "minimax_h3_video_vae.*fp16", "minimax_h3_video_vae"],
       hint: "Put minimax_h3_video_vae_*.safetensors in ComfyUI's models/vae folder.",
       get: { file: "minimax_h3_video_vae_int8_convrot.safetensors", url: `${HF}/vae/minimax_h3_video_vae_int8_convrot.safetensors` },
     },
