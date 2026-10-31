@@ -950,6 +950,7 @@ export class PodFiles {
       let source: string;
       let headers: Record<string, string> | undefined;
       let total = e.total;
+      let sha256: string | undefined;
       if (src.kind === "civitai") {
         // a version found by this computer's copy's hash: its file of these bytes, not the one of the closest name
         const found = await civitaiVersion(src.version, src.pick ?? name, settings.civitaiKey, src);
@@ -957,6 +958,8 @@ export class PodFiles {
         source = found.file.downloadUrl;
         headers = settings.civitaiKey ? { Authorization: `Bearer ${settings.civitaiKey}` } : undefined;
         total = Math.round((found.file.sizeKB ?? 0) * 1024) || total;
+        // the pack checks the file against it before naming it: a part written wrong is never a model ComfyUI loads
+        sha256 = found.file.hashes?.SHA256;
       } else {
         source = src.url;
         // the user's own account for the site the file is on, to that site alone (keyFor)
@@ -967,7 +970,7 @@ export class PodFiles {
       e.movedAt = e.flowingAt;
       e.movedBytes = 0;
       if (!this.current(machine, e)) return;
-      const started = await this.d.downloads.start(comfy, "", { file: e.file, folder: e.folder, title: name, source, ...(headers ? { headers } : {}), ...(total ? { total } : {}), machine, directOnly: true, filesRead: true, ...((e.tries ?? 0) + 1 < TRIES ? { quietPassing: true } : {}) });
+      const started = await this.d.downloads.start(comfy, "", { file: e.file, folder: e.folder, title: name, source, ...(headers ? { headers } : {}), ...(total ? { total } : {}), ...(sha256 ? { sha256 } : {}), machine, directOnly: true, filesRead: true, ...((e.tries ?? 0) + 1 < TRIES ? { quietPassing: true } : {}) });
       // the pod forgotten (stopped, gone) while its download was asked for: stopped, not left running for nothing
       if (!this.current(machine, e) || e.state !== "fetching") {
         this.d.downloads.stop(started.id);

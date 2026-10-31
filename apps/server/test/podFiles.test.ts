@@ -41,6 +41,11 @@ beforeEach(async () => {
       res.write(FILE.subarray(0, 1000));
       return;
     }
+    if (req.url === "/api/v1/model-versions/77") {
+      // a pretend Civitai version, its file's hash listed as Civitai lists it (capitals)
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ id: 77, files: [{ name: "c.safetensors", sizeKB: FILE.length / 1024, downloadUrl: `${siteUrl}/files/c.safetensors`, hashes: { SHA256: sha(FILE) } }] }));
+    }
     if (req.url?.startsWith("/signed/")) {
       const from = Number(/^bytes=(\d+)-$/.exec(req.headers.range ?? "")?.[1] ?? 0);
       const body = FILE.subarray(from);
@@ -115,6 +120,14 @@ describe("a rented pod's model files", () => {
     expect(pod.packFetched).toEqual([`${siteUrl}/signed/a.safetensors?sig=1`]);
     expect(files.jobState("pod", "j1")?.state).toBe("ready");
     expect(files.jobState("pod", "other")).toBeNull();
+  });
+
+  it("from Civitai are handed to the pod's node pack with the sha256 Civitai lists, for it to check the file against", async () => {
+    const start = vi.spyOn(t.services.downloads, "start");
+    files.want("pod", [{ file: "c.safetensors", folder: "loras", civitai: { version: 77 } }], { tier: "need" });
+    await settle("pod", "c.safetensors");
+    expect(files.view("pod")[0]).toMatchObject({ state: "ready", via: "civitai" });
+    expect(start.mock.calls[0]?.[2]).toMatchObject({ file: "c.safetensors", sha256: sha(FILE), directOnly: true });
   });
 
   // card #93, #81's test pod: a model picked in a form has no address in its job's plan; the deploy's list, read once the pod is

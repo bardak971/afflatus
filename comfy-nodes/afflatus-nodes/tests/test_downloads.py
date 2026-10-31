@@ -2,6 +2,7 @@
 HTTP server on this machine stands in for Afflatus's one-time address; no ComfyUI."""
 
 import asyncio
+import contextlib
 import hashlib
 import http.server
 import os
@@ -554,3 +555,326 @@ def test_a_download_goes_to_comfyuis_own_folder_first_then_the_place_chosen(tmp_
     assert downloads.model_dir("loras", Paths(), str(elsewhere)) == real(models / "loras")
     # its own folder gone: the older name, then the others in ComfyUI's order
     assert downloads.ordered("diffusion_models", [str(a1111), str(models / "unet")], str(models)) == [str(models / "unet"), str(a1111)]
+
+
+class _PartsSite:
+    """A source's own signed link that answers parts of the file (a 206 to `bytes=a-b`), as Civitai's storage does.
+    `fault(n, start)` may answer the n-th request otherwise: "cut" (half of it, then the connection shut), a status code
+    (an int), "whole" (a 200 with all of the file, as a source that does not answer parts), "redirect"; None: as asked.
+    It keeps every request's Range and Authorization."""
+
+    def __init__(self, fault=None, data=FILE, delay=0.0):
+        self.fault = fault or (lambda n, start: None)
+        self.data = data
+        self.delay = delay
+        self.asked = []
+        self.auth = []
+        self.lock = threading.Lock()
+        site = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                with site.lock:
+                    n = len(site.asked)
+                    site.asked.append(self.headers.get("Range"))
+                    site.auth.append(self.headers.get("Authorization"))
+                try:
+                    self.answer(n)
+                except OSError:
+                    # the pack let the connection go (a stop): nothing to answer to
+                    pass
+
+            def answer(self, n):
+                size = len(site.data)
+                got = re.match(r"^bytes=(\d+)-(\d*)$", self.headers.get("Range") or "")
+                start = int(got.group(1)) if got else 0
+                end = int(got.group(2)) if got and got.group(2) else size - 1
+                what = site.fault(n, start)
+                if isinstance(what, int):
+                    self.send_response(what)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                if what == "redirect":
+                    self.send_response(302)
+                    self.send_header("Location", site.elsewhere)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                if what == "whole" or not got:
+                    start, end = 0, size - 1
+                    self.send_response(200)
+                else:
+                    self.send_response(206)
+                    self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+                body = site.data[start : end + 1]
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                if site.delay:
+                    threading.Event().wait(site.delay)
+                if what == "cut":
+                    self.wfile.write(body[: len(body) // 2])
+                    self.wfile.flush()
+                    self.connection.shutdown(2)
+                    return
+                self.wfile.write(body)
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/file.safetensors?X-Amz-Signature=1"
+        self.elsewhere = self.url
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+@pytest.fixture
+def parts_site():
+    made = []
+
+    def make(**kw):
+        s = _PartsSite(**kw)
+        made.append(s)
+        return s
+
+    yield make
+    for s in made:
+        s.close()
+
+
+PIECE = 256 * 1024
+SHA = hashlib.sha256(FILE).hexdigest()
+
+
+def _direct(tmp_path, url, name="model.safetensors", sha256=SHA):
+    job = Job(url, str(tmp_path / "loras" / name), SIZE, sha256)
+    # the stand-in sites are local http; a real signed link is https on the source's host
+    job.direct = True
+    return job
+
+
+class _Counted:
+    """The pack's own opener, counting the connections open at once on this side (a server counts its answers a moment late)."""
+
+    def __init__(self):
+        self.now = 0
+        self.most = 0
+        self.lock = threading.Lock()
+
+    @contextlib.contextmanager
+    def __call__(self, req, timeout=None):
+        with downloads._OPENER.open(req, timeout=timeout) as res:
+            with self.lock:
+                self.now += 1
+                self.most = max(self.most, self.now)
+            try:
+                yield res
+            finally:
+                with self.lock:
+                    self.now -= 1
+
+
+def _in_parts(job, **kw):
+    kw = {"backoff": 0.01, "parts_from": 1, "width": 4, "piece_size": PIECE, "slots": threading.BoundedSemaphore(4), **kw}
+    run(job, **kw)
+    return job
+
+
+def _start_of(r):
+    return int(r[6:].split("-")[0])
+
+
+def _ranges_asked(site):
+    return [r for r in site.asked if r and not re.match(r"^bytes=(\d+)-\1$", r)]
+
+
+def test_a_big_file_comes_in_parts_over_several_connections_and_is_the_same(tmp_path, parts_site):
+    s = parts_site(delay=0.02)
+    counted = _Counted()
+    job = _in_parts(_direct(tmp_path, s.url), opener=counted)
+    assert (job.state, job.error, job.bytes, job.total) == ("done", None, SIZE, SIZE)
+    with open(job.path, "rb") as f:
+        assert f.read() == FILE
+    # one byte asked first, then each piece once, over up to 4 connections at once
+    assert s.asked[0] == "bytes=0-0"
+    assert sorted(_ranges_asked(s), key=_start_of) == [f"bytes={a}-{min(SIZE, a + PIECE) - 1}" for a in range(0, SIZE, PIECE)]
+    assert 1 < counted.most <= 4
+    assert os.listdir(tmp_path / "loras") == ["model.safetensors"]
+
+
+def test_a_part_cut_or_refused_for_a_moment_is_asked_again_from_where_it_was(tmp_path, parts_site):
+    # the third request cut half way, the fifth a 503: each piece asked again, the cut one from the byte it had
+    s = parts_site(fault=lambda n, start: "cut" if n == 2 else 503 if n == 4 else None)
+    job = _in_parts(_direct(tmp_path, s.url))
+    assert (job.state, job.error) == ("done", None)
+    with open(job.path, "rb") as f:
+        assert f.read() == FILE
+    cut = _start_of(s.asked[2])
+    assert f"bytes={cut + PIECE // 2}-{cut + PIECE - 1}" in s.asked
+
+
+def test_a_file_other_than_its_sha256_is_never_named(tmp_path, parts_site):
+    s = parts_site()
+    job = _in_parts(_direct(tmp_path, s.url, sha256="0" * 64))
+    assert job.state == "error" and "sha256" in job.error
+    assert os.listdir(tmp_path / "loras") == []
+
+
+def test_the_sha256_is_checked_over_one_connection_too(tmp_path, site):
+    s = site()
+    job = Job(s.url, str(tmp_path / "loras" / "model.safetensors"), SIZE, "f" * 64)
+    run(job, backoff=0.01)
+    assert job.state == "error" and "sha256" in job.error
+    assert os.listdir(tmp_path / "loras") == []
+    good = Job(s.url, str(tmp_path / "loras" / "model.safetensors"), SIZE, SHA)
+    run(good, backoff=0.01)
+    assert (good.state, good.error) == ("done", None)
+
+
+def test_a_source_that_does_not_answer_parts_is_read_over_one_connection(tmp_path, parts_site):
+    s = parts_site(fault=lambda n, start: "whole")
+    job = _in_parts(_direct(tmp_path, s.url))
+    assert job.state == "done"
+    with open(job.path, "rb") as f:
+        assert f.read() == FILE
+    # the one byte asked, answered with all of the file: then one request, as before
+    assert s.asked == ["bytes=0-0", None]
+
+
+def test_a_small_file_and_afflatus_own_address_come_over_one_connection(tmp_path, parts_site):
+    s = parts_site()
+    job = _direct(tmp_path, s.url)
+    run(job, backoff=0.01, parts_from=SIZE + 1, slots=threading.BoundedSemaphore(4))
+    assert job.state == "done" and s.asked == [None]
+    relay = Job(s.url, str(tmp_path / "loras" / "relay.safetensors"), SIZE)
+    assert relay.direct is False
+    run(relay, backoff=0.01, parts_from=1, slots=threading.BoundedSemaphore(4))
+    assert relay.state == "done" and s.asked == [None, None]
+
+
+def test_a_source_that_stops_answering_parts_half_way_carries_on_over_one_connection(tmp_path, parts_site):
+    # a 200 with the whole file from the fourth request on: the pieces whole from the first on are kept, the rest over one
+    s = parts_site(fault=lambda n, start: "whole" if n >= 3 else None, delay=0.01)
+    job = _in_parts(_direct(tmp_path, s.url), width=2)
+    assert (job.state, job.error) == ("done", None)
+    with open(job.path, "rb") as f:
+        assert f.read() == FILE
+
+
+def test_too_many_requests_falls_back_to_one_connection(tmp_path, parts_site):
+    s = parts_site(fault=lambda n, start: 429 if n == 3 else None)
+    job = _in_parts(_direct(tmp_path, s.url))
+    assert job.state == "done"
+    with open(job.path, "rb") as f:
+        assert f.read() == FILE
+    # the last request is one connection's, from the bytes whole from the first on
+    assert re.match(r"^bytes=\d+-$", s.asked[-1])
+
+
+def test_a_stop_ends_every_connection_and_keeps_only_whole_bytes_when_asked(tmp_path, parts_site):
+    for keep in (False, True):
+        s = parts_site(delay=0.05)
+        job = _direct(tmp_path, s.url, name=f"m{int(keep)}.safetensors")
+        t = threading.Thread(target=_in_parts, args=(job,), kwargs={"width": 4})
+        t.start()
+        for _ in range(500):
+            if job.bytes >= 3 * PIECE:
+                break
+            threading.Event().wait(0.01)
+        job.stop(keep=keep)
+        t.join(10)
+        assert not t.is_alive() and job.state == "stopped"
+        assert not [x for x in threading.enumerate() if x.name.startswith(f"afflatus-download-{job.id[:8]}")]
+        assert not os.path.exists(job.parts) and not os.path.exists(job.path)
+        if keep:
+            # what is kept is bytes from the first on, as the file has them: a next download carries on from it as from any .part
+            with open(job.part, "rb") as f:
+                kept = f.read()
+            assert kept == FILE[: len(kept)]
+        else:
+            assert not os.path.exists(job.part)
+
+
+def test_a_failure_that_passes_keeps_only_bytes_whole_from_the_first_and_the_next_one_carries_on(tmp_path, parts_site):
+    # the pieces from the middle on keep failing: the download gives up, its .part holds the first half, whole
+    s = parts_site(fault=lambda n, start: 503 if start >= SIZE // 2 else None)
+    first = _in_parts(_direct(tmp_path, s.url), attempts=2)
+    assert first.state == "error" and "2 times in a row" in first.error
+    with open(first.part, "rb") as f:
+        kept = f.read()
+    assert len(kept) == SIZE // 2 and kept == FILE[: SIZE // 2]
+    s.fault = lambda n, start: None
+    again = _in_parts(_direct(tmp_path, s.url))
+    assert (again.state, again.error) == ("done", None)
+    with open(again.path, "rb") as f:
+        assert f.read() == FILE
+    assert f"bytes={SIZE // 2}-{SIZE // 2}" in s.asked
+    assert os.listdir(tmp_path / "loras") == ["model.safetensors"]
+
+
+def test_two_downloads_at_once_share_the_connections(tmp_path, parts_site):
+    s = parts_site(delay=0.02)
+    slots = threading.BoundedSemaphore(3)
+    counted = _Counted()
+    jobs = [_direct(tmp_path, s.url, name=f"{n}.safetensors") for n in "ab"]
+    threads = [threading.Thread(target=_in_parts, args=(j,), kwargs={"width": 3, "slots": slots, "opener": counted}) for j in jobs]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(20)
+    assert [j.state for j in jobs] == ["done", "done"]
+    assert 1 < counted.most <= 3
+
+
+def test_an_expired_link_is_renewed_once_for_every_connection(tmp_path, parts_site):
+    first = parts_site(fault=lambda n, start: 403 if n >= 4 else None, delay=0.01)
+    fresh = parts_site()
+    job = _direct(tmp_path, first.url)
+    t = threading.Thread(target=_in_parts, args=(job,), kwargs={"renew_wait": 5})
+    t.start()
+    for _ in range(500):
+        if job.expired:
+            break
+        threading.Event().wait(0.01)
+    assert job.expired
+    job.renew(fresh.url)
+    t.join(10)
+    assert (job.state, job.error) == ("done", None)
+    with open(job.path, "rb") as f:
+        assert f.read() == FILE
+    # the fresh link asked only for parts, each from where the first link left it
+    assert fresh.asked and all(r and re.match(r"^bytes=\d+-\d+$", r) for r in fresh.asked)
+
+
+def test_no_key_is_ever_sent_and_a_redirect_is_not_followed(tmp_path, parts_site):
+    # the pack holds no key (Afflatus asks the site with it, at home): its requests carry none, and a part answered with
+    # a redirect does not lead the download elsewhere
+    storage = parts_site()
+    s = parts_site(fault=lambda n, start: "redirect" if n == 2 else None)
+    s.elsewhere = storage.url
+    job = _direct(tmp_path, s.url)
+    run(job, backoff=0.01, parts_from=1, width=2, piece_size=PIECE, slots=threading.BoundedSemaphore(2))
+    assert job.state == "error" and "302" in job.error
+    assert storage.asked == []
+    assert s.auth == [None] * len(s.asked)
+    assert os.listdir(tmp_path / "loras") == []
+
+
+def test_the_route_takes_the_sha256_afflatus_says(tmp_path, site):
+    found, routes, web = _routes()
+    jobs = downloads.register(routes, web, _FolderPaths(str(tmp_path)))
+    start = found[("POST", "/afflatus/download")]
+    s = site()
+    said = asyncio.run(start(_Request({"url": s.url, "folder": "loras", "filename": "a.safetensors", "total": SIZE, "sha256": SHA.upper()})))
+    assert jobs[said.body["id"]].sha256 == SHA
+    other = asyncio.run(start(_Request({"url": s.url, "folder": "loras", "filename": "b.safetensors", "total": SIZE, "sha256": "not a hash"})))
+    assert jobs[other.body["id"]].sha256 is None
+    for _ in range(500):
+        if all(j.state != "downloading" for j in jobs.values()):
+            break
+        threading.Event().wait(0.01)
+    assert [j.state for j in jobs.values()] == ["done", "done"]
