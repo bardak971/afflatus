@@ -7,7 +7,7 @@ import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { chooseRoute, MANAGER_BIG, MANAGER_HF } from "../src/downloads";
-import { fetchToFile, folderPlaces, modelRoot, onThisMachine, placeIn, placesOf, Refused, sizeText, type FetchTo } from "../src/modelDownload";
+import { DOWNLOADS_DISABLED, fetchToFile, folderPlaces, modelRoot, onThisMachine, placeIn, placesOf, Refused, sizeText, type FetchTo } from "../src/modelDownload";
 import { until } from "./helpers";
 
 /** A file of 3 MB whose every byte depends on where it is: a piece out of place shows. It starts as a safetensors file does. */
@@ -79,6 +79,9 @@ beforeEach(async () => {
     if (req.url?.startsWith("/api/download/models/88") || req.url?.startsWith("/api/download/models/90")) return json(403, { error: "Early Access", message: "This asset is in Early Access. You can use Buzz access it now!" });
     if (req.url === "/api/v1/model-versions/88") return json(200, { id: 88, paidAccess: { permanent: false, endsAt: "2026-11-05T09:00:00.000Z" } });
     if (req.url?.startsWith("/api/download/models/89")) return json(401, { error: "Unauthorized", message: "The creator of this asset requires you to be logged in to download it" });
+    // a file its creator closed (card #206): a 401 too, key or none
+    if (req.url?.startsWith("/api/download/models/91")) return json(401, { error: "Unauthorized", message: "The creator of this asset has disabled downloads on this file" });
+    if (req.url?.startsWith("/api/download/models/92")) return json(401, { error: "Unauthorized", message: "This file is under review" });
     if (req.url === "/login") {
       res.writeHead(200, { "content-type": "text/html" });
       return res.end("<html>sign in</html>");
@@ -215,6 +218,13 @@ describe("Afflatus downloading a model file itself", () => {
     it("says a 401 without a key as before, and with one as the key refused", async () => {
       await expect(fetchTo("/api/download/models/89").done).rejects.toThrow("The site refused the download. For Civitai, save a key in Settings › Models › Civitai API key: some files need an account.");
       await expect(fetchTo("/api/download/models/89", { headers: { Authorization: "Bearer k-123456789" } }).done).rejects.toThrow(/^Civitai refused the API key \(expired, revoked or mistyped\)/);
+    });
+
+    it("says a file whose creator disabled downloads as such, key or none, never as the key refused (card #206)", async () => {
+      await expect(fetchTo("/api/download/models/91", { headers: { Authorization: "Bearer k-123456789" } }).done).rejects.toThrow(DOWNLOADS_DISABLED);
+      await expect(fetchTo("/api/download/models/91").done).rejects.toThrow(DOWNLOADS_DISABLED);
+      // a 401 saying another thing than the key or an account: in Civitai's words
+      await expect(fetchTo("/api/download/models/92", { headers: { Authorization: "Bearer k-123456789" } }).done).rejects.toThrow("Civitai refused the download (Unauthorized: This file is under review).");
     });
   });
 

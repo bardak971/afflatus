@@ -7,7 +7,8 @@ import type { Db } from "./db";
 import { PASSING, type Downloads } from "./downloads";
 import { stat } from "node:fs/promises";
 import { GUESSED, MEASURED_FROM, measuredRange, recordFetch, recordMeasure, type MeasureKind, type Range } from "./podMeasures";
-import { localCopy, measureKind, podSource, presetsOf, type PodSource, type SourceLookup } from "./podSources";
+import { closeVersion, localCopy, measureKind, podSource, presetsOf, type PodSource, type SourceLookup } from "./podSources";
+import { keyMayDo } from "./modelDownload";
 import { PACKS_MS, PodPacks, type PodPackView } from "./podPacks";
 import { PACK_UPLOADS, uploadFile } from "./podUpload";
 import type { Settings } from "./settings";
@@ -83,6 +84,8 @@ interface Entry extends PodFileView {
   roomTried?: boolean;
   /** Asked for by the user (the deploy's files, a model set): never dropped for want of a job (dropUnsought). */
   byUser?: boolean;
+  /** The sources that refused it (sourceKey), never taken again for this pod: the next one is (elsewhere). */
+  refusedBy?: string[];
   /** The waiting jobs the queue's plan sent it for (need or ahead): once none of them may run here, it is dropped. */
   sentFor?: string[];
 }
@@ -168,6 +171,8 @@ const DISK_EVERY_MS = 15_000;
 const VOLUME_LIST_MS = 60_000;
 const gbSaid = (bytes: number) => `${(bytes / 2 ** 30).toFixed(1)} GB`;
 const keyOf = (folder: string, file: string) => `${folder}|${fileName(file).toLowerCase()}`;
+/** A source in a word, to know one that refused a file again: a Civitai version is refused whatever file of it is picked. */
+const sourceKey = (src: PodSource) => (src.kind === "civitai" ? `civitai|${src.version}` : src.kind === "url" ? `url|${src.url}` : `upload|${src.path}`);
 
 export class PodFiles {
   private readonly pods = new Map<string, Map<string, Entry>>();
@@ -916,6 +921,14 @@ export class PodFiles {
       if (v.status !== "error") this.d.downloads.stop(e.downloadId!);
       return this.diskFull(machine, e, full);
     }
+    // its source refused it (Civitai's creator disabled downloads, a paid version, a key refused): never coming from there, and
+    // a pod waiting for it is billed for nothing. Taken from the next source instead (card #206)
+    if (v.status === "error" && v.refused) {
+      const id = e.downloadId!;
+      delete e.downloadId;
+      void this.elsewhere(machine, e, v.error ?? "the site refused the download", id);
+      return true;
+    }
     if (v.status === "error" && PASSING.test(v.error ?? "")) return this.retryLater(machine, e, v.error!);
     if (v.status === "error" || v.status === "stopped") return this.fail(machine, e, v.error ?? "it was stopped");
     return moved;
@@ -970,6 +983,40 @@ export class PodFiles {
       else if (PASSING.test(message)) this.retryLater(machine, e, message);
       else await this.failUnlessThere(machine, e, message);
       this.d.changed?.();
+    }
+  }
+
+  /**
+   * Its source refused it for good: the next one that has the same file. A Civitai version refused for the file's own sake
+   * (not the key) is kept as such (closeVersion), so a lookup takes another copy of the same bytes; failing that, or when the
+   * source was given (a preset, a set), this computer's copy is sent. None: it fails with the site's own words, and its jobs
+   * go elsewhere (card #206: a pod waited, billed, for a file Civitai would never give).
+   */
+  private async elsewhere(machine: string, e: Entry, why: string, downloadId: string): Promise<void> {
+    try {
+      const was = e.source;
+      if (was) (e.refusedBy ??= []).push(sourceKey(was));
+      if (was?.kind === "civitai" && !keyMayDo(why)) await closeVersion(this.d.lookup, e.folder, was.version).catch((err: Error) => console.warn(`[pod files] a refused version not kept: ${err.message}`));
+      // what was known of where it comes from is asked afresh: the version just closed is no longer taken
+      for (const key of this.sources.keys()) if (key.startsWith(`${keyOf(e.folder, e.file)}|`)) this.sources.delete(key);
+      let next = await this.sourceOf(e, true);
+      if (!next || e.refusedBy?.includes(sourceKey(next))) {
+        const path = await localCopy(await this.d.lookup.comfyDir(), e.folder, e.file).catch(() => null);
+        next = path ? { kind: "upload", path } : null;
+      }
+      if (!this.current(machine, e) || e.state !== "fetching") return;
+      if (!next || e.refusedBy?.includes(sourceKey(next))) return void (await this.failUnlessThere(machine, e, why));
+      console.warn(`[pod files] ${e.file} on ${machine}: ${why}; taken from ${measureKind(next) === "upload" ? "this computer" : "another source"} instead`);
+      // the refused download stays listed with its reason, but is not announced again: the file is coming another way
+      this.d.downloads.seen(downloadId);
+      this.requeue(e);
+      e.source = next;
+      e.via = measureKind(next);
+    } catch (err) {
+      if (this.current(machine, e)) await this.failUnlessThere(machine, e, `${why} (${(err as Error).message})`);
+    } finally {
+      this.d.changed?.();
+      void this.tick();
     }
   }
 

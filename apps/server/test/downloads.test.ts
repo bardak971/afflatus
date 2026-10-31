@@ -9,7 +9,8 @@ import { startFakeComfy, type FakeComfy, type FakeInit } from "@afflatus/comfy/t
 import { wan } from "../../../packages/workflows/test/fixtures";
 import { get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 import { EventEmitter } from "node:events";
-import { Downloads, directOk, signedLink } from "../src/downloads";
+import { Downloads, directOk, NO_SELF, signedLink } from "../src/downloads";
+import { DOWNLOADS_DISABLED, Refused } from "../src/modelDownload";
 
 /** A pretend Civitai (and file host): one model version with one file, 300 000 bytes long, which starts as a safetensors file does. */
 const FILE = Buffer.alloc(300_000, 7);
@@ -605,6 +606,22 @@ describe("who downloads", () => {
     expect(fake.packFetched).toEqual([expect.stringMatching(/\/api\/downloads\/fetch\//)]);
   });
 
+  it("needs no address of Afflatus's for a machine that cannot reach it when the site gives its own link, and says so otherwise (card #206)", async () => {
+    await start(true, { folderPaths: paths(), hideFolderPaths: true });
+    fake.packVersion = "0.12.0";
+    await on();
+    const comfy = await t.services.comfy();
+    t.services.downloads.signer = async () => `${siteUrl}/signed/ok?sig=1`;
+    const d = await t.services.downloads.start(comfy, "", { file: "own.safetensors", folder: "loras", title: "own", source: `${siteUrl}/files/plain.safetensors`, noSelf: true });
+    await done(d.id);
+    expect(await item(d.id)).toMatchObject({ status: "done" });
+    t.services.downloads.signer = async () => null;
+    const none = await t.services.downloads.start(comfy, "", { file: "relay.safetensors", folder: "loras", title: "relay", source: `${siteUrl}/files/plain.safetensors`, noSelf: true });
+    await done(none.id);
+    expect(await item(none.id)).toMatchObject({ status: "error", error: NO_SELF });
+    expect(fake.packFetched).toEqual([`${siteUrl}/signed/ok?sig=1`]);
+  });
+
   it("is ComfyUI-Manager otherwise: a public Hugging Face address handed to it as it is, anything else through Afflatus", async () => {
     await start("refuses");
     fake.packVersion = "0.10.0";
@@ -764,6 +781,15 @@ describe("a source's own signed download link", () => {
     expect(seen).toEqual(["HEAD", "GET"]);
     const headOnly = "https://example.com/m.safetensors";
     expect(await signedLink(headOnly, {}, (async (_: unknown, init?: RequestInit) => new Response(null, { status: init?.method === "HEAD" ? 403 : 200 })) as typeof fetch)).toBeNull();
+  });
+
+  it("says a Civitai file whose creator disabled downloads as such, though a key was sent (card #206)", async () => {
+    const closed = `${siteUrl}/api/download/models/164898?type=Model`;
+    const answers = (async (_: unknown, init?: RequestInit) =>
+      new Response(init?.method === "HEAD" ? null : JSON.stringify({ error: "Unauthorized", message: "The creator of this asset has disabled downloads on this file" }), { status: 401, headers: { "content-type": "application/json" } })) as typeof fetch;
+    const refused = signedLink(closed, { Authorization: "Bearer civitai_key_12345" }, answers);
+    await expect(refused).rejects.toThrow(DOWNLOADS_DISABLED);
+    await expect(refused).rejects.toBeInstanceOf(Refused);
   });
 
   it("is on the download hosts only", () => {

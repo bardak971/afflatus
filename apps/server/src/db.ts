@@ -428,7 +428,7 @@ export interface Tables {
   /** What rented pods were measured at (podFiles.ts): a file's bytes over its time per source (hf, civitai, upload), a deploy's boot (ms). */
   pod_measures: { id: string; kind: string; cloud: string | null; bytes: number; ms: number; at: string };
   /** Every model file of this computer hashed once, and the site version or file it is (modelHashes.ts). Sizes and times as numbers (bigint on Postgres: read through Number). */
-  model_hashes: { folder: string; file: string; size: number | string; mtime: number | string; sha256: string; hashed_at: string; civitai_version: number | string | null; hf_url: string | null; matched_at: string | null; civitai_base?: string | null };
+  model_hashes: { folder: string; file: string; size: number | string; mtime: number | string; sha256: string; hashed_at: string; civitai_version: number | string | null; hf_url: string | null; matched_at: string | null; civitai_base?: string | null; civitai_closed_at?: string | null };
   /** The hashes of the model files ComfyUI does not load by their name, another directory's file holding it first (modelHashes.ts, 0102), by path. */
   model_hash_places: { path: string; folder: string; file: string; size: number | string; mtime: number | string; sha256: string; hashed_at: string };
   /** The model files each job's graph loaded (modelUses.ts, 0099): `exact` 0 for a helper file the backfill read from today's recipe. */
