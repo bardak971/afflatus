@@ -879,3 +879,57 @@ def test_the_route_takes_the_sha256_afflatus_says(tmp_path, site):
             break
         threading.Event().wait(0.01)
     assert [j.state for j in jobs.values()] == ["done", "done"]
+
+
+def test_a_source_saying_less_than_was_declared_is_refused_before_writing(tmp_path, site, parts_site):
+    # no sha256 to tell (a Hugging Face copy before 0.44.0's check): a short answer was named the whole model (0.44.1)
+    s = site()
+    job = Job(s.url, str(tmp_path / "loras" / "model.safetensors"), SIZE + 4096)
+    run(job, backoff=0.01)
+    assert job.state == "error" and f"the source says {SIZE} bytes, {SIZE + 4096} were said" in job.error
+    assert os.listdir(tmp_path / "loras") == []
+    # the same over several connections: the one byte asked first says the file's size
+    p = parts_site()
+    parts = Job(p.url, str(tmp_path / "loras" / "parts.safetensors"), SIZE + 4096)
+    parts.direct = True
+    _in_parts(parts)
+    assert parts.state == "error" and f"{SIZE + 4096} were said" in parts.error
+    assert p.asked == ["bytes=0-0"]
+    assert os.listdir(tmp_path / "loras") == []
+
+
+def test_a_part_that_starts_elsewhere_than_asked_is_never_written_as_the_whole_file(tmp_path):
+    # the first answer cut a third of the way; the next one, asked from there, a 206 from byte 1000 on: its length is not
+    # the file's, and it was written from the first byte and named whole (no size declared, no sha256)
+    asked = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            asked.append(self.headers.get("Range"))
+            if len(asked) == 1:
+                self.send_response(200)
+                self.send_header("Content-Length", str(SIZE))
+                self.end_headers()
+                self.wfile.write(FILE[: SIZE // 3])
+                self.wfile.flush()
+                self.connection.shutdown(2)
+                return
+            self.send_response(206)
+            self.send_header("Content-Range", f"bytes 1000-{SIZE - 1}/*")
+            self.send_header("Content-Length", str(SIZE - 1000))
+            self.end_headers()
+            self.wfile.write(FILE[1000:])
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        job = _fetch(tmp_path, f"http://127.0.0.1:{server.server_address[1]}{RELAY}?t=token")
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert job.state == "error" and f"bytes 1000-{SIZE - 1}/* for bytes {SIZE // 3}-" in job.error
+    assert asked == [None, f"bytes={SIZE // 3}-"]
+    assert not os.path.exists(job.path)

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, sep } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { moveNoClobber, type BinFinder } from "../src/modelBin";
@@ -11,14 +11,20 @@ import { CHECKPOINT, get, makeApp, referenceCatalog, type TestApp } from "./help
 
 /**
  * Settings › Model files where the disk answers in an unlucky order (release review 0.9.0): a name removed between a move's
- * link and its unlink (D6), and a file system that gives two files one index (D7). node:fs/promises is wrapped for this
- * file only: `hooks.afterLink` runs once a link is made, `hooks.ino` gives a file another index. All in temporary folders.
+ * link and its unlink (D6), a file system that gives two files one index (D7), and a junction to another drive (D10).
+ * node:fs/promises is wrapped for this file only: `hooks.afterLink` runs once a link is made, `hooks.ino` gives a file
+ * another index, `hooks.otherDrive` refuses a link as across drives (EXDEV). All in temporary folders.
  */
-const hooks = vi.hoisted(() => ({ afterLink: null as null | ((from: string, to: string) => Promise<void>), ino: null as null | ((path: string) => bigint | null) }));
+const hooks = vi.hoisted(() => ({
+  afterLink: null as null | ((from: string, to: string) => Promise<void>),
+  ino: null as null | ((path: string) => bigint | null),
+  otherDrive: null as null | ((from: string, to: string) => boolean),
+}));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const real = await importOriginal<typeof import("node:fs/promises")>();
   const link: typeof real.link = async (from, to) => {
+    if (hooks.otherDrive?.(String(from), String(to))) throw Object.assign(new Error(`EXDEV: cross-device link not permitted, link '${String(from)}' -> '${String(to)}'`), { code: "EXDEV" });
     await real.link(from, to);
     await hooks.afterLink?.(String(from), String(to));
   };
@@ -38,6 +44,7 @@ beforeEach(() => {
 afterEach(() => {
   hooks.afterLink = null;
   hooks.ino = null;
+  hooks.otherDrive = null;
   rmSync(home, { recursive: true, force: true });
 });
 
@@ -111,5 +118,42 @@ describe("Model files with an app (D6, D7)", () => {
     expect(existsSync(b)).toBe(true);
     const after = (await get(t.app, "/api/model-files")).json() as Library;
     expect(after.files.filter((f) => !f.removed).map((f) => f.file)).toContain("zz-clash-b.safetensors");
+  });
+  it("moves a file whose place goes through a junction to another drive from where it really is, and puts it back (D10)", async () => {
+    // models/loras/far is a junction to a folder of another drive, as the file system sees it: a link made through it to
+    // anywhere but that drive is refused (EXDEV), as Windows refuses one from D: into C:'s bin or set-aside folder
+    const drive = join(home, "drive-d", "loras");
+    mkdirSync(drive, { recursive: true });
+    writeFileSync(join(drive, "zz-far.safetensors"), Buffer.alloc(700, 9));
+    symlinkSync(drive, join(home, "models", "loras", "far"), "junction");
+    const real = realpathSync(drive);
+    const through = join(home, "models", "loras", "far", "zz-far.safetensors");
+    const onD = [join(home, "drive-d"), realpathSync(join(home, "drive-d")), join(home, "models", "loras", "far")].map((p) => `${p.toLowerCase()}${sep}`);
+    const driveOf = (p: string) => (onD.some((d) => p.toLowerCase().startsWith(d)) ? "D" : "C");
+    hooks.otherDrive = (from, to) => driveOf(from) !== driveOf(to);
+    const asked: string[] = [];
+    // that drive's bin, beside its folder
+    const bin: BinFinder = async (path) => {
+      asked.push(path);
+      return path.toLowerCase().startsWith(real.toLowerCase()) ? { dir: join(home, "drive-d", "bin"), room: 1e9 } : { dir: join(home, "bin"), room: 1e9 };
+    };
+    mkdirSync(join(home, "drive-d", "bin"));
+    const done = await deleteFiles(t.services, { files: [{ folder: "loras", file: "far/zz-far.safetensors" }], to: "bin" }, bin);
+    expect(done).toMatchObject({ moved: 1, left: [], aside: [] });
+    expect(existsSync(join(drive, "zz-far.safetensors"))).toBe(false);
+    expect(asked.map((p) => p.toLowerCase())).toEqual([join(real, "zz-far.safetensors").toLowerCase()]);
+    const row = await t.db.selectFrom("model_removed").select(["place", "stored_path", "path_was", "pending"]).executeTakeFirstOrThrow();
+    expect(row).toMatchObject({ place: "bin", path_was: through, pending: 0 });
+    expect(row.stored_path.startsWith(join(home, "drive-d", "bin"))).toBe(true);
+    // set aside: on that drive too, beside its real folder and out of every model folder
+    expect(await putBack(t.services, { batch: done.batch })).toEqual({ back: 1, left: [] });
+    expect(readFileSync(join(drive, "zz-far.safetensors"))).toEqual(Buffer.alloc(700, 9));
+    const aside = await deleteFiles(t.services, { files: [{ folder: "loras", file: "far/zz-far.safetensors" }], to: "aside" }, bin);
+    expect(aside).toMatchObject({ moved: 1, left: [] });
+    const stored = (await t.db.selectFrom("model_removed").select("stored_path").where("batch", "=", aside.batch).executeTakeFirstOrThrow()).stored_path;
+    expect(stored.toLowerCase().startsWith(join(realpathSync(join(home, "drive-d")), ".afflatus-set-aside").toLowerCase())).toBe(true);
+    expect(readFileSync(stored)).toEqual(Buffer.alloc(700, 9));
+    expect(await putBack(t.services, { batch: aside.batch })).toEqual({ back: 1, left: [] });
+    expect(readFileSync(through)).toEqual(Buffer.alloc(700, 9));
   });
 });

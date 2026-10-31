@@ -31,7 +31,9 @@ without asking first):
          size, for Afflatus's view of a network volume (0.21.0)
 
 Afflatus always says the file's size (the one-time address answers with its length): a download whose size is not
-known is refused, and one that sends more than it said is cut off there, so a source cannot fill the disk. At most
+known is refused, and one that sends more than it said is cut off there, so a source cannot fill the disk. A source
+that says another size than Afflatus's is refused before anything is written (0.44.1): a short answer was named a whole
+model before. At most
 MAX_JOBS run at once (a 429 past that).
 
 A big file on a source's own link (0.44.0) comes over several connections at once: Civitai serves each connection at
@@ -411,8 +413,9 @@ def _remove(path):
 
 
 def _within(job, size):
-    """The size a source says, held to the one Afflatus said: more is refused before anything of it is written."""
-    if job.declared and size > job.declared:
+    """The size a source says, held to the one Afflatus said: another is refused before anything of it is written. More
+    would fill the disk past it; less was named as a whole model once whole (a short answer, without a sha256 to tell)."""
+    if job.declared and size != job.declared:
         raise Refused(f"the source says {size} bytes, {job.declared} were said")
     return size
 
@@ -739,12 +742,16 @@ def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeou
                         if got.group(2) != "*":
                             job.total = _within(job, int(got.group(2)))
                     else:
+                        # a part that starts elsewhere than asked is not the file from its first byte, and its length is
+                        # not the file's: written as the whole file, it was named whole once that many bytes came
+                        if res.status == 206 and not (got and got.group(1) == "0"):
+                            raise Refused(f"the source sent {res.headers.get('Content-Range') or 'a part with no range'} for bytes {have}-")
                         # the whole file (a source that does not resume sends it from the start): what was there goes
                         if have:
                             job.note = "The source does not resume downloads: starting over."
                         have = 0
                         mode = "wb"
-                        size = int(res.headers.get("Content-Length") or 0)
+                        size = int(got.group(2)) if got and got.group(2) != "*" else int(res.headers.get("Content-Length") or 0)
                         if size:
                             job.total = _within(job, size)
                     if not job.total:

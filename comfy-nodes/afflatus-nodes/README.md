@@ -61,7 +61,8 @@ With the pack loaded, ComfyUI answers:
   without it; `POST /afflatus/download/<id>/url` gives a download whose link expired a fresh one, and it carries on.
   From 0.44.0: a file of 256 MB or more on such a link comes over 8 connections at once (Range parts, the 8 shared by
   every download of the ComfyUI) when the site answers parts of it, one connection otherwise; a `sha256` in the body
-  (Civitai lists it) is checked before the file is named.
+  (Civitai lists it) is checked before the file is named. From 0.44.1: a source that says another size than the one
+  Afflatus sent, smaller as well as larger, is refused before anything is written.
 - `POST /afflatus/upload`, `PUT`, `GET` and `DELETE /afflatus/upload/<id>` (0.14.0): a model file Afflatus sends itself,
   for one no site has (a LoRA of your own), to a ComfyUI that cannot reach Afflatus (a rented pod). The size is said
   first (a folder without the room is refused then), each piece is `PUT` as raw bytes at the byte the upload is at

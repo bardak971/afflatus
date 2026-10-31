@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { carriedOf, dryContext, isShown, parseInput, sameWindowGrid, sourceWindows, windowShapeOf, type MediaFacts } from "@afflatus/core";
+import { addedRows, carriedOf, dryContext, isShown, parseInput, ruledDefaults, sameWindowGrid, sourceWindows, windowShapeOf, type MediaFacts } from "@afflatus/core";
 import { h3Swap } from "../src/h3/swap";
 import { CARRY_ON_PROMPT, h3MotionTransfer } from "../src/h3/motionTransfer";
 import { H3_FPS } from "../src/h3/family";
@@ -139,6 +139,30 @@ describe("MiniMax H3 · Motion transfer after a swap (H3 · Swap motion retired,
     expect(needs({})).not.toContain("swapLora");
     expect(needs({})).not.toContain("swapSam");
     expect(parseInput(h3MotionTransfer, { source: { asset: "v1" }, controlModel: "" }).controlModel).toBeUndefined();
+  });
+
+  it("is distilled as the swap model's name says, its Distilled model H3's own model's: the Turbo row, its starts and the graph alike (release review 0.9.0, B6)", () => {
+    // "Yes" saved for the user's distilled H3 file (per model, by the hidden `model`): MiniMax's full ref2va still takes Turbo's LoRA
+    const REF4 = "minimax_h3_ref2v_turbo_4steps.safetensors";
+    const all = { ...slots, swapUnet: "minimax_h3_ref2va.safetensors", refTurbo: REF4 };
+    const input = parseInput(h3MotionTransfer, { afterSwap: true, fast: true, turboIn: "Yes", description: "The man dances.", source: { asset: "v1", at: 5 }, previous: { asset: "w1" }, references: [{ asset: "r1", role: "person" }] });
+    const graph = h3MotionTransfer.build(input, dryContext({
+      slots: all, uploads: { source: "src.mp4", previous: "w.mp4", "previous.latent": "w.safetensors", "references.0": "r1.png" },
+      media: { source: part(), previous: before() },
+    })).graph as Graph;
+    expect(of(graph, "LoraLoaderModelOnly").map((n) => n.inputs.lora_name)).toContain(REF4);
+    const loras = h3MotionTransfer.inputs.find((i) => i.id === "loras")!;
+    const values = input as unknown as Record<string, unknown>;
+    expect(addedRows(loras, values, all)[0]?.file).toBe(REF4);
+    expect(ruledDefaults(h3MotionTransfer.starts, values, all)).toMatchObject({ turboSteps: 4, shiftVideo: 6, shiftAudio: 3 });
+    // a swap model whose name says distilled takes none, the row none either
+    const named = { ...all, swapUnet: slots.swapUnet };
+    expect(of(h3MotionTransfer.build(input, dryContext({ slots: named, uploads: { source: "src.mp4", previous: "w.mp4", "previous.latent": "w.safetensors", "references.0": "r1.png" }, media: { source: part(), previous: before() } })).graph as Graph, "LoraLoaderModelOnly")).toEqual([]);
+    expect(addedRows(loras, values, named)).toEqual([]);
+    // the row that would say otherwise is not drawn after a swap; on a Motion transfer of its own it is
+    const turboIn = h3MotionTransfer.inputs.find((i) => i.id === "turboIn")!;
+    expect(isShown(turboIn, { afterSwap: true }, h3MotionTransfer.inputs)).toBe(false);
+    expect(isShown(turboIn, {}, h3MotionTransfer.inputs)).toBe(true);
   });
 
   it("refuses DWPose without its pack, with the way out", () => {

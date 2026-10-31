@@ -522,6 +522,8 @@ async function deleteNow(s: Lib, ask: DeleteAsk, bin: BinFinder): Promise<Delete
   const settings = await readSettings(s.db);
   const dirs = await folderDirs(settings.comfyDir);
   const allDirs = [...dirs.values()].flat();
+  // and where each really is: a file moved from its real place is set aside out of every model folder's real place too
+  const realDirs = [...new Set([...allDirs, ...(await Promise.all(allDirs.map((d) => realpath(d).catch(() => d))))])];
   const families = (await (await s.comfy()).scanKept()?.catch(() => null))?.families ?? [];
   const needs = await needsOf(s, families);
   const bins = oncePerDrive(bin);
@@ -593,9 +595,14 @@ async function deleteNow(s: Lib, ask: DeleteAsk, bin: BinFinder): Promise<Delete
     const sha = hashRow && found && sameFile(hashRow, found) ? hashRow.sha256 : null;
     const id = randomUUID();
     let written = false;
+    // moved from where it really is: a place reached through a junction to another drive was moved to this drive's bin or
+    // set-aside folder, which a move cannot reach (EXDEV), and the file was left in place. Its real path is the same file
+    // (one name on disk, the junction only a way to it): its own drive's bin, a set-aside folder beside its real folder.
+    // Put back takes it to the place the list showed, the same folder on disk
+    const from = await realpath(at.path).catch(() => at.path);
     try {
-      const m = await moveOut(at.path, {
-        want: ask.to, size: at.size, folder: f.folder, file: f.file, aside: asideRoot(at.dir, allDirs), bin: bins.find,
+      const m = await moveOut(from, {
+        want: ask.to, size: at.size, folder: f.folder, file: f.file, aside: from === at.path ? asideRoot(at.dir, allDirs) : asideRoot(dirname(from), realDirs), bin: bins.find,
         // where it is going, kept before it goes (again with another name when the first was taken)
         planned: async (p) => {
           const row = { place: p.place, stored_path: p.stored, info_path: p.info };
@@ -615,7 +622,7 @@ async function deleteNow(s: Lib, ask: DeleteAsk, bin: BinFinder): Promise<Delete
         await s.db.deleteFrom("model_removed").where("id", "=", id).execute().catch(() => {});
         throw err;
       }
-      if (m.place === "bin") bins.took(at.path, at.size);
+      if (m.place === "bin") bins.took(from, at.size);
       done.moved++;
       done.bytes += at.size;
       if (identity) movedNow.add(identity);

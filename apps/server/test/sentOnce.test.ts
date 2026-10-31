@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { Comfy } from "../src/comfy";
 import { newId, now } from "../src/db";
 import { newAssetRow } from "../src/media";
-import { contentName, sentOnce, type Send } from "../src/queueSubmit";
+import { ComfyError } from "@afflatus/comfy";
+import { contentName, resentFor, sentOnce, type Again, type Send } from "../src/queueSubmit";
 import { ffmpegMade, FFMPEG_TIMEOUT, ffmpegThere, patternClip, toneFile } from "./clipKit";
 import { makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 
@@ -47,13 +48,62 @@ describe("a file sent to a machine", () => {
   it("goes up once when two jobs send it at the same moment, and both name it alike", async () => {
     const comfy = machine();
     const { sent, send } = sender();
-    const again: Array<() => Promise<string>> = [];
+    const again: Again = [];
     const [one, two] = await Promise.all([sentOnce(comfy, new Uint8Array([7, 7]), "mp4", send, again), sentOnce(comfy, new Blob([new Uint8Array([7, 7])]), "mp4", send, again)]);
     expect(one).toBe(two);
     expect(sent).toHaveLength(1);
     // the one taken as there is sent again under the same name if ComfyUI turns out not to have it
     expect(again).toHaveLength(1);
-    expect(await again[0]!()).toBe(one);
+    expect(await again[0]!.send()).toBe(one);
+  });
+
+  // release review 0.9.0, B5: a sending again truncates and writes the file under a prompt that may be reading it
+  it("is taken as there while jobs keep naming it, never sent again over itself after 6 h of use", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const comfy = machine();
+      const { sent, send } = sender();
+      const bytes = new Uint8Array([4, 2]);
+      await sentOnce(comfy, bytes, "mp4", send, []);
+      // named by a job every 4 h for a day: still the one sending
+      for (let h = 4; h <= 24; h += 4) {
+        vi.setSystemTime(Date.now() + 4 * 3600_000);
+        await sentOnce(comfy, bytes, "mp4", send, []);
+      }
+      expect(sent).toHaveLength(1);
+      // 6 h with no job naming it: sent again
+      vi.setSystemTime(Date.now() + 6 * 3600_000 + 1);
+      await sentOnce(comfy, bytes, "mp4", send, []);
+      expect(sent).toHaveLength(2);
+      // into the input folder, cleaned by its time on the disk: sent again within 12 h of its sending, used or not
+      await sentOnce(comfy, bytes, "png", send, [], { into: "input" });
+      for (let h = 4; h <= 12; h += 4) {
+        vi.setSystemTime(Date.now() + 4 * 3600_000);
+        await sentOnce(comfy, bytes, "png", send, [], { into: "input" });
+      }
+      expect(sent).toHaveLength(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("is sent again after a refusal only when the refusal names it: the others may be read by a prompt running", async () => {
+    const comfy = machine();
+    const { sent, send } = sender();
+    const [a, b] = [new Uint8Array([1]), new Uint8Array([2])];
+    await sentOnce(comfy, a, "mp4", send, []);
+    await sentOnce(comfy, b, "mp4", send, []);
+    const again: Again = [];
+    const [nameA] = await Promise.all([sentOnce(comfy, a, "mp4", send, again), sentOnce(comfy, b, "mp4", send, again), sentOnce(comfy, a, "mp4", send, again)]);
+    sent.length = 0;
+    const gone = nameA.replace(/ \[temp\]$/, "");
+    const refusal = new ComfyError(`Prompt outputs failed validation: LoadVideo: Invalid video file: ${gone} [temp]`);
+    expect(await resentFor(refusal, again)).toBe(true);
+    // the one named, once
+    expect(sent).toEqual([gone]);
+    // a refusal naming none of them: nothing sent, the error stands
+    expect(await resentFor(new ComfyError("Invalid image file: afflatus_00000000000000000000000000000000.png"), again)).toBe(false);
+    expect(sent).toEqual([gone]);
   });
 
   it("goes up to each machine, a pod as the PC, under the same name", async () => {
