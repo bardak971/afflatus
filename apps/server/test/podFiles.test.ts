@@ -9,11 +9,12 @@ import { nodesOfPack, type Family } from "@afflatus/core";
 import { startFakeComfy, type FakeComfy, type FakeInit } from "@afflatus/comfy/testing";
 import { civitaiVersion } from "../src/civitai";
 import { Comfy } from "../src/comfy";
-import { NO_DIRECT } from "../src/downloads";
+import { NO_DIRECT, signedLink } from "../src/downloads";
+import { DOWNLOADS_DISABLED } from "../src/modelDownload";
 import { PodFiles } from "../src/podFiles";
 import { estimateFiles, GUESSED, measuredRange, recordMeasure, MEASURED_FROM } from "../src/podMeasures";
 import { forgetHuggingFace } from "../src/huggingface";
-import { localCopy, measureKind, podSource } from "../src/podSources";
+import { localCopy, measureKind, podSource, USUAL_COPIES } from "../src/podSources";
 import { writeSettings } from "../src/settings";
 import { families } from "@afflatus/recipes";
 import { makeApp, referenceCatalog, until, type TestApp } from "./helpers";
@@ -21,6 +22,9 @@ import { makeApp, referenceCatalog, until, type TestApp } from "./helpers";
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex").toUpperCase();
 /** A file on a pretend site, served from any byte asked for. */
 const FILE = Buffer.alloc(200_000, 3);
+/** The Civitai version whose downloads its creator disabled (card #206), and this computer's mine.safetensors' hash. */
+const CLOSED = 164898;
+const MINE_SHA = sha(Buffer.alloc(150_000, 9));
 let site: Server;
 let siteUrl: string;
 let pod: FakeComfy;
@@ -47,6 +51,16 @@ beforeEach(async () => {
       const body = FILE.subarray(from);
       res.writeHead(from ? 206 : 200, { "content-type": "application/octet-stream", "content-length": body.length, ...(from ? { "content-range": `bytes ${from}-${FILE.length - 1}/${FILE.length}` } : {}) });
       return res.end(body);
+    }
+    // a Civitai version whose creator disabled downloads (card #206): its file listed, its download refused with a 401
+    // whatever the key, in Civitai's own words
+    if (req.url === `/api/v1/model-versions/${CLOSED}`) {
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ id: CLOSED, name: "v1", model: { name: "Mine" }, files: [{ name: "mine.safetensors", sizeKB: 150_000 / 1024, primary: true, downloadUrl: `${siteUrl}/api/download/models/${CLOSED}`, hashes: { SHA256: MINE_SHA } }] }));
+    }
+    if (req.url?.startsWith(`/api/download/models/${CLOSED}`)) {
+      res.writeHead(401, { "content-type": "application/json; charset=utf-8" });
+      return res.end(JSON.stringify({ error: "Unauthorized", message: "The creator of this asset has disabled downloads on this file" }));
     }
     res.writeHead(404);
     res.end();
@@ -351,6 +365,54 @@ describe("a rented pod's model files", () => {
     files.want("pod", [{ file: "a.safetensors", folder: "loras", url: `${siteUrl}/files/a.safetensors` }], { tier: "need" });
     files.forget("pod");
     expect(files.view("pod")).toEqual([]);
+  });
+});
+
+// card #206: Civitai answers a version whose creator disabled downloads with a 401, key or none. Said as "key refused", the
+// pod waited, billed, for a file that would never come, with this computer's copy at hand
+describe("a rented pod's file its Civitai version refuses", () => {
+  const closedRow = async () => {
+    const st = statSync(join(home, "models", "loras", "mine.safetensors"));
+    await t.services.db.insertInto("model_hashes").values({ folder: "loras", file: "mine.safetensors", size: st.size, mtime: Math.round(st.mtimeMs), sha256: MINE_SHA, hashed_at: "2026-10-14", civitai_version: CLOSED, hf_url: null, matched_at: "2026-10-14" }).execute();
+  };
+  beforeEach(() => {
+    // the real ask for the site's link, of the pretend Civitai: its two 401s
+    t.services.downloads.signer = (source, headers) => signedLink(source, headers);
+  });
+
+  it("is sent from this computer, said in Civitai's words, and the version is not asked again", async () => {
+    await closedRow();
+    files.want("pod", [{ file: "mine.safetensors", folder: "loras" }], { tier: "need", job: "j1" });
+    await settle("pod", "mine.safetensors");
+    expect(files.view("pod")[0]).toMatchObject({ file: "mine.safetensors", state: "ready", via: "upload", bytes: 150_000 });
+    expect(readFileSync(join(disk, "loras", "mine.safetensors")).equals(Buffer.alloc(150_000, 9))).toBe(true);
+    expect(files.jobState("pod", "j1")?.state).toBe("ready");
+    // the refusal as Civitai says it, never a key refused
+    const said = t.services.downloads.list().find((d) => d.file === "mine.safetensors");
+    expect(said).toMatchObject({ status: "error", error: DOWNLOADS_DISABLED, refused: true });
+    // kept: the next deploy sends this computer's copy at once
+    const row = await t.services.db.selectFrom("model_hashes").select("civitai_closed_at").where("file", "=", "mine.safetensors").executeTakeFirstOrThrow();
+    expect(row.civitai_closed_at).toBeTruthy();
+    const l = { db: t.services.db, presets: async () => [], families: () => [], comfyDir: async () => home };
+    expect(await podSource(l, { file: "mine.safetensors", folder: "loras" }, { live: true })).toMatchObject({ kind: "upload" });
+  });
+
+  it("with no copy here fails at once in Civitai's words, its jobs free to go elsewhere", async () => {
+    files.want("pod", [{ file: "theirs.safetensors", folder: "loras", civitai: { version: CLOSED, pick: "mine.safetensors" } }], { tier: "need", job: "j1" });
+    await settle("pod", "theirs.safetensors");
+    expect(files.view("pod")[0]).toMatchObject({ state: "failed", error: DOWNLOADS_DISABLED });
+    expect(files.jobState("pod", "j1")?.state).toBe("failed");
+  });
+
+  it("is fetched from a usual file's Hugging Face copy of the same bytes, whatever version its hash was matched to", async () => {
+    const l = { db: t.services.db, presets: async () => [], families: () => [], comfyDir: async () => home };
+    USUAL_COPIES[MINE_SHA] = "https://huggingface.co/org/repo/resolve/main/mine.safetensors";
+    try {
+      await closedRow();
+      expect(await podSource(l, { file: "mine.safetensors", folder: "loras" }, { live: true })).toEqual({ kind: "url", url: "https://huggingface.co/org/repo/resolve/main/mine.safetensors" });
+    } finally {
+      delete USUAL_COPIES[MINE_SHA];
+    }
   });
 });
 
