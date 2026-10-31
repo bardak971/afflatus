@@ -30,6 +30,15 @@ export type PodSource =
 const HF_HOSTS = ["huggingface.co", "hf.co"];
 
 /**
+ * Usual files' public copies on Hugging Face, by their SHA-256 (upper case, as model_hashes keeps it): a file of this
+ * computer with these bytes is fetched there by a pod, whatever page its name was matched to. Each checked by the copy's
+ * X-Linked-Size and X-Linked-ETag. RealESRGAN_x4plus.pth's Civitai version has its downloads disabled by its creator (card #206).
+ */
+export const USUAL_COPIES: Record<string, string> = {
+  "4FA0D38905F75AC06EB49A7951B426670021BE3018265FD191D2125DF9D682F1": "https://huggingface.co/lllyasviel/Annotators/resolve/main/RealESRGAN_x4plus.pth",
+};
+
+/**
  * Whether an address is Hugging Face's: https, and its host (parsed, not read off the text) huggingface.co, hf.co or one
  * under them. A pattern over the text took https://127.0.0.1:8188?.hf.co/ for one, and its size was then asked of it.
  */
@@ -180,7 +189,10 @@ async function sameBytes(l: SourceLookup, want: { file: string; folder: string }
   // the hash is this copy's only while the file is as it was hashed: one replaced since is other bytes until hashed again
   if (!row || Number(row.size) !== st.size || Number(row.mtime) !== Math.round(st.mtimeMs)) return null;
   const pick = baseName(want.file);
-  if (Number(row.civitai_version) > 0) return { kind: "civitai", version: Number(row.civitai_version), pick, sha256: row.sha256 };
+  const usual = USUAL_COPIES[row.sha256.toUpperCase()];
+  if (usual) return { kind: "url", url: usual };
+  // a version Civitai refused (its downloads disabled, paid) is not asked again: the file is sent from here instead
+  if (Number(row.civitai_version) > 0 && !row.civitai_closed_at) return { kind: "civitai", version: Number(row.civitai_version), pick, sha256: row.sha256 };
   if (row.hf_url) return { kind: "url", url: row.hf_url };
   // asked of the sites by its hash already and found nowhere: no file of its name there is these bytes
   if (row.matched_at || !live) return null;
@@ -210,6 +222,15 @@ async function sameBytes(l: SourceLookup, want: { file: string; folder: string }
     }
   }
   return null;
+}
+
+/**
+ * A Civitai version refused for good (its creator disabled downloads, a paid version: card #206), kept on the hashes matched
+ * to it: a pod's next lookup takes another copy of the same bytes, or this computer's.
+ */
+export async function closeVersion(l: SourceLookup, folder: string, version: number): Promise<void> {
+  await l.db.updateTable("model_hashes").set({ civitai_closed_at: now() }).where("folder", "=", folder).where("civitai_version", "=", version).execute();
+  brief.get(l)?.delete(`hashes|${folder}`);
 }
 
 /** The file in this computer's ComfyUI folders, when it is there: by its name with its sub-folder, else by its name in the folder's top. */

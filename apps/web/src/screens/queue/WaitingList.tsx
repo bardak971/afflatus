@@ -284,7 +284,7 @@ function StartPod({ pod, pinned, machines }: { pod: string; pinned: boolean; mac
         <button
           type="button" disabled={r.capped || ops.start.isPending || ops.redeploy.isPending} onClick={() => void ops.askStart(m)}
           className="shrink-0 text-xs font-semibold text-accent hover:underline disabled:text-ink-3 disabled:no-underline"
-          data-tip={r.capped ? "A spending cap is reached: no pod starts until it is raised (Settings › Rented GPUs)." : `Start ${name}: its rate is said before it starts.`}
+          data-tip={r.capped ? "A spending cap is reached: no pod starts until it is raised (Settings › Costs)." : `Start ${name}: its rate is said before it starts.`}
         >
           Start
         </button>

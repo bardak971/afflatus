@@ -62,8 +62,10 @@ describe.skipIf(!ffmpegThere)("the frames a clip joins onto", { timeout: FFMPEG_
       const file = join(dir, "steps.mkv");
       await run("ffmpeg", ["-y", "-loglevel", "error", "-f", "lavfi", "-i", "nullsrc=s=64x36:r=24:d=2,geq=lum='N*5':cb=128:cr=128", "-f", "lavfi", "-i", "sine=frequency=440:duration=2.06", "-c:v", "libx264", "-g", "1", "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", file]);
       const bytes = new Uint8Array(await readFile(file));
-      const facts = (await readVideo(bytes, "mkv")).facts!;
-      expect(Math.floor((facts.durationMs / 1000) * 24 + 0.01)).toBe(49);
+      const read = (await readVideo(bytes, "mkv")).facts!;
+      // read now as its picture's 48 frames (card #207); a length stored before, the sound's, promised a 49th
+      expect(Math.floor((read.durationMs / 1000) * 24 + 0.01)).toBe(48);
+      const facts = { ...read, durationMs: 2060 };
       // from frame 27 the file says 22 are left, there are 21: the shorter count is cut, from frame 27 still
       const cut = await cutFrames(bytes, "mkv", facts, { counts: [22, 5], fps: 24, side: "after", at: 1125 });
       expect(cut.frames).toBe(5);

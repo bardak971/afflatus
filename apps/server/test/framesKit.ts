@@ -1,6 +1,6 @@
 import { execFile, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -49,6 +49,24 @@ export async function synthMade(clip: number, frames: number, fps: number, size 
     const file = join(dir, "c.mp4");
     await run("ffmpeg", [...synthArgs(clip, frames, fps, size, sound), file]);
     return new Uint8Array(await readFile(file));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * The same video with its sound `ms` longer than its picture (silence padded, as a pod's ComfyUI muxed its smoothed renders:
+ * +35 to +113 ms, card #207) or, negative, that much shorter (the PC's: −20 ms). The picture is copied as it is.
+ */
+export async function soundPast(bytes: Uint8Array, ms: number): Promise<Uint8Array> {
+  const dir = await mkdtemp(join(tmpdir(), "afflatus-past-"));
+  try {
+    const [from, to] = [join(dir, "a.mp4"), join(dir, "b.mp4")];
+    await writeFile(from, bytes);
+    const picture = Number((await run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=duration", "-of", "csv=p=0", from])).stdout.trim());
+    const seconds = (picture + ms / 1000).toFixed(4);
+    await run("ffmpeg", ["-y", "-loglevel", "error", "-i", from, "-map", "0:v", "-map", "0:a", "-c:v", "copy", "-af", `apad,atrim=end=${seconds}`, "-c:a", "aac", "-b:a", "192k", to]);
+    return new Uint8Array(await readFile(to));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

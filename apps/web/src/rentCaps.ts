@@ -8,7 +8,7 @@ export type CapKey = "day" | "month";
 export type Caps = Record<CapKey, number>;
 
 /**
- * The spending caps' saves, for Settings › Rented GPUs and the first launch alike (a cap is money). Each edit is sent after
+ * The spending caps' saves, for Settings › Costs and the first launch alike (a cap is money). Each edit is sent after
  * the ones before it, its body built when it is sent from the caps as the edits before it left them: a second edit within
  * one round trip never brings the first one's old value back. A save that failed takes its cap back to the caps as saved
  * for the edits after it (unless one of them edits that same cap), is said under the boxes until that same cap saves (a

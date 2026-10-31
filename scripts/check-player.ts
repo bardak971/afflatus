@@ -1,8 +1,8 @@
 /// <reference lib="dom" />
 /**
  * The timeline player, frame by frame (`pnpm check:player`; CI runs it). A throwaway Afflatus (its own temporary data, no
- * ComfyUI) gets H3-shaped synthetic clips chained seamlessly (apps/server/test/framesKit.ts: each frame shows its clip and
- * index as a barcode), the real editor plays the timeline in headless Chrome, and every frame the player shows is read off
+ * ComfyUI) gets H3-shaped synthetic clips chained seamlessly, the second with its sound past its picture as a pod muxes it
+ * (apps/server/test/framesKit.ts: each frame shows its clip and index as a barcode), the real editor plays the timeline in headless Chrome, and every frame the player shows is read off
  * the video that is visible at that moment. It fails on a frame shown out of order, a flash of the clip before after the
  * hand-over, a hidden run-up frame shown, or more dropped frames than a busy machine explains. The chain is played again under
  * load (CPU slowed, videos starting late: see playChain), where only the order, flicker and run-up faults count. Then, in a fresh page: Space
@@ -23,7 +23,8 @@ import { migrate, openSqlite } from "../apps/server/src/db";
 import { createServices } from "../apps/server/src/services";
 import { writeSettings } from "../apps/server/src/settings";
 import { LocalStorage } from "../apps/server/src/storage";
-import { BITS, H, synth, W } from "../apps/server/test/framesKit";
+import { lengthOnGrid } from "../apps/server/src/timelineModel";
+import { BITS, H, soundPast, synth, W } from "../apps/server/test/framesKit";
 
 const N = 124;
 const FILE = 2 * N - 1;
@@ -105,11 +106,15 @@ const browser = await chromium.launch({
   args: ["--autoplay-policy=no-user-gesture-required", "--mute-audio"],
 });
 try {
-  // the chain: three clips, each after the first carrying on from the one before, decoded as one piece with it
+  // the chain: three clips, each after the first carrying on from the one before, decoded as one piece with it. The second
+  // as a pod made it, its sound 134 ms past its picture: handed over at its picture's end, not its sound's (card #207)
   const tl = await call("POST", "/api/timelines", { name: "player check" });
+  const assets: string[] = [];
   for (const clip of [1, 2, 3]) {
-    const res = await app.inject({ method: "POST", url: `/api/assets?name=c${clip}.mp4`, headers: { "content-type": "video/mp4" }, payload: Buffer.from(synth(clip, FILE, 48)) });
+    const made = synth(clip, FILE, 48);
+    const res = await app.inject({ method: "POST", url: `/api/assets?name=c${clip}.mp4`, headers: { "content-type": "video/mp4" }, payload: Buffer.from(clip === 2 ? await soundPast(made, 134) : made) });
     const asset = res.json() as { id: string };
+    assets.push(asset.id);
     await db.updateTable("assets").set({ latent_frames: N }).where("id", "=", asset.id).execute();
     await call("POST", `/api/timelines/${tl.id}/clips`, { asset: asset.id });
   }
@@ -118,7 +123,9 @@ try {
   const clips = sent.map((c) => ({ id: c.id, take: c.takes.find((x) => x.id === c.take)! }));
   for (let i = 1; i < clips.length; i++) {
     await call("PATCH", `/api/clips/${clips[i]!.id}`, { joined: "continue" });
-    await db.updateTable("takes").set({ head_ms: 917, join_kind: "seamless", prev_take_id: clips[i - 1]!.take.id, prev_at_ms: Math.round((N * 1000) / 24) }).where("id", "=", clips[i]!.take.id).execute();
+    // where the clip before ends as the timeline plays it, as a render's plan hands over (plays(before).end)
+    const before = await db.selectFrom("assets").selectAll().where("id", "=", assets[i - 1]!).executeTakeFirstOrThrow();
+    await db.updateTable("takes").set({ head_ms: 917, join_kind: "seamless", prev_take_id: clips[i - 1]!.take.id, prev_at_ms: lengthOnGrid(before) }).where("id", "=", clips[i]!.take.id).execute();
   }
 
   /**

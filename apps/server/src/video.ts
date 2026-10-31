@@ -203,7 +203,7 @@ export async function videoFacts(file: string): Promise<VideoFacts | null> {
 
 /** The same, with why there are none when there are none (ffprobe missing, out of time, the file refused, no picture in it). */
 export async function probeVideo(file: string): Promise<{ facts: VideoFacts | null; why?: string }> {
-  const probed = await run(tools.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type,width,height,avg_frame_rate:format=duration", "-of", "json", file], "utf8");
+  const probed = await run(tools.ffprobe, ["-v", "error", "-show_entries", FACT_ENTRIES, "-of", "json", file], "utf8");
   if (probed.out === null) return { facts: null, why: probed.why };
   try {
     const facts = factsOf(JSON.parse(String(probed.out)) as ProbeInfo);
@@ -220,6 +220,28 @@ export interface ProbeInfo {
   format?: { duration?: string };
 }
 
+/** What ffprobe is asked of a video's streams and its file for its facts (probeMediaFile asks the same, with more). */
+const FACT_ENTRIES = "stream=codec_type,width,height,avg_frame_rate,duration:stream_tags=DURATION:format=duration";
+
+/** "00:00:05.146000000" (Matroska's tag) → seconds; NaN when it is not that. */
+const clockSeconds = (text: unknown) => {
+  const m = /^(\d+):(\d+):(\d+(?:\.\d+)?)$/.exec(String(text ?? "").trim());
+  return m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : NaN;
+};
+
+/**
+ * How long a video's picture lasts, in milliseconds: its video stream's own length (an MP4's, or a WebM's DURATION tag),
+ * the file's only when the stream says none. The file's is its longest stream's: a pod's ComfyUI muxed the smoothed
+ * render with its sound padded 35–113 ms past the last frame, and the clip after was handed over that much past the
+ * picture, its last frame held there with the sound gone at every join (card #207).
+ */
+export function pictureMs(picture: Record<string, unknown>, info: ProbeInfo): number {
+  const own = Number(picture.duration);
+  const tagged = clockSeconds((picture.tags as Record<string, unknown> | undefined)?.DURATION);
+  const seconds = own > 0 ? own : tagged > 0 ? tagged : Number(info.format?.duration ?? 0);
+  return Math.round(seconds * 1000) || 0;
+}
+
 /** The facts read out of ffprobe's answer (probeMediaFile in cut.ts asks ffprobe once and reads them from the same answer). */
 export function factsOf(info: ProbeInfo): VideoFacts | null {
   const picture = info.streams?.find((s) => s.codec_type === "video");
@@ -227,7 +249,7 @@ export function factsOf(info: ProbeInfo): VideoFacts | null {
   return {
     width: Number(picture.width) || 0,
     height: Number(picture.height) || 0,
-    durationMs: Math.round(Number(info.format?.duration ?? 0) * 1000),
+    durationMs: pictureMs(picture, info),
     fps: rate(picture.avg_frame_rate),
     hasSound: Boolean(info.streams?.some((s) => s.codec_type === "audio")),
   };

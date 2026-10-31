@@ -136,7 +136,7 @@ export function FirstLaunch() {
   const rentsOn = hasKey || rent === "yes";
   const where = [comfy === "added" ? "your ComfyUI" : null, rent === "yes" && hasKey ? "RunPod" : null].filter(Boolean).join(" and ");
   const caps = settings.data?.rentCaps ?? { day: 0, month: 0 };
-  // queued as in Settings › Rented GPUs: a second cap saved before the first answers never sets the first one back
+  // queued as in Settings › Costs: a second cap saved before the first answers never sets the first one back
   const capsSave = useCapsSave(caps);
   // done: the settings say so, and the Studio takes its place (App.tsx useFirstLaunch). A cap still saving is waited for
   // first; refused, the page stays, its note under the boxes (a cap is money: never left unsaid)

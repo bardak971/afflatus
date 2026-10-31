@@ -3,7 +3,7 @@ import { z } from "zod";
 import { envSaid } from "./config";
 import { civitaiSites, civitaiVersion, keyFor, pretendSites } from "./civitai";
 import type { Comfy } from "./comfy";
-import type { DownloadView } from "./downloads";
+import { directOk, NO_SELF, type DownloadView } from "./downloads";
 import { httpError as bad } from "./errors";
 import { fileName } from "./media";
 import { webUrl } from "./modelPages";
@@ -65,9 +65,13 @@ export async function beginDownload(s: Services, from: FastifyRequest | string, 
   const { comfy, dir, machine } = await downloadTarget(s, settings, b.machine);
   const self = typeof from === "string" ? from : selfUrl(from);
   const local = (host: string) => /^(localhost|127\.|\[::1\]|::1)/.test(host);
-  if (!envSaid.publicUrl() && local(new URL(self).hostname) && !local(new URL(comfy.url).hostname)) {
-    throw bad("ComfyUI runs on another machine and cannot reach Afflatus at this URL. Open Afflatus by its network URL, or set PUBLIC_URL to it.");
-  }
+  // ComfyUI on another machine cannot reach Afflatus at a local address: a file it would fetch through Afflatus is refused,
+  // but a Hugging Face or Civitai address it fetches from the site itself needs no address of Afflatus's (card #206, a pod)
+  const noSelf = !envSaid.publicUrl() && local(new URL(self).hostname) && !local(new URL(comfy.url).hostname);
+  const reachable = (source: string) => {
+    if (noSelf && !directOk(source)) throw bad(NO_SELF);
+    return noSelf ? { noSelf: true } : {};
+  };
   const name = b.file.split(/[\\/]/).pop()!;
   // the place chosen for this folder on this machine (Settings › Models), and what it was asked with
   const place = settings.downloadPlaces[machine ?? settings.machines[0]?.id ?? ""]?.[b.folder];
@@ -85,7 +89,7 @@ export async function beginDownload(s: Services, from: FastifyRequest | string, 
     assertPublicUrl(b.url, civitaiSites());
     // the user's own account for the site the file is on, to that site alone (keyFor)
     const key = keyFor(b.url, settings);
-    const started = await s.downloads.start(comfy, self, { file: b.file, folder: b.folder, title: name, source: b.url, ...(key ? { headers: key } : {}), comfyDir: dir, machine, ...kept });
+    const started = await s.downloads.start(comfy, self, { file: b.file, folder: b.folder, title: name, source: b.url, ...(key ? { headers: key } : {}), comfyDir: dir, machine, ...kept, ...reachable(b.url) });
     await keepPage(started.file);
     return started;
   }
@@ -95,12 +99,13 @@ export async function beginDownload(s: Services, from: FastifyRequest | string, 
   if (!found?.file.downloadUrl) throw bad(b.pick || b.sha256 || b.fileId ? gone : "Civitai lists no file to download for that version: open it again in Find models.", 409);
   // a file asked by its name alone is that very file, not only the closest name
   if (b.pick && found.by === "near") throw bad(gone, 409);
+  const via = reachable(found.file.downloadUrl);
   // under the name the user saw it by: "on this PC", presets and forms know it by that name, not the version page's
   const saveAs = b.file || (b.pick ?? found.file.name ?? "model.safetensors").replace(/[\\/:*?"<>|]/g, "_");
   await keepPage(saveAs);
   return s.downloads.start(comfy, self, {
     file: saveAs, folder: b.folder, title: found.title || name,
     source: found.file.downloadUrl, headers: settings.civitaiKey ? { Authorization: `Bearer ${settings.civitaiKey}` } : undefined,
-    total: Math.round((found.file.sizeKB ?? 0) * 1024), comfyDir: dir, machine, ...kept,
+    total: Math.round((found.file.sizeKB ?? 0) * 1024), comfyDir: dir, machine, ...kept, ...via,
   });
 }
