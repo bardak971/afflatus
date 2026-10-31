@@ -108,6 +108,8 @@ const MOTION_SHOWS: Record<string, InputSpec["showWhen"]> = {
   soundscape: { input: "keepSound", in: [false] },
   music: { input: "keepSound", in: [false] },
   refVideos: OWN_MODEL,
+  // H3's own model's, saved per model by it: a window after a swap is distilled as the swap model's name says (asSwap)
+  turboIn: OWN_MODEL,
 };
 
 /** H3's two sound texts, drawn with this form's prompt rather than where H3's inputs come. */
@@ -243,8 +245,13 @@ function windowAfterSwap(input: H3MotionTransfer, ctx: BuildContext): BuiltGraph
   return notes.length ? { ...built, warnings: [...(built.warnings ?? []), ...notes] } : built;
 }
 
-/** The window as the swap's helpers read it, rendered at the swap's own default size. */
-const asSwap = (input: H3MotionTransfer) => ({ ...input, swapSize: "576p" }) as unknown as H3Swap;
+/**
+ * The window as the swap's helpers read it, rendered at the swap's own default size, distilled as the swap model's name
+ * says: this form's Distilled model is kept for H3's own model (per model, by the hidden `model`), and read for the swap's
+ * model it made MiniMax's full ref2va a distilled one (no turbo LoRA, 8 steps) wherever "Yes" was saved for the user's H3 file.
+ * The Turbo row and its starts read the name alone too (turboRow.ts, AFTER_SWAP_TURBO), and the row is not drawn then.
+ */
+const asSwap = (input: H3MotionTransfer) => ({ ...input, swapSize: "576p", turboIn: "From the name" }) as unknown as H3Swap;
 
 /**
  * Core's ImageFromBatch: the clip before's last frame, taken as a picture where the reference route runs (known by the

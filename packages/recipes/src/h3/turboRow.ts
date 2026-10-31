@@ -57,8 +57,8 @@ const row = (r: { when: StartCondition; slots: AddedLora["slots"] }): AddedLora 
 export const H3_TURBO_ROW = row(videoRow({ any: [{ input: "references", filled: true }, { input: "refVideos", filled: true }, { input: "voice", filled: true }] }));
 
 /**
- * A swap's (and a window after it): its model run as the clip's own, a hybrid, MiniMax's reference turbo LoRA first. Distilled
- * as its Distilled model says (card #170: the swap's asClip reads it), else as its name says.
+ * A swap's: its model run as the clip's own, a hybrid, MiniMax's reference turbo LoRA first. Distilled as its Distilled model
+ * says (card #170: the swap's asClip reads it), else as its name says. A window after a swap reads the name alone (AFTER_SWAP_TURBO).
  */
 export const SWAP_MODEL_TURBO = said("turboIn", named("swapModel", "swapUnet", namedFor.turbo));
 export const SWAP_TURBO_ROW = row({ when: { not: SWAP_MODEL_TURBO }, slots: [{ slot: "refTurbo" }, { slot: "turbo" }] });
@@ -69,9 +69,15 @@ export const SWAP_TURBO_ROW = row({ when: { not: SWAP_MODEL_TURBO }, slots: [{ s
  * carrying on where the reference route can run (the reference model there, or a hybrid picked).
  */
 const AFTER_SWAP: StartCondition = { all: [{ input: "afterSwap", is: true }, { input: "previous", filled: true }] };
+/**
+ * A window after a swap is distilled as the swap model's name says, as its graph reads it (motionTransfer.ts asSwap): the
+ * form's Distilled model is H3's own model's, saved per model by it, and "Yes" for the user's H3 file took MiniMax's ref2va
+ * for a distilled model in the window after a swap (release review 0.9.0, B6).
+ */
+const AFTER_SWAP_TURBO = named("swapModel", "swapUnet", namedFor.turbo);
 const MOTION_VIDEO = videoRow({ any: [{ input: "references", filled: true }, { input: "refVideos", filled: true }, { all: [{ input: "previous", filled: true }, { any: [named(undefined, "refUnet", /./), HYBRID_MODEL] }] }] });
 export const MOTION_TURBO_ROW = row({
-  when: { any: [{ all: [AFTER_SWAP, { not: SWAP_MODEL_TURBO }] }, { all: [{ not: AFTER_SWAP }, MOTION_VIDEO.when] }] },
+  when: { any: [{ all: [AFTER_SWAP, { not: AFTER_SWAP_TURBO }] }, { all: [{ not: AFTER_SWAP }, MOTION_VIDEO.when] }] },
   slots: [{ slot: "refTurbo", when: { any: [AFTER_SWAP, MOTION_VIDEO.slots[0]!.when!] } }, { slot: "turbo" }],
 });
 
@@ -85,7 +91,7 @@ export const MOTION_STARTS: StartRule[] = [{
   when: {
     all: [
       { input: "fast", is: true },
-      { any: [{ all: [AFTER_SWAP, { not: SWAP_MODEL_TURBO }] }, { all: [{ not: AFTER_SWAP }, MOTION_VIDEO.slots[0]!.when!, { not: REF_DISTILLED }] }] },
+      { any: [{ all: [AFTER_SWAP, { not: AFTER_SWAP_TURBO }] }, { all: [{ not: AFTER_SWAP }, MOTION_VIDEO.slots[0]!.when!, { not: REF_DISTILLED }] }] },
       REF_TURBO_4_STEPS,
     ],
   },
