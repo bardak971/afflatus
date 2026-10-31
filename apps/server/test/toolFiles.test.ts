@@ -177,6 +177,15 @@ describe("Finish › Face refine of a take that keeps no latent (SCAIL-2 at 24 f
     expect(files.map((f) => f.file)).not.toContain(SEEDVR);
   });
 
+  // card #192: the model picked in Finish is the one loaded, so the one sent; the fused turbo is not asked for beside it
+  it("sends the Face refine model picked in place of the fused turbo's slot", async () => {
+    const picked = "minimax_h3_ref2va_pruned_int8_convrot.safetensors";
+    const asset = await take(false);
+    const files = await waitingFiles(t.services, cut({ asset, action: "finish", route: "face", family: "scail", picture: "zz-test-picture", faceModel: picked }) as never, null);
+    expect(files.map((f) => f.file)).toContain(picked);
+    expect(files.map((f) => f.file)).not.toContain(get("faceRefineUnet").file);
+  });
+
   it("asks for Face refine's pack where it lacks, never SeedVR2's nodes; a machine of the user's own does without the person detector and SAM", async () => {
     const comfy = await t.services.comfy();
     const catalog = await comfy.catalog();

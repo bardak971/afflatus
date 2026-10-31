@@ -151,7 +151,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, models = { face: 
             </FieldRow>
           )}
           {(v.route === "face" || v.face) && refined > 0 && (
-            <FieldRow label="Face refine model" note={`The model the faces are redrawn with. As each clip's form: the Face refine model its form says (a Swap starts on its own model). ${OWN_MODEL}: the clip's model, with its turbo when Turbo is on, nothing more loaded. Any other file is a second model to load beside the clip's: more RAM, and the time to load it. 4 steps on a fused or distilled turbo or the clip's model with its turbo, more on a full model. H3 clips; the others keep their own`}>
+            <FieldRow label="Face refine model" note={`The model the faces are redrawn with. As each clip's form: the Face refine model its form says (a Swap starts on its own model). ${OWN_MODEL}: the clip's model, with its turbo when Turbo is on, nothing more loaded. Any other file is a second model to load beside the clip's: more RAM, and the time to load it. 4 steps on a fused or distilled turbo or the clip's model with its turbo, more on a full model. A SCAIL-2 or LTX 2.5 clip is redrawn with the file picked too; its own model is not H3's, so ${OWN_MODEL} is the fused turbo there`}>
               <Select label="Face refine model" value={v.faceModel ?? ""} onChange={(faceModel) => setV({ ...v, faceModel })} options={[{ value: "", label: "As each clip's form" }, ...(models.face.includes(OWN_MODEL) ? [{ value: OWN_MODEL, label: OWN_MODEL }] : []), ...models.face.filter((m) => m !== OWN_MODEL).map((m) => ({ value: m, label: fileLabel(m) }))]} />
             </FieldRow>
           )}

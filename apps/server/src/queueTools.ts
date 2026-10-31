@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ComfyCancelled, detect, waitForOutputs, type Measured, type OutputFile } from "@afflatus/comfy";
-import { choicesOf, GraphBuilder, TOOLS_FAMILY, type BuildContext, type Ref } from "@afflatus/core";
-import { AUDIO_LOCK, FACE_REFINE_NODES, faceRefined, faceRefineNeeds, faceRefineSkipped, pixelUpscale, RTX_NODES, saveVideo, sharpened, UPSCALE, upscaleNodes } from "@afflatus/recipes";
+import { choicesOf, GraphBuilder, OWN_MODEL, TOOLS_FAMILY, type BuildContext, type Ref } from "@afflatus/core";
+import { AUDIO_LOCK, FACE_REFINE_NODES, faceModelOf, faceRefined, faceRefineNeeds, faceRefineSkipped, pixelUpscale, RTX_NODES, saveVideo, sharpened, UPSCALE, upscaleNodes } from "@afflatus/recipes";
 import type { Comfy } from "./comfy";
 import { slowSoundOnto } from "./cut";
 import { finishedName, nameOf } from "./autoName";
@@ -192,8 +192,11 @@ export interface ToolNeeds {
   /** The node classes it cannot run without; `anyNode`: one of these at least (RTX VSR: NVIDIA's pack or DaSiWa's). */
   nodes: string[];
   anyNode?: string[];
-  /** Face refine's files (a Finish › Face refine of a take that keeps no latent): the family it is had from, and its slots. */
-  face?: { family: string; slots: string[] };
+  /**
+   * Face refine's files (a Finish › Face refine of a take that keeps no latent): the family it is had from, its slots, and the
+   * H3 model picked in place of its fused turbo's slot (card #192).
+   */
+  face?: { family: string; slots: string[]; model?: string };
 }
 
 /** Something a tool job did less well than asked, said on the job as a render's is (queue.ts warn). */
@@ -221,7 +224,7 @@ export async function toolNeeds(core: Pick<QueueCore, "db" | "storage">, row: Pi
   if (route === "face") {
     return {
       rife, seedvr: false, upscaleModel: null, nodes: ["LoadVideo", "GetVideoComponents", ...FACE_REFINE_NODES, ...(video.has_sound ? [AUDIO_LOCK] : []), ...(rife ? RIFE_NODES : [])],
-      ...(opts.family ? { face: { family: opts.family, slots: faceRefineNeeds({ faceRefine: true }, { own: true, picture: Boolean(opts.picture) }) } } : {}),
+      ...(opts.family ? { face: { family: opts.family, slots: faceRefineNeeds({ faceRefine: true, ...faceModelAsked(opts) }, { own: true, picture: Boolean(opts.picture) }), ...(pickedFace(opts) ? { model: pickedFace(opts) } : {}) } } : {}),
     };
   }
   const upscale = route === "rtx" ? UPSCALE.rtx : route === "model" ? UPSCALE.model : UPSCALE.seedvr;
@@ -389,13 +392,17 @@ async function runFaceFinish(core: QueueCore, row: JobRow, run: Running, clips: 
     const frames = Math.round(((doubled ? rawFacts!.durationMs : video.duration_ms ?? 0) / 1000) * fps);
     const options = asBuilt(catalog, (await core.packFacts?.().catch(() => null)) ?? ANY_PACKS, packsSaid(row));
     const ctx: BuildContext = { seed: Math.floor(Math.random() * 2 ** 31), slots, uploads: {}, media: {}, has: (n: string) => n in catalog, options: optionsIn(catalog), inputs: inputsIn(catalog), wants: options.wants };
-    const values = { faceRefine: true, faceRefineDenoise: opts.faceDenoise ?? 0.35, faceRefineSteps: 4, references: [], subject: "", quick: true };
+    // the H3 model picked in Finish (card #192: it was left out, the pass ran on the fused turbo whatever was picked), its
+    // steps by that model (4 on a turbo, more on a full model) as an H3 clip's pass takes them; none picked, the fused turbo at 4
+    const values = { faceRefine: true, faceRefineDenoise: opts.faceDenoise ?? 0.35, faceRefineSteps: pickedFace(opts) ? 0 : 4, ...faceModelAsked(opts), references: [], subject: "", quick: true };
     const why = faceRefineSkipped(values, ctx, { picture: pictureFile, own: true, audio: Boolean(sound) });
     if (why) throw new Error(why);
     const faces = faceRefined(g, ctx, values, [parts, 0], { audio: sound, picture: pictureFile, frames });
     if (!faces.pass) throw new Error("Not face-refined: its node pack (comfyui-h3-facerefine) or Afflatus's audio lock is not on this ComfyUI.");
     for (const { w, why: without } of options.without) await warnJob(core.db, row.id, ranWithoutSaid(w, without));
     if (faces.said) await warnJob(core.db, row.id, faces.said);
+    const ranOn = faceModelOf(values, slots);
+    if (opts.faceModel === OWN_MODEL) await warnJob(core.db, row.id, ownModelSaid(ranOn.file));
     let images = faces.images;
     if (rife) {
       // RIFE's 2n − 1 frames and the last one again: as long as the take
@@ -405,7 +412,7 @@ async function runFaceFinish(core: QueueCore, row: JobRow, run: Running, clips: 
     }
     g.phase("encoding");
     const outNode = saveVideo(g, ctx, { images, ...(sound ? { audio: sound } : {}), fps: video.fps ?? 24, crf: 16 });
-    const note = await toolNote(core, row, "tool.finish.face", slots.faceRefineUnet ?? "Face refine", `route=face;denoise=${values.faceRefineDenoise}`, (video.width ?? 0) * (video.height ?? 0) * Math.max(1, frames));
+    const note = await toolNote(core, row, "tool.finish.face", ranOn.file ?? "Face refine", `route=face;denoise=${values.faceRefineDenoise}`, (video.width ?? 0) * (video.height ?? 0) * Math.max(1, frames));
     const output = await followed(core, comfy, run, row, g, outNode, [...faces.loads, ...(rife ? [`frame_interpolation/${rife}`] : [])], note, resend);
     const bytes = await comfy.client.view(output);
     const kept = await onDraftGrid(core, video, await clips.range.keepCut(video, bytes, `${await nameOf(core.db, video)} · face refined`, 0, video.duration_ms ?? 0, folder));
@@ -414,6 +421,17 @@ async function runFaceFinish(core: QueueCore, row: JobRow, run: Running, clips: 
   }));
   if (opts.clip) await place(core, clips, opts.clip, made, "the finished take", opts.finishedFrom ?? null);
 }
+
+/** The H3 model a Finish › Face refine of a take's frames picked: a file, not the clip's own (which is not H3's here). */
+const pickedFace = (opts: Pick<CutOptions, "faceModel">): string | undefined => (opts.faceModel && opts.faceModel !== OWN_MODEL ? opts.faceModel : undefined);
+const faceModelAsked = (opts: Pick<CutOptions, "faceModel">): { faceRefineModel?: string } => (opts.faceModel ? { faceRefineModel: opts.faceModel } : {});
+
+/**
+ * Why a take's frames are redrawn on the fused turbo when the clip's own model was asked for: the model it was made with
+ * (SCAIL-2's, LTX 2.5's) is not H3's, and only H3 redraws a face here.
+ */
+export const ownModelSaid = (file: string | undefined): string =>
+  `Face refine ran on ${file ? `${file.split(/[\\/]/).pop()}, ` : ""}the fused turbo of Settings › Models: this clip's own model is not H3's.`;
 
 /** RIFE on the GPU: the range goes up to ComfyUI, a small graph interpolates it, the video comes back with the range's own sound slowed to match. */
 async function runSlowRife(core: QueueCore, row: JobRow, run: Running, clips: Timelines, video: AssetRow, opts: CutOptions, folder: string | null): Promise<void> {
