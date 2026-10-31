@@ -153,6 +153,13 @@ describe("every recipe, its inputs as parsed", () => {
     expect(h3Slots.filter((x) => x.onlyFor?.includes("h3.swap")).map((x) => x.id)).toEqual(["swapUnet", "swapLora", "swapSam", "veda"]);
   });
 
+  it("H3's video VAE takes the int8 file when both are there, the fp16 one when it is alone (card #171)", () => {
+    const vae = families.find((f) => f.id === "h3")!.slots.find((x) => x.id === "videoVae")!;
+    const pick = (files: string[]) => vae.detect.map((p) => new RegExp(p, "i")).map((re) => files.find((f) => re.test(f))).find(Boolean);
+    expect(pick(["minimax_h3_video_vae_fp16.safetensors", "minimax_h3_video_vae_int8_convrot.safetensors"])).toBe("minimax_h3_video_vae_int8_convrot.safetensors");
+    expect(pick(["minimax_h3_video_vae_fp16.safetensors"])).toBe("minimax_h3_video_vae_fp16.safetensors");
+  });
+
   it("Colour match leaves out a First frame the clip does not use, carrying on from a Previous clip (review K-6)", () => {
     let checked = 0;
     for (const r of recipes) {
