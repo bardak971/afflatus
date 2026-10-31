@@ -2,7 +2,7 @@ import { type Media } from "./cut";
 import { lookOf, takeMeasures, type Measure } from "./measure";
 import { cutLookedFor, RUN_UP_CUT_RECIPES } from "@afflatus/core";
 import { runUpBreak, runUpCut } from "./joinScore";
-import type { Db } from "./db";
+import { now, type Db } from "./db";
 import { ffmpegPool } from "./pool";
 import { keptKey, keptMotion, type TimelineMedia } from "./timelineMedia";
 
@@ -37,6 +37,9 @@ interface Unit {
   slow: boolean;
 }
 
+/** The setting that says every take's video has had its length read again as its picture's (card #207); its value: when. */
+const PICTURE_LENGTHS = "videoLength.pictureRead";
+
 /** The background measure of each database's server (one per createServices): what the hooks in the stores reach. */
 const of = new WeakMap<object, Precompute>();
 
@@ -60,7 +63,7 @@ export class Precompute {
 
   constructor(
     private readonly db: Db,
-    private readonly media: Pick<TimelineMedia, "motion" | "strip" | "means" | "joins" | "missing" | "measureTogether"> & Partial<Pick<TimelineMedia, "runUpCut">>,
+    private readonly media: Pick<TimelineMedia, "motion" | "strip" | "means" | "joins" | "missing" | "measureTogether"> & Partial<Pick<TimelineMedia, "runUpCut" | "pictureLength">>,
     opts: PrecomputeOptions = {},
   ) {
     this.opts = { settleMs: opts.settleMs ?? 3_000, backfillAfterMs: opts.backfillAfterMs === undefined ? 60_000 : opts.backfillAfterMs, perMinute: opts.perMinute ?? 30, run: opts.run ?? ffmpegPool };
@@ -102,9 +105,10 @@ export class Precompute {
     if (this.stopped) return;
     const timelines = await this.db.selectFrom("timelines").select("id").orderBy("updated_at", "desc").execute();
     for (const t of timelines) this.add(`timeline:${t.id}`, { slow: true, work: () => this.readTimeline(t.id, true) });
+    const media = this.media;
+    await this.pictureLengths();
     // the takes that carry on, measured before a cut after their run-up was looked for (card #161): each one looked at
     // (H3's: the detector is made for its frames, cutLookedFor)
-    const media = this.media;
     if (!media.runUpCut) return;
     const runUps = await this.db
       .selectFrom("takes")
@@ -118,6 +122,36 @@ export class Precompute {
       .orderBy("takes.created_at", "desc")
       .execute();
     for (const r of runUps) this.add(`runup:${r.asset}`, { slow: true, work: () => this.opts.run(() => media.runUpCut!(r.asset).then(() => {}), { last: true }).catch(() => {}) });
+  }
+
+  /**
+   * The takes' videos with sound stored before their length was their picture's (card #207), newest first: each read once
+   * more, its length and the joins set from it made right where its sound ran past its picture (TimelineMedia.pictureLength).
+   * Once every one has been read, the setting says so and they are not read again.
+   */
+  private async pictureLengths(): Promise<void> {
+    const media = this.media;
+    if (!media.pictureLength) return;
+    if (await this.db.selectFrom("settings").select("key").where("key", "=", PICTURE_LENGTHS).executeTakeFirst()) return;
+    const videos = await this.db
+      .selectFrom("assets")
+      .select("id")
+      .where("kind", "=", "video")
+      .where("has_sound", "=", 1)
+      .where("duration_ms", "is not", null)
+      .where("id", "in", (eb) => eb.selectFrom("takes").select("asset_id"))
+      .orderBy("created_at", "desc")
+      .execute();
+    const read = () => this.db.insertInto("settings").values({ key: PICTURE_LENGTHS, value: now(), updated_at: now() }).onConflict((oc) => oc.column("key").doNothing()).execute();
+    if (!videos.length) return void (await read());
+    // said once the last one is through (a stop forgets the rest: read again at the next start)
+    let left = videos.length;
+    const counted = async () => {
+      if (--left === 0 && !this.stopped) await read();
+    };
+    for (const v of videos) {
+      this.add(`length:${v.id}`, { slow: true, work: () => this.opts.run(() => media.pictureLength!(v.id), { last: true }).catch(() => false).then(counted) });
+    }
   }
 
   /** How many units wait (for tests and the log). */

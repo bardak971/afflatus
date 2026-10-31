@@ -147,7 +147,7 @@ const LISTS = new Set(["hls", "applehttp", "dash", "concat"]);
  */
 export async function probeMediaFile(file: string): Promise<ProbedMedia | null> {
   // read only as a real container: a manifest is refused before ffprobe opens what it names (video.ts readAs)
-  const out = await must(tools.ffprobe, readAs("stranger", ["-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height,avg_frame_rate:format=format_name,duration", "-of", "json", file])).catch(() => null);
+  const out = await must(tools.ffprobe, readAs("stranger", ["-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height,avg_frame_rate,duration:stream_tags=DURATION:format=format_name,duration", "-of", "json", file])).catch(() => null);
   if (!out) return null;
   try {
     const info = JSON.parse(out) as { streams?: Array<{ codec_type?: string; codec_name?: string }>; format?: { format_name?: string; duration?: string } };
@@ -163,7 +163,9 @@ export async function probeMediaFile(file: string): Promise<ProbedMedia | null> 
       ? has("webm") || has("matroska") ? "video/webm" : "video/mp4"
       : has("wav") ? "audio/wav" : has("mp3") ? "audio/mpeg" : has("flac") ? "audio/flac" : has("ogg") ? "audio/ogg" : has("mp4") || has("m4a") || has("mov") ? "audio/mp4" : null;
     if (!mime) return null;
-    return { kind: video ? "video" : "audio", mime, durationMs: Math.round(Number(info.format?.duration ?? 0) * 1000), facts: video ? factsOf(info as ProbeInfo) : null };
+    // a video lasts as long as its picture (factsOf), a sound as its file
+    const facts = video ? factsOf(info as ProbeInfo) : null;
+    return { kind: video ? "video" : "audio", mime, durationMs: facts?.durationMs ?? Math.round(Number(info.format?.duration ?? 0) * 1000), facts };
   } catch {
     return null;
   }

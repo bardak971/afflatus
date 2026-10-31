@@ -11,8 +11,8 @@ import { extOf, newAssetRow, pngSize } from "./media";
 import { sourceOf } from "./storage";
 import { folderForMade } from "./timelineFolder";
 import { makeThumb, thumbKey } from "./thumbs";
-import { readVideo, videoFacts } from "./video";
-import { joinFade, lengthOf, playingAs, sameMaking, seamless, stripKey, visible, type AssetRow, type Placed, type Taken, type TimelineCore } from "./timelineModel";
+import { inVideoFile, probeVideo, readVideo, videoFacts } from "./video";
+import { joinFade, lengthOf, lengthOnGrid, playingAs, sameMaking, seamless, stripKey, visible, type AssetRow, type Placed, type Taken, type TimelineCore } from "./timelineModel";
 
 /**
  * What the timelines read out of their videos: a frame as a picture, the film strip, the motion and
@@ -95,6 +95,49 @@ export class TimelineMedia {
     if (!now?.measure) return false;
     await db.updateTable("generations").set({ measure: JSON.stringify({ ...(JSON.parse(now.measure) as Measure), runUpCut: cut }) }).where("id", "=", row.generation).execute();
     return true;
+  }
+
+  /**
+   * A take's video stored with the length of its longest stream, its sound running past its picture (a pod's smoothed
+   * render: 35–113 ms of padded sound, card #207): its length made its picture's, and what was set from the longer one
+   * with it. The clips carried on from its end were handed over past its last frame, and now carry on from its end; one
+   * trimmed by hand keeps showing the frame it stopped on (its trim made that much shorter). Its file and its render are
+   * not touched. A video whose stored length is its picture's within half a frame is left as it is, so a second pass
+   * changes nothing. True when something was set.
+   */
+  async pictureLength(assetId: string): Promise<boolean> {
+    const { db } = this.core;
+    const asset = await db.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirst();
+    if (!asset || asset.kind !== "video" || !asset.duration_ms) return false;
+    const source = await this.source(asset);
+    const facts = typeof source === "string" ? await videoFacts(source) : (await inVideoFile(source, extOf(asset.mime), probeVideo)).facts;
+    if (!facts?.durationMs || asset.duration_ms - facts.durationMs <= 500 / (facts.fps || asset.fps || 24)) return false;
+    const takes = await db.selectFrom("takes").innerJoin("clips", "clips.id", "takes.clip_id").select(["takes.id as id", "clips.timeline_id as timeline"]).where("takes.asset_id", "=", assetId).execute();
+    const after = takes.length ? await db.selectFrom("takes").innerJoin("clips", "clips.id", "takes.clip_id").select("clips.timeline_id as timeline").where("takes.prev_take_id", "in", takes.map((t) => t.id)).execute() : [];
+    // in the turn of every timeline it changes, in one order (two passes never wait on each other), as one transaction
+    const turns = [...new Set([...takes, ...after].map((t) => t.timeline))].sort();
+    const work = () => db.transaction().execute(async (tx) => {
+      const now = await tx.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirst();
+      // changed meanwhile (set by another pass, or the file written again): left to that
+      if (!now || now.duration_ms !== asset.duration_ms) return false;
+      const shift = lengthOnGrid(now) - lengthOnGrid({ ...now, duration_ms: facts.durationMs });
+      const length = lengthOnGrid(now) - shift;
+      await tx.updateTable("assets").set({ duration_ms: facts.durationMs }).where("id", "=", assetId).execute();
+      if (shift <= 0) return true;
+      for (const t of await tx.selectFrom("takes").select(["id", "tail_ms", "trim_end_ms"]).where("asset_id", "=", assetId).execute()) {
+        // its out point on the same frame (the moments past its picture showed its last frame: its end now)
+        if (t.trim_end_ms > 0) await tx.updateTable("takes").set({ trim_end_ms: Math.max(0, t.trim_end_ms - shift) }).where("id", "=", t.id).execute();
+        // a clip after carried on from a moment past its picture: from its end now
+        await tx.updateTable("takes").set({ prev_at_ms: length - t.tail_ms }).where("prev_take_id", "=", t.id).where("prev_at_ms", ">", length - t.tail_ms).execute();
+      }
+      return true;
+    });
+    const set = await turns.reduceRight<() => Promise<boolean>>((next, key) => () => this.core.oneAtATime(key, next), work)();
+    if (set) {
+      this.core.events.emit("library", { change: "fields", items: [assetId] } satisfies LibraryChange);
+      if (takes.length) this.core.events.emit("timeline");
+    }
+    return set;
   }
 
   /**
