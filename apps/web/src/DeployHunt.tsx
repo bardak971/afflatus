@@ -9,7 +9,7 @@ import { Checkbox, Chip, cx, ErrorNote, Help, NumberBox, Segmented } from "./ui"
 
 /** The ceiling is the GPU's price, as the ranking's prices are: the disk's part depends on the disk picked, not on the GPU. */
 const WHY_CEILING = "The highest price an hour of the GPU itself, as RunPod lists it and as the table below says it. The pod's own disk adds a little to it while it runs ($0.10/GB a month); a network volume is billed apart.";
-const WHY_MODE = "What the hunt deploys first, among the GPUs ticked that fit these renders and are within your price. Best value: the lowest cost a render (its time on that GPU times its price an hour). Fastest: the shortest render. Cheapest an hour: the lowest price an hour. A render's time comes from your own renders on that GPU; a guess from a GPU you rendered on until you have some.";
+const WHY_MODE = "What the hunt deploys first, among the GPUs ticked that fit these renders and are within your price. Best value: the lowest cost a render all told (its time on that GPU for these forms times its price an hour, with its share of a deploy's boot and idle); within 10 %, the faster GPU. Fastest: the shortest render. Cheapest an hour: the lowest price an hour. A render's time comes from your own renders on that GPU; a guess from a GPU you rendered on until you have some, counted 30 % dearer.";
 const WHY_TABLE = "Ticked: the hunt may deploy it. Fits these renders: no file of the renders waiting is larger than its memory, nor ran out of memory on it before. Now: RunPod's stock where the pod would go. The first GPU in this order that is free is deployed, once.";
 const WHY_HOLD = "Hold: the home machines are paused (a render under way finishes first) so that every render waiting goes to the GPU found; they go on when its pod stops, or when the hunt ends without one. Keep rendering: they go on, and the GPU found takes its share.";
 
@@ -33,10 +33,12 @@ const COLS = "grid-cols-[28px_minmax(0,1fr)_72px_150px_150px_92px]";
  * for the renders waiting (a tick leaves one out), what the home machines do meanwhile and when it gives up. The dialog
  * keeps its other choices (image, disk, when done, models): the hunt deploys with them.
  */
-export function HuntSection({ ask, change, ranking, stepDown = [], overhead, failed, pending, volume, warning }: {
+export function HuntSection({ ask, change, ranking, waiting, stepDown = [], overhead, failed, pending, volume, warning }: {
   ask: HuntAsk;
   change(c: Partial<HuntAsk>): void;
   ranking: RankedGpu[] | null;
+  /** How many renders wait: a deploy's own cost is shared among them. */
+  waiting: number;
   /** The GPUs the dialog left out at first (a step down from the one wanted), not the user: their row says so. */
   stepDown?: string[];
   /** What a deploy bills besides its renders, from the user's sessions; null when none tells it yet. */
@@ -92,7 +94,7 @@ export function HuntSection({ ask, change, ranking, stepDown = [], overhead, fai
           <span><Help text={WHY_TABLE} /></span>
           <span>GPU</span>
           <span className="text-right">GPU $/h</span>
-          <span className="flex items-center justify-end gap-1">A render <Help text={renderWhy(overhead)} /></span>
+          <span className="flex items-center justify-end gap-1">$ / render <Help text={renderWhy(overhead)} /></span>
           <span>Fits these renders</span>
           <span>Now</span>
         </div>
@@ -109,9 +111,9 @@ export function HuntSection({ ask, change, ranking, stepDown = [], overhead, fai
             </span>
             <span className="text-right font-mono text-xs">{usd(g.price)}</span>
             <span className="flex flex-col items-end">
-              <span className={cx("text-xs", g.cost === null ? "text-ink-3" : "font-mono")}>{renderSaid(g)}</span>
-              {g.cost !== null && <span className="text-meta text-ink-3">{g.timeSaid}</span>}
-              {deploySaid(g) && <span className="text-meta text-ink-3">{deploySaid(g)}</span>}
+              <span className={cx("text-xs", g.perRender === null ? "text-ink-3" : "font-mono")}>{renderSaid(g)}</span>
+              {g.perRender !== null && <span className="text-meta text-ink-3">{g.timeSaid}</span>}
+              {g.perRender !== null && deploySaid(g, waiting) && <span className="text-meta text-ink-3">{deploySaid(g, waiting)}</span>}
             </span>
             <span className={cx("text-xs", g.fit === "yes" ? "text-good" : "text-ink-2")}>{fitsSaid(g, stepDown.includes(g.id) && !ticked.current.has(g.id))}</span>
             <span className="flex items-center gap-1.5 text-xs text-ink-2"><span className={cx("size-2 shrink-0 rounded-full", STOCK_DOT[g.stock])} />{g.stock}</span>
@@ -120,7 +122,7 @@ export function HuntSection({ ask, change, ranking, stepDown = [], overhead, fai
       </div>
       <span className="-mt-1.5 text-xs text-ink-3">
         {volume ? `On the volume “${volume.name}” in ${volume.dataCenter}: the hunt looks in that data center only. ` : ""}
-        A render's time and cost come from your own renders on that GPU; a guess until you have some.
+        A render's time and cost come from your own renders on that GPU, on these forms; a guess until you have some.
       </span>
 
       <div className="flex items-start gap-3">

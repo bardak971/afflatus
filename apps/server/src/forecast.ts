@@ -817,9 +817,9 @@ export async function machinePaces(db: Db): Promise<Paces> {
  * GPU hunt (hunt.ts) ranks RunPod's GPUs by. A GPU compared with nothing is left out (the hunt guesses it from the table);
  * with one GPU rendered on, it is the common pace (1).
  */
-export async function gpuPaces(db: Db): Promise<Array<{ gpu: string; pace: number; renders: number }>> {
+export async function gpuPaces(db: Db): Promise<Array<{ gpu: string; pace: number; renders: number; families: Record<string, number> }>> {
   const rows = await paceRows(db);
   const names = new Map<string, string>();
   for (const r of rows) if (r.gpu && !names.has(gpuKey(r.gpu))) names.set(gpuKey(r.gpu), r.gpu);
-  return [...paceScales(rows).cards].map(([card, c]) => ({ gpu: names.get(card)!, pace: c.pace, renders: c.renders }));
+  return [...paceScales(rows).cards].map(([card, c]) => ({ gpu: names.get(card)!, pace: c.pace, renders: c.renders, families: Object.fromEntries(c.families) }));
 }

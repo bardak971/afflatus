@@ -9,7 +9,7 @@ const hunt = (over: Partial<HuntSummary> = {}): HuntSummary => ({
   status: "hunting", startedAt: new Date(T0).toISOString(), giveUpAt: new Date(T0 + 2 * 3_600_000).toISOString(), hold: "rest", held: 6, firstPick: null, machine: null, ...over,
 });
 const gpu = (id: string, fit: RankedGpu["fit"], over: Partial<RankedGpu> = {}): RankedGpu => ({
-  id, name: id, price: 0.69, memory: 24, fit, fits: fit, seconds: 130, cost: 0.025, learned: 0, overhead: null, timeSaid: "a guess", stock: "none free", rank: 1, ...over,
+  id, name: id, price: 0.69, memory: 24, fit, fits: fit, seconds: 130, cost: 0.025, learned: 0, overhead: null, perRender: 0.025, guess: true, timeSaid: "a guess from your RTX 4090's renders, may be 30 % off", stock: "none free", rank: 1, ...over,
 });
 const machine = (id: string, rented = false) => ({ id, rented: rented ? { status: "RUNNING" } : null }) as unknown as MachineState;
 const queue = (h: HuntSummary | null, machines: MachineState[]) => ({ hunt: h, machines }) as Pick<QueueStatus, "hunt" | "machines">;
@@ -30,14 +30,16 @@ describe("the GPU hunt in words", () => {
   });
 
   it("says a render as cost and time, or not known", () => {
-    expect(renderSaid({ cost: 0.025, seconds: 130 })).toBe("$0.025 · 2 min 10 s");
-    expect(renderSaid({ cost: null, seconds: null })).toBe("not known yet");
+    expect(renderSaid({ perRender: 0.025, seconds: 130 })).toBe("$0.025 · 2 min 10 s");
+    expect(renderSaid({ perRender: null, seconds: null })).toBe("not known yet");
   });
 
   it("says what a deploy bills besides its renders, and where that comes from in its \"?\"", () => {
     // the 2000 Ada's session: 12.8 min billed for 1.1 min of rendering; a render's cost alone said a tenth of it
-    expect(deploySaid({ overhead: (0.24 * (5 * 60_000 + 6.5 * 60_000)) / 3_600_000 })).toBe("+$0.046 a deploy");
-    expect(deploySaid({ overhead: null })).toBeNull();
+    expect(deploySaid({ overhead: (0.24 * (5 * 60_000 + 6.5 * 60_000)) / 3_600_000 }, 1)).toBe("incl. $0.046 a deploy");
+    // shared among the renders waiting, as $ / render counts it
+    expect(deploySaid({ overhead: 0.046 }, 3)).toBe("incl. $0.046 a deploy ÷ 3");
+    expect(deploySaid({ overhead: null }, 3)).toBeNull();
     const why = renderWhy({ bootMs: 5 * 60_000, idleMs: 390_000, fetchMs: 3 * 60_000, sessions: 4 });
     expect(why).toContain("their usual files fetched (3 min, none with a network volume)");
     expect(renderWhy({ bootMs: 5 * 60_000, idleMs: 390_000, fetchMs: 0, sessions: 4 })).not.toContain("files fetched");
@@ -45,6 +47,9 @@ describe("the GPU hunt in words", () => {
     expect(why).toContain("usual idle before they stop (6 min 30 s)");
     expect(why).toContain("from your last 4 sessions");
     expect(renderWhy(null)).toContain("once you have a session that ended");
+    expect(why).toContain("divided among the renders waiting");
+    // the tie and the guess, said in the "?" with the figures the ranking takes
+    for (const w of [why, renderWhy(null)]) expect(w).toMatch(/within 10 % of each other, the faster GPU first.*counted 30 % dearer/);
   });
 
   it("offers its give-up times, with one kept from before", () => {

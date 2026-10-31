@@ -549,10 +549,10 @@ describe("the costs of a window", () => {
     const offer = (name: string, price: number): RankOffer => ({ id: `NVIDIA ${name}`, name, memory: 48, price, availability: "HIGH", dataCenters: [] });
     const v = await view({ offers: [offer("A40", 0.6), offer("RTX 4090", 0.69)] });
     const rows = v.renderCosts.filter((r) => r.key === "scail.motion\nscail.safetensors" && r.where !== "home");
-    // the 4090 at about 0.45 of the A40's time (the table's 0.45 against 1): 4.5 min at $0.69/h
+    // the 4090 at 0.39 of the A40's time (the table's 0.39 against 1): 3.9 min at $0.69/h
     expect(rows.map((r) => [r.where, r.on])).toEqual([["pod", "A40"], ["guess", "RTX 4090"]]);
-    expect(rows[1]!.ms).toBe(270_000);
-    expect(rows[1]!.usd).toBeCloseTo((270 / 3600) * 0.69, 6);
+    expect(rows[1]!.ms).toBe(234_000);
+    expect(rows[1]!.usd).toBeCloseTo((234 / 3600) * 0.69, 6);
     expect(v.advice.find((a) => a.kind === "gpu")?.title).toBe("scail.motion may cost less on an RTX 4090");
   });
 
