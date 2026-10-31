@@ -217,7 +217,7 @@ export const kleinPaintOver = defineRecipe<KleinPaintOver>({
   inputs: [
     kleinModel,
     { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
-    { id: "mask", type: "image", role: "mask", of: "source", label: "Mask", note: "the part to redo, painted over the picture" },
+    { id: "mask", type: "image", role: "mask", of: "source", label: "Inpaint mask", note: "the part to redo, painted over the picture" },
     { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: "Replace the cup with a glass of orange juice. Keep everything else the same." },
     { id: "strength", type: "number", label: "Denoising strength", note: "1 redoes the masked part from the prompt; lower only touches it up", min: 0.1, max: 1, step: 0.05, default: 1 },
     { id: "references", type: "references", label: "Reference images", max: 3, roles: [...ALL_ROLES], note: "optional: the person whose face it is, the thing to put there", advanced: true },

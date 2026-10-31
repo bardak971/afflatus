@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type PacksStarted } from "../api";
 import { useDownloads } from "../useGetFile";
-import { Button } from "../ui";
+import { Button, Failed } from "../ui";
 import { plural } from "../format";
 import { queryKeys } from "../queryKeys";
 
@@ -115,13 +115,13 @@ export function PackInstallActions({ install, named, missingLeft }: {
           <>
             <span>{back === "waiting" ? `ComfyUI is restarting; ${again.what} is read again as soon as it answers…` : `${plural(status.data!.installed, "pack")} installed since ComfyUI started: it loads them at start.`}</span>
             {back !== "waiting" && restartButton}
-            {restart.isError && <span>{(restart.error as Error).message}</span>}
+            {restart.isError && <Failed inline what="ComfyUI not restarted" error={restart.error} />}
           </>
         )
         : !started
         ? <Button size="sm" tone="primary" onClick={() => start.mutate()} disabled={noManager || start.isPending}>{start.isPending ? "Asking ComfyUI-Manager…" : `Install ${named === 1 ? "the pack" : `the ${named} packs`} with ComfyUI-Manager`}</Button>
         : status.isError
-          ? <span>{(status.error as Error).message}</span>
+          ? <Failed inline what="No word from ComfyUI-Manager" error={status.error} />
         : gaveUp
           ? <span>ComfyUI-Manager has not said for {WATCH_MS / 60_000} minutes how the installs went: see ComfyUI's log, then restart ComfyUI.</span>
         : !allDone
@@ -134,11 +134,11 @@ export function PackInstallActions({ install, named, missingLeft }: {
                 <>
                   <span>{failed ? `${plural(states.length - failed, "pack")} installed, ${failed} failed (see above).` : "Installed."} ComfyUI loads node packs at start.</span>
                   {restartButton}
-                  {restart.isError && <span>{(restart.error as Error).message}</span>}
+                  {restart.isError && <Failed inline what="ComfyUI not restarted" error={restart.error} />}
                 </>
               )}
       {noManager && <span>ComfyUI-Manager was not found in your ComfyUI: turn it on first (Settings → Models → Missing models says how).</span>}
-      {start.isError && <span>{(start.error as Error).message}</span>}
+      {start.isError && <Failed inline what="Install not started" error={start.error} />}
       {notBack && <span>{notBack}</span>}
     </div>
   );

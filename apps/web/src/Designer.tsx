@@ -11,7 +11,7 @@ import { SystemView } from "./designer/SystemView";
 import { keep, recall } from "./designer/typed";
 import type { DesignerTurn } from "./designer/types";
 import { useLeave } from "./leave";
-import { AutoText, Button, CloseButton, cx, ErrorNote, Help, IconButton } from "./ui";
+import { AutoText, Button, CloseButton, cx, ErrorNote, Failed, Help, IconButton } from "./ui";
 import { queryKeys } from "./queryKeys";
 
 /** What the designer said, as text again: the language model is shown its own earlier answers. */
@@ -244,7 +244,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
         />
       )}
       <div className={cx("flex min-h-0 grow flex-col gap-3 overflow-y-auto p-4", showingSystem && "hidden")}>
-        {remember.isError && <ErrorNote>{remember.error.message}</ErrorNote>}
+        {remember.isError && <Failed what="Not saved" error={remember.error} />}
         {!ready && settings.isSuccess && (
           <ErrorNote>The designer has no LLM yet. <Link href={settingHref("designer.llms")} className="font-semibold underline">Add one in Settings</Link>: any OpenAI-compatible API works, on your computer or elsewhere.</ErrorNote>
         )}
@@ -292,7 +292,7 @@ export function Designer({ recipe, values, onApply, turns, onTurns, session, onS
         )}
         {turns.slice(cut).map((t, i) => turnView(t, i + cut))}
         {say.isPending && <div className="self-start rounded-xl border border-line px-3 py-2 text-ink-2">Generating…</div>}
-        {say.isError && <ErrorNote>{say.error.message}</ErrorNote>}
+        {say.isError && <Failed what="No answer from the designer" error={say.error} />}
         <div ref={end} />
       </div>
       <form

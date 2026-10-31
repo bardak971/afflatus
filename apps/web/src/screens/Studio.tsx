@@ -15,6 +15,7 @@ import { LoadMore } from "../LoadMore";
 import { BinStrip } from "./studio/BinStrip";
 import { DraftResults } from "./studio/DraftResults";
 import { groupItems } from "./studio/grouping";
+import { TimelineCardsWaiting } from "./studio/timelineShape";
 import { fuzzyScore } from "@afflatus/core";
 import { LibraryHeader } from "./studio/LibraryHeader";
 import { LiveTile } from "./studio/LiveTile";
@@ -256,7 +257,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
             <>
               {assets.isError && <Failed what="The library could not be read" error={assets.error} />}
               {place.type === "bin" && <BinStrip />}
-              {showTimelines && <Suspense fallback={null}><TimelineCards timelines={shownTimelines} ready={timelines.isSuccess} place={place} size={view.timelineSize ?? "M"} searched={Boolean(q)} /></Suspense>}
+              {showTimelines && <Suspense fallback={<TimelineCardsWaiting size={view.timelineSize ?? "M"} />}><TimelineCards timelines={shownTimelines} ready={timelines.isSuccess} place={place} size={view.timelineSize ?? "M"} searched={Boolean(q)} /></Suspense>}
               {!showTimelines && assets.isSuccess && !items.length && !running && (
                 <Empty
                   title={filtered ? "No match" : place.type === "bin" ? "The bin is empty" : place.type === "folder" ? "This folder is empty" : "Nothing here yet"}

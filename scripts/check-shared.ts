@@ -272,8 +272,9 @@ export const DESIGN_RULES: DesignRule[] = [
   {
     id: "bare-error",
     why: "an error's message shown bare ({x.error.message}), with no word of what failed: use <Failed what=\"Not saved\" error={…} /> (ui.tsx), or useSayFailed/failedBanner with its place (card #177)",
-    // an expression child or a value of its own, not a template's ${…} nor an attribute (a tip may repeat what is said beside it)
-    count: (f, t) => (KIT.test(f) ? 0 : matches(/(?<![$=]\s*)\{(?:[A-Za-z_][\w.?!]*)?(?:error|Error|err|failed)\??\.message\}/g, t)),
+    // an expression child or a value of its own, not a template's ${…} nor an attribute (a tip may repeat what is said beside it);
+    // a bracketed one too: one of several actions' errors, `{(save.error ?? remove.error)?.message}`, `{(x.error as Error).message}`
+    count: (f, t) => (KIT.test(f) ? 0 : matches(/(?<![$=]\s*)\{(?:(?:[A-Za-z_][\w.?!]*)?(?:error|Error|err|failed)|\([^(){}]*(?:error|Error|err|failed)[^(){}]*\))[?!]?\.message\}/g, t)),
   },
   {
     id: "animate-motion",

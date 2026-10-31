@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CopyPlus, Eye, Link2, MapPin, Play, Plus, Sparkles, Trash2, User, X, FileDown, Upload, Pencil } from "lucide-react";
+import { CopyPlus, Eye, Link2, MapPin, Play, Sparkles, Trash2, User, X, FileDown, Upload, Pencil } from "lucide-react";
 import { fuzzyFilter } from "@afflatus/core";
 import { useLocation } from "wouter";
 import { api, thumbUrl, type Entity, type RecipeInfo } from "../api";
@@ -12,7 +12,8 @@ import { ContextMenu, groups, headLine, useMenu, type MenuItem } from "../Contex
 import { handPreset } from "../handoff";
 import { useStudio } from "../store";
 import { Thumb } from "../Thumb";
-import { Button, cx, Empty, ErrorNote, Help } from "../ui";
+import { Button, cx, Empty, Failed, Help } from "../ui";
+import { firstFailed } from "../sayFailed";
 import { ask, askText } from "../Confirm";
 import { copyText } from "../secureContext";
 import { ItemHeader, noteOfDelete } from "./kit/ItemHeader";
@@ -175,6 +176,7 @@ export function People() {
       setOpen(made.id);
     },
   });
+  const failed = firstFailed([["Prompt kit not loaded", entities], ["Not made", create], ["Snippet not made", createSnippet], ["Not deleted", remove], ["Not imported", doImport]]);
 
   const here = TABS.find((t) => t.id === tab)!;
   const mine = all.filter((e) => e.kind === tab);
@@ -218,8 +220,8 @@ export function People() {
       : tab === "style" ? "A style is LoRAs and prompt text, set up for the models you use it with."
         : "A preset is generation parameters kept under a name: a model and what you set on its form, a prompt, the references. Everything in it is optional. Save one from the form in Studio, under \"Model\", start an empty one here, or copy one of the shipped ones.";
   /**
-   * The head of the list: the word when the search finds nothing, and on an empty tab the next step where
-   * the rows would be (the New button at the top right was the only way in, far from the empty column).
+   * The head of the list: the word when the search finds nothing, and on an empty tab that it is empty; the way in is the
+   * header's New, said in the pane beside (card #179: a second New here made two buttons for one act).
    */
   const head = entities.isLoading
     // the kit on its way: rows as the list draws them, with the loading shine, rather than an empty list or "No … yet"
@@ -227,13 +229,7 @@ export function People() {
     : mine.length > 0 && found.length === 0
     ? <div className="px-2 py-6 text-center text-xs text-ink-2">None of your {here.title.toLowerCase()} has these words.</div>
     : entities.isSuccess && mine.length === 0 && (
-      <Empty
-        title={`No ${here.title.toLowerCase()} yet`}
-        help={explain}
-        helpTitle={here.title}
-        // plain: the header's New button is the page's one coral action, this is the same act where the rows would be
-        action={<Button size="sm" disabled={create.isPending} onClick={onNew}><Plus size={13} /> {here.add}</Button>}
-      />
+      <Empty title={`No ${here.title.toLowerCase()} yet`} help={explain} helpTitle={here.title} />
     );
 
   return (
@@ -245,7 +241,7 @@ export function People() {
       />
 
       {rowMenu.menu && <ContextMenu at={rowMenu.menu.at} label="Actions on this item" head={{ title: rowMenu.menu.subject.name, sub: headLine(KIND_WORD[rowMenu.menu.subject.kind], summaryOf(rowMenu.menu.subject, recipeList)) }} items={rowItems(rowMenu.menu.subject)} onClose={rowMenu.close} />}
-      {(entities.isError || create.isError || createSnippet.isError || remove.isError || doImport.isError) && <div className="px-6 pt-3"><ErrorNote>{(entities.error ?? create.error ?? createSnippet.error ?? remove.error ?? doImport.error)?.message}</ErrorNote></div>}
+      {failed && <div className="px-6 pt-3"><Failed what={failed.what} error={failed.error} /></div>}
 
       {tab === "snippet" ? (
         <main className="min-h-0 grow overflow-y-auto px-6 pt-4 pb-8">
@@ -297,7 +293,8 @@ export function People() {
               <div className="flex max-w-[820px] flex-col items-center gap-3 pt-24 text-center">
                 <span className="text-ink-3">{here.icon}</span>
                 <h2 className="flex items-center gap-2 text-base font-semibold">
-                  {/* an empty tab says so once, in the list column, beside its New button */}
+                  {/* an empty tab: the way in, the header's New (a person's photos are dropped on the person, once made) */}
+                  {entities.isSuccess && mine.length === 0 && (tab === "person" ? "Click New, then drop the person's photos on it" : `Click New to make ${tab === "place" ? "a place" : tab === "style" ? "a style" : "a preset"}`)}
                   {mine.length > 0 && <>Choose {tab === "person" ? "a person" : tab === "place" ? "a place" : tab === "style" ? "a style" : "a preset"} on the left <Help text={explain} title={here.title} /></>}
                 </h2>
               </div>

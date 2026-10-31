@@ -53,7 +53,7 @@ describe("H3 · Face refine model (card #159)", () => {
       expect(inputs[at - 1]?.id, id).toBe("faceRefine");
       expect(inputs[at], id).toMatchObject({ type: "model", label: "Face refine model", folder: "diffusion_models", slot: "faceRefineUnet", own: true, showWhen: "faceRefine", section: "out" });
       // the "?" says what another model costs
-      expect(String(inputs[at]!.note), id).toMatch(/second model to load.*RAM/);
+      expect(String(inputs[at]!.note), id).toMatch(/second model in RAM/);
     }
     for (const id of ["scail.motion24", "ltx25.video"]) expect(recipeById(id)?.inputs.some((i) => i.id === "faceRefineModel"), id).toBe(false);
   });

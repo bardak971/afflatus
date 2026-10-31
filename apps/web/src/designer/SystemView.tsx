@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Copy } from "lucide-react";
 import { api } from "../api";
-import { Button, CloseButton, ErrorNote } from "../ui";
+import { Button, CloseButton, Failed } from "../ui";
 import { queryKeys } from "../queryKeys";
 import { useCopied } from "../hooks";
 
@@ -19,7 +19,7 @@ export function SystemView({ body, onClose }: { body: Parameters<typeof api.desi
         </Button>
         <CloseButton size={28} label="Close the system prompt" onClose={onClose} />
       </div>
-      {q.isError && <ErrorNote>{q.error.message}</ErrorNote>}
+      {q.isError && <Failed what="System prompt not loaded" error={q.error} />}
       <pre className="min-h-0 grow overflow-auto px-4 pb-3 font-mono text-meta leading-relaxed whitespace-pre-wrap text-ink">{q.data?.system ?? (q.isPending ? "…" : "")}</pre>
     </div>
   );

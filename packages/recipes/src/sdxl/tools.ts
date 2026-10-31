@@ -84,7 +84,7 @@ export const sdxlPaintOver = defineRecipe<SdxlPaintOver>({
   output: "image",
   inputs: [
     { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
-    { id: "mask", type: "image", role: "mask", of: "source", label: "Mask", note: "the part to redo, painted over the picture" },
+    { id: "mask", type: "image", role: "mask", of: "source", label: "Inpaint mask", note: "the part to redo, painted over the picture" },
     { id: "prompt", type: "prompt", label: "Prompt", style: "tags", placeholder: "what the painted part should show" },
     { id: "strength", type: "number", label: "Denoising strength", note: "1 ignores what was there", min: 0.05, max: 1, step: 0.05, default: 0.75 },
     ...MASK_INPUTS,

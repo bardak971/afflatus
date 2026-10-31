@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Entity } from "../api";
-import { AutoText, Button, cx, ErrorNote, fieldClass } from "../ui";
+import { AutoText, Button, cx, Failed, fieldClass } from "../ui";
 import { queryKeys } from "../queryKeys";
 
 /** A new snippet, kept under a name and a category: it starts with what the form's prompt holds. */
@@ -43,7 +43,7 @@ export function NewSnippet({ style, categories, first, onDone, onCancel }: {
         </div>
       )}
       <AutoText aria-label="Text of the new snippet" rows={2} placeholder={style === "tags" ? "tags, tags… {a|b} is a wildcard: one is picked each time" : "A sentence or two. {a|b} is a wildcard: one is picked each time"} value={adding.text} onChange={(e) => setAdding({ ...adding, text: e.target.value })} onKeyDown={(e) => e.stopPropagation()} className={cx("py-1.5 text-body", fieldClass)} />
-      {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
+      {save.isError && <Failed what="Snippet not saved" error={save.error} />}
       <div className="flex items-center justify-end gap-1.5">
         <span className="mr-auto text-xs text-ink-3">{first.trim() ? "Starts with the prompt in the form." : ""}</span>
         <Button size="sm" tone="quiet" onClick={onCancel}>Cancel</Button>

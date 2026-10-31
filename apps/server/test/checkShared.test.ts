@@ -72,6 +72,8 @@ describe("the design budget", () => {
   });
   it("counts an error's message shown bare, not one said with what failed, a template's or a tip's (card #177)", () => {
     expect(one("apps/web/src/x.tsx", "{save.isError && <ErrorNote>{save.error.message}</ErrorNote>}<span>{err.message}</span>{access.failed?.message}")["bare-error"]).toBe(3);
+    // one of several actions' errors, bracketed
+    expect(one("apps/web/src/x.tsx", "<ErrorNote>{(save.error ?? remove.error)?.message}</ErrorNote><span>{(restart.error as Error).message}</span>{(plan.error ?? fill.error)!.message}")["bare-error"]).toBe(3);
     expect(one("apps/web/src/x.tsx", '<Failed what="Not saved" error={save.error} /><span data-tip={load.error.message}>{`Not loaded: ${load.error.message}`}</span>')["bare-error"]).toBe(0);
   });
   it("counts a script animation only in a file that never asks motionAllowed", () => {

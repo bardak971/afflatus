@@ -33,7 +33,7 @@ export function RunningCard({ running, onStop }: { running: RunningJob | null; o
   const seedCopy = useCopyNote();
   if (!running) {
     return (
-      <div className="rounded-xl border border-line px-3 py-2.5 text-sm text-ink-2">Nothing running.</div>
+      <div className="rounded-xl border border-line px-3 py-2.5 text-sm text-ink-2">Nothing running</div>
     );
   }
   const seen = running.previewSeq > 0;

@@ -71,7 +71,7 @@ describe("Find models while a site is asked", () => {
       await act(async () => vi.advanceTimersByTime(4000));
       expect(await screen.findByText(/Hugging Face is slow to answer · [34] s/)).toBeTruthy();
       await act(async () => slow.answer(jsonAnswer({ error: "Hugging Face did not answer in 20 s." }, 504)));
-      expect(await screen.findByText("Hugging Face did not answer in 20 s.")).toBeTruthy();
+      expect(await screen.findByText((_, el) => el?.getAttribute("role") === "alert" && /^Page not loaded: Hugging Face did not answer in 20 s\./.test(el.textContent ?? ""))).toBeTruthy();
       expect(screen.getByText(/Your models \(Yours\) and Civitai still work/)).toBeTruthy();
       expect(skeletons()).toBe(0);
       fail = false;
@@ -98,7 +98,7 @@ describe("Find models while a site is asked", () => {
     await waitFor(() => expect(skeletons()).toBe(7));
     expect(screen.queryByRole("progressbar")).toBeNull();
     await act(async () => more.answer(jsonAnswer({ error: "Civitai did not answer in 20 s." }, 504)));
-    expect(await screen.findByText("Civitai did not answer in 20 s.")).toBeTruthy();
+    expect(await screen.findByText((_, el) => el?.getAttribute("role") === "alert" && /^Page not loaded: Civitai did not answer in 20 s\./.test(el.textContent ?? ""))).toBeTruthy();
     expect(screen.getByText("zz-test 1")).toBeTruthy();
     expect(skeletons()).toBe(0);
   });

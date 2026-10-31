@@ -15,6 +15,11 @@ const Dense = createContext(false);
  * `dense`: the Prompt kit's look, an 11px upper-case head and 150px names. `help`: what the card is for,
  * behind a ? right after its title (as a row's ? follows its name); `status` stays on the right.
  */
+/** A card whose settings are still being read: its place held in its shape, rather than nothing and then a jump (card #179). */
+export function CardLoading() {
+  return <span aria-busy="true" className="m-skeleton block h-40 rounded-card" />;
+}
+
 export function Card({ title, status, sub, help, dense, id, label, setting, by, children }: {
   title?: ReactNode; status?: ReactNode; /** A quiet line under the head, in it (a machine's facts). */ sub?: ReactNode; help?: string; dense?: boolean; id?: string; label?: string; setting?: string;
   /** What it holds was changed by an MCP token, and the user has not edited it since: its name, after the title, and the card ringed in the agent's blue (agentEdits.ts). */

@@ -50,7 +50,9 @@ export function removalAsk(t: Timeline, recipes: RecipeInfo[], ids: string[], o:
   return {
     title: o.range ? "Remove the range?" : one ? `Remove clip ${number(ids[0]!)}?` : `Remove ${plural(ids.length, "clip")}?`,
     text: [...lines, "Undo brings it all back."].join("\n"),
-    help: "A ripple delete, as in a video editor: a clip of a recording or of the source takes its part of it away, and the clips after it close the gap. Taken from the middle, the part is kept aside with its takes, marked on the band or the Source lane where it was cut (Bring back puts it back); the clip after it no longer carries on from what came before, so it starts on its own. The first or last clip moves In or Out instead, as trimming them would.",
+    // taken from the middle, the part is kept aside with its takes, marked on the band or the Source lane where it was cut,
+    // and the clip after it no longer carries on from what came before
+    help: "Ripple delete: the part is taken out and the clips after close the gap; Bring back puts it back. The first or last clip trims In or Out instead.",
     yes: o.range ? "Remove range" : one ? "Remove" : `Remove ${plural(ids.length, "clip")}`,
   };
 }

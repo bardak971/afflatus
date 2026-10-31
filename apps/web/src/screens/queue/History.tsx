@@ -1,5 +1,6 @@
 import { lazy, memo, Suspense, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { ChevronDown, ChevronRight, Clipboard, FileOutput, Loader2, Music, Pencil, Play, RotateCcw, Scissors, Trash2, X } from "lucide-react";
 import { ContextMenu, groups, useMenu, type MenuItem } from "../../ContextMenu";
 import { api, type HistoryJob } from "../../api";
@@ -76,6 +77,7 @@ function FoldedFailures({ jobs, shown, onShow }: { jobs: HistoryJob[]; shown: bo
  * the result as the library does. Held apart from the queue above it: a progress event redraws the running card, not these rows.
  */
 export const History = memo(function History() {
+  const [, go] = useLocation();
   const [status, setStatus] = useState<Status>("all");
   const [typed, setTyped] = useState("");
   const [model, setModel] = useState("");
@@ -205,7 +207,7 @@ export const History = memo(function History() {
   if (nothingYet) {
     return (
       <section aria-label="History" className="shrink-0">
-        <Empty title="Nothing finished yet" />
+        <Empty title="Nothing finished yet" action={<Button size="sm" onClick={() => go("/")}>Open the Studio</Button>} />
       </section>
     );
   }
@@ -259,7 +261,9 @@ export const History = memo(function History() {
         {/* the first page on its way: rows as the list draws them, with the loading shine, so it lands in place */}
         {jobs.isLoading && Array.from({ length: 8 }, (_, i) => <PlaceholderRow key={i} />)}
         {days.length === 0 && !pins?.pinned.length && !jobs.isLoading && (
-          <Empty title={q || model || status !== "all" ? "Nothing matches" : "Nothing finished yet"} />
+          q || model || status !== "all"
+            ? <Empty title="Nothing matches" action={<Button size="sm" onClick={() => { setTyped(""); setModel(""); setStatus("all"); }}>Clear filters</Button>} />
+            : <Empty title="Nothing finished yet" action={<Button size="sm" onClick={() => go("/")}>Open the Studio</Button>} />
         )}
         {days.map((d) => (
           <div key={d.key} className="flex flex-col gap-1">

@@ -4,7 +4,7 @@ import { api } from "../../api";
 import { useSettings } from "../../data";
 import { size } from "../../format";
 import { Select } from "../../Select";
-import { Button, cx, ErrorNote, fieldClass, Help } from "../../ui";
+import { Button, cx, Failed, fieldClass, Help } from "../../ui";
 import { Block, Card, Row } from "./Rows";
 import { queryKeys } from "../../queryKeys";
 
@@ -65,7 +65,7 @@ export function LinkCard() {
           <Button type="submit" disabled={!link.trim() || look.isPending}>{look.isPending ? "Resolving…" : "Resolve"}</Button>
         </form>
       </Row>
-      {look.isError && <Block><ErrorNote>{look.error.message}</ErrorNote></Block>}
+      {look.isError && <Block><Failed what="Link not read" error={look.error} /></Block>}
       {found && (
         <>
           <Row label={<a href={found.page} target="_blank" rel="noreferrer" className="font-semibold break-words hover:underline">{found.title}</a>} start>
@@ -108,7 +108,7 @@ export function LinkCard() {
               {start.isPending ? "Starting…" : `Download into ComfyUI${chosen?.bytes ? ` · ${size(chosen.bytes)}` : ""}`}
             </Button>
           </Row>
-          {start.isError && <Block><ErrorNote>{start.error.message}</ErrorNote></Block>}
+          {start.isError && <Block><Failed what="Download not started" error={start.error} /></Block>}
         </>
       )}
     </Card>

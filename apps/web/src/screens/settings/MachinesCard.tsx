@@ -340,7 +340,7 @@ export function MachineCard({ machine, index, probe, state, onFold }: { machine:
       {!rented && <PacksRow machine={machine} label={label} put={put} />}
       {rented && <RentedRows machine={machine} state={state} put={(r) => put({ rented: r })} ops={rentedOps} remove={() => removeRented.mutate()} />}
       <AccessRow id={machine.id} label={label} probe={probe} url={machine.url} rented={rented} compact />
-      {(access.failed || removeRented.isError) && <Block>{access.failed && <Failed what="Its access was not changed" error={access.failed} />}{removeRented.isError && <Failed what="Not removed" error={removeRented.error} />}</Block>}
+      {(access.failed || removeRented.isError) && <Block>{access.failed && <Failed what={access.failed.what} error={access.failed.error} />}{removeRented.isError && <Failed what="Not removed" error={removeRented.error} />}</Block>}
       {/* the token's end at the foot of one of your own (a pod's foot is its address and Terminate) */}
       {!rented && probe?.tokenEnd && (
         <div className="flex items-center gap-3 bg-raised px-gutter py-2.5 text-xs">

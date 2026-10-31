@@ -9,7 +9,7 @@ import { useProject } from "../../project";
 import { Initial, projectTone } from "../../projects/tone";
 import { queryKeys } from "../../queryKeys";
 import { useOpenDraft, useStudio } from "../../store";
-import { Button, cx, ErrorNote, Help } from "../../ui";
+import { Button, cx, Failed, Help } from "../../ui";
 import { KwhForm } from "../settings/ElectricityCard";
 import { settingHref } from "../settings/settingsIndex";
 import { TimeChart, useChartColors } from "./Chart";
@@ -234,7 +234,7 @@ function ByProject({ d }: { d: CostsView }) {
   return (
     <section className={CARD} aria-label="By project">
       <Head title="By project" note="renders only: a pod's waits are in Where it went" help="Each render on a pod at its pod's rate, under the project of its timeline or draft (the Inbox for those in none). Its boot, its files and its idle time are the pod's, not a render's." />
-      {d.projects.length ? d.projects.map((p) => <ProjectRow key={p.id ?? "inbox"} p={p} most={most} />) : <span className="text-sm text-ink-3">No project yet.</span>}
+      {d.projects.length ? d.projects.map((p) => <ProjectRow key={p.id ?? "inbox"} p={p} most={most} />) : <span className="text-sm text-ink-3">No project yet</span>}
     </section>
   );
 }
@@ -456,7 +456,7 @@ export function Costs() {
   const { view, typed, setTyped, costs, allSessions, zoom, pick } = useCostsView();
   const d = costs.data;
   // the error alone only with nothing read: a failed refetch keeps the last figures (StaleNote says so)
-  if (costs.isError && !d) return <ErrorNote>{costs.error.message}</ErrorNote>;
+  if (costs.isError && !d) return <Failed what="Costs not loaded" error={costs.error} />;
   if (!d) return <div className="text-ink-2">Loading costs…</div>;
   const pods = d.runpod || d.sessions.length > 0;
   // another window's figures while this one comes: faded under the window bar until they are its own

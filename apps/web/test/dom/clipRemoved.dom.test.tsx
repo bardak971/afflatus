@@ -76,7 +76,7 @@ describe("the words said before a clip of a recording is removed (removalAsk)", 
       text: "Its 5.5 s of “zz-test talk.wav” is cut out: the recording jumps from 0:04.7 to 0:10.2, and clip 4 starts after a cut instead of carrying on. The part is set aside with its takes: Bring back on its mark puts it back.\nUndo brings it all back.",
       yes: "Remove",
     });
-    expect(ask(["zz-test-b"])!.help).toMatch(/^A ripple delete, as in a video editor/);
+    expect(ask(["zz-test-b"])!.help).toMatch(/^Ripple delete: the part is taken out and the clips after close the gap/);
   });
 
   it("adds that the take after was made carrying on from it, and to render it again", () => {
@@ -121,7 +121,7 @@ describe("a clip of a recording removed in the editor (card #75)", () => {
     fireEvent.keyDown(window, { key: "Delete" });
     const dialog = await screen.findByRole("dialog", { name: "Remove clip 3?" }, { timeout: 3000 });
     expect(dialog.textContent).toContain("the recording jumps from 0:04.7 to 0:10.2");
-    expect(within(dialog).getByRole("button", { name: /^Remove clip 3\?: A ripple delete/ })).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: /^Remove clip 3\?: Ripple delete/ })).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: /^Cancel/ }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(fakeApi.calls("DELETE", "/clips/zz-test-b")).toHaveLength(0);
