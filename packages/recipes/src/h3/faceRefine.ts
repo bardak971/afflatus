@@ -65,26 +65,30 @@ export const FACE_REFINE_INPUTS: InputSpec[] = [
 ];
 
 /**
- * What the Face refine toggle of a model that is not H3's adds: which model redraws, where its form has no choice of it
- * (card #192: a model picked in Finish was silently left out on these clips, and nothing said which one ran).
+ * Face refine's toggle and model on a model that is not H3's: which model redraws (card #192: a model picked in Finish was
+ * silently left out on these clips, and nothing said which one ran), and the choice of it without the clip's own.
  */
+const withoutOwn = <T extends { own?: true }>({ own: _own, ...spec }: T): Omit<T, "own"> => spec;
 const notH3Model = (spec: InputSpec): InputSpec =>
-  spec.id === "faceRefine" ? { ...spec, note: `${spec.note}. Redrawn with H3's fused turbo (this model is not H3's); Finish › Face refine can pick another H3 model` } : spec;
+  spec.id === "faceRefine" ? { ...spec, note: `${spec.note}. Redrawn with an H3 model (this model is not H3's): the fused turbo, unless Face refine model names another` }
+  // (card #204: the model picked here as on H3's forms, H3's files alone; no clip's own to offer, the clip's model cannot
+  // redraw an H3 crop. Left out, the fused turbo of Settings › Models, as the pass ran before the input was there)
+  : spec.id === "faceRefineModel" && spec.type === "model" ? { ...withoutOwn(spec), note: `left out, the fused turbo of Settings › Models; another H3 file is a second model in RAM. 4 steps on a turbo, ${FACE_REFINE_FULL_STEPS} on a full model` }
+  : spec;
 
 /**
  * Face refine on a recipe that is not H3's (SCAIL-2 at 24 fps): no "only" input (its finish redraws the take's own frames,
  * it keeps no latent), and 0.35 to start on: on a SCAIL dance (Timeline 26, 2026-10-21) 0.45 stopped the mouth following
  * the source (r 0.60 to 0.15) and smeared a frame, where 0.35 kept 90 % of the likeness and the source's mouth, eyes and head.
  */
-export const FACE_REFINE_OTHER_INPUTS: InputSpec[] = FACE_REFINE_INPUTS.filter((spec) => spec.id !== "faceRefineOnly" && spec.id !== "faceRefineModel").map((spec) =>
+export const FACE_REFINE_OTHER_INPUTS: InputSpec[] = FACE_REFINE_INPUTS.filter((spec) => spec.id !== "faceRefineOnly").map((spec) =>
   spec.id === "faceRefineDenoise" && spec.type === "number" ? { ...spec, default: 0.35, note: `${spec.note}. 0.35 here: 0.45 stopped the mouth following the source` } : notH3Model(spec));
 
 /**
  * Face refine on a model that keeps no H3 latent for a finish to redraw from (LTX 2.5): H3's own settings, words and
  * defaults (every form alike), less the internal "only" a finish of a kept H3 latent sets. A finish redraws the take's frames.
  */
-// (the Face refine model is H3's choice: a clip of another model has no H3 model of its own to redraw with, card #159)
-export const FACE_REFINE_TAKE_INPUTS: InputSpec[] = FACE_REFINE_INPUTS.filter((spec) => spec.id !== "faceRefineOnly" && spec.id !== "faceRefineModel").map(notH3Model);
+export const FACE_REFINE_TAKE_INPUTS: InputSpec[] = FACE_REFINE_INPUTS.filter((spec) => spec.id !== "faceRefineOnly").map(notH3Model);
 
 /**
  * The H3 nodes Face refine runs on beside a model that is not H3's (the text encoder, VAEs, loader and scheduler are ComfyUI's

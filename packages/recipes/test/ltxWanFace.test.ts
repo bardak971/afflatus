@@ -45,7 +45,9 @@ describe("LTX 2.5 · Face refine", () => {
       expect(spec("faceRefineSteps")).toMatchObject({ default: 0, auto: "by model" });
       // its finish redraws the take's frames: no "only" input; and no H3 model of its own to redraw with (card #159)
       expect(spec("faceRefineOnly")).toBeUndefined();
-      expect(spec("faceRefineModel")).toBeUndefined();
+      // card #204: H3's files to pick, without the clip's own (its model is not H3's)
+      expect(spec("faceRefineModel")).toMatchObject({ type: "model", slot: "faceRefineUnet", showWhen: "faceRefine" });
+      expect(spec("faceRefineModel")).not.toHaveProperty("own");
       expect(recipe.traits?.faceRefine).toBe("faceRefine");
     }
     expect(ltxVideo.inputs.some((i) => i.id === "faceRefine")).toBe(false);

@@ -101,6 +101,15 @@ describe("a form's model inputs, as the files a job asks for", () => {
     expect(asked({ faceRefine: true, faceRefineModel: OWN_MODEL })).not.toContain(OWN_MODEL);
   });
 
+  it("asks for the Face refine model picked on a SCAIL-2 or LTX 2.5 form (card #204), none left out", () => {
+    for (const [id, values] of [["scail.motion24", { picture: "p1", driving: { asset: "v1" } }], ["ltx25.video", { prompt: "a" }]] as const) {
+      const recipe = recipeById(id)!;
+      const asked = (more: Record<string, unknown>) => filesAsked(recipe, parseInput(recipe, { ...values, faceRefine: true, ...more }) as unknown as Record<string, unknown>).filter((f) => f.input === "faceRefineModel");
+      expect(asked({ faceRefineModel: "other_h3_ref2va.safetensors" }), id).toEqual([expect.objectContaining({ file: "other_h3_ref2va.safetensors", folder: "diffusion_models" })]);
+      expect(asked({}), id).toEqual([]);
+    }
+  });
+
   it("asks for SeedVR2's and the latent upscaler's only on their routes", () => {
     const asked = (values: Record<string, unknown>) => filesAsked(video, form(values)).map((f) => f.file);
     expect(asked({ upscale: "Video: SeedVR2 (restores)", seedvrModel: "seedvr2_7b.safetensors" })).toContain("seedvr2_7b.safetensors");

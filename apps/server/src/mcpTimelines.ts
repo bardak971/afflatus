@@ -767,7 +767,7 @@ const finish = tool({
     latentSteps: z.number().int().min(1).max(6).optional().describe("Steps of the latent re-sample (3 by default)."),
     face: z.boolean().optional().describe("Face refine first, where the model offers it."),
     faceDenoise: z.number().min(0.3).max(0.6).optional(),
-    faceModel: z.string().max(200).optional().describe(`Face refine's model, over each clip's own form's: an H3 diffusion model file, or "${OWN_MODEL}" (the model the clip is made with: nothing more loaded); another file is a second model to load. A SCAIL-2 or LTX 2.5 clip's faces are redrawn with the file picked too; their own model is not H3's, so "${OWN_MODEL}" is the fused turbo there, and the job says so. Left out: as each clip's form says (the fused turbo of Settings › Models on SCAIL-2 and LTX 2.5).`),
+    faceModel: z.string().max(200).optional().describe(`Face refine's model, over each clip's own form's: an H3 diffusion model file, or "${OWN_MODEL}" (the model the clip is made with: nothing more loaded); another file is a second model to load. A SCAIL-2 or LTX 2.5 clip's faces are redrawn with the file picked too; their own model is not H3's, so "${OWN_MODEL}" is the fused turbo there, and the job says so. Left out: as each clip's form says (on SCAIL-2 and LTX 2.5, the fused turbo of Settings › Models when their form names none).`),
     latentModel: z.string().max(200).optional().describe("H3's latent upscaler file (route latent); left out: the one of Settings › Models. The re-sampling runs on the clip's own model."),
     seedvrModel: z.string().max(200).optional().describe("SeedVR2's model file, the 3B or the 7B (route seedvr); left out: the one of Settings › Models."),
   },

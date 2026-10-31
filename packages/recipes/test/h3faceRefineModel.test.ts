@@ -46,7 +46,7 @@ function facePass(graph: Graph) {
 }
 
 describe("H3 · Face refine model (card #159)", () => {
-  it("is the same input, in the same place, on every H3 form, and on no other model's", () => {
+  it("is the same input, in the same place, on every H3 form, and on no model's without Face refine", () => {
     for (const id of ["h3.video", "h3.lipsync", "h3.swap", "h3.motion"]) {
       const inputs = recipeById(id)!.inputs;
       const at = inputs.findIndex((i) => i.id === "faceRefineModel");
@@ -55,7 +55,7 @@ describe("H3 · Face refine model (card #159)", () => {
       // the "?" says what another model costs
       expect(String(inputs[at]!.note), id).toMatch(/second model in RAM/);
     }
-    for (const id of ["scail.motion24", "ltx25.video"]) expect(recipeById(id)?.inputs.some((i) => i.id === "faceRefineModel"), id).toBe(false);
+    for (const id of ["ltx.video", "scail.motion"]) expect(recipeById(id)?.inputs.some((i) => i.id === "faceRefineModel"), id).toBe(false);
   });
 
   it("starts on the clip's own model on Swap, on the fused turbo elsewhere, and on the clip's own where that file is missing", () => {

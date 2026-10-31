@@ -402,6 +402,8 @@ export interface LtxVideo extends ColourMatch, Partial<Recording> {
   /** The cast person's picture the take is scored against (2.3: no reference pictures of its own). */
   facePhoto?: string;
   faceRefine?: boolean;
+  /** The H3 model the faces are redrawn with: a file, or left out (the fused turbo's slot). */
+  faceRefineModel?: string;
   faceRefineDenoise?: number;
   faceRefineSteps?: number;
 }
@@ -1355,7 +1357,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
       const refining = Boolean(spec.faceRefine && input.faceRefine);
       const towards = opens ? ctx.uploads.start : undefined;
       const refineValues = refining
-        ? { faceRefine: !temporal, faceRefineDenoise: input.faceRefineDenoise ?? 0.45, faceRefineSteps: input.faceRefineSteps ?? 4, references: input.references ?? [], subject: "", quick: true }
+        ? { faceRefine: !temporal, faceRefineModel: input.faceRefineModel, faceRefineDenoise: input.faceRefineDenoise ?? 0.45, faceRefineSteps: input.faceRefineSteps ?? 4, references: input.references ?? [], subject: "", quick: true }
         : { faceRefine: false, faceRefineDenoise: 0, faceRefineSteps: 0, references: [], subject: "", quick: true };
       const faces = faceRefined(g, ctx, refineValues, images, { audio: heard, picture: towards, frames });
       if (faces.pass) run.passes.push(faces.pass);

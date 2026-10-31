@@ -4,6 +4,9 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Added
+- **SCAIL-2 (24 fps) and LTX 2.5 forms have a Face refine model**, as the H3 forms do: the H3 model the faces are redrawn with during the render, the fused turbo of Settings › Models when left out (drafts made before render the same graph). Its steps follow the model (4 on a turbo, 10 on a full model, a value typed wins), the file picked is the one sent to a rented GPU, and Finish › Face refine "as each clip's form" takes it too. "Clip's own model" is not offered: these models are not H3's (card #204).
+
 ### Changed
 - **H3 lets go of its text encoder once the prompt is encoded, before sampling.** The ~15 GB Qwen3-VL encoder used to stay loaded for the whole render, its VRAM and pinned RAM with it. On 32 GB of RAM a swap then filled the memory and could sit at step 1 for many minutes. A new node in Afflatus's pack (0.43.0, Afflatus: Free Text Encoder) now unloads the encoder alone, leaving the H3 model and VAEs loaded. With Face refine on, the encoder loads again for the pass's own prompt and is let go again before it samples. A ComfyUI with an older pack renders as before. Update the pack from Settings › ComfyUI. Rented GPUs get it with the next pod image.
 - **H3 takes the int8 video VAE when both files are there.** It decodes in about half the time with 2 GB less memory, and no eye told it from the fp16 one on real takes (56–61 dB apart). The fp16 file is still used when it is the only one, and Settings › Models still picks either by hand.

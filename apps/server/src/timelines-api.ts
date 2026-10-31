@@ -774,8 +774,10 @@ export async function finishPlan(s: Services, timeline: string, b: z.infer<typeo
       // a form with H3's Face refine takes the dialog's denoise as H3's clips do; one with a start of its own (0.35 on SCAIL) its
       // own: the form's, else that default
       const denoise = defaultDenoise(refining) === FACE_DENOISE ? b.faceDenoise ?? FACE_DENOISE : typeof gen!.inputs.faceRefineDenoise === "number" ? gen!.inputs.faceRefineDenoise : defaultDenoise(refining);
+      // the dialog's model, else the form's (card #204: "as each clip's form" ran the fused turbo whatever the form had picked)
+      const faceModel = b.faceModel || (typeof gen!.inputs.faceRefineModel === "string" ? gen!.inputs.faceRefineModel : undefined);
       push({ kind: "cut", label, video: { width: a.width ?? null, height: a.height ?? null, durationMs: a.durationMs ?? null, fps: a.fps ?? null },
-        cut: { asset: a.id, startMs: 0, endMs: a.durationMs ?? 0, action: "finish", route: "face", by: 1, faceDenoise: denoise, picture: towards, family: refining.family, ...(b.faceModel ? { faceModel: b.faceModel } : {}), clip: clip.id, finishedFrom: from } });
+        cut: { asset: a.id, startMs: 0, endMs: a.durationMs ?? 0, action: "finish", route: "face", by: 1, faceDenoise: denoise, picture: towards, family: refining.family, ...(faceModel ? { faceModel } : {}), clip: clip.id, finishedFrom: from } });
       continue;
     }
     if (b.route === "face") {
