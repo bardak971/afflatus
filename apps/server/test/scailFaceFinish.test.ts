@@ -129,6 +129,24 @@ describe.skipIf(!ffmpegThere)("Finish › Face refine on a SCAIL-2 take at 24 fp
     expect((await call("POST", `/api/timelines/${tl.id}/finish`, { route: "face", factor: 2, faceModel: full, redo: "changed" })).jobs).toEqual([]);
   });
 
+  // card #204: the form's Face refine model, where Finish names none ("as each clip's form")
+  it("with no model picked in Finish, redraws with the one the clip's form picked", async () => {
+    const full = "minimax_h3_ref2va_pruned_int8_convrot.safetensors";
+    fake.models = { ...FILES, diffusion_models: [...FILES.diffusion_models, full] };
+    const driving = await asset("video", four!);
+    const picture = await asset("image", png(192, 320));
+    const tl = await call("POST", "/api/timelines", { name: "zz-test dance form model" });
+    const clip = (await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "scail.motion24" })).clip as string;
+    await call("POST", `/api/timelines/${tl.id}/render`, { clips: [{ id: clip, input: { picture, driving: { asset: driving }, drivingStart: 0, drivingSeconds: 3.05, prompt: "zz-test", seed: 1, faceRefine: true, faceRefineModel: full } }] });
+    const rendered = await finish(four!, 1);
+    expect(Object.values(rendered).filter((n) => n.class_type === "UNETLoader").map((n) => n.inputs.unet_name)).toContain(full);
+    const res = await call("POST", `/api/timelines/${tl.id}/finish`, { route: "face", factor: 2, redo: true });
+    const job = await t.db.selectFrom("jobs").selectAll().where("id", "=", res.jobs[0]).executeTakeFirstOrThrow();
+    expect(JSON.parse(job.inputs)).toMatchObject({ route: "face", faceModel: full });
+    const graph = await finish(four!, 2);
+    expect(Object.values(graph).filter((n) => n.class_type === "UNETLoader").map((n) => n.inputs.unet_name)).toEqual([full]);
+  });
+
   it("asked for the clip's own model: SCAIL-2's is not H3's, so the fused turbo, and its job says so", async () => {
     const driving = await asset("video", four!);
     const picture = await asset("image", png(192, 320));

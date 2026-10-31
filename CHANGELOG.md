@@ -4,6 +4,9 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Added
+- **SCAIL-2 (24 fps) and LTX 2.5 forms have a Face refine model**, as the H3 forms do: the H3 model the faces are redrawn with during the render, the fused turbo of Settings › Models when left out (drafts made before render the same graph). Its steps follow the model (4 on a turbo, 10 on a full model, a value typed wins), the file picked is the one sent to a rented GPU, and Finish › Face refine "as each clip's form" takes it too. "Clip's own model" is not offered: these models are not H3's (card #204).
+
 ### Changed
 - **H3 takes the int8 video VAE when both files are there.** It decodes in about half the time with 2 GB less memory, and no eye told it from the fp16 one on real takes (56–61 dB apart). The fp16 file is still used when it is the only one, and Settings › Models still picks either by hand.
 - **Settings › Model files: the table scrolls in its own area**, about 60 % of the window (never under eight rows), its column header pinned, the figures, search, filters and selection bar above it: Your models online, Newer versions and Model sets are now just below, not hundreds of rows away. Every file is listed (it stopped at 600); a row off screen is not laid out until it is seen, so the tab draws in about half the time with 470 files. A file's detail opening at the area's edge is scrolled into view, and shift-click always selects the whole range (it could select only its two ends) (card #194).

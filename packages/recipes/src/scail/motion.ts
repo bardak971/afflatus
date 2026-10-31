@@ -33,6 +33,8 @@ export interface ScailMotion extends MotionValues {
   livePreview: boolean;
   /** At 24 fps only: H3's Face refine on SCAIL's own frames. */
   faceRefine?: boolean;
+  /** The H3 model the faces are redrawn with: a file, or left out (the fused turbo's slot). */
+  faceRefineModel?: string;
   faceRefineDenoise?: number;
   faceRefineSteps?: number;
 }
@@ -206,7 +208,7 @@ function scailAt(o: { id: string; title: string; fps: number; grid: FrameGrid; m
       // frames and the window after (which carries on from them) all have the refined faces. Its person is the Picture's
       // (read only where the form has them: the 16 fps form has no Face refine)
       const refineValues = o.faceRefine && input.faceRefine
-        ? { faceRefine: true, faceRefineDenoise: input.faceRefineDenoise ?? 0.35, faceRefineSteps: input.faceRefineSteps ?? 4, references: [], subject: "", quick: true }
+        ? { faceRefine: true, faceRefineModel: input.faceRefineModel, faceRefineDenoise: input.faceRefineDenoise ?? 0.35, faceRefineSteps: input.faceRefineSteps ?? 4, references: [], subject: "", quick: true }
         : { faceRefine: false, faceRefineDenoise: 0, faceRefineSteps: 0, references: [], subject: "", quick: true };
       // the sound its pass holds, on its own frames (the file's, motionSaved's, may start half a frame earlier)
       const sound = refineValues.faceRefine ? motionSound(g, ctx, input, { fps, frames: total, parts, carried: SCAIL_CARRIED }) : undefined;
