@@ -23,15 +23,17 @@ You keep ComfyUI, your models and your node packs; they do all the rendering. Af
 
 It is one small server and a folder of data, on your PC or in a container.
 
-## What's new in 0.8
+## What's new in 0.9
 
-- **Afflatus from outside (MCP):** Claude Code or any MCP client drives the studio at `/mcp` with a token of its own: where you are, every form and setting, renders it can look at and improve, timelines, the library, the Prompt kit, models, machines and rented GPUs.
-- **Tokens with scopes and limits:** Look, Make, Spend (rented GPUs, off unless ticked), Manage; renders an hour, a spend cap a month, and each token's activity, in Settings › Agents (MCP).
-- **Its changes in the page you have open:** the fields it touched ringed with its name, Undo in the toast, never over what you typed since.
-- **A workflow an agent brings waits for your Approve.**
-- **A recording cut on its lyric lines**, and the song under Lip sync clips played as one track (since 0.7.1).
+- **Rented GPUs ranked by $ per render**, not by the hour: each GPU's time on the renders waiting, from your own renders, at its price, plus its share of the deploy. And big Civitai files reach a pod over 8 connections, a 21 GB model in about a minute and a half.
+- **The join panel says what a switch does before you click:** Seamless or Hard cut, and a seamless join that cut anyway flagged on the track with New take beside it.
+- **The four MiniMax H3 forms on one skeleton**, every LoRA a render loads shown in its list (Turbo's too), and the Face refine and upscale models chosen per clip.
+- **Settings › Model files:** every model file on this PC with how Afflatus used it; Delete to the Recycle Bin, Put back, Empty.
+- **Settings in twelve tabs**, one per thing: Costs, Notifications, Sign-in and Agents (MCP) among them.
+- **Find models from the first launch**, a paid or Early Access Civitai version said as such.
+- **"ComfyUI isn't answering"** for a ComfyUI that is only swamped, its render followed on, apart from offline.
 
-See [docs/mcp.md](docs/mcp.md). Everything else is in the [changelog](CHANGELOG.md).
+Since 0.8, agents drive the studio over MCP: see [docs/mcp.md](docs/mcp.md). Everything else is in the [changelog](CHANGELOG.md).
 
 ## Make
 
@@ -42,11 +44,13 @@ See [docs/mcp.md](docs/mcp.md). Everything else is in the [changelog](CHANGELOG.
 - **A library you can keep tidy.** Projects, with folders inside them. Renders land in the folder you are working in; drag anything anywhere; and one search box finds anything across all of it, by what it is: `video: lantern`, `model:krea2 since:1m`, `in:"The Keeper" -kept`, `lora:` to list the LoRAs you have used, `prompt:` for the words you wrote. Open an item and the viewer shows everything that made it: model, seed, every setting, the pictures it was fed.
 - **Drafts that outlive the render.** A draft is a prompt and its inputs, kept until you delete it. Run the same one on Krea 2, then on Z-Image, then on FLUX, and compare any two results side by side with a wipe. Reuse a render's seed, or make a variation of it, in one click.
 - **Video, every way you need it, each a clean form.** A picture moves, pinned to a first frame, a last frame or a keyframe in between, with its own sound on MiniMax H3 and LTX. A source video lends your picture its motion: a dance, a walk, someone talking (SCAIL-2 for several people at once, or MiniMax H3 · Motion transfer, held to the source's pose). Swap character puts someone of your cast, or the person in a reference picture, in place of the one in a video, with the scene, the motion and the sound kept. And when the words have to be a particular voice, Lip sync makes a MiniMax H3 shot around your recording: pick the part on its waveform, and the mouth follows it.
-- **Faces that hold.** Face refine finds the face in every frame and draws it again towards the person's own picture, the clip's sound held so the mouth stays on it: in a form's Output, on a take, or at the Finish. Every take says how close its face is to the person, so the best one is a sort away.
+- **Faces that hold.** Face refine finds the face in every frame and draws it again towards the person's own picture, the clip's sound held so the mouth stays on it: in a form's Output, on a take, or at the Finish, with the model it redraws with chosen per clip. Every take says how close its face is to the person, so the best one is a sort away.
+- **One layout for every MiniMax H3 form.** Video with audio, Lip sync, Swap character and Motion transfer have the same tabs and cards in the same order, and the LoRA list shows every LoRA a render loads, Turbo's included, with its weight.
 - **Your cast, written once.** The Prompt kit holds your people, places and styles. A person is a few pictures, how they look as tags and as a sentence, a voice, their outfits, and a LoRA per model when you have one; that is what keeps her the same from one render to the next. Put *her, in the summer dress, film look* into a draft or a whole timeline, and each model gets it the way it reads it: tags for SDXL, a sentence and reference pictures for Krea 2 or MiniMax H3, the voice when the clip has to speak. On MiniMax H3 the prompt comes in parts, who is in the source, how they look and what happens, with `@Name` for anyone in the kit and a shot size, and Afflatus writes the prompt the model reads from them, shown as it is sent. Snippets drop into any prompt by name, a Roll picks one of each kind at random, and a preset keeps a whole setup, model and cast included, as a file you can share.
 - **The usual tools, on the right-click.** Upscale, inpaint, outpaint, edit by instruction, fix a face or a hand, a ControlNet guide, remove a background, mirror; trim a video or a sound, save a frame, take the sound out.
-- **Models that come to you.** Settings → Models says, per family and per operation, what is ready, what is missing and the folder it goes in, with a Download button beside it: the file goes straight into ComfyUI's folders, two at a time, resumed if the line drops, and checked against Hugging Face's own hash where it gives one. The same for a pod.
-- **And models you can find again.** Find models browses Civitai and Hugging Face from inside the app, filtered to the families you run, and gets a model onto this PC, onto a pod, or into a set. Your own checkpoints and LoRAs are hashed in the background, so the LoRA with the unreadable file name is matched to its Civitai page, Afflatus knows which files a pod can fetch for itself and which must travel from your PC, and a check you can run daily says which of your models have a newer version.
+- **Models that come to you.** Settings → Models says, per family and per operation, what is ready, what is missing and the folder it goes in, with **Get the minimum** and a Download button beside each file: it goes straight into ComfyUI's folders, in a line you can reorder, resumed if the line drops, and checked against its site's own hash where it gives one. The same for a pod.
+- **And models you can find again.** Find models browses Civitai and Hugging Face from inside the app, filtered to the families you run, and gets a model onto this PC, onto a pod, or into a set; a paid or Early Access version says so before you pick it. Your own checkpoints and LoRAs are hashed in the background, so the LoRA with the unreadable file name is matched to its Civitai page, Afflatus knows which files a pod can fetch for itself and which must travel from your PC, and a check you can run daily says which of your models have a newer version.
+- **And the disk they take.** Settings → Model files lists every model file on this PC with how many times Afflatus loaded it and when last, what was made with it, what needs it and its extra copies. Delete sends what you no longer use to the Recycle Bin, Put back brings it back, Empty frees the space for good.
 
 ## Film
 
@@ -55,6 +59,7 @@ See [docs/mcp.md](docs/mcp.md). Everything else is in the [changelog](CHANGELOG.
 Clips are easy to make. A film is the hard part, and that is what the timeline is for.
 
 - **Any clip after any other.** Hover a join and press **+**: the new clip can be any model, and its list says beside each how it would meet the clip before. MiniMax H3's forms carry on in the model's own latent, so the motion and the sound flow across the cut as one shot: a talking clip, a lip-synced line, a swap and a motion transfer, one after the other. LTX and SCAIL-2 carry on from the clip before's last frames, Wan from its last frame. Where the model family changes, it is a cut, or a transition: dissolve, dip to black or white, flash, wipe, slide, circle, zoom.
+- **Joins you can trust.** Click a join and it says what Seamless or Hard cut would do to the take before you switch. A seamless join that cut to another shot anyway is caught from the frames and flagged on the track, with New take or Keep it as a hard cut beside it.
 - **A long video becomes a sequence.** Drop it on the Source lane and it is cut into windows, each a clip that carries on from the last: a Swap character where a shot opens and Motion transfer where it carries on, or SCAIL-2 throughout, each window's form yours to change. Drop a voice recording on the Audio lane and it becomes Lip sync clips, cut at its pauses. Both stay trimmable on their lane, the windows past a shortened end set aside with their takes and back when it grows again.
 - **Takes, not re-rolls.** Each clip is a form of its own. Render three takes at once; each is listed with how cleanly it joins in and out and how close its face is to the person, the smoothest is marked, you pick the one that plays, and the rest wait on the shelf for a later cut.
 - **Regenerate a range.** Mark two seconds, inside a clip or across the join of two, and press Regenerate: a new clip is made for that stretch, joined to the clips on both sides, and the rest of the timeline stays as it was.
@@ -74,14 +79,14 @@ Clips are easy to make. A film is the hard part, and that is what the timeline i
 - **And what it cost.** The **Costs** page takes RunPod's own bill and splits it: today, the month, where the month will end at this pace, your balance and how long it lasts. Then where the pod time went, rendering, booting, fetching files, sitting idle, failing, and how much of it made nothing; the spend per day and per GPU; per project; every pod session from its deploy to its end; what a render of each model costs on each machine, your own PC included once you give it a price per kWh; and what would have cost less: a shorter idle wait with the saving counted, fewer deploys, a network volume for files fetched again and again, a cheaper GPU for that model.
 - **Node packs that come by themselves.** An option that needs a node pack the machine lacks (Face refine, Veda, RTX upscaling…) holds its job and says so: **Install and restart** in one click, or set the machine to do it always. ComfyUI is restarted only once nothing renders there, and what cannot come is done without, said on the job.
 - **Afflatus from outside (MCP).** Claude Code or any MCP client drives the whole studio at `/mcp` with a token of its own: where you are, every form and setting, renders and takes it can see, timelines, the library, the Prompt kit, models, machines and rented GPUs. Each token has its scopes (Look, Make, Spend, Manage), its renders an hour, its spend cap and its activity; what it changes in the page you have open shows there with Undo. See [docs/mcp.md](docs/mcp.md).
-- **Told when it matters.** A render failed or stuck, the queue empty, a GPU found, a pod stopped, a cap or a low balance reached, a new device signed in: in the browser, on Telegram or on Discord, each kind on or off.
+- **Told when it matters.** A render failed or stuck, the queue empty, a ComfyUI offline or only not answering, a GPU found, a pod stopped, a cap or a low balance reached, a new device signed in: in the browser, on Telegram or on Discord, each kind on or off.
 
 ### A GPU for the afternoon
 
 No big card, or a queue longer than the night? Rent one. Afflatus deploys a pod on RunPod with your own key and treats it like any other machine in the queue. Then it takes care of what people dread about renting:
 
-- **Starting it is one dialog.** Pick the GPU, the disk, the idle time and the models to bring. The pod comes up on Afflatus's own image with ComfyUI ready, only its port open and a token in front of it, from its first second; its image pull is followed live, and its CUDA build is the fast one unless you ask.
-- **Your models go with it.** The files your waiting jobs need are sent first. A **model set** prepares the pod with the models you always use, and a network volume keeps them between pods. A file comes from Civitai or Hugging Face only when it is proven to be the same bytes as yours; otherwise it travels from your PC. The node packs a job needs are installed on the pod too.
+- **Starting it is one dialog.** Pick the GPU, the disk, the idle time and the models to bring. The GPUs are ranked by what a render of the jobs waiting would cost on each, from your own renders, the time beside it: the cheapest hour is not always the cheapest render. The pod comes up on Afflatus's own image with ComfyUI ready, only its port open and a token in front of it, from its first second; its image pull is followed live, and its CUDA build is the fast one unless you ask.
+- **Your models go with it.** The files your waiting jobs need are sent first. A **model set** prepares the pod with the models you always use, and a network volume keeps them between pods. A file comes from Civitai or Hugging Face only when it is proven to be the same bytes as yours, a big one over 8 connections at once; otherwise it travels from your PC. The node packs a job needs are installed on the pod too.
 - **The hunt.** Say which GPUs you want, what an hour may cost and how long to try. Afflatus waits, deploys the moment one is free, empties your queue on it, and the idle stop shuts it down. An evening with it, as Telegram told it:
   > **RTX 2000 Ada found.** Deployed in EU-RO-1 at $0.24/h, after 1 min of hunting; 1 render waiting for it.
   > **RTX 2000 Ada terminated.** Why: idle 5 min. This run: $0.04.
@@ -136,7 +141,7 @@ You need ComfyUI running somewhere (a clone, the portable build or the desktop a
 
 1. **Download and start.** Grab the bundle for your system from the [releases page](https://github.com/bardak971/afflatus/releases), unpack it and run `Afflatus.bat` (Windows) or `afflatus.sh` (Linux, macOS). Your browser opens on `http://127.0.0.1:8720`.
 2. **Say where you render.** The first page looks for a ComfyUI on this PC and renders on it in one click, its small node pack put in for you (restart ComfyUI once); or takes its address; or goes on with rented GPUs only, your RunPod key and caps asked there. Then **Lock** your ComfyUI so only Afflatus can use it. All of it is in Settings later.
-3. **Get a model.** Every form lists its family's official files, the ones you lack greyed with their size and a Download under the field; **Settings → Models** shows them all, file by file, with a search on Civitai and Hugging Face.
+3. **Get a model.** Every form lists its family's official files, the ones you lack greyed with their size and a Download under the field; **Settings → Models** shows them all, file by file, with **Get the minimum** per family, and Find models searches Civitai and Hugging Face.
 4. **Make something.** In the **Studio**, open the form, pick a model, write a prompt and render. Open the result and make it move.
 
 <details>
@@ -166,7 +171,7 @@ Each comes with a form on its authors' own settings; presets for the official re
 | Family | Models | What you can do |
 |---|---|---|
 | SDXL | any SDXL checkpoint: Illustrious, NoobAI, Pony, Juggernaut XL… | txt2img, img2img, inpaint, outpaint, upscale, face and hand refine, a ControlNet guide |
-| FLUX.2 Klein | 4B base and its fine-tunes | txt2img, edit by instruction, variation, inpaint, outpaint, upscale, face and hand refine |
+| FLUX.2 Klein | 4B and 9B, and their fine-tunes | txt2img, edit by instruction, variation, inpaint, outpaint, upscale, face and hand refine |
 | FLUX.1 | dev, Krea dev, schnell, Kontext | txt2img, edit, img2img, inpaint, outpaint, upscale, face and hand refine |
 | Krea 2 | Turbo and its fine-tunes | txt2img, img2img, inpaint, upscale, face and hand refine |
 | Qwen Image | 2512, Qwen Image Edit | txt2img, edit, img2img, inpaint, outpaint, upscale, face and hand refine |
@@ -186,7 +191,7 @@ Each comes with a form on its authors' own settings; presets for the official re
 ## Yours, and private
 
 - **Your data** is one folder: the library, settings and timelines (linked folders stay where they are). A backup is one zip from Settings → Storage, without your keys unless you ask for them on the computer it runs on.
-- **Nothing leaves your computer** but the daily update check, until you turn something on: model lookups and downloads, Find models, notifications, a hosted language model for the designer, rented GPUs, each with your own key. Keys stay on the server.
+- **Little leaves your computer:** the daily update check, and your model files' hashes to Civitai and Hugging Face to name them (the first launch says so, one switch turns it off). Downloads are always asked first; notifications, a hosted language model for the designer and rented GPUs send nothing until you set them up, each with your own key. Keys stay on the server.
 - **A password, when you want one.** Off by default, since Afflatus listens on your own machine only. Turn it on in Settings › Sign-in before you open it to your network: each device signs in once and stays signed in for as long as you say, you see every device and can sign any of them out, a new one is announced on Telegram, and a forgotten password is reset with a code sent to your Telegram or written to the server's log. The ComfyUIs it drives can be locked to it with a token, and the pods it deploys on Afflatus's image are locked from their first second. Put HTTPS in front before reaching it from outside your home. See [SECURITY.md](SECURITY.md).
 - **It updates itself.** A dot on Settings says a new version is out; the bundles update in one click, signed and checked, with a way back.
 
