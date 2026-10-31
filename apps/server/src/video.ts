@@ -124,6 +124,8 @@ export interface VideoFacts {
   durationMs: number;
   fps: number;
   hasSound: boolean;
+  /** The file's own length, its longest stream's: what a video was stored with before its picture's was read (card #207). */
+  fileMs?: number;
 }
 
 const warned = new Set<string>();
@@ -131,7 +133,7 @@ const warned = new Set<string>();
 const RUN_MS = 30_000;
 
 /** What a tool gave: its output, or why there is none, said so that a person can act on it. */
-export type Ran = { out: string | Buffer; why?: undefined } | { out: null; why: string };
+export type Ran = { out: string | Buffer; why?: undefined } | { out: null; why: string; passing?: true };
 
 /**
  * Run a tool: its output, or why it gave none. Not installed, out of time and a refusal of the file are three different
@@ -147,9 +149,9 @@ function run(tool: string, args: string[], encoding: "utf8" | "buffer"): Promise
           warned.add(tool);
           console.warn(`[video] "${tool}" was not found: videos get no preview frame and no length. Install ffmpeg, or set FFMPEG and FFPROBE.`);
         }
-        return done({ out: null, why: `"${tool}" was not found on the machine Afflatus runs on. Install ffmpeg, or set FFMPEG and FFPROBE.` });
+        return done({ out: null, why: `"${tool}" was not found on the machine Afflatus runs on. Install ffmpeg, or set FFMPEG and FFPROBE.`, passing: true });
       }
-      if (e.killed || e.signal) return done({ out: null, why: `"${basename(tool)}" took more than ${RUN_MS / 1000} s on this video and was stopped.` });
+      if (e.killed || e.signal) return done({ out: null, why: `"${basename(tool)}" took more than ${RUN_MS / 1000} s on this video and was stopped.`, passing: true });
       // the last lines it wrote, without the temporary file's path and the demuxer's address ("[mov,mp4 @ 0x…]"): the reason
       let said = String(stderr ?? "").trim().split(/\r?\n/).filter(Boolean).slice(-2).join(" ");
       for (const a of args) if (isAbsolute(a)) said = said.split(a).join("the file");
@@ -201,10 +203,13 @@ export async function videoFacts(file: string): Promise<VideoFacts | null> {
   return (await probeVideo(file)).facts;
 }
 
-/** The same, with why there are none when there are none (ffprobe missing, out of time, the file refused, no picture in it). */
-export async function probeVideo(file: string): Promise<{ facts: VideoFacts | null; why?: string }> {
+/**
+ * The same, with why there are none when there are none (ffprobe missing, out of time, the file refused, no picture in it).
+ * `passing`: none for want of the tool or of time, not for the file's sake: asked again later, the file may answer.
+ */
+export async function probeVideo(file: string): Promise<{ facts: VideoFacts | null; why?: string; passing?: true }> {
   const probed = await run(tools.ffprobe, ["-v", "error", "-show_entries", FACT_ENTRIES, "-of", "json", file], "utf8");
-  if (probed.out === null) return { facts: null, why: probed.why };
+  if (probed.out === null) return { facts: null, why: probed.why, ...(probed.passing ? { passing: true as const } : {}) };
   try {
     const facts = factsOf(JSON.parse(String(probed.out)) as ProbeInfo);
     return facts ? { facts } : { facts: null, why: "ffprobe found no picture in this file." };
@@ -252,6 +257,7 @@ export function factsOf(info: ProbeInfo): VideoFacts | null {
     durationMs: pictureMs(picture, info),
     fps: rate(picture.avg_frame_rate),
     hasSound: Boolean(info.streams?.some((s) => s.codec_type === "audio")),
+    fileMs: Math.round(Number(info.format?.duration ?? 0) * 1000) || 0,
   };
 }
 

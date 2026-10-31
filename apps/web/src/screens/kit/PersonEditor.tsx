@@ -16,7 +16,7 @@ import { ModelLink } from "../../ModelLink";
 import { Card, Row } from "../../Rows";
 import { Select } from "../../Select";
 import { localId } from "../../secureContext";
-import { AutoText, Button, Chip, CloseButton, cx, IconButton, NumberBox } from "../../ui";
+import { AutoText, Button, Chip, CloseButton, cx, Failed, IconButton, NumberBox } from "../../ui";
 import { Slider } from "../../Slider";
 import { dropped, moved } from "../queue/order";
 import { useFlip } from "../../useFlip";
@@ -160,7 +160,7 @@ function Pictures({ value, onChange, what, sent, face }: { value: string[]; onCh
             <span className="text-xs">{add.isPending ? "Adding…" : "Add"}</span>
           </button>
         )}
-        {(pasted ?? add.error?.message) && <span role="alert" className="basis-full text-xs text-warn-ink">{pasted ?? add.error?.message}</span>}
+        {pasted ? <span role="alert" className="basis-full text-xs text-warn-ink">{pasted}</span> : add.error && <span className="basis-full"><Failed inline what="Pictures not added" error={add.error} /></span>}
         {/* a file from the computer is kept with the person or place, not put in the library; one picked from the library stays there too */}
         {picking && (
           <Picker
@@ -231,7 +231,7 @@ function Voice({ value, part, onChange, onPart }: {
           <MicButton slot="Voice sample" kit size={32} onTake={onChange} />
         </div>
       )}
-      {(pasted ?? upload.error?.message) && <span role="alert" className="text-xs text-warn-ink">{pasted ?? upload.error?.message}</span>}
+      {pasted ? <span role="alert" className="text-xs text-warn-ink">{pasted}</span> : upload.error && <Failed inline what="Voice sample not added" error={upload.error} />}
       {picking && <Picker title="Voice sample" kind="audio" onClose={() => setPicking(false)} onPick={(id) => { onChange(id); setPicking(false); }} />}
     </div>
   );

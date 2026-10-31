@@ -429,7 +429,7 @@ describe("a pod a token did not start (card #182, #183)", () => {
     const c = await connect((await made("all", { spendCapUsd: 1 })).token);
     await refusedWith(c, "edit_machine", { machine, idleMinutes: 1440 }, /the user's pod: its bill is not counted against this token's cap.*idle minutes 10 → 1440/);
     await refusedWith(c, "edit_machine", { machine, watchdogMinutes: 60 }, /watchdog 15 → 60 min/);
-    await refusedWith(c, "edit_machine", { machine, idleDo: "stop" }, /idle action terminate → stop/);
+    await refusedWith(c, "edit_machine", { machine, idleDo: "stop" }, /the user's pod: its idle action stays terminate, as set in Afflatus/);
     expect((await readSettings(t.db)).machines.find((m) => m.id === machine)!.rented).toMatchObject({ idleMinutes: 10, watchdogMinutes: 15, idleDo: "terminate" });
     // shorter is always fine
     expect((await ok(c, "edit_machine", { machine, idleMinutes: 3, watchdogMinutes: 5 })).pod).toMatchObject({ idleMinutes: 3 });
@@ -437,6 +437,18 @@ describe("a pod a token did not start (card #182, #183)", () => {
     // set to never stop when idle: any minutes are shorter than never
     await updateSettings(t.db, (x) => ({ machines: x.machines.map((m) => (m.id === machine && m.rented ? { ...m, rented: { ...m.rented, idleMinutes: 0 } } : m)) }));
     expect((await ok(c, "edit_machine", { machine, idleMinutes: 30 })).pod).toMatchObject({ idleMinutes: 30 });
+    await c.close();
+  });
+
+  // the 0.9.0 review (M4): stop → terminate counted as billing less, and the user's disk and fetched models were deleted
+  it("edit_machine never changes the idle action of the user's pod, even to one that bills less", async () => {
+    const machine = await usersPod();
+    await updateSettings(t.db, (x) => ({ machines: x.machines.map((m) => (m.id === machine && m.rented ? { ...m, rented: { ...m.rented, idleDo: "stop" as const } } : m)) }));
+    const c = await connect((await made("all", { spendCapUsd: 1 })).token);
+    await refusedWith(c, "edit_machine", { machine, idleDo: "terminate", idleMinutes: 1 }, /its idle action stays stop, as set in Afflatus \(stop keeps its disk and the models fetched there/);
+    expect((await readSettings(t.db)).machines.find((m) => m.id === machine)!.rented).toMatchObject({ idleMinutes: 10, idleDo: "stop" });
+    // the same action said again changes nothing, and is not refused
+    expect((await ok(c, "edit_machine", { machine, idleDo: "stop", idleMinutes: 5 })).pod).toMatchObject({ idleMinutes: 5 });
     await c.close();
   });
 

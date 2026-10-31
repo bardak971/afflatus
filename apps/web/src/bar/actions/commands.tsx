@@ -480,7 +480,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       // the Costs page first (where it went, this PC's electricity too); the caps on Ctrl+Enter
       return [
         { label: "Open Queue › Costs", icon: <CircleDollarSign size={14} />, note: "where the money went, by project and render", run: () => go("/queue?view=costs") },
-        { label: "Open Settings › Costs", icon: <CircleDollarSign size={14} />, note: "the caps and the balance", run: () => go(settingHref("comfy.rentcaps")) },
+        { label: "Open Settings › Costs", icon: <CircleDollarSign size={14} />, note: "the caps, this month's costs", run: () => go(settingHref("comfy.rentcaps")) },
       ];
     case "sign-out": {
       const why = signOutBlock(x.access);

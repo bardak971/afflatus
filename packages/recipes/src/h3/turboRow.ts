@@ -65,10 +65,11 @@ export const SWAP_TURBO_ROW = row({ when: { not: SWAP_MODEL_TURBO }, slots: [{ s
 
 /**
  * A Motion transfer's: a window after a swap as the swap; any other on H3's model, by the reference route with a cast
- * picture, or carrying on where the reference route can run (the reference model there, or a hybrid picked).
+ * picture or a reference video (h3/model.ts uses: either sends the clip down that route, and its refTurbo is loaded), or
+ * carrying on where the reference route can run (the reference model there, or a hybrid picked).
  */
 const AFTER_SWAP: StartCondition = { all: [{ input: "afterSwap", is: true }, { input: "previous", filled: true }] };
-const MOTION_VIDEO = videoRow({ any: [{ input: "references", filled: true }, { all: [{ input: "previous", filled: true }, { any: [named(undefined, "refUnet", /./), HYBRID_MODEL] }] }] });
+const MOTION_VIDEO = videoRow({ any: [{ input: "references", filled: true }, { input: "refVideos", filled: true }, { all: [{ input: "previous", filled: true }, { any: [named(undefined, "refUnet", /./), HYBRID_MODEL] }] }] });
 export const MOTION_TURBO_ROW = row({
   when: { any: [{ all: [AFTER_SWAP, { not: SWAP_MODEL_TURBO }] }, { all: [{ not: AFTER_SWAP }, MOTION_VIDEO.when] }] },
   slots: [{ slot: "refTurbo", when: { any: [AFTER_SWAP, MOTION_VIDEO.slots[0]!.when!] } }, { slot: "turbo" }],

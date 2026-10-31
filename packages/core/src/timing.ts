@@ -1,4 +1,4 @@
-import type { InputSpec } from "./inputs";
+import { formModelInput, type InputSpec } from "./inputs";
 import { modelFileName } from "./warm";
 
 /**
@@ -61,8 +61,8 @@ export function timeKey(specs: InputSpec[], values: Record<string, unknown>): st
 export const modelName = (file: string): string => modelFileName(file).replace(/\.[a-z0-9]+$/, "");
 
 /** The model file a form names, as renders are filed under it: null when the form leaves it to the usual one. */
-export function modelOf(specs: InputSpec[], values: Record<string, unknown>): string | null {
-  const spec = specs.find((i) => i.type === "model");
+export function modelOf(specs: readonly InputSpec[], values: Record<string, unknown>): string | null {
+  const spec = formModelInput({ inputs: specs });
   const value = spec && values[spec.id];
   return typeof value === "string" && value ? modelName(value) : null;
 }

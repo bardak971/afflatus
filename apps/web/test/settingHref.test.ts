@@ -33,6 +33,8 @@ describe("a setting's address", () => {
     for (const i of INDEX) {
       expect(anchors.has(i.key) || Boolean(i.near && anchors.has(i.near)), i.key).toBe(true);
       if (i.near) expect(spotOf(i.near), i.near).toBeTruthy();
+      // Settings looks for the near row on the setting's own tab only: one on another tab lands on nothing outlined
+      if (i.near) expect(spotOf(i.near)?.tab, `${i.key} near ${i.near}`).toBe(i.tab);
     }
   });
 });

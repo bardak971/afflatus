@@ -11,7 +11,7 @@ import { registerAssetUpload } from "./assetUpload";
 import { openInComfy } from "./comfyOpen";
 import { loginKeyOf } from "./comfyLogins";
 import { tagMatches } from "./compress";
-import { markedVideoFile, silentOf, soundOf } from "./cut";
+import { markedVideoFile, probeMediaFile, silentOf, soundOf } from "./cut";
 import { newId, now, type Tables } from "./db";
 import { httpError, notFound } from "./errors";
 import type { LibraryChange } from "./events";
@@ -182,10 +182,16 @@ export async function soundItem(s: Services, { asset, addBeside }: AssetLookup, 
   // "Big Air · Clip 2 · take 5 · audio": after the name the video goes by (worked out from where it came from when it has none)
   const source = await nameOf(s.db, video);
   // read where it lies and stored from where ffmpeg wrote it: handed the whole video, a 2-minute 1080p one held 967 MB
-  return soundOf(await sourceOf(s.storage, video.file_key), extOf(video.mime), video.duration_ms, (path) => addBeside(video, { path, ext: "m4a", thumb: null }, {
-    kind: "audio", origin: "imported", name: source ? soundName(source) : "Audio extracted from a video", mime: "audio/mp4",
-    width: null, height: null, duration_ms: video.duration_ms, fps: null, has_sound: 1,
-  }));
+  return soundOf(await sourceOf(s.storage, video.file_key), extOf(video.mime), video.duration_ms, async (path) => {
+    // the sound lasts as long as its own stream, not the video's picture (#207: a video's length is its picture's): a pod
+    // take's audio ends 35-134 ms short of it, a screen capture's sound can run seconds past it, and what cuts or fades by
+    // the item's length dropped that end. The picture's length stays only when the file written cannot be read
+    const own = (await probeMediaFile(path))?.durationMs;
+    return addBeside(video, { path, ext: "m4a", thumb: null }, {
+      kind: "audio", origin: "imported", name: source ? soundName(source) : "Audio extracted from a video", mime: "audio/mp4",
+      width: null, height: null, duration_ms: own || video.duration_ms, fps: null, has_sound: 1,
+    });
+  });
 }
 
 /** A video without its sound: a new video beside it in the same folder, kept, its source untouched. POST /api/assets/:id/silent, MCP's remove_sound. */

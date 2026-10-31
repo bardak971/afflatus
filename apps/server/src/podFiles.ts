@@ -7,8 +7,8 @@ import type { Db } from "./db";
 import { PASSING, type Downloads } from "./downloads";
 import { stat } from "node:fs/promises";
 import { GUESSED, MEASURED_FROM, measuredRange, recordFetch, recordMeasure, type MeasureKind, type Range } from "./podMeasures";
-import { closeVersion, localCopy, measureKind, podSource, presetsOf, type PodSource, type SourceLookup } from "./podSources";
-import { keyMayDo } from "./modelDownload";
+import { closeVersion, localCopy, localCopyOf, measureKind, openVersion, podSource, presetsOf, type PodSource, type SourceLookup } from "./podSources";
+import { isPaidSaid, keyMayDo } from "./modelDownload";
 import { PACKS_MS, PodPacks, type PodPackView } from "./podPacks";
 import { PACK_UPLOADS, uploadFile } from "./podUpload";
 import type { Settings } from "./settings";
@@ -64,6 +64,8 @@ interface Entry extends PodFileView {
   civitai?: PresetFile["civitai"];
   downloadId?: string;
   upload?: AbortController;
+  /** The bytes its source said it has (a Civitai version's file hash): this computer's copy is sent in its place only if it has them. */
+  sha256?: string;
   /** When its bytes started coming, for its speed. */
   flowingAt?: number;
   /** When its bytes last moved, and how many there were then: a file under way holds the pod's idle time only while they move. */
@@ -873,6 +875,11 @@ export class PodFiles {
         if (e.via === "upload") uploads++;
         else downloads++;
         e.state = "fetching";
+        // coming from now on: its source looked up (comfyOf, a live Civitai lookup, the pack's version) can outlast an idle
+        // check, which read a fetching entry with no clock as stuck and let the pod about to work be stopped (begin and send
+        // start the clock again as the bytes are asked for, for its speed)
+        e.flowingAt = Date.now();
+        e.movedAt = e.flowingAt;
         changed = true;
         void this.begin(machine, e);
       }
@@ -959,9 +966,11 @@ export class PodFiles {
         headers = settings.civitaiKey ? { Authorization: `Bearer ${settings.civitaiKey}` } : undefined;
         total = Math.round((found.file.sizeKB ?? 0) * 1024) || total;
         // the pack checks the file against it before naming it: a part written wrong is never a model ComfyUI loads
-        sha256 = found.file.hashes?.SHA256;
+        sha256 = found.file.hashes?.SHA256 ?? src.sha256;
       } else {
         source = src.url;
+        // a copy proven by this computer's hash (podSources.ts sameBytes): the pack checks it too, as a site may change it
+        sha256 = src.sha256;
         // the user's own account for the site the file is on, to that site alone (keyFor)
         headers = keyFor(source, settings);
       }
@@ -969,6 +978,7 @@ export class PodFiles {
       e.flowingAt = Date.now();
       e.movedAt = e.flowingAt;
       e.movedBytes = 0;
+      if (sha256) e.sha256 = sha256;
       if (!this.current(machine, e)) return;
       const started = await this.d.downloads.start(comfy, "", { file: e.file, folder: e.folder, title: name, source, ...(headers ? { headers } : {}), ...(total ? { total } : {}), ...(sha256 ? { sha256 } : {}), machine, directOnly: true, filesRead: true, ...((e.tries ?? 0) + 1 < TRIES ? { quietPassing: true } : {}) });
       // the pod forgotten (stopped, gone) while its download was asked for: stopped, not left running for nothing
@@ -999,14 +1009,18 @@ export class PodFiles {
     try {
       const was = e.source;
       if (was) (e.refusedBy ??= []).push(sourceKey(was));
-      if (was?.kind === "civitai" && !keyMayDo(why)) await closeVersion(this.d.lookup, e.folder, was.version).catch((err: Error) => console.warn(`[pod files] a refused version not kept: ${err.message}`));
+      // a paid version (Early Access) is refused for a while, or until the user unlocks it: never closed for good, or every
+      // later pod got the file over the home line once it was free (the 0.9.0 review, M3)
+      if (was?.kind === "civitai" && !keyMayDo(why) && !isPaidSaid(why)) await closeVersion(this.d.lookup, e.folder, was.version).catch((err: Error) => console.warn(`[pod files] a refused version not kept: ${err.message}`));
       // what was known of where it comes from is asked afresh: the version just closed is no longer taken
       for (const key of this.sources.keys()) if (key.startsWith(`${keyOf(e.folder, e.file)}|`)) this.sources.delete(key);
+      // the bytes the refused source would have given, when known: this computer's copy is sent only if it has them
+      const known = e.sha256 ?? (was && was.kind !== "upload" ? was.sha256 : undefined);
       let next = await this.sourceOf(e, true);
       if (!next || e.refusedBy?.includes(sourceKey(next))) {
-        const path = await localCopy(await this.d.lookup.comfyDir(), e.folder, e.file).catch(() => null);
+        const path = await localCopyOf(this.d.lookup, e.folder, e.file, known).catch(() => null);
         next = path ? { kind: "upload", path } : null;
-      }
+      } else if (next.kind === "upload" && known && (await localCopyOf(this.d.lookup, e.folder, e.file, known).catch(() => null)) !== next.path) next = null;
       if (!this.current(machine, e) || e.state !== "fetching") return;
       if (!next || e.refusedBy?.includes(sourceKey(next))) return void (await this.failUnlessThere(machine, e, why));
       console.warn(`[pod files] ${e.file} on ${machine}: ${why}; taken from ${measureKind(next) === "upload" ? "this computer" : "another source"} instead`);
@@ -1068,6 +1082,8 @@ export class PodFiles {
     if (e.total) e.bytes = e.total;
     this.d.changed?.();
     this.landed(machine, e);
+    // a version that gave its file after all (its creator allowed downloads again) is taken again by the next lookup
+    if (measured && e.source?.kind === "civitai") await openVersion(this.d.lookup, e.folder, e.source.version).catch((err: Error) => console.warn(`[pod files] a version not opened again: ${err.message}`));
     if (measured && e.flowingAt && e.via) {
       const to = e.wholeAt ?? Date.now();
       const ms = to - e.flowingAt;

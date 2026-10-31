@@ -315,7 +315,7 @@ export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   // (and its turbo LoRA, the one the clip ran with, which Face refine keeps on it)
   const asPicked = clipModelOf(input, slots, how, extra.turbo);
   const clipModel: ClipModel = loader ? { follows: asPicked.follows, file: unet, loader, ...(lora ? { turbo: lora, turboWeight: loraWeight } : {}) } : asPicked;
-  const { positive, latent, previous, plain, clip } = conditionFor(g, ctx, input, how, join, { width, height, vae, audioVae }, extra.prompt, more);
+  const { positive, latent, previous, plain, clip } = conditionFor(g, ctx, input, how, join, { width, height, vae, audioVae }, extra.prompt, more, !own);
 
   // a finish samples nothing: the patch (and the pose it reads) is left out of it
   const patched = extra.model && !own ? extra.model(g, model, { vae, width, height, frames: join.frames }) : null;

@@ -50,7 +50,7 @@ export function PackNotes({ of, input }: { of: FormPacks | undefined; input: str
       {notes.map((n) => {
         const { text, warn } = said(n, where, of!.rule);
         return (
-          <span key={`${n.input}:${n.pack}`} className={cx("text-xs", warn ? "text-warn-ink" : "text-ink-2")} data-tip={`ComfyUI-Manager installs node packs into ComfyUI's custom_nodes folder; ComfyUI loads them when it starts again, which the queue does once nothing renders there. Settings › Machines says whether it asks first.`}>
+          <span key={`${n.input}:${n.pack}`} className={cx("text-xs", warn ? "text-warn-ink" : "text-ink-2")} data-tip={`ComfyUI-Manager installs node packs into ComfyUI's custom_nodes folder; ComfyUI loads them when it starts again, which the queue does once nothing renders there. Settings › ComfyUI › Missing node packs says whether it asks first.`}>
             {text}
           </span>
         );

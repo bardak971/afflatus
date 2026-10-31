@@ -17,7 +17,7 @@ import { runwayNowSaid, runwaySaid, runwayWhy } from "../queue/costsView";
 import { Block, Card, CardLoading, Row } from "./Rows";
 import { settingHref, tabHref } from "./settingsIndex";
 import { COLUMNS } from "./wide";
-import { capAmount } from "./capAmount";
+import { capAmount, capRefusal } from "./capAmount";
 import { useCapsSave } from "../../rentCaps";
 import { openDeploy } from "../../deploy";
 import { idleEndSaid, podsAdded, rateParts } from "../../machines";
@@ -120,20 +120,24 @@ const capsSaid = (caps: { day: number; month: number }) =>
   [caps.day > 0 && `${usd(caps.day)} a day`, caps.month > 0 && `${usd(caps.month)} a month`].filter(Boolean).join(" · ") || "none: no cap";
 
 /**
- * A cap in dollars: a small box, saved when it is left. Empty or 0: no cap. Its parent remounts it (a new `key`, useCapsSave
+ * A cap in US dollars: a small box, saved when it is left. Empty: no cap (a typed 0 or € is refused, and said). Its parent remounts it (a new `key`, useCapsSave
  * resets) when a save of it failed, so that it shows the cap as saved again rather than the amount typed, which is not in force. Its "?"
  * says what it weighs: the two caps do not weigh the same bill.
  */
 export function CapBox({ label, value, help, onSave }: { label: string; value: number; help: string; onSave(v: number): void }) {
   const [text, setText] = useState(value ? String(value) : "");
+  const [refused, setRefused] = useState<string | null>(null);
   useEffect(() => setText(value ? String(value) : ""), [value]);
   const commit = () => {
-    // empty: no cap; anything that does not read as one amount for sure keeps the cap as it was (never a cap silently gone)
+    // empty: no cap; anything that does not read as one amount for sure keeps the cap as it was (never a cap silently gone),
+    // and says so: a "0" or a "€50" put back without a word would read as taken
     const n = capAmount(text);
     if (n === null || !Number.isFinite(n)) {
+      setRefused(`"${text.trim()}" not taken: ${capRefusal(text)}`);
       setText(value ? String(value) : "");
       return;
     }
+    setRefused(null);
     if (n !== value) onSave(n);
   };
   // its "?" beside the label, not in it: a click on it never lands in the box
@@ -142,9 +146,10 @@ export function CapBox({ label, value, help, onSave }: { label: string; value: n
       <label className="flex items-center gap-1.5 text-body">
         <span className="text-ink-2">{label}</span>
         <span className="text-ink-3">$</span>
-        <input value={text} onChange={(e) => setText(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} inputMode="decimal" placeholder="none" aria-label={`Cap ${label}`} className={cx("h-8 w-[68px] font-mono text-xs", fieldClass)} />
+        <input value={text} onChange={(e) => setText(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} inputMode="decimal" placeholder="no cap" aria-label={`Cap ${label}`} className={cx("h-8 w-[68px] font-mono text-xs", fieldClass)} />
       </label>
       <Help text={help} title={`Cap ${label}`} />
+      {refused && <span role="status" className="text-xs text-warn-ink">{refused}</span>}
     </span>
   );
 }

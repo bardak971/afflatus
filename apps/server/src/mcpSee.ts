@@ -1,4 +1,4 @@
-import { modelOf, plural, type InputSpec } from "@afflatus/core";
+import { formModelInput, modelOf, plural, type InputSpec } from "@afflatus/core";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { assetDetail } from "./assets-api";
@@ -61,7 +61,7 @@ async function madeWith(s: Services, a: Tables["assets"]) {
 
 /** The model file a form rendered with, as it names it; the model's name when the form picks none (its family's usual file). */
 function modelFile(specs: InputSpec[], inputs: Record<string, unknown>): string | null {
-  const spec = specs.find((i) => i.type === "model");
+  const spec = formModelInput({ inputs: specs });
   const file = spec ? inputs[spec.id] : undefined;
   return typeof file === "string" && file ? file : modelOf(specs, inputs);
 }

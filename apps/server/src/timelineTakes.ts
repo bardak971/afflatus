@@ -97,6 +97,13 @@ export class TimelineTakes {
       if (await db.selectFrom("takes").select("id").where("clip_id", "=", clipId).where("asset_id", "=", asset.id).executeTakeFirst()) return;
       timeline = clip.timeline_id;
       const id = newId();
+      // never handed over past the picture of the clip before: a render planned before that video's length was read again
+      // as its picture's (card #207) was told the longer one, and would land a fade where the join is seamless
+      if (links.prev) {
+        const prev = await db.selectFrom("takes").innerJoin("assets", "assets.id", "takes.asset_id").select(["takes.tail_ms as tail_ms", "assets.duration_ms as duration_ms", "assets.latent_frames as latent_frames", "assets.latent_clock as latent_clock"]).where("takes.id", "=", links.prev.take).executeTakeFirst();
+        const end = prev?.duration_ms ? lengthOnGrid(prev) - prev.tail_ms : undefined;
+        if (end !== undefined && links.prev.at > end) links = { ...links, prev: { ...links.prev, at: end } };
+      }
       // a finished take is a step of its own, which Undo takes back with the take (a render's new take is no step: Undo keeps it)
       if (finishedFrom && !between) await this.core.remember(clip.timeline_id, "the finished take", id, db);
       await this.add(clipId, asset, overlap ?? { headMs: 0, tailMs: 0 }, links, finishedFrom, db, id, !between);

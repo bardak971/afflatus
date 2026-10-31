@@ -93,6 +93,23 @@ describe("a ComfyUI that answers nothing while it renders", () => {
     expect(kinds("comfyGone")).toHaveLength(0);
   });
 
+  // the 0.9.0 review (M2): a hung ComfyUI behind RunPod's proxy (a 524) was followed on, billed, until the stuck rule
+  it("on a rented pod, followed on only so long with nothing moving: then lost, as before card #196", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    t.services.queue.podSilentMs = 400;
+    // the render's machine taken as a pod from the first look on (the one object its wait was given)
+    t.services.queue.stillRuns = async (m) => (Object.assign(m, { rented: { podId: "zz-test" } }), SWAMPED);
+    const silent = await silence();
+    const id = await running();
+    silent(true);
+    await until(() => kinds("comfyBusy").length === 1);
+    // said busy, its render not heard: a cap does not wait for it (rented.ts)
+    expect(t.services.queue.runningOn(FIRST_MACHINE)).toBe(true);
+    expect(t.services.queue.heardOn(FIRST_MACHINE)).toBe(false);
+    await until(async () => (await statusOf(id)).status !== "running");
+    expect(["queued", "failed"]).toContain((await statusOf(id)).status);
+  });
+
   it("its process gone (its port closed): offline, and queued again", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const id = await running();
