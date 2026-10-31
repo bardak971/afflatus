@@ -1,4 +1,4 @@
-import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { PassThrough } from "node:stream";
@@ -457,5 +457,146 @@ describe("the files Delete moved, never a file in place nor a copy that stays (c
     const left = live(await lib()).filter((f) => [f, ...f.also].some((p) => p.file.endsWith("zz-test-same.safetensors")));
     expect(left).toHaveLength(1);
     expect([left[0]!, ...left[0]!.also].map((p) => p.folder).sort()).toEqual(["checkpoints", "loras", "vae"]);
+  });
+});
+
+const sha = (p: string) => createHash("sha256").update(readFileSync(p)).digest("hex").toUpperCase();
+/** Other bytes written over a file, of the same size, with another date: a v2 downloaded over its v1, not hashed yet. */
+const replace = (path: string, size: number, fill: number) => {
+  writeFileSync(path, Buffer.alloc(size, fill));
+  const later = new Date(Date.now() + 60_000);
+  utimesSync(path, later, later);
+};
+const hashOf = async (folder: string, file: string) => (await t.db.selectFrom("model_hashes").select("sha256").where("folder", "=", folder).where("file", "=", file).executeTakeFirst())?.sha256;
+
+describe("a kept hash, only for the bytes it was read from (release review 0.9.0, D1)", () => {
+  const copy = () => join(home, "models", "loras", "zz-test-copy.safetensors");
+
+  it("a file replaced since it was hashed is no copy of its old bytes: Delete records no hash, Empty says the only copy, Put back has it hashed again", async () => {
+    await t.services.hashes.run();
+    expect(byFile(await lib(), "zz-test-copy.safetensors")!.copies).toEqual(["loras|style/zz-test-a.safetensors"]);
+    replace(copy(), 300, 9);
+    let l = await lib();
+    expect(byFile(l, "zz-test-copy.safetensors")).toMatchObject({ sha256: null, copies: [] });
+    expect(byFile(l, "style/zz-test-a.safetensors")!.copies).toEqual([]);
+    const done = await deleteFiles(t.services, { files: [{ folder: "loras", file: "zz-test-copy.safetensors" }], to: "aside" }, fake);
+    expect(done.moved).toBe(1);
+    expect((await t.db.selectFrom("model_removed").select("sha256").executeTakeFirstOrThrow()).sha256).toBeNull();
+    // Empty's list: the v2 away has no copy (the other file is v1's bytes), Empty would erase its only copy
+    l = await lib();
+    expect(l.files.filter((f) => f.removed).map((f) => f.copies)).toEqual([[]]);
+    // the pass the Delete started forgets the name's row; put back, it is hashed as it is, never given v1's hash
+    await t.services.hashes.run();
+    expect((await post(t.app, "/api/model-files/put-back", { batch: done.batch })).json()).toMatchObject({ back: 1 });
+    await t.services.hashes.run();
+    await t.services.hashes.run();
+    expect(await hashOf("loras", "zz-test-copy.safetensors")).toBe(sha(copy()));
+  });
+
+  it("Put back gives a file its hash again only while it is the bytes the Delete recorded it with", async () => {
+    const vae = join(home, "models", "vae", "zz-test-vae.safetensors");
+    await t.services.hashes.run();
+    const was = sha(vae);
+    const first = await deleteFiles(t.services, { files: [{ folder: "vae", file: "zz-test-vae.safetensors" }], to: "aside" }, fake);
+    expect(await t.db.selectFrom("model_removed").select(["sha256", "mtime"]).executeTakeFirstOrThrow()).toEqual({ sha256: was, mtime: expect.any(Number) });
+    await t.services.hashes.run();
+    await post(t.app, "/api/model-files/put-back", { batch: first.batch });
+    // the same bytes: its hash at once, nothing read again
+    expect(await hashOf("vae", "zz-test-vae.safetensors")).toBe(was);
+    await t.services.hashes.run();
+    // away again, and changed there: listed with no hash, put back without one, hashed again as it is
+    const second = await deleteFiles(t.services, { files: [{ folder: "vae", file: "zz-test-vae.safetensors" }], to: "aside" }, fake);
+    await t.services.hashes.run();
+    const stored = (await t.db.selectFrom("model_removed").select("stored_path").where("batch", "=", second.batch).executeTakeFirstOrThrow()).stored_path;
+    replace(stored, 200, 4);
+    expect((await lib()).files.find((f) => f.removed)!.sha256).toBeNull();
+    expect((await post(t.app, "/api/model-files/put-back", { batch: second.batch })).json()).toMatchObject({ back: 1 });
+    await t.services.hashes.run();
+    await t.services.hashes.run();
+    expect(await hashOf("vae", "zz-test-vae.safetensors")).toBe(sha(vae));
+    expect(sha(vae)).not.toBe(was);
+  });
+});
+
+describe("the file ComfyUI loads by a name (release review 0.9.0, D2)", () => {
+  const X = "zz-test-x.safetensors";
+  beforeEach(() => {
+    for (const d of ["unet", "diffusion_models"]) mkdirSync(join(home, "models", d), { recursive: true });
+  });
+
+  it("is models/unet's when diffusion_models holds the name too: the other one is shadowed, the name's hash unet's", async () => {
+    const unet = join(home, "models", "unet", X);
+    const other = join(home, "models", "diffusion_models", X);
+    writeFileSync(unet, Buffer.alloc(600, 41));
+    writeFileSync(other, Buffer.alloc(600, 42));
+    await t.services.hashes.run();
+    const rows = (await lib()).files.filter((f) => !f.removed && f.file === X);
+    expect(rows.map((f) => [f.id, f.path, f.sha256]).sort()).toEqual([[`diffusion_models|${X}`, unet, sha(unet)], [`diffusion_models|${X}|${other}`, other, sha(other)]].sort());
+    expect(await hashOf("diffusion_models", X)).toBe(sha(unet));
+    // asked by its name alone: the file ComfyUI loads, unet's
+    expect(await deleteFiles(t.services, { files: [{ folder: "diffusion_models", file: X }], to: "aside" }, fake)).toMatchObject({ moved: 1 });
+    expect([existsSync(unet), existsSync(other)]).toEqual([false, true]);
+  });
+
+  it("takes a link to a file as holding its name, and never moves the link", async () => {
+    const target = join(home, "store", X);
+    mkdirSync(join(home, "store"));
+    writeFileSync(target, Buffer.alloc(700, 43));
+    const link = join(home, "models", "unet", X);
+    try {
+      symlinkSync(target, link, "file");
+    } catch {
+      // Windows makes a link to a file only in Developer Mode or as an administrator
+      return;
+    }
+    const other = join(home, "models", "diffusion_models", X);
+    writeFileSync(other, Buffer.alloc(700, 44));
+    await t.services.hashes.run();
+    const rows = (await lib()).files.filter((f) => !f.removed && f.file === X);
+    expect(rows.find((f) => f.path === link)).toMatchObject({ id: `diffusion_models|${X}`, size: 700, sha256: sha(target) });
+    expect(rows.find((f) => f.path === other)).toMatchObject({ id: `diffusion_models|${X}|${other}` });
+    const out = await deleteFiles(t.services, { files: [{ folder: "diffusion_models", file: X }], to: "aside" }, fake);
+    expect(out).toMatchObject({ moved: 0, left: [{ why: expect.stringContaining("is a link to") }] });
+    expect([existsSync(link), existsSync(target), existsSync(other)]).toEqual([true, true, true]);
+  });
+});
+
+describe("Delete's row, the file the user saw (release review 0.9.0, D8 D9)", () => {
+  const vae = () => join(home, "models", "vae", "zz-test-vae.safetensors");
+  const pending = (id: string, stored: string) => t.db.insertInto("model_removed").values({
+    id, batch: "b", folder: "vae", file: "zz-test-vae.safetensors", path_was: vae(), size: 200, sha256: null, place: "bin", stored_path: stored, info_path: null,
+    removed_at: now(), restored_at: null, emptied_at: null, pending: 1,
+  }).execute();
+
+  it("leaves a file that is not the one the list showed any more", async () => {
+    const row = byFile(await lib(), "zz-test-vae.safetensors")!;
+    replace(vae(), 200, 6);
+    const out = await deleteFiles(t.services, { files: [{ folder: "vae", file: row.file, path: row.path!, size: row.size!, mtime: row.mtime! }], to: "aside" }, fake);
+    expect(out).toMatchObject({ moved: 0, left: [{ why: expect.stringContaining("not the file the list showed") }] });
+    expect(existsSync(vae())).toBe(true);
+    const now2 = byFile(await lib(), "zz-test-vae.safetensors")!;
+    expect(await deleteFiles(t.services, { files: [{ folder: "vae", file: now2.file, path: now2.path!, size: now2.size!, mtime: now2.mtime! }], to: "aside" }, fake)).toMatchObject({ moved: 1 });
+  });
+
+  it("undoes a move stopped between its link and its unlink: the file stays in its place, the name made for it goes", async () => {
+    const stored = join(bin, "$RZZZZZZ.safetensors");
+    linkSync(vae(), stored);
+    await pending("half", stored);
+    await settlePending(t.services);
+    expect(existsSync(stored)).toBe(false);
+    expect(readFileSync(vae())).toEqual(Buffer.alloc(200, 3));
+    expect(await t.db.selectFrom("model_removed").selectAll().execute()).toEqual([]);
+  });
+
+  it("keeps as away a moved file whose place another file filled again (ComfyUI-Manager fetching it), Empty erasing it", async () => {
+    const stored = join(bin, "$RZZZZZZ.safetensors");
+    renameSync(vae(), stored);
+    writeFileSync(vae(), Buffer.alloc(200, 5));
+    await pending("moved", stored);
+    await settlePending(t.services);
+    expect(await t.db.selectFrom("model_removed").select(["id", "pending"]).execute()).toEqual([{ id: "moved", pending: 0 }]);
+    expect((await lib()).files.filter((f) => f.removed).map((f) => f.removed!.id)).toEqual(["moved"]);
+    expect((await post(t.app, "/api/model-files/empty", {})).json()).toEqual({ erased: 1, bytes: 200 });
+    expect(readFileSync(vae())).toEqual(Buffer.alloc(200, 5));
   });
 });

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { link, mkdir, open, readdir, rename, rmdir, stat, statfs, unlink, writeFile } from "node:fs/promises";
+import { link, lstat, mkdir, open, readdir, rename, rmdir, stat, statfs, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join, parse, relative, resolve, sep } from "node:path";
 import { envSaid } from "./config";
 
@@ -175,6 +175,9 @@ export async function moveNoClobber(from: string, to: string): Promise<void> {
   try {
     await unlink(from);
   } catch (err) {
+    // the old name gone meanwhile (an Empty erasing it as a Put back linked it back): `to` is the only name the file has
+    // left, kept, and the move is done. Removed only while the old name still holds the file (held open by ComfyUI)
+    if ((err as NodeJS.ErrnoException).code === "ENOENT" || !(await lstat(from).then(() => true, () => false))) return;
     await unlink(to).catch(() => {});
     throw err;
   }

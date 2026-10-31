@@ -11,7 +11,8 @@ export const MODEL_BODY = "application/x-afflatus-model";
 
 const fileRef = z.object({ folder: z.string().regex(/^[\w-]{1,64}$/), file: z.string().min(1).max(500) });
 // a row of the list is asked by its path too: two files may hold one name in two of a folder's directories
-const deleteBody = z.strictObject({ files: z.array(fileRef.extend({ path: z.string().min(1).max(1000).optional() })).min(1).max(5000), to: z.enum(["bin", "aside"]).default("bin"), anyway: z.boolean().default(false) });
+// and with the size and date it showed: a file found otherwise is not the one the user picked (modelLibrary.ts deleteFiles)
+const deleteBody = z.strictObject({ files: z.array(fileRef.extend({ path: z.string().min(1).max(1000).optional(), size: z.number().int().nonnegative().optional(), mtime: z.number().optional() })).min(1).max(5000), to: z.enum(["bin", "aside"]).default("bin"), anyway: z.boolean().default(false) });
 const backBody = z.strictObject({ ids: z.array(z.string().max(64)).max(5000).optional(), batch: z.string().max(64).optional() });
 const kindBody = z.strictObject({ name: z.string().min(1).max(300), header: z.record(z.string(), z.unknown()).nullable() });
 
