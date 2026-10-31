@@ -47,15 +47,23 @@ export async function seedCosts(db: Db, now = Date.now()): Promise<void> {
       t += min * MIN;
     }
     const rows: Array<Tables["render_stats"]> = [];
+    // the model the session fetched, else the recipe's own name: what the render loaded
+    const file = p.files[0]?.[0].replace(/\.safetensors$/, "");
     for (const [recipe, min, count, failed] of p.renders) {
+      // a size and a length, and the step and work they give, as demo-times.ts writes them: the pace of each GPU (Deploy's
+      // and the hunt's $ / render) is read from the step for the work, and a render without them is never compared
+      const video = recipe.endsWith("video");
+      const [width, height, seconds] = video ? [1024, 576, 5] : [1024, 1024, 0];
       for (let k = 0; k < count; k++) {
         const bad = k >= count - failed;
         const ms = Math.round(min * MIN * (bad ? 0.4 : 0.9 + ((k * 7) % 5) / 20));
         t += ms;
         rows.push({
-          id: `demo-pod-${n++}`, owner_id: "local", recipe_id: recipe, family: recipe.split(".")[0]!, model: recipe, model_file: recipe, time_key: "", kind: bad ? null : recipe.endsWith("video") ? "video" : "image",
-          width: null, height: null, duration_ms: null, steps: 8, status: bad ? "failed" : "done", whole: 1, cold: k === 0 ? 1 : 0, waited_ms: 0, total_ms: ms, load_ms: 0, sample_ms: ms, refine_ms: 0, finish_ms: 0,
-          step_ms: null, expected_ms: null, vram_peak: null, heat_peak: null, asset_id: null, machine_id: machine, gpu: p.gpu, node_ms: null, energy_wh: null, power_avg_w: null, ram_peak: null, ram_total: null, work: null, created_at: new Date(t).toISOString(),
+          id: `demo-pod-${n++}`, owner_id: "local", recipe_id: recipe, family: recipe.split(".")[0]!, model: file ?? recipe, model_file: file ?? recipe,
+          time_key: `size=${width}x${height}${seconds ? `;seconds=${seconds}` : ""}`, kind: bad ? null : video ? "video" : "image",
+          width, height, duration_ms: seconds ? seconds * 1000 : null, steps: 8, status: bad ? "failed" : "done", whole: 1, cold: k === 0 ? 1 : 0, waited_ms: 0, total_ms: ms, load_ms: 0, sample_ms: ms, refine_ms: 0, finish_ms: 0,
+          step_ms: bad ? null : Math.round(ms / 8), expected_ms: null, vram_peak: null, heat_peak: null, asset_id: null, machine_id: machine, gpu: p.gpu, node_ms: null, energy_wh: null, power_avg_w: null, ram_peak: null, ram_total: null,
+          work: bad ? null : width * height * (seconds ? seconds * 24 : 1), created_at: new Date(t).toISOString(),
         });
         t += 20_000;
       }

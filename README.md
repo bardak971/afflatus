@@ -25,7 +25,7 @@ It is one small server and a folder of data, on your PC or in a container.
 
 ## What's new in 0.9
 
-- **Rented GPUs ranked by $ per render**, not by the hour: each GPU's time on the renders waiting, from your own renders, at its price, plus its share of the deploy. And big Civitai files reach a pod over 8 connections, a 21 GB model in about a minute and a half.
+- **Rented GPUs ranked by $ per render**, not by the hour: each GPU's time on the renders waiting, from your own renders, at its price, plus its share of the deploy. And big Civitai files reach a pod over 8 connections, a 21 GB model in about two minutes.
 - **The join panel says what a switch does before you click:** Seamless or Hard cut, and a seamless join that cut anyway flagged on the track with New take beside it.
 - **The four MiniMax H3 forms on one skeleton**, every LoRA a render loads shown in its list (Turbo's too), and the Face refine and upscale models chosen per clip.
 - **Settings › Model files:** every model file on this PC with how Afflatus used it; Delete to the Recycle Bin, Put back, Empty.
@@ -72,7 +72,7 @@ Clips are easy to make. A film is the hard part, and that is what the timeline i
 
 ## Run
 
-<p align="center"><img src="docs/media/run.webp" alt="The queue with a lane per machine: this PC and two rented pods, two of them rendering, the third fetching its checkpoint; each waiting render says which machine it goes to and when" width="820"></p>
+<p align="center"><img src="docs/media/run.webp" alt="The queue with a lane per machine: this PC and two rented pods, all three rendering; each waiting render says which machine it goes to and when, one of them while the A40 gets its files" width="820"></p>
 
 - **One smart queue.** Add every ComfyUI you have: a second GPU, another PC, a rented pod. Each job goes to the machine that will finish it first, counting whether that machine already holds the model and how fast it has been on your own renders. Pin a job to a machine, or send a whole timeline there.
 - **You see where the time went.** Before you press Render, the form says how long it will take, from your past renders on that machine. Afterwards, **Render times** accounts for every minute: GPU time, jobs and video made over any period, how much went to loading models, how far off the estimates were, the queue's waits, VRAM peaks and out-of-memory stops; per model, its share, its usual time and whether it ran slower than usual; a lane per model you can drag to zoom; and flags that name what went wrong and offer the fix, sort the queue by model, open the log. On every machine you run, rented ones included.
@@ -91,7 +91,7 @@ No big card, or a queue longer than the night? Rent one. Afflatus deploys a pod 
   > **RTX 2000 Ada found.** Deployed in EU-RO-1 at $0.24/h, after 1 min of hunting; 1 render waiting for it.
   > **RTX 2000 Ada terminated.** Why: idle 5 min. This run: $0.04.
 - **It stops itself.** After the idle time you set, when Afflatus goes quiet (a watchdog on the pod), when the pod never comes up or its GPU fails. Daily and monthly caps stop the pods once their render ends and refuse new deploys until the day or the month turns.
-<p align="center"><img src="docs/media/pods.webp" alt="Settings › ComfyUI: this PC beside a rented RTX A5000 that is fetching its models, locked, with its idle stop and watchdog" width="820"><br><sub>A pod three minutes in: its models arriving, locked, $0.012 so far.</sub></p>
+<p align="center"><img src="docs/media/pods.webp" alt="Settings › ComfyUI: this PC beside a rented A40 and an RTX 6000 Ada fetching their models, all locked, the A40 with its idle stop and watchdog" width="820"><br><sub>Two pods two minutes in: their models arriving, locked, $0.014 so far on the A40.</sub></p>
 
 - **You always know.** Telegram or Discord tells you when the hunt found a GPU, when a pod stops and when a cap is reached, and the Costs page shows RunPod's own bill, each render priced at its session's rate.
 
