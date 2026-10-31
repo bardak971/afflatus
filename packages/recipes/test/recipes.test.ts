@@ -8,6 +8,15 @@ const catalog = JSON.parse(
   readFileSync(fileURLToPath(new URL("../../../reference/comfy-object-info.json", import.meta.url)), "utf-8"),
 ) as NodeCatalog;
 
+type Graph = Record<string, { class_type: string; inputs: Record<string, unknown> }>;
+/** The node a conditioning comes from, through the pack's free text encoder node (a pass-through, card #202). */
+const encodedBy = (graph: Graph, ref: unknown): [string, number] => {
+  const [id, at] = ref as [string, number];
+  const n = graph[id]!;
+  if (n.class_type !== "AfflatusFreeTextEncoder") return [id, at];
+  return encodedBy(graph, at === 1 && n.inputs.also ? n.inputs.also : n.inputs.conditioning);
+};
+
 describe("every recipe", () => {
   it("has a unique id that starts with its family, and a known family", () => {
     const ids = recipes.map((r) => r.id);
@@ -309,7 +318,8 @@ describe("h3.video", () => {
     const [tail] = id("MiniMaxH3LatentTailGuide");
     // the continuation reaches the sampler: the window as its latent, the tail guide on the reference model's conditioning
     expect(b.graph[win!]!.inputs).toMatchObject({ previous_av_latent: [loaded, 0], overlap_frames: 22 });
-    expect(b.graph[tail!]!.inputs).toMatchObject({ positive: [ref, 0], previous_av_latent: [loaded, 0], target_av_latent: [win, 0] });
+    expect(b.graph[tail!]!.inputs).toMatchObject({ previous_av_latent: [loaded, 0], target_av_latent: [win, 0] });
+    expect(encodedBy(b.graph, b.graph[tail!]!.inputs.positive)).toEqual([ref, 0]);
     const sampler = one(b, "SamplerCustomAdvanced")[0]!;
     expect(sampler.inputs.latent_image).toEqual([win, 0]);
     expect(b.graph[(sampler.inputs.guider as [string, number])[0]]!.inputs.conditioning).toEqual([tail, 0]);
@@ -2142,7 +2152,7 @@ describe("H3's upscale pass", () => {
     const ownId = Object.entries(b.graph).find(([, n]) => n === own)![0];
     const upscale = node(b, "MMH3UltimateUpscale")[0]!;
     expect(upscale.inputs.latent).toEqual([ownId, 0]);
-    const guide = b.graph[(upscale.inputs.conditioning as [string, number])[0]]!;
+    const guide = b.graph[encodedBy(b.graph, upscale.inputs.conditioning)[0]]!;
     expect(guide.class_type).toBe("MiniMaxH3ImageToVideo");
     expect(guide.inputs.first_frame).toBeUndefined();
     // no pass named (what loads ahead is its loaders), but the bar counts the re-sample's steps once for every piece:
@@ -2164,7 +2174,7 @@ describe("H3's upscale pass", () => {
     );
     expect(node(b, "MiniMaxH3AddGuide").length).toBeGreaterThan(0);
     const upscale = node(b, "MMH3UltimateUpscale")[0]!;
-    const guide = b.graph[(upscale.inputs.conditioning as [string, number])[0]]!;
+    const guide = b.graph[encodedBy(b.graph, upscale.inputs.conditioning)[0]]!;
     expect(guide.class_type).toBe("MiniMaxH3ReferenceToVideo");
     expect(guide.inputs["ref_images.ref_image_0"]).toBeDefined();
     expect(checkGraph(b, catalog)).toEqual([]);

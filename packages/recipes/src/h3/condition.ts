@@ -6,6 +6,24 @@ import { H3_HEAD_GUIDE, H3_LANDING, H3_TRIM, type H3Join } from "./join";
 import type { H3Uses } from "./model";
 import { h3Prompt, h3ReferencePrompt, type H3Mode, type H3Run } from "./prompt";
 
+/**
+ * The pack's node that unloads H3's text encoder once its prompt is encoded (card #202): the ~15 GB Qwen3-VL stayed loaded
+ * through the sampling, its pinned RAM last in ComfyUI's eviction, and a swap on 32 GB of RAM stalled at step 1. Without it
+ * (a pack before 0.43.0) the graph is as it was.
+ */
+export const FREE_TEXT_ENCODER = "AfflatusFreeTextEncoder";
+
+/**
+ * A conditioning passed through the free node, and a second one by the same encoder when there is one, so that it is let go
+ * only once both are encoded (the latent re-sample's prompt alone is encoded beside the clip's).
+ */
+export function freeTextEncoder(g: GraphBuilder, ctx: BuildContext, clip: Ref, conditioning: Ref, also?: Ref): [Ref, Ref] {
+  if (!ctx.has(FREE_TEXT_ENCODER)) return [conditioning, also ?? conditioning];
+  const same = !also || (also[0] === conditioning[0] && also[1] === conditioning[1]);
+  const freed = g.add(FREE_TEXT_ENCODER, { clip, conditioning, ...(same ? {} : { also }) });
+  return [[freed, 0], same ? [freed, 0] : [freed, 1]];
+}
+
 /** How many reference pictures the reference model is given at most (it takes 9; the opening picture is one of them). */
 export const H3_REFERENCES = 6;
 /** How many reference videos it takes. */
@@ -149,8 +167,10 @@ export function conditionFor(g: GraphBuilder, ctx: BuildContext, input: H3Video,
     positive = [start, 0];
   }
   const latent: Ref = window ? [window, 0] : [start, 1];
-  positive = pinNeighbours(g, ctx, input, join, frame, positive, latent, continued);
+  // every encode of the clip's done: its text encoder let go before anything is sampled
+  const [own, alone] = freeTextEncoder(g, ctx, clip, positive, plain ?? [start, 0]);
+  positive = pinNeighbours(g, ctx, input, join, frame, own, latent, continued);
   // on the reference route the clip's own conditioning, before any frame is pinned on it: the references, the voice and the
   // words carry over to any size, the opening picture and the neighbours' frames were pinned for the sampled frame (B11)
-  return { positive, latent, previous: window ? continued.prev : null, plain: plain ?? [start, 0], clip };
+  return { positive, latent, previous: window ? continued.prev : null, plain: alone, clip };
 }
