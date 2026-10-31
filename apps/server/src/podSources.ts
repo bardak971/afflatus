@@ -1,5 +1,5 @@
 import { stat } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { baseName, type Family, type PresetFile } from "@afflatus/core";
 import { civitaiVersion } from "./civitai";
 import type { Selectable } from "kysely";
@@ -22,7 +22,8 @@ import { readSettings } from "./settings";
  */
 
 export type PodSource =
-  | { kind: "url"; url: string }
+  /** `sha256`: the bytes the file must have (this computer's copy's hash), which the pod's node pack checks before naming it. */
+  | { kind: "url"; url: string; sha256?: string }
   /** `sha256`, `fileId`: the file of the version with these bytes, or of Civitai's id, whatever its name. */
   | { kind: "civitai"; version: number; pick?: string; sha256?: string; fileId?: number }
   | { kind: "upload"; path: string };
@@ -31,12 +32,22 @@ const HF_HOSTS = ["huggingface.co", "hf.co"];
 
 /**
  * Usual files' public copies on Hugging Face, by their SHA-256 (upper case, as model_hashes keeps it): a file of this
- * computer with these bytes is fetched there by a pod, whatever page its name was matched to. Each checked by the copy's
- * X-Linked-Size and X-Linked-ETag. RealESRGAN_x4plus.pth's Civitai version has its downloads disabled by its creator (card #206).
+ * computer with these bytes is fetched there by a pod, whatever page its name was matched to. Each pinned to the commit
+ * whose X-Linked-ETag is that hash (a branch moves: the repo's owner, or a stolen account, could put other bytes on main),
+ * and the hash is handed to the pod's node pack, which checks the file before naming it. RealESRGAN_x4plus.pth's Civitai
+ * version has its downloads disabled by its creator (card #206).
  */
 export const USUAL_COPIES: Record<string, string> = {
-  "4FA0D38905F75AC06EB49A7951B426670021BE3018265FD191D2125DF9D682F1": "https://huggingface.co/lllyasviel/Annotators/resolve/main/RealESRGAN_x4plus.pth",
+  "4FA0D38905F75AC06EB49A7951B426670021BE3018265FD191D2125DF9D682F1": "https://huggingface.co/lllyasviel/Annotators/resolve/982e7edaec38759d914a963c48c4726685de7d96/RealESRGAN_x4plus.pth",
 };
+
+/**
+ * Whether a Civitai version refused on a pod (closeVersion) is still refused for this row: the close stands only while the
+ * row is as it was then. A row hashed again (other bytes in the file) or matched again (another version) since is asked
+ * afresh: a close kept for good sent every later pod this computer's copy over the home line (the 0.9.0 review, M3).
+ */
+export const versionClosed = (row: Pick<HashRow, "civitai_closed_at" | "hashed_at" | "matched_at">): boolean =>
+  Boolean(row.civitai_closed_at && row.civitai_closed_at >= row.hashed_at && (!row.matched_at || row.civitai_closed_at >= row.matched_at));
 
 /**
  * Whether an address is Hugging Face's: https, and its host (parsed, not read off the text) huggingface.co, hf.co or one
@@ -189,17 +200,18 @@ async function sameBytes(l: SourceLookup, want: { file: string; folder: string }
   // the hash is this copy's only while the file is as it was hashed: one replaced since is other bytes until hashed again
   if (!row || Number(row.size) !== st.size || Number(row.mtime) !== Math.round(st.mtimeMs)) return null;
   const pick = baseName(want.file);
+  // a site's copy proven by this hash: the pod's node pack checks the bytes it gets against it (the copy may change after)
   const usual = USUAL_COPIES[row.sha256.toUpperCase()];
-  if (usual) return { kind: "url", url: usual };
-  // a version Civitai refused (its downloads disabled, paid) is not asked again: the file is sent from here instead
-  if (Number(row.civitai_version) > 0 && !row.civitai_closed_at) return { kind: "civitai", version: Number(row.civitai_version), pick, sha256: row.sha256 };
-  if (row.hf_url) return { kind: "url", url: row.hf_url };
+  if (usual) return { kind: "url", url: usual, sha256: row.sha256 };
+  // a version Civitai refused (its downloads disabled) is not asked again: the file is sent from here instead
+  if (Number(row.civitai_version) > 0 && !versionClosed(row)) return { kind: "civitai", version: Number(row.civitai_version), pick, sha256: row.sha256 };
+  if (row.hf_url) return { kind: "url", url: row.hf_url, sha256: row.sha256 };
   // asked of the sites by its hash already and found nowhere: no file of its name there is these bytes
   if (row.matched_at || !live) return null;
   const settings = await readSettings(l.db);
   if (!settings.civitaiLookups) return null;
   const keep = async (set: { civitai_version: number; hf_url: string | null }) => {
-    await l.db.updateTable("model_hashes").set({ ...set, matched_at: now() }).where("folder", "=", row.folder).where("file", "=", row.file).execute().catch(() => undefined);
+    await l.db.updateTable("model_hashes").set({ ...set, matched_at: now(), civitai_closed_at: null }).where("folder", "=", row.folder).where("file", "=", row.file).execute().catch(() => undefined);
     // the folder's hashes kept a moment are read again: the next file asked sees the match
     brief.get(l)?.delete(`hashes|${row.folder}`);
   };
@@ -218,19 +230,46 @@ async function sameBytes(l: SourceLookup, want: { file: string; folder: string }
     const src = page && pageSource(page, want.file);
     if (theirs === row.sha256 && src?.kind === "url") {
       await keep({ civitai_version: 0, hf_url: src.url });
-      return src;
+      return { ...src, sha256: row.sha256 };
     }
   }
   return null;
 }
 
 /**
- * A Civitai version refused for good (its creator disabled downloads, a paid version: card #206), kept on the hashes matched
- * to it: a pod's next lookup takes another copy of the same bytes, or this computer's.
+ * A Civitai version refused for good (its creator disabled downloads: card #206), kept on the hashes matched to it: a pod's
+ * next lookup takes another copy of the same bytes, or this computer's. Never a paid one (Early Access ends, the user may
+ * unlock it): podFiles.ts does not close those. Open again (openVersion) once a download of it succeeds.
  */
 export async function closeVersion(l: SourceLookup, folder: string, version: number): Promise<void> {
   await l.db.updateTable("model_hashes").set({ civitai_closed_at: now() }).where("folder", "=", folder).where("civitai_version", "=", version).execute();
   brief.get(l)?.delete(`hashes|${folder}`);
+}
+
+/** A Civitai version that gave its file after all (its creator allowed downloads again): its hashes take it again. */
+export async function openVersion(l: SourceLookup, folder: string, version: number): Promise<void> {
+  await l.db.updateTable("model_hashes").set({ civitai_closed_at: null }).where("folder", "=", folder).where("civitai_version", "=", version).where("civitai_closed_at", "is not", null).execute();
+  brief.get(l)?.delete(`hashes|${folder}`);
+}
+
+/**
+ * This computer's copy to send in place of a refused source: localCopy's, and, when the bytes the source would have given
+ * are known (`sha256`: a preset's, the version's file's), only a copy hashed as those bytes and unchanged since. A file of
+ * the same name may be another model (a preset's loras/wan/foo.safetensors against loras/foo.safetensors): the pod would
+ * render with the wrong LoRA and nothing said (the 0.9.0 review, S2).
+ */
+export async function localCopyOf(l: SourceLookup, folder: string, file: string, sha256?: string): Promise<string | null> {
+  const comfyDir = await l.comfyDir();
+  const path = await localCopy(comfyDir, folder, file);
+  if (!path || !sha256) return path;
+  const st = await stat(path).catch(() => null);
+  if (!st) return null;
+  const rows = await l.db.selectFrom("model_hashes").select(["file", "size", "mtime"]).where("folder", "=", folder).where("sha256", "=", sha256.toUpperCase()).execute().catch(() => []);
+  const dirs = await modelDirs(comfyDir, folder);
+  const same = (a: string) => resolve(a).toLowerCase();
+  // the row of this very path, and the file as it was hashed: another file of these bytes says nothing of this one
+  const hashed = rows.some((r) => Number(r.size) === st.size && Number(r.mtime) === Math.round(st.mtimeMs) && dirs.some((d) => same(join(d, ...r.file.split(/[\\/]/))) === same(path)));
+  return hashed ? path : null;
 }
 
 /** The file in this computer's ComfyUI folders, when it is there: by its name with its sub-folder, else by its name in the folder's top. */

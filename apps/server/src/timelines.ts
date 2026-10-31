@@ -70,6 +70,8 @@ export interface CutOptions {
    * clip's form's, card #204): a file, or OWN_MODEL, which on these clips is the fused turbo too (their model is not H3's) and said on the job.
    */
   faceModel?: string;
+  /** "face": the steps the clip's form typed for its Face refine (none: by the model, 4 on a turbo, more on a full model). */
+  faceSteps?: number;
   by?: number;
   colour?: string;
   upscaleModel?: string;

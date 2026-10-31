@@ -223,7 +223,7 @@ export class RentedCore {
 
   constructor(
     protected readonly db: Db,
-    protected readonly queue: { wants(machine: string): Promise<boolean>; runningOn(machine: string): boolean; busyOn(machine: string): boolean; busyOutside(machine: string): Promise<boolean>; waitingBehindOutside(machine: string): boolean; fetching(machine: string): boolean; quietFor(machine: string, now?: number): { ms: number; gpuIdle: boolean }; overrunFor(machine: string, now?: number): { ms: number; forecastMs: number }; endStuck(machine: string, why: string): Promise<boolean>; hungOn(machine: string, now?: number): Promise<string | null | undefined>; machineDied(machine: string, why: string, trace: string | null): boolean; answering(machine: string): void },
+    protected readonly queue: { wants(machine: string): Promise<boolean>; runningOn(machine: string): boolean; heardOn(machine: string): boolean; busyOn(machine: string): boolean; busyOutside(machine: string): Promise<boolean>; waitingBehindOutside(machine: string): boolean; fetching(machine: string): boolean; quietFor(machine: string, now?: number): { ms: number; gpuIdle: boolean }; overrunFor(machine: string, now?: number): { ms: number; forecastMs: number }; endStuck(machine: string, why: string): Promise<boolean>; hungOn(machine: string, now?: number): Promise<string | null | undefined>; machineDied(machine: string, why: string, trace: string | null): boolean; answering(machine: string): void },
     protected readonly events: EventEmitter,
     protected readonly comfyOf: (machine: string) => Promise<Comfy | null>,
   ) {}

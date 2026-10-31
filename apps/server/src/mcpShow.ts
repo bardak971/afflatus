@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { SETTING_TABS, SETTING_TABS_MOVED, type SettingTab } from "@afflatus/core";
+import { SETTING_TABS, SETTING_TABS_MOVED, settingSpot, type SettingTab } from "@afflatus/core";
 import { z } from "zod";
 import { httpError, notFound } from "./errors";
 import { quoted, tool, type ToolCtx } from "./mcpTool";
@@ -69,9 +69,10 @@ async function targetOf(ctx: ToolCtx, a: { draft?: string; timeline?: string; cl
     return { to: { item: it.id, folder: it.folder_id, project: it.project_id ?? null, inBin: it.deleted_at !== null }, said: `${it.kind === "image" ? "the picture" : it.kind === "video" ? "the video" : "the sound"} ${quoted(it.name || it.id)}${it.deleted_at ? " (in the bin)" : ""}` };
   }
   // an old tab's id lands on the tab that has its settings now (card #168); a setting named with a tab it is not on is sent on
-  // to its own by the page, as an old link is
+  // to its own by the page, as an old link is: the agent is told that tab, the one the user sees
   const id = SETTING_TABS_MOVED[a.settings!] ?? a.settings;
-  const tab = SETTING_TABS.find((t) => t.id === id)!;
+  const own = a.setting ? settingSpot(a.setting)?.tab : undefined;
+  const tab = SETTING_TABS.find((t) => t.id === (own ?? id))!;
   return { to: { settings: tab.id, ...(a.setting ? { setting: a.setting } : {}) }, said: `Settings › ${tab.label}` };
 }
 

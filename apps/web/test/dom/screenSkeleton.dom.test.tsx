@@ -14,6 +14,10 @@ describe("a screen while its code comes", () => {
     expect(screen.getByRole("radio", { name: SETTING_TABS.find((t) => t.id === "storage")!.label }).getAttribute("aria-checked")).toBe("true");
     expect(screen.queryByText("Loading…")).toBeNull();
   });
+  it("lights the tab an old address lands on (/settings/access is Sign-in now)", () => {
+    draw(<ScreenSkeleton path="/settings/access" />);
+    expect(screen.getByRole("radio", { name: "Sign-in" }).getAttribute("aria-checked")).toBe("true");
+  });
   it("draws the Queue's title, and no tabs of Settings", () => {
     draw(<ScreenSkeleton path="/queue" />);
     expect(screen.getByRole("heading", { name: "Queue" })).toBeTruthy();

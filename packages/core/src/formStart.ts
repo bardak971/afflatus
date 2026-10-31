@@ -1,4 +1,4 @@
-import { chosenDefaults, OWN_MODEL, pickChoice, RANDOM_SEED, ruledDefaults, withoutOldZeros, type InputSpec, type StartRule } from "./inputs";
+import { chosenDefaults, formModelInput, OWN_MODEL, pickChoice, RANDOM_SEED, ruledDefaults, withoutOldZeros, type InputSpec, type StartRule } from "./inputs";
 import { modelStart, type Preset } from "./recipe";
 
 /**
@@ -63,7 +63,7 @@ export function formDefaults(
   const options = status?.options;
   const stored = ownValues(recipe, given);
   const base = Object.fromEntries(recipe.inputs.map((i) => [i.id, defaultOf(i, options?.[i.id])]));
-  const modelInput = recipe.inputs.find((i) => i.type === "model");
+  const modelInput = formModelInput(recipe);
   const file = modelInput ? String(stored?.[modelInput.id] ?? base[modelInput.id] ?? "") : "";
   // what was saved for this file, else what its line's authors recommend, read from its name (Pony, NoobAI v-pred, Krea…):
   // every preset that matches counts, each setting from the first that has it (an Illustrious DMD2 merge takes the

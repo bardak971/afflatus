@@ -1052,7 +1052,8 @@ export class RentedFollow extends RentedBilling {
       if (s.stopAfter) {
         // at a cap: kept alive only for the render it runs, as keepOrStop waits for it; not for one waiting in its ComfyUI
         // behind work from outside Afflatus, nor past the hour. Silent otherwise, so that its watchdog stops it
-        if (this.queue.runningOn(m.id) && !this.queue.waitingBehindOutside(m.id) && now - s.cappedAt! <= CAP_GRACE_MS) await this.alive(m, s).catch(() => false);
+        // A render whose ComfyUI answers nothing (queue.ts heardOn) is no reason to bill on: it may be a hang
+        if (this.queue.heardOn(m.id) && !this.queue.waitingBehindOutside(m.id) && now - s.cappedAt! <= CAP_GRACE_MS) await this.alive(m, s).catch(() => false);
         continue;
       }
       const idle = m.rented!.idleMinutes * 60_000;
@@ -1171,8 +1172,9 @@ export class RentedFollow extends RentedBilling {
     // at a cap: once its render ends, or an hour after the cap when the render does not end
     // Whether it renders is read again here, the cap now set: a render that ended while the bill was read is not waited for.
     // A render still waiting in its ComfyUI behind work from outside Afflatus has not started: it is not waited for, the pod
-    // would bill on for that other work
-    if (s.stopAfter && (!this.queue.runningOn(m.id) || this.queue.waitingBehindOutside(m.id) || now - s.cappedAt! > CAP_GRACE_MS)) {
+    // would bill on for that other work. Nor is one its ComfyUI says nothing of (queue.ts heardOn): a hang behind a proxy that
+    // times out was billed up to the hour's grace (the 0.9.0 review, M2)
+    if (s.stopAfter && (!this.queue.heardOn(m.id) || this.queue.waitingBehindOutside(m.id) || now - s.cappedAt! > CAP_GRACE_MS)) {
       await this.act(m, this.capAction(m, s.pod), "cap");
       return;
     }

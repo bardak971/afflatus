@@ -23,6 +23,7 @@ export * from "./music";
 export * from "./setupLists";
 export * from "./modelFiles";
 export * from "./settingsHelp";
+export * from "./settingsIndex";
 export * from "./assetRefs";
 export * from "./text";
 export * from "./volumePrice";

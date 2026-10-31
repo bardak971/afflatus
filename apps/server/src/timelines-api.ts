@@ -776,8 +776,11 @@ export async function finishPlan(s: Services, timeline: string, b: z.infer<typeo
       const denoise = defaultDenoise(refining) === FACE_DENOISE ? b.faceDenoise ?? FACE_DENOISE : typeof gen!.inputs.faceRefineDenoise === "number" ? gen!.inputs.faceRefineDenoise : defaultDenoise(refining);
       // the dialog's model, else the form's (card #204: "as each clip's form" ran the fused turbo whatever the form had picked)
       const faceModel = b.faceModel || (typeof gen!.inputs.faceRefineModel === "string" ? gen!.inputs.faceRefineModel : undefined);
+      // its steps carried as its model is: the form's typed ones (12 on a full model ran the full model's 10), unless Finish
+      // picked another model, whose steps the form's were not typed for (0 is "by model")
+      const faceSteps = !b.faceModel && typeof gen!.inputs.faceRefineSteps === "number" && gen!.inputs.faceRefineSteps > 0 ? gen!.inputs.faceRefineSteps : undefined;
       push({ kind: "cut", label, video: { width: a.width ?? null, height: a.height ?? null, durationMs: a.durationMs ?? null, fps: a.fps ?? null },
-        cut: { asset: a.id, startMs: 0, endMs: a.durationMs ?? 0, action: "finish", route: "face", by: 1, faceDenoise: denoise, picture: towards, family: refining.family, ...(faceModel ? { faceModel } : {}), clip: clip.id, finishedFrom: from } });
+        cut: { asset: a.id, startMs: 0, endMs: a.durationMs ?? 0, action: "finish", route: "face", by: 1, faceDenoise: denoise, picture: towards, family: refining.family, ...(faceModel ? { faceModel } : {}), ...(faceSteps ? { faceSteps } : {}), clip: clip.id, finishedFrom: from } });
       continue;
     }
     if (b.route === "face") {
@@ -853,7 +856,7 @@ const defaultDenoise = (recipe: { inputs: InputSpec[] }): number => {
  */
 function cutKey(c: CutOptions): string {
   // (its model only when one was picked: the finishes made before card #192 keep their key)
-  if (c.route === "face") return JSON.stringify({ route: "face", fd: c.faceDenoise ?? 0.45, ...(c.faceModel ? { fm: c.faceModel } : {}) });
+  if (c.route === "face") return JSON.stringify({ route: "face", fd: c.faceDenoise ?? 0.45, ...(c.faceModel ? { fm: c.faceModel } : {}), ...(c.faceSteps ? { fs: c.faceSteps } : {}) });
   const route = c.route ?? "seedvr";
   // (a model picked counted only when there is one: the finishes made before it keep their key; the Face refine's before the
   // cut too, as renderKey counts it on a render, or a redo with another face model said every clip finished already)

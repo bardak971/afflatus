@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { ComfyAway, ComfyCancelled, ComfyError, ComfyFailed, ComfyLost, ComfyUnreachable, filesIn, systemLoadFromStatus, waitForOutputs, type Measured } from "@afflatus/comfy";
-import { expandWildcards, fileKey, lorasOverSaid, modelFileName, modelOf, modelStart, parseInput, removedSaid, sameFile, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
+import { expandWildcards, fileKey, formModelInput, lorasOverSaid, modelFileName, modelOf, modelStart, parseInput, removedSaid, sameFile, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
 import { Comfy, NO_COMFY_URL, type MachineComfy } from "./comfy";
 import { fileName } from "./media";
 import type { Insertable } from "kysely";
@@ -70,6 +70,13 @@ const LOAD_FRESH_MS = 2 * 60_000;
  * this, and at most its forecast again. Forecasts have run 1.3 to 25 times too long, and a pod is billed all the while.
  */
 const FORECAST_SLACK_MS = 10 * 60_000;
+/**
+ * How long a rented pod's render is followed on while its ComfyUI answers nothing and nothing moves (no step, node or preview,
+ * no GPU at work), RunPod saying the pod runs: past it the render is lost, as before card #196. A hung ComfyUI behind a proxy
+ * that times out (a 524) was otherwise billed until the stuck rule, and at a cap held the pod up to the hour's grace (the
+ * 0.9.0 review, M2). This PC's machines are not bounded: a PC paging renders on, and is billed nothing.
+ */
+const POD_SILENT_MS = 10 * 60_000;
 /** The lane of the jobs that need no ComfyUI. */
 const TOOLS = "tools";
 /**
@@ -172,6 +179,8 @@ export class Queue {
    * is read too (slow on a PC that pages: once per silence). Null: never asked, as before.
    */
   stillRuns: ((machine: Machine, memory: boolean) => Promise<StillRuns>) | null = null;
+  /** How long a rented pod's render silent with nothing moving is followed on (POD_SILENT_MS; a test's shorter). */
+  podSilentMs = POD_SILENT_MS;
   /** The machines whose ComfyUI answers nothing while it renders and still runs, since when and what was said (Queue, status bar). */
   private readonly busy = new Map<string, { since: number; said: string }>();
   /** The machines a silence is being looked into for (judgeSilent): one look at a time. */
@@ -529,7 +538,7 @@ export class Queue {
   private async startedOn(recipe: Recipe<any>, raw: unknown): Promise<unknown> {
     if (!raw || typeof raw !== "object") return raw;
     const given = raw as Record<string, unknown>;
-    const model = (recipe.inputs as InputSpec[]).find((i) => i.type === "model");
+    const model = formModelInput(recipe);
     const file = model ? String(given[model.id] ?? ("default" in model ? model.default ?? "" : "")) : "";
     if (!file) return raw;
     const row = await this.db.selectFrom("model_settings").select("values").where("owner_id", "=", OWNER).where("family", "=", recipe.family).where("file", "=", file).executeTakeFirst();
@@ -1487,6 +1496,14 @@ export class Queue {
     return outsideBusy(lane);
   }
 
+  /**
+   * Whether a machine runs a job that is heard: running, and its ComfyUI not silent while it does (sayBusy). What a spending
+   * cap waits for (rented.ts): a render its ComfyUI says nothing of may be a hang, and is not billed on up to the cap's grace.
+   */
+  heardOn(machine: string): boolean {
+    return this.runningOn(machine) && !this.busy.has(machine);
+  }
+
   /** Whether a machine is at work, Afflatus's or someone else's in its ComfyUI, as last read: not restarted, nor its disk hashed, under it. */
   busyOn(machine: string): boolean {
     return this.runningOn(machine) || outsideBusy(this.lanes.get(machine));
@@ -2065,6 +2082,8 @@ export class Queue {
         const machine = lane.machine;
         const ask = this.stillRuns;
         const stillRuns = machine && ask ? async () => {
+          // a pod's silence is bounded (POD_SILENT_MS): its bill runs on while it says nothing
+          if (machine.rented && Date.now() - (running.movedAt ?? Date.now()) > this.podSilentMs) return false;
           const still = await ask(machine, !this.busy.has(lane.id));
           if (still.runs) this.sayBusy(lane, row.label, still);
           return still.runs;

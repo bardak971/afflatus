@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { stat } from "node:fs/promises";
 import { frameName, nameOf } from "./autoName";
 import { CutError, filmStrip, frameAt, KEYFRAME_STRIP_MS, linesOf, pausesOf, peekAt, soundSlice, wholeGainOf } from "./cut";
 import { colourNudge, MATCH, type FrameMeans, type Means, type Measure, measureOf, meansAlong, meansWithin, MOTION_RATE, scenesOf, takeMeasures } from "./measure";
@@ -101,41 +102,114 @@ export class TimelineMedia {
    * A take's video stored with the length of its longest stream, its sound running past its picture (a pod's smoothed
    * render: 35–113 ms of padded sound, card #207): its length made its picture's, and what was set from the longer one
    * with it. The clips carried on from its end were handed over past its last frame, and now carry on from its end; one
-   * trimmed by hand keeps showing the frame it stopped on (its trim made that much shorter). Its file and its render are
-   * not touched. A video whose stored length is its picture's within half a frame is left as it is, so a second pass
-   * changes nothing. True when something was set.
+   * trimmed by hand keeps showing the frame it stopped on (its trim made that much shorter). The same is done to its takes
+   * as Undo and Redo keep them and as a trim set them aside, in the same transaction: a step put back whole brought the
+   * old trims and hand-overs back, and a seamless join became a fade for good. Its file and its render are not touched. A
+   * video whose stored length is its picture's within half a frame is left as it is, so a second pass changes nothing.
+   *
+   * `firstReadAt`: when the first pass (0.9.0 before its review) was through; it set the lengths and the takes but not the
+   * steps kept of them. A video it set (stored before then, its file longer than its picture) has those steps made right
+   * here, the ones kept before then alone: a step kept after has its takes as they were made right. True when something
+   * was set. Throws when the video could not be read for now (ffprobe missing or out of time, the storage not answering),
+   * so that it is read again at the next start; its file gone, or one ffprobe refuses, is an answer: nothing to read in it.
    */
-  async pictureLength(assetId: string): Promise<boolean> {
+  async pictureLength(assetId: string, firstReadAt?: string | null): Promise<boolean> {
     const { db } = this.core;
     const asset = await db.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirst();
     if (!asset || asset.kind !== "video" || !asset.duration_ms) return false;
     const source = await this.source(asset);
-    const facts = typeof source === "string" ? await videoFacts(source) : (await inVideoFile(source, extOf(asset.mime), probeVideo)).facts;
-    if (!facts?.durationMs || asset.duration_ms - facts.durationMs <= 500 / (facts.fps || asset.fps || 24)) return false;
+    if (typeof source === "string" && !(await stat(source).catch(() => null))) return false;
+    const probed = typeof source === "string" ? await probeVideo(source) : await inVideoFile(source, extOf(asset.mime), probeVideo);
+    if (!probed.facts && probed.passing) throw new Error(probed.why);
+    const facts = probed.facts;
+    if (!facts?.durationMs) return false;
+    const half = 500 / (facts.fps || asset.fps || 24);
+    const stored = asset.duration_ms - facts.durationMs > half;
+    const readBefore = !stored && !!firstReadAt && asset.created_at < firstReadAt && (facts.fileMs ?? 0) - facts.durationMs > half;
+    if (!stored && !readBefore) return false;
+    const was = stored ? asset.duration_ms : facts.fileMs!;
+    // the steps and the clips set aside that name it. `old`: kept before the first pass, its trims as they were (a step kept
+    // after it has its takes' trims made right already); a hand-over past the picture is brought to its end in any of them,
+    // which changes nothing where it is right
+    const named = `%${assetId}%`;
+    const old = (at: string) => !readBefore || at < firstReadAt!;
+    const keptOf = async (q: typeof db) => {
+      const steps = async (where: "timeline_history" | "timeline_future") =>
+        (await q.selectFrom(where).select(["id", "timeline_id", "snapshot", "created_at"]).where("snapshot", "like", named).execute()).map((r) => ({ ...r, where, old: old(r.created_at) }));
+      const aside = (await q.selectFrom("timelines").select(["id", "source", "recordings", "updated_at"]).where((eb) => eb.or([eb("source", "like", named), eb("recordings", "like", named)])).execute()).map((r) => ({ ...r, old: old(r.updated_at) }));
+      return { steps: [...(await steps("timeline_history")), ...(await steps("timeline_future"))], aside };
+    };
     const takes = await db.selectFrom("takes").innerJoin("clips", "clips.id", "takes.clip_id").select(["takes.id as id", "clips.timeline_id as timeline"]).where("takes.asset_id", "=", assetId).execute();
     const after = takes.length ? await db.selectFrom("takes").innerJoin("clips", "clips.id", "takes.clip_id").select("clips.timeline_id as timeline").where("takes.prev_take_id", "in", takes.map((t) => t.id)).execute() : [];
+    const first = await keptOf(db);
     // in the turn of every timeline it changes, in one order (two passes never wait on each other), as one transaction
-    const turns = [...new Set([...takes, ...after].map((t) => t.timeline))].sort();
+    const turns = [...new Set([...takes.map((t) => t.timeline), ...after.map((t) => t.timeline), ...first.steps.map((s) => s.timeline_id), ...first.aside.map((a) => a.id)])].sort();
     const work = () => db.transaction().execute(async (tx) => {
       const now = await tx.selectFrom("assets").selectAll().where("id", "=", assetId).executeTakeFirst();
       // changed meanwhile (set by another pass, or the file written again): left to that
       if (!now || now.duration_ms !== asset.duration_ms) return false;
-      const shift = lengthOnGrid(now) - lengthOnGrid({ ...now, duration_ms: facts.durationMs });
-      const length = lengthOnGrid(now) - shift;
-      await tx.updateTable("assets").set({ duration_ms: facts.durationMs }).where("id", "=", assetId).execute();
-      if (shift <= 0) return true;
+      const length = lengthOnGrid({ ...now, duration_ms: facts.durationMs });
+      const shift = lengthOnGrid({ ...now, duration_ms: was }) - length;
+      if (stored) await tx.updateTable("assets").set({ duration_ms: facts.durationMs }).where("id", "=", assetId).execute();
+      if (shift <= 0) return stored;
+      // its takes' tails, wherever they are (on a clip, in a step, set aside): a clip carried on from one is handed over by it
+      const tails = new Map<string, number>();
       for (const t of await tx.selectFrom("takes").select(["id", "tail_ms", "trim_end_ms"]).where("asset_id", "=", assetId).execute()) {
+        tails.set(t.id, t.tail_ms);
+        if (!stored) continue;
         // its out point on the same frame (the moments past its picture showed its last frame: its end now)
         if (t.trim_end_ms > 0) await tx.updateTable("takes").set({ trim_end_ms: Math.max(0, t.trim_end_ms - shift) }).where("id", "=", t.id).execute();
         // a clip after carried on from a moment past its picture: from its end now
         await tx.updateTable("takes").set({ prev_at_ms: length - t.tail_ms }).where("prev_take_id", "=", t.id).where("prev_at_ms", ">", length - t.tail_ms).execute();
       }
-      return true;
+      // read again in the turns, the ones of those timelines alone (one named since waits for the next pass)
+      const { steps, aside } = await keptOf(tx);
+      const states = steps.filter((s) => turns.includes(s.timeline_id)).map((s) => {
+        const kept = JSON.parse(s.snapshot) as { timeline?: { source?: string | null; recordings?: string | null }; takes?: unknown };
+        return { s, kept, pools: [kept.takes, parseJson(kept.timeline?.source), parseJson(kept.timeline?.recordings)] };
+      });
+      const parked = aside.filter((a) => turns.includes(a.id)).map((a) => ({ a, pools: [undefined, parseJson(a.source), parseJson(a.recordings)] }));
+      for (const { pools } of [...states, ...parked]) for (const t of takesIn(pools)) if (t.asset_id === assetId && typeof t.id === "string") tails.set(t.id, Number(t.tail_ms) || 0);
+      /** Its takes in one place made right as the ones on its clips: true when one changed. */
+      const fix = (pool: unknown, trims: boolean) => {
+        let changed = false;
+        for (const t of takesIn([pool])) {
+          // marked once made right: a pass stopped half way and run again does not shorten a trim twice
+          if (trims && t.asset_id === assetId && !t.picture_read) {
+            if (Number(t.trim_end_ms) > 0) t.trim_end_ms = Math.max(0, Number(t.trim_end_ms) - shift);
+            t.picture_read = 1;
+            changed = true;
+          }
+          const tail = typeof t.prev_take_id === "string" ? tails.get(t.prev_take_id) : undefined;
+          if (tail !== undefined && typeof t.prev_at_ms === "number" && t.prev_at_ms > length - tail) {
+            t.prev_at_ms = length - tail;
+            changed = true;
+          }
+        }
+        return changed;
+      };
+      let set = stored;
+      for (const { s, kept, pools } of states) {
+        const [placed, source, recordings] = pools.map((p) => fix(p, s.old));
+        if (!placed && !source && !recordings) continue;
+        if (kept.timeline && source) kept.timeline.source = JSON.stringify(pools[1]);
+        if (kept.timeline && recordings) kept.timeline.recordings = JSON.stringify(pools[2]);
+        await tx.updateTable(s.where).set({ snapshot: JSON.stringify(kept) }).where("id", "=", s.id).execute();
+        set = true;
+      }
+      for (const { a, pools } of parked) {
+        const [, source, recordings] = pools.map((p) => fix(p, a.old));
+        if (!source && !recordings) continue;
+        // its updated_at left as it was: the user changed nothing, and the lists keep their order
+        await tx.updateTable("timelines").set({ ...(source ? { source: JSON.stringify(pools[1]) } : {}), ...(recordings ? { recordings: JSON.stringify(pools[2]) } : {}) }).where("id", "=", a.id).execute();
+        set = true;
+      }
+      return set;
     });
     const set = await turns.reduceRight<() => Promise<boolean>>((next, key) => () => this.core.oneAtATime(key, next), work)();
     if (set) {
       this.core.events.emit("library", { change: "fields", items: [assetId] } satisfies LibraryChange);
-      if (takes.length) this.core.events.emit("timeline");
+      if (turns.length) this.core.events.emit("timeline");
     }
     return set;
   }
@@ -512,4 +586,31 @@ export class TimelineMedia {
     if (!video || video.kind !== "video") throw notFound("this video");
     return peekAt(await this.source(video), extOf(video.mime), atMs, height);
   }
+}
+
+/** A JSON column's value, or undefined when there is none or it is not JSON. */
+function parseJson(text: string | null | undefined): unknown {
+  if (!text) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The takes inside what Undo keeps and a trim sets aside, at any depth (the clips set aside, each recording's, the parts
+ * kept removed): an object with a take's own columns, whatever holds it. The objects themselves, to change in place.
+ */
+function takesIn(values: unknown[]): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [];
+  const visit = (v: unknown) => {
+    if (Array.isArray(v)) return v.forEach(visit);
+    if (!v || typeof v !== "object") return;
+    const o = v as Record<string, unknown>;
+    if ("asset_id" in o && "clip_id" in o && "trim_end_ms" in o && "prev_at_ms" in o) return void out.push(o);
+    Object.values(o).forEach(visit);
+  };
+  values.forEach(visit);
+  return out;
 }

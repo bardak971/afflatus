@@ -74,6 +74,8 @@ describe("the design budget", () => {
     expect(one("apps/web/src/x.tsx", "{save.isError && <ErrorNote>{save.error.message}</ErrorNote>}<span>{err.message}</span>{access.failed?.message}")["bare-error"]).toBe(3);
     // one of several actions' errors, bracketed
     expect(one("apps/web/src/x.tsx", "<ErrorNote>{(save.error ?? remove.error)?.message}</ErrorNote><span>{(restart.error as Error).message}</span>{(plan.error ?? fill.error)!.message}")["bare-error"]).toBe(3);
+    // after a note of its own: the server's words still come bare
+    expect(one("apps/web/src/x.tsx", "<ErrorNote>{mic.error ?? send.error?.message}</ErrorNote><span>{pasted ?? add.error?.message}</span>")["bare-error"]).toBe(2);
     expect(one("apps/web/src/x.tsx", '<Failed what="Not saved" error={save.error} /><span data-tip={load.error.message}>{`Not loaded: ${load.error.message}`}</span>')["bare-error"]).toBe(0);
   });
   it("counts a script animation only in a file that never asks motionAllowed", () => {

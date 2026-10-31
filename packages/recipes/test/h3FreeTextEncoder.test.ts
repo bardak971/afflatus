@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dryContext, parseInput, type BuildContext } from "@afflatus/core";
+import { dryContext, parseInput, warmGraph, type BuildContext, type BuiltGraph } from "@afflatus/core";
 import { h3Video } from "../src/h3/video";
 import { FREE_TEXT_ENCODER } from "../src/h3/condition";
 import { UPSCALE } from "../src/video/upscale";
@@ -45,6 +45,25 @@ describe("MiniMax H3 · the text encoder let go before sampling (card #202)", ()
     expect(graph[(n.inputs.also as [string, number])[0]]!.inputs.first_frame).toBeUndefined();
     expect(of(graph, "MMH3UltimateUpscale")[0]![1].inputs.conditioning).toEqual([free, 1]);
     expect(guiders(graph)[0]!.inputs.conditioning).toEqual([free, 0]);
+  });
+
+  // release review 0.9.0, B8: a finish samples nothing of the clip's, its start was run only because the free node read it
+  it("on a latent re-sample finish, waits for the prompt alone, not the clip's start it never samples", () => {
+    const graph = build({ start: "s1", seconds: 5, short: 576, upscale: UPSCALE.latent, upscaleBy: 1.5 }, { uploads: { ...uploads, "self.latent": "own.safetensors" } });
+    const [[free, n]] = of(graph, FREE_TEXT_ENCODER) as [[string, Node]];
+    expect(n.inputs.also).toBeUndefined();
+    expect(graph[(n.inputs.conditioning as [string, number])[0]]!.inputs.first_frame).toBeUndefined();
+    expect(of(graph, "MMH3UltimateUpscale")[0]![1].inputs.conditioning).toEqual([free, 0]);
+  });
+
+  // release review 0.9.0, B9: a Load ahead let the encoder go that it had just loaded, and the render loaded it again
+  it("is left out of a Load ahead, the sampler guided by the encode itself", () => {
+    const built = h3Video.build(parseInput(h3Video, { description: "a", references: person }), dryContext({ seed: 7, slots, uploads, media: { start: { width: 576, height: 1024 } } })) as BuiltGraph;
+    const warm = warmGraph(built)!.graph as Graph;
+    expect(of(warm, FREE_TEXT_ENCODER)).toHaveLength(0);
+    const [encode] = idOf(warm, "MiniMaxH3ReferenceToVideo");
+    expect(guiders(warm)[0]!.inputs.conditioning).toEqual([encode, 0]);
+    expect(of(warm, "CLIPLoader")).toHaveLength(1);
   });
 
   it("lets it go again after Face refine's encode, before the pass samples", () => {

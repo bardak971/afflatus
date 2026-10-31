@@ -8,7 +8,7 @@ import { makePng } from "@afflatus/comfy/testing";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { newAssetRow } from "../src/media";
 import { uploadLimits } from "../src/mcpLibrary";
-import { FFMPEG_TIMEOUT, ffmpegThere, patternClip } from "./clipKit";
+import { FFMPEG_TIMEOUT, ffmpegMade, ffmpegThere, patternClip } from "./clipKit";
 import { get, makeApp, post, type TestApp } from "./helpers";
 
 /**
@@ -168,6 +168,17 @@ describe("the library's own makings", () => {
     await refused(c, "remove_sound", { item: silent.item }, /no sound to remove/);
     await refused(c, "extract_sound", { item: sound.item }, /takes a video/);
     await refused(c, "mirror", { item: v.item }, /only a picture/);
+    await c.close();
+  }, FFMPEG_TIMEOUT);
+
+  // release review 0.9.0, B3: a video lasts as long as its picture since #207; its sound item lasts as long as the sound
+  it.skipIf(!ffmpegThere)("files a sound running past its video's picture at the sound's own length", async () => {
+    const c = await connect();
+    const longer = await ffmpegMade(["-f", "lavfi", "-i", "testsrc2=size=160x96:rate=12:duration=1", "-f", "lavfi", "-i", "sine=frequency=330:duration=2.5", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac"]);
+    const v = await ok(c, "upload", { data: b64(longer), name: "zz-test longer sound" });
+    expect((await row(v.item)).duration_ms).toBeLessThan(1200);
+    const sound = await ok(c, "extract_sound", { item: v.item });
+    expect((await row(sound.item)).duration_ms).toBeGreaterThan(2300);
     await c.close();
   }, FFMPEG_TIMEOUT);
 });
