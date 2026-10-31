@@ -93,6 +93,8 @@ export interface FakeComfy {
   ram: { total: number; free: number } | null;
   /** The ComfyUI version its /system_stats says (comfyui_version). */
   version: string;
+  /** Its card, as /system_stats and the live monitor say it (name, memory in GB); left out: "fake gpu", 12 GB. The demo's. */
+  device?: { name: string; vramGb: number };
   /** The PyTorch its /system_stats says (pytorch_version: "2.10.0+cu130"); null: not said, as a ComfyUI older than that field. */
   pytorch: string | null;
   /**
@@ -175,6 +177,8 @@ export interface FakeInit extends Partial<Pick<FakeComfy, "catalog" | "models" |
    */
   simulate?: {
     stepMs: number;
+    /** A video workflow's step, when it differs; left out: stepMs. */
+    videoStepMs?: number;
     /** What a video workflow "renders": an MP4, or a function that makes one for the graph it was sent. Without it, video prompts fail. */
     video?: Uint8Array | ((graph: Graph, seed: number) => Uint8Array | undefined);
   };

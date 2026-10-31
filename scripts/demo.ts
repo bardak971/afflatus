@@ -3,6 +3,8 @@
  * placeholder pictures. For trying the app, and working on it, without a GPU. It never contacts a real
  * ComfyUI: the address in the demo's settings is set to the pretend one on every start.
  *   pnpm demo            then open http://127.0.0.1:8720 (after `pnpm build`), or run the web app's dev server
+ *   DEMO_VIDEO_STEP_MS=9000  a video's step at a real card's pace (an H3 render in minutes, as the seeded times say),
+ *                            for screenshots; left out, videos go as fast as pictures
  */
 import { spawnSync } from "node:child_process";
 import { createServer } from "node:http";
@@ -140,9 +142,12 @@ const pretendComfy = (lacks?: RegExp, first = false) => startFakeComfy({
     // H3's Fun ControlNet: Motion transfer's windows moved by their pose
     model_patches: ["minimax_h3_fun_controlnet_union_2.0_demo.safetensors"],
   }, lacks),
-  simulate: { stepMs: Number(process.env.DEMO_STEP_MS) || 220, video: pretendClip },
-});
+  simulate: { stepMs: Number(process.env.DEMO_STEP_MS) || 220, videoStepMs: Number(process.env.DEMO_VIDEO_STEP_MS) || undefined, video: pretendClip },
+}).then((c) => Object.assign(c, { version: "0.41.2" }));
 const fake = await pretendComfy(undefined, true);
+// the card each pretend ComfyUI says it has (/system_stats, the live monitor), as a real one would: this computer's first
+const CARDS = [{ name: "NVIDIA GeForce RTX 4090", vramGb: 24 }, { name: "NVIDIA GeForce RTX 3090", vramGb: 24 }, { name: "NVIDIA GeForce RTX 4070 Ti SUPER", vramGb: 16 }];
+fake.device = CARDS[0];
 if (oldComfy) fake.version = oldComfy;
 if (pretendPytorch) fake.pytorch = pretendPytorch;
 // DEMO_MACHINES=2 (up to 8): as many pretend ComfyUIs, as if this computer had that many GPUs (Settings › ComfyUI, the queue's lanes)
@@ -153,6 +158,7 @@ const others = await Promise.all(Array.from({ length: Math.min(7, Math.max(0, (N
 // the pretend ComfyUIs run this repository's node pack, as one Afflatus wrote it into does: its lock among what can be tried
 const PACK = /^version\s*=\s*"([^"]+)"/m.exec(readFileSync(join(root, "comfy-nodes", "afflatus-nodes", "pyproject.toml"), "utf-8"))?.[1] ?? null;
 for (const f of [fake, ...others]) f.packVersion = PACK;
+others.forEach((f, i) => (f.device = CARDS[(i + 1) % CARDS.length]));
 // and its GPU's power, as the pack reads it on an NVIDIA card: a demo render's electricity in Queue › Costs
 for (const f of [fake, ...others]) f.watts = 265;
 // DEMO_RUNPOD=1: a pretend RunPod with three pods (two with a pretend ComfyUI and the node pack, one without ComfyUI's
@@ -161,8 +167,9 @@ for (const f of [fake, ...others]) f.watts = 265;
 // (start.sh's steps, ComfyUI's start) before its ComfyUI answers
 const RUNPOD_KEY = "demo-runpod-key";
 const podComfys: Array<Awaited<ReturnType<typeof pretendComfy>>> = [];
-const pod = async () => {
-  const c = Object.assign(await pretendComfy(), { packVersion: PACK });
+// each pod says its RunPod card and memory, and a container disk of 120 GB with its models' room on it
+const pod = async (gpu: { id: string; memory: number }) => {
+  const c = Object.assign(await pretendComfy(), { packVersion: PACK, device: { name: gpu.id, vramGb: gpu.memory }, diskTotal: 120e9, diskFree: 104e9 });
   // a LoRA and a checkpoint this PC's ComfyUI lacks: the lists say which pod has them, and a job that picks one goes there
   c.models.loras = [...(c.models.loras ?? []), "demo-pod-only-ink.safetensors"];
   c.models.checkpoints = [...(c.models.checkpoints ?? []), "demo-pod-only-xl.safetensors"];
@@ -198,9 +205,9 @@ const pretendRunpod = process.env.DEMO_RUNPOD === "1" ? await startFakeRunpod({
   gpus: FAKE_GPUS.map((g) => (g.id === "NVIDIA L4" ? { ...g, cuda13: false } : g)),
   volumes: [{ id: "demo-volume", name: "afflatus-models", size: 100, dataCenter: "EU-RO-1" }, { id: "demo-old", name: "old-loras", size: 50, dataCenter: "US-TX-3" }],
   pods: [
-    { name: "comfy-5090", rate: 0.69, gpu: "NVIDIA GeForce RTX 5090", dataCenterId: "EU-RO-1", ports: ["8188/http", "22/tcp"], diskGb: 50, volumeId: "demo-volume", comfy: await pod() },
-    { name: "a100-tests", rate: 1.64, gpu: "NVIDIA A100", dataCenterId: "US-TX-3", ports: ["8188/http"], diskGb: 80, comfy: await pod() },
-    { name: "jupyter-only", rate: 0.34, gpu: "NVIDIA RTX A4000", dataCenterId: "EU-SE-1", ports: ["8888/http"], diskGb: 20, comfy: await pod() },
+    { name: "comfy-5090", rate: 0.69, gpu: "NVIDIA GeForce RTX 5090", dataCenterId: "EU-RO-1", ports: ["8188/http", "22/tcp"], diskGb: 50, volumeId: "demo-volume", comfy: await pod({ id: "NVIDIA GeForce RTX 5090", memory: 32 }) },
+    { name: "a100-tests", rate: 1.64, gpu: "NVIDIA A100", dataCenterId: "US-TX-3", ports: ["8188/http"], diskGb: 80, comfy: await pod({ id: "NVIDIA A100 80GB PCIe", memory: 80 }) },
+    { name: "jupyter-only", rate: 0.34, gpu: "NVIDIA RTX A4000", dataCenterId: "EU-SE-1", ports: ["8888/http"], diskGb: 20, comfy: await pod({ id: "NVIDIA RTX A4000", memory: 16 }) },
   ],
 }) : null;
 if (pretendRunpod) {
@@ -373,10 +380,9 @@ mkdirSync(dataDir, { recursive: true });
 const db = openSqlite(takeOver(dataDir));
 await migrate(db);
 await writeSettings(db, { comfyUrl: fake.url, llm: { baseUrl: llmUrl, model: "pretend-designer", apiKey: "", vision: false } });
-if (others.length) {
-  const names = ["Studio PC", "Second GPU", "Garage PC", "Cloud", "Office PC", "Laptop", "Rack 1", "Rack 2"];
-  await writeSettings(db, { machines: [fake, ...others].map((f, i) => ({ id: `m${i + 1}`, name: names[i]!, url: f.url, dir: "", takes: "all" as const })) });
-}
+// named as a user names them ("Studio PC"), rather than by the pretend ComfyUI's port, one machine alone too
+const names = ["Studio PC", "Second GPU", "Garage PC", "Cloud", "Office PC", "Laptop", "Rack 1", "Rack 2"];
+await writeSettings(db, { machines: [fake, ...others].map((f, i) => ({ id: `m${i + 1}`, name: names[i]!, url: f.url, dir: i === 0 && folderPaths ? demoComfy : "", takes: "all" as const })) });
 
 // a few months of pretend render times, so that the "Render times" tab has something to show
 await seedRenderTimes(db);
