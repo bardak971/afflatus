@@ -736,23 +736,33 @@ export class PodFiles {
 
   /**
    * A file's size before it is fetched: this computer's copy's, a preset's that names it, the site's, else a cautious guess.
-   * It is the size said to the pod's node pack, which refuses any other (0.44.1): a Hugging Face file not proven the same
-   * bytes as this computer's copy by its hash takes the site's size first, as a copy of the same name may be other bytes
-   * (the owner's int8 video VAE was 3.17 GB, Hugging Face's 2.81, and no H3 job could start on a fresh pod).
+   * It is the size said to the pod's node pack, which refuses any other (0.44.1): a file fetched from an address and not
+   * proven the same bytes as this computer's copy by its hash takes a preset's size or the site's before the copy's, as a
+   * copy of the same name may be other bytes (the owner's int8 video VAE was 3.17 GB, Hugging Face's 2.81, and no H3 job
+   * could start on a fresh pod).
    */
   private async readSize(f: PodFileWant, src: PodSource): Promise<number> {
-    if (src.kind === "url" && !src.sha256 && (await this.d.settings().catch(() => null))?.civitaiLookups) {
-      const said = await (this.d.siteSize ?? hfSize)(src);
-      if (said > 0) return said;
+    const name = fileName(f.file).toLowerCase();
+    const presetSize = async () => {
+      for (const p of await presetsOf(this.d.lookup).catch(() => [])) {
+        const named = p.files.find((x) => x.folder === f.folder && fileName(x.file).toLowerCase() === name && x.size);
+        if (named?.size) return named.size;
+      }
+      return 0;
+    };
+    if (src.kind === "url" && !src.sha256) {
+      const named = await presetSize();
+      if (named) return named;
+      if ((await this.d.settings().catch(() => null))?.civitaiLookups) {
+        const said = await (this.d.siteSize ?? hfSize)(src);
+        if (said > 0) return said;
+      }
     }
     const path = src.kind === "upload" ? src.path : await localCopy(await this.d.lookup.comfyDir(), f.folder, f.file);
     const size = path ? (await stat(path).catch(() => null))?.size : undefined;
     if (size) return size;
-    const name = fileName(f.file).toLowerCase();
-    for (const p of await presetsOf(this.d.lookup).catch(() => [])) {
-      const named = p.files.find((x) => x.folder === f.folder && fileName(x.file).toLowerCase() === name && x.size);
-      if (named?.size) return named.size;
-    }
+    const named = await presetSize();
+    if (named) return named;
     // the site asked, when looking things up is on: Hugging Face says a file's size on its address (X-Linked-Size, on the
     // redirect to its storage, whose own length is the redirect's), Civitai with the version's files
     const settings = await this.d.settings().catch(() => null);

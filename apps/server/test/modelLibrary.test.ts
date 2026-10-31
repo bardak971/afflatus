@@ -1,4 +1,4 @@
-import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { PassThrough } from "node:stream";
@@ -407,7 +407,8 @@ describe("the files Delete moved, never a file in place nor a copy that stays (c
   it("keeps two files of one name in two of a folder's directories apart: each its own row, hash, Delete and Put back", async () => {
     // ComfyUI loads models/loras' one by the name; A1111's Lora holds another file under it, other bytes (the junction
     // to A1111's models left out: through it, that file is a checkpoint's name of its own)
-    rmdirSync(join(home, "models", "checkpoints", "a1111"));
+    // the link itself, not what it leads to: a junction on Windows, a symlink elsewhere (rmdir refuses one on Linux)
+    rmSync(join(home, "models", "checkpoints", "a1111"));
     const mine = join(home, "models", "loras", "zz-test-dup.safetensors");
     const other = join(home, "a1111", "models", "Lora", "zz-test-dup.safetensors");
     writeFileSync(mine, Buffer.alloc(500, 31));
