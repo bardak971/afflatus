@@ -9,7 +9,9 @@ export interface FlowPaintOver extends FlowBase, MaskSettings { source: string; 
  * draws well, and put back into the untouched picture through a soft edge.
  */
 export function flowPaintOver(spec: FlowSpec, kit: FlowKit): Recipe<FlowPaintOver> {
-  const { inputs, loadNodes, SOMETIMES, load, shifted, cond, sample, sizeOf, tuned } = kit;
+  const { inputs, loadNodes, SOMETIMES, load, shifted, cond, sample, sizeOf, tuned, noiseWords } = kit;
+  // the "?": the real noise the default starts from (card #146)
+  const noise = noiseWords(0.8, spec.sampling.steps, [{ size: { width: 1024, height: 1024 }, where: "at 1 MP" }]);
   const files = spec.files;
   return defineRecipe<FlowPaintOver>({
     id: `${spec.family}.paint-over`,
@@ -23,7 +25,7 @@ export function flowPaintOver(spec: FlowSpec, kit: FlowKit): Recipe<FlowPaintOve
       { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
       { id: "mask", type: "image", role: "mask", of: "source", label: "Inpaint mask", note: "the part to redo, painted over the picture" },
       { id: "prompt", type: "prompt", label: "Prompt", note: "the masked part with what is around it, as it should come out", style: "sentences", placeholder: "A woman's hand holding a glass of orange juice, on a terrace table in morning light." },
-      { id: "strength", type: "number", label: "Denoising strength", note: "1 ignores what was there", min: 0.05, max: 1, step: 0.05, default: 0.8 },
+      { id: "strength", type: "number", label: "Denoising strength", note: ["1 ignores what was there", noise].filter(Boolean).join("; "), min: 0.05, max: 1, step: 0.05, default: 0.8 },
       ...MASK_INPUTS,
       ...inputs,
     ],

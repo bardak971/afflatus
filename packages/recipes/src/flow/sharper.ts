@@ -2,6 +2,7 @@ import { defineRecipe, GraphBuilder, roundTo, type Recipe, type Ref } from "@aff
 import { FACTOR_INPUT, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_PREFER, type RefineColourMatch, type UpscaleSettings } from "../sdxl/common";
 import { redrawInTiles, tileInputs, tilePass, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
 import { rowsWhile } from "../shared/addedRows";
+import { sigmaWords } from "../shared/sigmaWords";
 import { photo, SAME_PICTURE, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
 
 export interface FlowSharper extends FlowBase, UpscaleSettings, TileSettings, RefineColourMatch { source: string; prompt: string; upscaler: string; refine: boolean; strength: number }
@@ -15,8 +16,19 @@ const REFINE_WHOLE_PIXELS = 3.2e6;
  * ComfyUI without the tile nodes says so (TILES_NEEDED), and a picture asked whole is gone over whole.
  */
 export function flowSharper(spec: FlowSpec, kit: FlowKit): Recipe<FlowSharper> {
-  const { inputs, SECOND_PASS, load, shifted, cond, sample, tuned } = kit;
+  const { inputs, SECOND_PASS, load, shifted, cond, sample, tuned, noiseWords, startSigma, realDenoise } = kit;
   const files = spec.files;
+  const lightSteps = (steps: number) => Math.max(3, Math.round(Math.min(30, steps) * 0.5));
+  // the "?" of its denoise (card #146): the real σ itself (spec.sharperRealSigma), with what ComfyUI's 0.25 would have started
+  // from on the largest picture gone over whole (a 768×1024 enlarged to 1536×2048); else the real noise 0.25 starts from there
+  // and in tiles of 1024
+  const big = { width: 1536, height: 2048 };
+  const comfyBig = startSigma(0.25, lightSteps(spec.sampling.steps), big);
+  const strengthNoise = spec.sharperRealSigma
+    ? `the real noise level (σ) the img2img pass starts from, at every size. Not ComfyUI's denoise: its 0.25 starts from ${comfyBig === null ? "more" : sigmaWords(comfyBig)} on a 1536×2048 gone over whole, and redraws a face as someone else's`
+    : noiseWords(0.25, lightSteps(spec.sampling.steps), [{ size: big, where: "on a 1536×2048 gone over whole" }, { size: { width: 1024, height: 1024 }, where: "in tiles" }]);
+  /** The pass's KSampler denoise at this size: the field as the real σ it starts from, or ComfyUI's own. */
+  const denoiseAt = (input: FlowSharper, at: { width: number; height: number }, steps: number) => (spec.sharperRealSigma ? realDenoise(input, at, steps, input.strength) : input.strength);
   return defineRecipe<FlowSharper>({
     id: `${spec.family}.sharper`,
     family: spec.family,
@@ -31,7 +43,7 @@ export function flowSharper(spec: FlowSpec, kit: FlowKit): Recipe<FlowSharper> {
       { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "4x-UltraSharp.pth", prefer: UPSCALER_PREFER, section: "out" },
       FACTOR_INPUT,
       { id: "refine", type: "toggle", label: "img2img pass after upscale", note: "a light pass with the model; past about 3 megapixels it is made in tiles", default: true, section: "out" },
-      { id: "strength", type: "number", label: "Denoising strength", min: 0.05, max: 0.6, step: 0.01, default: 0.25, showWhen: "refine", advanced: true, section: "out" },
+      { id: "strength", type: "number", label: "Denoising strength", ...(strengthNoise ? { note: strengthNoise } : {}), min: 0.05, max: 0.6, step: 0.01, default: 0.25, showWhen: "refine", advanced: true, section: "out" },
       REFINE_COLOUR_MATCH_INPUT,
       ...tileInputs("refine"),
       // (Turbo's LoRA is put on only with the img2img pass: without it no model is loaded)
@@ -60,20 +72,22 @@ export function flowSharper(spec: FlowSpec, kit: FlowKit): Recipe<FlowSharper> {
       const k = load(g, input, ctx);
       const c = cond(g, k, input, input.prompt.trim() || SAME_PICTURE);
       g.phase("refining");
-      const light = { steps: Math.max(3, Math.round(Math.min(30, k.steps) * 0.5)), denoise: input.strength };
+      const light = { steps: lightSteps(k.steps) };
       let pass: { node: string; steps: number; pixels?: number } = { node: "", steps: light.steps };
       let picture: Ref;
       if (tiled) {
         // each tile is a picture its own size to the model: the shift for that size
         const { tile } = tilesOf(size, input);
-        const model = shifted(g, k.model, input, { width: tile, height: tile });
+        const at = { width: tile, height: tile };
+        const model = shifted(g, k.model, input, at);
+        const denoise = denoiseAt(input, at, light.steps);
         picture = redrawInTiles(g, ctx, sized, k.vae, size, input, (l) => {
-          const done = sample(g, k, input, model, c, l, ctx.seed, light);
+          const done = sample(g, k, input, model, c, l, ctx.seed, { ...light, denoise });
           pass = tilePass(done.pass, size, input);
           return done.latent;
         });
       } else {
-        const done = sample(g, k, input, shifted(g, k.model, input, size), c, g.out("VAEEncode", { pixels: sized, vae: k.vae }), ctx.seed, light);
+        const done = sample(g, k, input, shifted(g, k.model, input, size), c, g.out("VAEEncode", { pixels: sized, vae: k.vae }), ctx.seed, { ...light, denoise: denoiseAt(input, size, light.steps) });
         pass = done.pass;
         g.phase("decoding");
         picture = g.out("VAEDecode", { samples: done.latent, vae: k.vae });
