@@ -1,5 +1,6 @@
 import type { RankedGpu } from "@afflatus/core";
 import type { DeployOverhead, HuntMode, HuntSummary, QueueStatus } from "./api";
+import { GUESS_ERROR, TIE } from "@afflatus/core";
 import { leftWords, plural, spell, usd } from "./format";
 
 /**
@@ -8,7 +9,7 @@ import { leftWords, plural, spell, usd } from "./format";
  */
 
 export const MODES: Array<{ value: HuntMode; label: string; note: string }> = [
-  { value: "value", label: "Best value", note: "Best value: the lowest cost for the renders waiting, the time a render takes on it times its price, with your usual boot and idle at that price once learned." },
+  { value: "value", label: "Best value", note: "Best value: the lowest cost a render all told, its time on that GPU for these forms times its price, with its share of your usual boot and idle; within 10 %, the faster GPU." },
   { value: "fast", label: "Fastest", note: "Fastest: the shortest render, whatever it costs within your price." },
   { value: "cheap", label: "Cheapest an hour", note: "Cheapest an hour: the lowest price an hour that fits these renders." },
 ];
@@ -27,18 +28,22 @@ export const ceilingFor = (price: number | null | undefined) => (price ? Math.ce
 /** The first GPU the hunt would deploy, stock aside: the best-ranked usable one. Its row is badged "first pick". */
 export const firstPick = (ranking: readonly RankedGpu[] | null | undefined) => ranking?.find((g) => g.fit === "yes") ?? null;
 
-/** A render on that GPU, as its row says it: "$0.025 · 2m 10s"; "not known yet" when it cannot be told. */
-export const renderSaid = (g: Pick<RankedGpu, "cost" | "seconds">) => (g.cost === null || g.seconds === null ? "not known yet" : `${usd(g.cost, true)} · ${spell(g.seconds * 1000)}`);
+/**
+ * A render on that GPU all told, as its row says it: "$0.019 · 1 min 1 s", its share of a deploy in; "not known yet" when
+ * it cannot be told.
+ */
+export const renderSaid = (g: Pick<RankedGpu, "perRender" | "seconds">) => (g.perRender === null || g.seconds === null ? "not known yet" : `${usd(g.perRender, true)} · ${spell(g.seconds * 1000)}`);
 
-/** A deploy's own cost on that GPU, under its render's: "+$0.071 a deploy"; null when no session tells it yet. */
-export const deploySaid = (g: Pick<RankedGpu, "overhead">) => (g.overhead === null ? null : `+${usd(g.overhead, true)} a deploy`);
+/** A deploy's own cost on that GPU, shared in its render's: "incl. $0.071 a deploy ÷ 3"; null when no session tells it yet. */
+export const deploySaid = (g: Pick<RankedGpu, "overhead">, waiting: number) => (g.overhead === null ? null : `incl. ${usd(g.overhead, true)} a deploy${waiting > 1 ? ` ÷ ${waiting}` : ""}`);
 
-/** The "?" of the A render column: what a render's cost counts, and what a deploy adds on top, from the user's sessions. */
+/** The "?" of the $ / render column: what a render's cost counts, the deploy shared in it from the user's sessions, ties and guesses. */
 export function renderWhy(o: DeployOverhead | null): string {
-  const render = "A render: its time on that GPU times its price an hour.";
-  if (!o) return `${render} A deploy also bills its boot, its files and its idle before it stops; said here once you have a session that ended.`;
+  const render = "$ / render: a render's time on that GPU for the forms waiting, times its price an hour";
+  const rest = ` Best value ranks by it; within ${Math.round(TIE * 100)} % of each other, the faster GPU first. A time guessed from another GPU (never rendered on) is counted ${Math.round(GUESS_ERROR * 100)} % dearer, and never first in a tie with one you rendered on.`;
+  if (!o) return `${render}. A deploy also bills its boot, its files and its idle before it stops: shared in once you have a session that ended.${rest}`;
   const fetch = o.fetchMs > 0 ? `, their usual files fetched (${spell(o.fetchMs)}, none with a network volume)` : "";
-  return `${render} + a deploy: what each deploy bills besides its renders, at that GPU's price: your pods' usual boot (${spell(o.bootMs)})${fetch} and usual idle before they stop (${spell(o.idleMs)}), from your last ${plural(o.sessions, "session")}. The more renders a deploy takes, the less of it each one carries.`;
+  return `${render}, with its share of what each deploy bills besides its renders, at that GPU's price: your pods' usual boot (${spell(o.bootMs)})${fetch} and usual idle before they stop (${spell(o.idleMs)}), from your last ${plural(o.sessions, "session")}, divided among the renders waiting. The more renders a deploy takes, the less of it each one carries.${rest}`;
 }
 
 /** The hunt's title: "Hunting · best value, up to $1.00/h". */

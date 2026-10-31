@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { cudaFits, shortGpu } from "@afflatus/core";
+import { cudaFits, shortGpu, type RankedGpu } from "@afflatus/core";
 import { useLocation } from "wouter";
 import { Bookmark, ChevronDown, CircleAlert, Cpu, RotateCw, Search } from "lucide-react";
 import { ContextMenu, useMenu } from "./ContextMenu";
@@ -12,9 +12,9 @@ import { HuntSection } from "./DeployHunt";
 import { DeployModels, SaveAsSet, type ModelsPicked } from "./DeployModels";
 import { DEPLOYED_READS } from "./deployReads";
 import { Dialog, DialogHead, DIALOG } from "./Dialog";
-import { gb, minutesSaid, plural, usd } from "./format";
+import { gb, minutesSaid, plural, spell, usd } from "./format";
 import { useDebounced, useNow } from "./hooks";
-import { ceilingFor, firstPick } from "./huntSaid";
+import { ceilingFor, deploySaid, firstPick } from "./huntSaid";
 import { Keys } from "./Keys";
 import { diskPerHour, IDLE_MINUTES } from "./machines";
 import { queryKeys } from "./queryKeys";
@@ -39,15 +39,19 @@ const WHY_CUDA = "The CUDA build of the Afflatus image: the same PyTorch, for a 
 
 /** The list's price is the GPU's alone, as RunPod lists it and as the hunt's ceiling reads it: the pod's own disk is added on Deploy. */
 const WHY_PRICE = "RunPod's price of the GPU an hour. The pod's own disk adds to it while it runs ($0.10/GB a month): Deploy says the two together, its tip each part.";
+/** The list's $ / render: the hunt's ranking of the renders waiting (gpuRank.ts), its value order with its ties and guesses. */
+const WHY_RENDER = "What a render of those waiting costs on that GPU: its time there for these forms (from your own renders on it, else a guess from a GPU you rendered on) times its price, with its share of a deploy's usual boot and idle. Sorted by it, the order is the hunt's best value: within 10 %, the faster GPU first; a guess counted 30 % dearer. Nothing waiting, or no time known: sorted by price.";
 /** The columns the list of GPUs sorts by: a click on one sorts by it, a second click the other way. */
-type SortKey = "name" | "memory" | "place" | "stock" | "price";
+type SortKey = "name" | "memory" | "place" | "stock" | "price" | "render";
 const SORTS: Array<{ key: SortKey; label: string; help?: string; className?: string }> = [
   { key: "name", label: "GPU" },
   { key: "memory", label: "VRAM", className: "justify-end" },
   { key: "place", label: "Data center", help: WHY_PLACE },
   { key: "stock", label: "Stock", help: WHY_STOCK },
   { key: "price", label: "GPU $/h", help: WHY_PRICE, className: "justify-end" },
+  { key: "render", label: "$ / render", help: WHY_RENDER, className: "justify-end" },
 ];
+const LIST_COLS = "grid-cols-[minmax(0,1fr)_64px_90px_70px_76px_80px]";
 
 const WHY_TEMPLATE = "Afflatus: ComfyUI 0.37 with its Manager, the Afflatus node pack, and the packs most video forms use built in (DaSiWa's nodes, VideoHelperSuite, KJNodes, the MMH3 upscale). Its ComfyUI is locked from its first second (its token a RunPod secret), its watchdog armed, only ComfyUI's port open. RunPod's ComfyUI: RunPod's own image, without the Afflatus pack: not locked (anyone with its address can use it), no watchdog, no H3 continuation. Either pulls its image at its first start: a few minutes on a host that never had it.";
 const WHY_CLOUD = "Secure Cloud: RunPod's own data centers. Community Cloud: hosts run by others, cheaper, fewer guarantees: some have a GPU that does not work (the Afflatus image finds it at its start, and the pod is terminated within minutes, its pull time billed). Both bill by the second while the pod exists.";
@@ -56,6 +60,21 @@ const DISK_ROOM = 3;
 const WHY_DISK = "No volume: the models are fetched onto the pod's own disk at each deploy, and go with it when it is terminated ($0.10/GB a month while it runs, nothing after). A network volume keeps them between deploys, so a pod is ready in a minute ($0.07/GB a month, billed with or without a pod), and ties the pod to the volume's data center.";
 const WHY_ROOM = "When a model its jobs need does not fit on its disk, Afflatus first deletes models it fetched there that no waiting or running job needs, the longest unused first, and fetches them again if a job needs them later. It never deletes a file it did not fetch (the image's, a volume's own). Off: a job whose models do not fit goes to another machine, and its row says why. Off by default with a network volume, whose models are kept on purpose.";
 const WHY_DONE = "Idle: nothing rendering on it and nothing waiting that it could take. Terminate: nothing billed after, nothing left on RunPod (the pod, its secret). Watchdog: if this PC goes silent (crash, sleep, no internet), the node pack on the pod stops it by itself after that long (Afflatus's image only).";
+
+/**
+ * A GPU's $ / render in the list: what a render of those waiting costs there all told and its time; "≈" before a guess,
+ * its tip what the time rests on and the deploy shared in. A dash when not known (nothing waiting, no time, no key).
+ */
+function RenderCell({ g, waiting }: { g: RankedGpu | undefined; waiting: number }) {
+  if (!g || g.perRender === null || g.seconds === null) return <span className="text-right text-xs text-ink-3">—</span>;
+  const tip = [g.timeSaid, deploySaid(g, waiting)].filter(Boolean).join("; ");
+  return (
+    <span className="flex flex-col items-end" data-tip={tip}>
+      <span className="font-mono text-xs">{g.guess ? "≈" : ""}{usd(g.perRender, true)}</span>
+      <span className="text-meta text-ink-3">{spell(g.seconds * 1000)}</span>
+    </span>
+  );
+}
 
 /** The Deploy dialog's choices as a hunt sends them: all but the GPU, which the hunt picks. */
 const withoutGpu = (ask: DeployAsk): Omit<DeployAsk, "gpu"> => {
@@ -118,13 +137,33 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
   // with the Afflatus image on CUDA 13.0, a GPU whose free hosts all have an older driver is not free: asked about instead
   const placesOf = (g: GpuOffer) => (want.template === "afflatus" && !cudaFits(g, want.cuda) ? [] : stockOf(g));
   const only128 = (g: GpuOffer | undefined) => Boolean(g) && want.template === "afflatus" && !cudaFits(g!, want.cuda) && stockOf(g!).length > 0;
-  const [sort, setSort] = useState<{ key: SortKey; up: boolean }>({ key: "price", up: true });
+  // the list's $ / render: the hunt's ranking of the renders waiting at no ceiling (RunPod's GPUs read once for it and a
+  // hunt's: hunt.ts offers keeps a read 20 s)
+  const keyed = Boolean(settings.data?.hasRunpodKey);
+  const listAsk = JSON.stringify({ mode: "value", ceiling: 1000, leftOut: [], cloud: want.cloud, volume: want.volume, cuda: want.template === "runpod" ? "either" : want.cuda });
+  const listRank = useQuery({
+    queryKey: queryKeys.huntRank(`list:${listAsk}`),
+    queryFn: ({ signal }) => api.huntRank(JSON.parse(listAsk) as Parameters<typeof api.huntRank>[0], { signal }),
+    enabled: keyed,
+    placeholderData: keepPreviousData,
+    refetchInterval: 30_000,
+    retry: false,
+  });
+  const ranked = new Map((listRank.data?.ranking ?? []).map((g) => [g.id, g] as const));
+  const rankOf = (id: string) => (ranked.get(id)?.perRender != null ? ranked.get(id)!.rank : Infinity);
+  // sorted by $ / render from the start when it is known for the renders waiting; by price when it is not
+  const [sort, setSort] = useState<{ key: SortKey; up: boolean }>({ key: "render", up: true });
   const byKey: Record<SortKey, (a: GpuOffer & { places: Array<{ id: string; availability: Availability }> }, b: typeof a) => number> = {
     name: (a, b) => a.name.localeCompare(b.name),
     memory: (a, b) => a.memory - b.memory,
     place: (a, b) => a.places[0]!.id.localeCompare(b.places[0]!.id),
     stock: (a, b) => FREEST[a.places[0]!.availability] - FREEST[b.places[0]!.availability],
     price: (a, b) => a.price - b.price,
+    render: (a, b) => {
+      const ra = rankOf(a.id);
+      const rb = rankOf(b.id);
+      return ra === rb ? 0 : ra === Infinity ? 1 : rb === Infinity ? -1 : ra - rb;
+    },
   };
   // the cheapest first, unless a column says otherwise; equal ones by price, then the larger first
   // what is typed narrows the list: a GPU's name or its VRAM ("5090", "48 gb")
@@ -133,7 +172,9 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
   const matches = (g: GpuOffer) => words.every((w) => `${g.name} ${g.memory}gb ${g.memory} gb`.toLowerCase().includes(w));
   // what is free whatever is typed: the GPU picked stays picked while the list is narrowed to others
   const free = (gpus.data?.gpus ?? []).map((g) => ({ ...g, places: placesOf(g) })).filter((g) => g.places.length);
-  const offers = free.filter(matches).sort((a, b) => (sort.up ? 1 : -1) * byKey[sort.key](a, b) || a.price - b.price || b.memory - a.memory);
+  const renderKnown = free.some((g) => rankOf(g.id) !== Infinity);
+  const sortKey: SortKey = sort.key === "render" && !renderKnown ? "price" : sort.key;
+  const offers = free.filter(matches).sort((a, b) => (sort.up ? 1 : -1) * byKey[sortKey](a, b) || a.price - b.price || b.memory - a.memory);
   const sortBy = (key: SortKey) => setSort((s) => (s.key === key ? { key, up: !s.up } : { key, up: key !== "memory" }));
   // how long ago RunPod's stock was read (it is read again every 15 s, or now)
   const now = useNow(1000);
@@ -144,7 +185,6 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
   const gone = !picked && want.gpu && gpus.isSuccess ? gpus.data.gpus.find((g) => g.id === want.gpu) ?? { id: want.gpu, name: shortGpu(want.gpu), memory: 0 } : null;
   const instead = gone ? free.slice().sort((a, b) => a.price - b.price).find((g) => g.memory >= gone.memory) ?? null : null;
   // with a key, the GPUs not free now are listed after the others: one picked is hunted for
-  const keyed = Boolean(settings.data?.hasRunpodKey);
   const outOfStock = keyed ? (gpus.data?.gpus ?? []).filter((g) => !placesOf(g).length && matches(g)).sort((a, b) => a.price - b.price) : [];
 
   // the hunt: asked for (Ctrl+K, the hunt's card), or a GPU not free picked here. A hunt under way is changed, not started
@@ -270,6 +310,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
             ask={huntAsk}
             change={(c) => setHuntChange((was) => ({ ...was, ...c }))}
             ranking={rank.data?.ranking ?? null}
+            waiting={rank.data?.held ?? 0}
             stepDown={stepDown}
             overhead={rank.data?.overhead ?? null}
             failed={rank.isError ? rank.error.message : null}
@@ -314,11 +355,11 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
             {gpus.isPending && <span className="px-3 py-2.5 text-xs text-ink-3">Asking RunPod…</span>}
             {gpus.isSuccess && !offers.length && <span className="px-3 py-2.5 text-xs text-ink-2">{words.length && gpus.data?.gpus.some((g) => placesOf(g).length) ? `No GPU in stock matches “${q}”.` : `Nothing in stock ${volume ? `in ${volume.dataCenter}, where the volume is` : "on this cloud"} now. RunPod's stock moves by the minute: this list is read again every 15 s.`}</span>}
             {offers.length > 0 && (
-              <div className="sticky top-0 z-10 grid grid-cols-[minmax(0,1fr)_64px_90px_70px_76px] items-center gap-3 border-b border-line bg-panel px-3 py-1.5 text-meta font-semibold text-ink-3">
+              <div className={cx("sticky top-0 z-10 grid items-center gap-3 border-b border-line bg-panel px-3 py-1.5 text-meta font-semibold text-ink-3", LIST_COLS)}>
                 {SORTS.map((c) => (
                   <span key={c.key} className={cx("flex items-center gap-1", c.className)}>
-                    <button type="button" onClick={() => sortBy(c.key)} aria-label={`Sort by ${c.label}`} className={cx("hover:text-ink", sort.key === c.key && "text-ink")}>
-                      {c.label}{sort.key === c.key ? (sort.up ? " ↑" : " ↓") : ""}
+                    <button type="button" onClick={() => sortBy(c.key)} aria-label={`Sort by ${c.label}`} className={cx("hover:text-ink", sortKey === c.key && "text-ink")}>
+                      {c.label}{sortKey === c.key ? (sort.up ? " ↑" : " ↓") : ""}
                     </button>
                     {c.help && <Help text={c.help} />}
                   </span>
@@ -332,7 +373,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
                 role="radio"
                 aria-checked={g.id === want.gpu}
                 onClick={() => set({ gpu: g.id })}
-                className={cx("grid grid-cols-[minmax(0,1fr)_64px_90px_70px_76px] items-center gap-3 border-b border-line/60 px-3 py-2 text-left text-body last:border-b-0", g.id === want.gpu ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : "hover:bg-hover")}
+                className={cx("grid items-center gap-3 border-b border-line/60 px-3 py-2 text-left text-body last:border-b-0", LIST_COLS, g.id === want.gpu ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : "hover:bg-hover")}
               >
                 <span className="flex min-w-0 items-center gap-1.5">
                   <span className="min-w-0 truncate font-semibold">{g.name}</span>
@@ -342,6 +383,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
                 <span className="truncate text-xs text-ink-2">{g.places[0]!.id}</span>
                 <span className="text-xs text-ink-2">{STOCK_SAID[g.places[0]!.availability]}</span>
                 <span className="text-right font-mono text-xs">{usd(g.price)}/h</span>
+                <RenderCell g={ranked.get(g.id)} waiting={listRank.data?.held ?? 0} />
               </button>
             ))}
             {/* the GPUs RunPod has none of now, after the others: one picked turns the dialog to its hunt */}
@@ -349,7 +391,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
               <>
                 <span className="border-b border-line/60 px-3 pt-3 pb-1.5 text-meta font-semibold text-ink-3">Not in stock now · pick one to hunt for it</span>
                 {outOfStock.map((g) => (
-                  <button key={g.id} type="button" role="radio" aria-checked={false} onClick={() => set({ gpu: g.id })} className="grid grid-cols-[minmax(0,1fr)_64px_90px_70px_76px] items-center gap-3 border-b border-line/60 px-3 py-2 text-left text-body text-ink-2 last:border-b-0 hover:bg-hover">
+                  <button key={g.id} type="button" role="radio" aria-checked={false} onClick={() => set({ gpu: g.id })} className={cx("grid items-center gap-3 border-b border-line/60 px-3 py-2 text-left text-body text-ink-2 last:border-b-0 hover:bg-hover", LIST_COLS)}>
                     <span className="flex min-w-0 items-center gap-1.5">
                       <span className="min-w-0 truncate font-semibold">{g.name}</span>
                       {only128(g) && <Chip size="xs" tip={WHY_CU128} className="font-mono">12.8 free</Chip>}
@@ -358,6 +400,7 @@ export function DeployDialog({ onClose, opening = "deploy" }: { onClose(): void;
                     <span className="text-xs">{volume ? volume.dataCenter : "anywhere"}</span>
                     <span className="text-xs">{only128(g) ? "12.8 only" : "none"}</span>
                     <span className="text-right font-mono text-xs">{usd(g.price)}/h</span>
+                    <RenderCell g={ranked.get(g.id)} waiting={listRank.data?.held ?? 0} />
                   </button>
                 ))}
               </>
