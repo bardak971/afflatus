@@ -57,6 +57,8 @@ export interface Job {
   fetch: Record<string, { files: Array<{ file: string; folder: string; url?: string }>; ms: number }> | null;
   /** Of a waiting render: the node packs it waits for on a machine of the user's own, and where they stand. */
   packs?: PackWait | null;
+  /** Of a waiting render planned onto a rented pod: why it cannot start there soon, its files or node packs not coming. It does not keep the pod up. */
+  stalled?: string | null;
 }
 /** A file of the form that does not go with the others (server modelSetCheck.ts): said under its field, or above the form. */
 export interface SetFinding {
@@ -136,7 +138,7 @@ export interface PodFile {
   jobs: string[];
 }
 /** A finished job as the queue's history shows it: with what it made and how. (Not how long it would take, nor how a clip joined: GET /api/jobs leaves those out.) */
-export interface HistoryJob extends Omit<Job, "estimateMs" | "join" | "machine" | "pinned" | "pinGone" | "startsInMs" | "runsOn" | "lacks" | "startPod" | "fetch" | "packs" | "by"> {
+export interface HistoryJob extends Omit<Job, "estimateMs" | "join" | "machine" | "pinned" | "pinGone" | "startsInMs" | "runsOn" | "lacks" | "startPod" | "fetch" | "packs" | "stalled" | "by"> {
   tookMs: number | null;
   /** Of a job that failed in a ComfyUI node: the end of its Python traceback; null otherwise. */
   trace?: string | null;

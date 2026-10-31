@@ -63,7 +63,7 @@ function pretendFetch() {
   const asked: Array<{ file: string; tier: "need" | "ahead"; job: string }> = [];
   const there = new Set<string>();
   const fetch: PodFetch = {
-    failed: () => null, short: async () => null, untilThere: async () => 1_000, drop: () => {}, holding: () => false, moving: () => false, failingPacks: () => new Map(),
+    failed: () => null, short: async () => null, untilThere: async () => 1_000, drop: () => {}, holding: () => false, moving: () => false, stalled: () => null, failingPacks: () => new Map(),
     want: (_machine, files, tier, job) => {
       for (const f of files) asked.push({ file: f.file, tier, job });
     },

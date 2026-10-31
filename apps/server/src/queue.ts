@@ -186,10 +186,11 @@ export class Queue {
   /** The render a machine's ComfyUI died under (machineDied), by machine: that render's end is that death, whatever its wait saw. */
   private readonly died = new Map<string, Died>();
   /**
-   * The last plan made (a pass, or wants), and when: the machines it gives a waiting job. Dropped at every change of the line
-   * (its "queue" event): what a pod's idle check asks every 20 s is read from it, not planned again (the 2026-10-22 review, L-8).
+   * The last plan made (a pass, or wants), and when: the machine it gives each waiting job, with what that job waits for there
+   * (a pod's files to come). Dropped at every change of the line (its "queue" event): what a pod's idle check asks every 20 s
+   * is read from it, not planned again (the 2026-10-22 review, L-8); whether those files still come is asked each time (stalledOn).
    */
-  private lastPlan: { at: number; lanes: Set<string> } | null = null;
+  private lastPlan: { at: number; jobs: Map<string, { lane: string; fetch?: Able["fetch"][string] }> } | null = null;
   /** How many changes the line has seen (changed): a plan made across one is not kept. */
   private changes = 0;
   /** Something changed that a plan reads (a pass is asked for, the line changed): the last plan is dropped. */
@@ -198,8 +199,9 @@ export class Queue {
     this.lastPlan = null;
   }
   /** A plan just made is kept for wants, unless something changed since it began (`changes`, read then). */
-  private keepPlan(changes: number, where: ReadonlyMap<string, { lane: string }>): void {
-    if (changes === this.changes) this.lastPlan = { at: Date.now(), lanes: new Set([...where.values()].map((w) => w.lane)) };
+  private keepPlan(changes: number, where: ReadonlyMap<string, { lane: string }>, able: ReadonlyMap<string, Able>): void {
+    if (changes !== this.changes) return;
+    this.lastPlan = { at: Date.now(), jobs: new Map([...where].map(([id, w]) => [id, { lane: w.lane, fetch: able.get(id)?.fetch[w.lane] }])) };
   }
   /** The machines found away by the passes: how many times in a row, and how many passes go before they are asked again (see pump's answers). */
   private readonly awayFor = new Map<string, { missed: number; skip: number }>();
@@ -1090,7 +1092,11 @@ export class Queue {
     const rows = await this.db.selectFrom("jobs").selectAll().where("status", "=", "queued").orderBy("priority").orderBy("created_at").execute();
     const able = await this.planner.ableOf(rows.filter(needsComfy), { scanWaitMs: VIEW_SCAN_WAIT_MS });
     const planned = paused ? new Map<string, { lane: string; startsInMs: number; endsInMs: number }>() : await this.planner.forecastPlan(lanes, rows, able);
-    const status = await view.status(this.core, views, paused, planned, await this.forecasts.paces(), able, (job) => this.ownPacks.waitOf(job));
+    const stalled = (job: string) => {
+      const on = planned.get(job)?.lane;
+      return on ? this.stalledOn(on, job, able.get(job)?.fetch[on]) : null;
+    };
+    const status = await view.status(this.core, views, paused, planned, await this.forecasts.paces(), able, (job) => this.ownPacks.waitOf(job), stalled);
     // when the waiting renders are all done, as the plan shares them between the machines (ms from now): the last end, not
     // their sum (40 jobs on 4 machines were said 5 min, and done in 75 s); null with none planned, or one whose end cannot be told
     const ends = [...planned.values()].map((p) => p.endsInMs);
@@ -1264,7 +1270,7 @@ export class Queue {
           if (able) {
             where = plan(await this.planner.schedulable(open), await this.forecasts.heldIf(recorded, () => this.planner.planned(gpuRows, able)));
             sent = this.planner.sendFiles(gpuRows, able, where);
-            this.keepPlan(changes, where);
+            this.keepPlan(changes, where, able);
           }
           for (const lane of open) {
             if (!free(lane) || lane.reachable === false || outsideBusy(lane)) continue;
@@ -1727,7 +1733,11 @@ export class Queue {
    * Whether a machine is at work or has work: a job running or starting there, or a waiting render the plan gives it (one
    * pinned to it that can run there, or one that ends sooner there than anywhere else, its files' coming counted). Paused,
    * it has none. For a rented machine's idle time: a pod that could run a job the plan sends elsewhere (this computer is
-   * sooner), or a job pinned to it that can never run there (a file it cannot get), has none, and is not billed for it.
+   * sooner), or a job pinned to it that can never run there (a file it cannot get), has none, and is not billed for it. Nor
+   * does a job planned there whose files or node packs are not coming (stalledOn: never asked for, failed, in a line where
+   * nothing moves): on 2026-10-25 a clip pinned to an A40 whose model was never fetched kept it billed 33 minutes after its
+   * last render, until it was stopped by hand (card #198). Its Queue row says why it waits (status `stalled`), and a pass
+   * is asked for, which sends for what it lacks.
    */
   async wants(machine: string): Promise<boolean> {
     const lane = this.lanes.get(machine);
@@ -1742,12 +1752,32 @@ export class Queue {
     // the last plan, when nothing changed in the line since and it is recent: planned again for each pod's check, every 20 s,
     // a long line was a whole pass each time (the 2026-10-22 review, L-8)
     const kept = this.lastPlan;
-    if (kept && Date.now() - kept.at < PLAN_KEPT_MS) return kept.lanes.has(machine);
-    const changes = this.changes;
-    const open = (await this.refresh()).filter((l) => !l.paused && l.machine);
-    const where = plan(await this.planner.schedulable(open), await this.planner.planned(rows, await this.planner.ableOf(rows)));
-    this.keepPlan(changes, where);
-    return rows.some((r) => where.get(r.id)?.lane === machine);
+    let mine: Array<[string, Able["fetch"][string] | undefined]>;
+    if (kept && Date.now() - kept.at < PLAN_KEPT_MS) mine = [...kept.jobs].filter(([, j]) => j.lane === machine).map(([id, j]) => [id, j.fetch]);
+    else {
+      const changes = this.changes;
+      const open = (await this.refresh()).filter((l) => !l.paused && l.machine);
+      const able = await this.planner.ableOf(rows);
+      const where = plan(await this.planner.schedulable(open), await this.planner.planned(rows, able));
+      this.keepPlan(changes, where, able);
+      mine = rows.filter((r) => where.get(r.id)?.lane === machine).map((r) => [r.id, able.get(r.id)?.fetch[machine]]);
+    }
+    if (!mine.length) return false;
+    if (mine.some(([id, fetch]) => this.stalledOn(machine, id, fetch) === null)) return true;
+    // every job planned there waits for what is not coming: a pass sends for what it lacks, if it can
+    this.retryLater();
+    return false;
+  }
+
+  /**
+   * Why a job the plan gives a rented pod cannot start there soon: the files (or node packs) it waits for there are not
+   * coming (podFiles.ts stalled). Null when it can: nothing to wait for, or what it waits for comes. A machine of the user's
+   * own is never said so: its files wait for the user's Download, and it bills nothing.
+   */
+  private stalledOn(machine: string, job: string, fetch: Able["fetch"][string] | undefined): string | null {
+    if (!fetch || !this.podFetch || !this.lanes.get(machine)?.machine?.rented) return null;
+    if (!fetch.files.length && !fetch.packs?.length) return null;
+    return this.podFetch.stalled(machine, job, fetch.files, fetch.packs);
   }
 
   /** What the page's status poll (events.ts) found of the ComfyUIs: whether any answered (queueOffline.ts), and each machine's own answer. */

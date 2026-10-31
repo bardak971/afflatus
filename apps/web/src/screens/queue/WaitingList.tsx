@@ -212,7 +212,7 @@ export function WaitingList({ waiting: line, whole = line.length, endsInMs, runn
               </span>
             )}
             {heldOutside(w) && <span className="min-w-0 truncate text-xs text-ink-2" data-tip={`${machineLabel(heldOutside(w)!)}: ${OUTSIDE_TIP}`}>· {machineLabel(heldOutside(w)!)} busy outside Afflatus</span>}
-            {filesOf(w, i) ? <FilesChip of={filesOf(w, i)!} /> : <FetchNote w={w} machines={machines} />}
+            {w.stalled ? <StalledNote w={w} machines={machines} /> : filesOf(w, i) ? <FilesChip of={filesOf(w, i)!} /> : <FetchNote w={w} machines={machines} />}
             {heldForPacks(w) && <span className="min-w-0 truncate text-xs text-ink-2" data-tip={`${machineLabel(heldForPacks(w)!)} takes no job until its ComfyUI restarts to load a node pack another job asked for: a job sent meanwhile would be lost in the restart.`}>· waits: {machineLabel(heldForPacks(w)!)}'s ComfyUI restarts for a node pack</span>}
             {/* what holds it, by colour role (review 4): amber where it waits on the user (a GPU, a pack, a machine to
                 resume), neutral while its files come by themselves; red is for a job that failed */}
@@ -378,6 +378,20 @@ function useOwnWait() {
     }
     return null;
   };
+}
+
+/**
+ * A render planned onto a pod whose files (or node packs) are not coming: never asked for, failed, stuck in the pod's line.
+ * It waits, but does not keep the pod up: its idle stop runs (card #198). Said in amber, as what waits on the user.
+ */
+function StalledNote({ w, machines }: { w: Job; machines: MachineState[] }) {
+  const m = machines.find((x) => x.id === w.machine);
+  const name = m ? machineLabel(m) : "the pod";
+  return (
+    <span className="min-w-0 truncate text-xs text-attention-ink" data-tip={`Planned on ${name}, but what it needs there is not coming: ${w.stalled}. It does not keep the pod up: the pod's idle stop runs. Run on in its menu moves it, or remove it.`}>
+      · stuck on {name}: {w.stalled}
+    </span>
+  );
 }
 
 function FetchNote({ w, machines }: { w: Job; machines: MachineState[] }) {
