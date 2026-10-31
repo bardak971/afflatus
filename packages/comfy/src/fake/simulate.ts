@@ -49,8 +49,10 @@ export function fakeSimulate(fake: FakeState, opts: NonNullable<FakeInit["simula
   const stillWanted = (id: string) => !closed && (fake.pending.includes(id) || fake.running.includes(id));
   const ended = (id: string) => send("executing", { node: null, prompt_id: id });
   const run = async (id: string) => {
-    const stepMs = opts.stepMs;
     const graph = fake.prompts.get(id)!;
+    // a video workflow at its own pace when one is given (the demo: minutes, as a real one takes)
+    const video = Object.values(graph).some((node) => /VideoCombine|SaveVideo|SaveAnimated/i.test(node.class_type));
+    const stepMs = video ? (opts.videoStepMs ?? opts.stepMs) : opts.stepMs;
     if (!stillWanted(id)) return;
     // running before it leaves the waiting line: the count ComfyUI broadcasts on each change never dips between the two
     fake.running = [...fake.running, id];
@@ -134,11 +136,12 @@ export function fakeSimulate(fake: FakeState, opts: NonNullable<FakeInit["simula
   };
   const load = setInterval(() => {
     const busy = fake.running.length > 0;
+    const vram = fake.device?.vramGb ?? 12;
     send("dasiwa.system_monitor", {
       cpu_percent: busy ? 22 : 6, cpu_count: 16,
       ram: { used: 19e9, total: 32e9, percent: 59 }, swap: { used: 1e9, total: 40e9, percent: 2 },
       disks: [{ path: "/", percent: 61, read_mb_s: 0, write_mb_s: busy ? 1.2 : 0 }],
-      gpus: [{ name: "Pretend GPU", utilization: busy ? 97 : 2, memory_used: (busy ? 9.4 : 1.3) * 2 ** 30, memory_total: 12 * 2 ** 30, memory_percent: busy ? 78 : 11, temperature: busy ? 74 : 41 }],
+      gpus: [{ name: fake.device?.name ?? "Pretend GPU", utilization: busy ? 97 : 2, memory_used: vram * (busy ? 0.78 : 0.11) * 2 ** 30, memory_total: vram * 2 ** 30, memory_percent: busy ? 78 : 11, temperature: busy ? 74 : 41 }],
     });
   }, 1000);
   return {

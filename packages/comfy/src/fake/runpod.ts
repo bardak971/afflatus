@@ -200,7 +200,7 @@ const WORSE = { HIGH: 0, MEDIUM: 1, LOW: 2, NONE: 3 } as const;
  * reaches it as RunPod's proxy would. A pod is deployed (POST /v2/pods) on a GPU of `gpus`, with a pretend ComfyUI `spawn`
  * makes; it is PROVISIONING for `bootMs` (its image pulled), then RUNNING.
  */
-export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod, "id" | "startedAt" | "status" | "env"> & { status?: FakePod["status"]; env?: Record<string, string> }>; balance?: number; bootMs?: number; pullMs?: number; startMs?: number; gpus?: FakeGpu[]; volumes?: FakeVolume[]; spawn?: () => Promise<FakeComfy> }): Promise<FakeRunpod> {
+export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod, "id" | "startedAt" | "status" | "env"> & { status?: FakePod["status"]; env?: Record<string, string> }>; balance?: number; bootMs?: number; pullMs?: number; startMs?: number; gpus?: FakeGpu[]; volumes?: FakeVolume[]; spawn?: (gpu: FakeGpu) => Promise<FakeComfy> }): Promise<FakeRunpod> {
   const pods: FakePod[] = o.pods.map((p) => {
     const status = p.status ?? "EXITED";
     p.comfy.down = status !== "RUNNING";
@@ -455,7 +455,7 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
       const at = free.find((d) => !volume || d.id === volume.dataCenter);
       if (!at) return json(400, { title: "Bad Request", status: 400, detail: NO_CAPACITY });
       if (!o.spawn) return json(500, { title: "Error", status: 500, detail: "this pretend RunPod deploys nothing (no spawn)" });
-      const comfy = await o.spawn();
+      const comfy = await o.spawn(gpu);
       comfy.down = true;
       const made: FakePod = {
         id: new URL(comfy.url).port, name: body.name, status: "PROVISIONING", rate: (body.cloud === "COMMUNITY" ? gpu.price.community : gpu.price.secure) ?? 0,
