@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { roughSpeed } from "@afflatus/core";
 import { migrate, openSqlite, type Db } from "../src/db";
 import { forecast, fromRates, gpuPaces, machinePaces, paceOf, rates, rentedLoadMs } from "../src/forecast";
 import type { RenderRow } from "../src/renderDigests";
@@ -52,15 +53,15 @@ describe("a new pod's forecast", () => {
 
   it("of a GPU never rendered on: the speed table's guess against a card rendered on", async () => {
     // the A40 rendered the pictures both machines did at half this computer's step; a new 2000 Ada pod: the table says it is
-    // 0.2 of a 4090 where the A40 is 0.45, so 2.25 times the A40's time (it said 9.8 min, the A40's; it took about 21.5)
+    // 0.2 of a 4090 where the A40 is 0.39, so 1.95 times the A40's time (it said 9.8 min, the A40's; it took about 21.5)
     const db = await record(
       [...times(2, () => row("m1", HOME, 150_000)), ...times(4, () => row("rp-a40", A40, 70_000)), ...times(3, () => picture("m1", HOME, 500)), ...times(3, () => picture("rp-a40", A40, 250))],
       [session("rp-a40", A40), session("rp-ada", ADA)],
     );
     const paces = await machinePaces(db);
-    expect(paces.get("rp-ada")! / paces.get("rp-a40")!).toBeCloseTo(0.45 / 0.2, 5);
+    expect(paces.get("rp-ada")! / paces.get("rp-a40")!).toBeCloseTo(roughSpeed("A40")! / roughSpeed(ADA)!, 5);
     const ms = (await forecast(db, "wan22", W, 8, false, like("rp-ada", paces)))!.ms;
-    expect(ms).toBe(10_000 + (8 * 70_000 + 20_000) * 2.25);
+    expect(ms).toBeCloseTo(10_000 + ((8 * 70_000 + 20_000) * roughSpeed("A40")!) / roughSpeed(ADA)!, 0);
   });
 
   it("keeps a machine's few own renders beside its twin's with the same card: one slow first render does not stand for it", async () => {
@@ -101,7 +102,7 @@ describe("a GPU's pace", () => {
   it("is not learned from one render: a GPU compared with nothing is left out", async () => {
     // one A40 render slowed three times (a cold disk): it read as pace 1.5 where the card is twice as fast
     const db = await record([...times(6, () => row("m1", HOME, 60_000)), row("rp-a40", A40, 90_000)]);
-    expect(await gpuPaces(db)).toEqual([{ gpu: HOME, pace: 1, renders: 6 }]);
+    expect(await gpuPaces(db)).toEqual([{ gpu: HOME, pace: 1, renders: 6, families: {} }]);
   });
 
   it("counts the renders compared, not every render of the card", async () => {
@@ -109,6 +110,15 @@ describe("a GPU's pace", () => {
     const paces = await gpuPaces(db);
     expect(paces.find((g) => g.gpu === HOME)).toMatchObject({ renders: 6 });
     expect(paces.find((g) => g.gpu === A40)).toMatchObject({ renders: 3 });
+  });
+
+  it("is said on each family it was compared on: the hunt ranks a card at its pace on the form waiting (card #201)", async () => {
+    // the A40 at half this computer's step on SDXL pictures, one and a half times it on Wan
+    const db = await record([...times(3, () => row("m1", HOME, 60_000)), ...times(3, () => row("rp-a40", A40, 90_000)), ...times(3, () => picture("m1", HOME, 500)), ...times(3, () => picture("rp-a40", A40, 250))]);
+    const a40 = (await gpuPaces(db)).find((g) => g.gpu === A40)!;
+    const home = (await gpuPaces(db)).find((g) => g.gpu === HOME)!;
+    expect(a40.families.wan! / home.families.wan!).toBeCloseTo(1.5, 5);
+    expect(a40.families.sdxl! / home.families.sdxl!).toBeCloseTo(0.5, 5);
   });
 });
 
