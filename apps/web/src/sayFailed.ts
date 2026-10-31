@@ -38,10 +38,22 @@ export function useSayFailed(where: FailedWhere) {
 /**
  * The latest of a place's actions that failed, not the first of its list: an old error does not hide a newer one. `since`:
  * what was asked before it is not said (a viewer stepped on to another item, which an error of the one before is not about).
- * With when it was asked, `at`, for a place to weigh it against other actions of its own.
+ * With when it was asked, `at`, for a place to weigh it against other actions of its own; and, when the actions were given
+ * as `[what, action]` pairs, what did not happen ("Frame not saved"), for <Failed what>.
  */
-export function latestFailure(actions: ReadonlyArray<{ error: Error | null; submittedAt: number }>, since = -1): { error: Error | null; at: number } {
+export function latestFailure(actions: ReadonlyArray<Failing | readonly [string, Failing]>, since = -1): { error: Error | null; at: number; what: string } {
   return actions
+    .map((x) => (Array.isArray(x) ? { what: x[0] as string, ...(x[1] as Failing) } : { what: "Not done", ...(x as Failing) }))
     .filter((x) => x.error && x.submittedAt >= since)
-    .reduce<{ error: Error | null; at: number }>((last, x) => (x.submittedAt >= last.at ? { error: x.error, at: x.submittedAt } : last), { error: null, at: -1 });
+    .reduce<{ error: Error | null; at: number; what: string }>((last, x) => (x.submittedAt >= last.at ? { error: x.error, at: x.submittedAt, what: x.what } : last), { error: null, at: -1, what: "" });
+}
+type Failing = { error: Error | null; submittedAt: number };
+
+/**
+ * The first of a place's actions that failed, with what did not happen ("Not checked"), for <Failed what>: one error line
+ * under several buttons names the one that failed rather than showing its words alone (card #177).
+ */
+export function firstFailed(actions: ReadonlyArray<readonly [string, { isError: boolean; error: unknown }]>): { what: string; error: unknown } | undefined {
+  const hit = actions.find(([, x]) => x.isError);
+  return hit && { what: hit[0], error: hit[1].error };
 }

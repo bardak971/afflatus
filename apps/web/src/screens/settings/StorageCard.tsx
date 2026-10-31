@@ -2,7 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api";
 import { useSettings, useStorage } from "../../data";
 import { plural, size, verb } from "../../format";
-import { Button, ButtonLink, cx, ErrorNote, Segmented, TwoStep } from "../../ui";
+import { Button, ButtonLink, cx, Failed, Segmented, TwoStep } from "../../ui";
+import { firstFailed } from "../../sayFailed";
 import { Block, Card, Row } from "./Rows";
 import { daysSaid, insteadOfWaiting } from "../../keepFor";
 import { queryKeys } from "../../queryKeys";
@@ -20,6 +21,7 @@ export function StorageCard() {
   // how long the library waits on its own: the server's sweep reads these (the hourly one, the next after a change)
   const settings = useSettings();
   const keepFor = useMutation({ mutationFn: (patch: { unkeptDays?: 0 | 1 | 3 | 7; binDays?: 0 | 7 | 30; jobHistoryDays?: number }) => api.saveSettings(patch), onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved) });
+  const binFailed = firstFailed([["Idle takes not binned", idle], ["Bin not emptied", empty], ["Not saved", keepFor]]);
   const unkeptDays = settings.data?.unkeptDays ?? 1;
   const binDays = settings.data?.binDays ?? 7;
   const jobDays = settings.data?.jobHistoryDays ?? 30;
@@ -37,7 +39,7 @@ export function StorageCard() {
     <div className={COLUMNS}>
       <div className="flex flex-col gap-4">
         <Card setting="storage.disk" title="Disk" status={s && <span className="font-mono text-xs text-ink-2">{size(s.total)} used</span>}>
-          {storage.isError && <Block><ErrorNote>{storage.error.message}</ErrorNote></Block>}
+          {storage.isError && <Block><Failed what="Storage not loaded" error={storage.error} /></Block>}
           {s && (
             <Block className="gap-3 py-4">
               {s.total > 0 && (
@@ -80,7 +82,7 @@ export function StorageCard() {
           <Row setting="storage.jobDays" label="Keep finished jobs" help={SETTING_HELP.jobHistoryDays}>
             <Segmented oneLine label="Keep finished jobs" value={String(jobDays)} options={jobsFor(jobDays)} onChange={(v) => keepFor.mutate({ jobHistoryDays: Number(v) })} />
           </Row>
-          {(idle.isError || empty.isError || keepFor.isError) && <Block><ErrorNote>{(idle.error ?? empty.error ?? keepFor.error)?.message}</ErrorNote></Block>}
+          {binFailed && <Block><Failed what={binFailed.what} error={binFailed.error} /></Block>}
           {empty.data?.inUse ? <Block className="text-xs text-ink-2">{plural(empty.data.inUse, "item")} {verb(empty.data.inUse, "was", "were")} left in the bin: a timeline, a person or a waiting job still uses {verb(empty.data.inUse, "it", "them")}.</Block> : null}
         </Card>
       </div>
@@ -139,6 +141,7 @@ function RenderRecord() {
   const record = useQuery({ queryKey: queryKeys.renders.size(), queryFn: api.renderRecordSize });
   const forget = useMutation({ mutationFn: api.clearRenderRecord, onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.renders.all() }) });
   const keep = useMutation({ mutationFn: (days: number) => api.saveSettings({ renderHistoryDays: days }), onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved) });
+  const timesFailed = firstFailed([["Render times not forgotten", forget], ["Not saved", keep]]);
   const r = record.data;
   const days = settings.data?.renderHistoryDays ?? 90;
   return (
@@ -154,7 +157,7 @@ function RenderRecord() {
       <Row setting="storage.forgetTimes" label="Forget every render time" help="The estimates start again from nothing.">
         <TwoStep label="Forget every render time" tone="danger" title="Forget every render time" note="The estimates start again from nothing." yes="Forget them" busy={forget.isPending} disabled={!r || (!r.renders && !r.days)} onYes={() => forget.mutate()} />
       </Row>
-      {(forget.isError || keep.isError) && <Block><ErrorNote>{(forget.error ?? keep.error)?.message}</ErrorNote></Block>}
+      {timesFailed && <Block><Failed what={timesFailed.what} error={timesFailed.error} /></Block>}
     </Card>
   );
 }

@@ -12,7 +12,8 @@ import { ContextMenu, groups, headLine, useMenu, type MenuItem } from "../Contex
 import { handPreset } from "../handoff";
 import { useStudio } from "../store";
 import { Thumb } from "../Thumb";
-import { Button, cx, Empty, ErrorNote, Help } from "../ui";
+import { Button, cx, Empty, Failed, Help } from "../ui";
+import { firstFailed } from "../sayFailed";
 import { ask, askText } from "../Confirm";
 import { copyText } from "../secureContext";
 import { ItemHeader, noteOfDelete } from "./kit/ItemHeader";
@@ -175,6 +176,7 @@ export function People() {
       setOpen(made.id);
     },
   });
+  const failed = firstFailed([["Prompt kit not loaded", entities], ["Not made", create], ["Snippet not made", createSnippet], ["Not deleted", remove], ["Not imported", doImport]]);
 
   const here = TABS.find((t) => t.id === tab)!;
   const mine = all.filter((e) => e.kind === tab);
@@ -245,7 +247,7 @@ export function People() {
       />
 
       {rowMenu.menu && <ContextMenu at={rowMenu.menu.at} label="Actions on this item" head={{ title: rowMenu.menu.subject.name, sub: headLine(KIND_WORD[rowMenu.menu.subject.kind], summaryOf(rowMenu.menu.subject, recipeList)) }} items={rowItems(rowMenu.menu.subject)} onClose={rowMenu.close} />}
-      {(entities.isError || create.isError || createSnippet.isError || remove.isError || doImport.isError) && <div className="px-6 pt-3"><ErrorNote>{(entities.error ?? create.error ?? createSnippet.error ?? remove.error ?? doImport.error)?.message}</ErrorNote></div>}
+      {failed && <div className="px-6 pt-3"><Failed what={failed.what} error={failed.error} /></div>}
 
       {tab === "snippet" ? (
         <main className="min-h-0 grow overflow-y-auto px-6 pt-4 pb-8">

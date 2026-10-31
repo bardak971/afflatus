@@ -15,7 +15,7 @@ import { saveJson } from "../download";
 import { useHandover } from "../store";
 import { useWorkflowsRequest, workflowEditHref } from "../bar/bridge";
 import { settingHref } from "./settings/settingsIndex";
-import { Button, Chip, cx, Empty, ErrorNote, Help, PageHeader, SectionTitle } from "../ui";
+import { Button, Chip, cx, Empty, ErrorNote, Failed, Help, PageHeader, SectionTitle } from "../ui";
 import { WorkflowEditor, type Editing } from "./WorkflowEditor";
 import { WorkflowEditorSkeleton } from "./workflowEditor/EditorSkeleton";
 import { queryKeys } from "../queryKeys";
@@ -422,7 +422,7 @@ export function Workflows() {
           {list.isPending ? (
             <Placeholder rows={3} tall />
           ) : list.isError && !list.data ? (
-            <ErrorNote>Could not read your workflows: {list.error.message}</ErrorNote>
+            <Failed what="Could not read your workflows" error={list.error} />
           ) : list.data?.items.length ? (
             <div className="overflow-hidden rounded-xl border border-line bg-panel">
               {list.data.items.map((w, i) => {

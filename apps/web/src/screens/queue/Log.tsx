@@ -5,7 +5,7 @@ import { api } from "../../api";
 import { useQueueOf } from "../studio/queueOf";
 import { logRows, type JobAt, type LogLine, type LogRow } from "./logRows";
 import { copyText } from "../../secureContext";
-import { Button, Chip, cx, ErrorNote, fieldClass, Toggle } from "../../ui";
+import { Button, Chip, cx, ErrorNote, Failed, fieldClass, Toggle } from "../../ui";
 import { queryKeys } from "../../queryKeys";
 
 /**
@@ -189,7 +189,7 @@ export function ComfyLog({ online, pod = false, machine }: {
         <span className="text-ink-3">{shown.length} of {rows.length} rows{paused ? " · paused" : log.isFetching ? " · reading…" : ""} · read-only, {boot ? "the pod's boot log until ComfyUI answers" : "straight from ComfyUI"}</span>
       </div>
       {!online && !pod && <ErrorNote>ComfyUI is offline: there is no log to read until it is back.</ErrorNote>}
-      {(online || pod) && log.isError && <ErrorNote>ComfyUI did not give its log: {log.error.message}</ErrorNote>}
+      {(online || pod) && log.isError && <Failed what="ComfyUI did not give its log" error={log.error} />}
       <div
         ref={box}
         onScroll={(e) => {

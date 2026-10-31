@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type LlmInfo, type Settings, type SettingsPatch } from "../../api";
 import { useSettings } from "../../data";
-import { AutoText, Button, Chip, cx, ErrorNote, fieldClass, Help, TwoStep } from "../../ui";
+import { AutoText, Button, Chip, cx, Failed, fieldClass, Help, TwoStep } from "../../ui";
 import { LlmEditor } from "./LlmEditor";
 import { Block, Card, Row } from "./Rows";
 import { queryKeys } from "../../queryKeys";
@@ -57,7 +57,7 @@ function InstructionEditor({ item, fresh, inUse, open, onOpen, onSave, onRemove,
         onChange={(e) => setText(e.target.value)}
         className={cx("w-full py-2.5 leading-normal", fieldClass)}
       />
-      {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
+      {save.isError && <Failed what="System prompt not saved" error={save.error} />}
       {/* on a line of its own, under the text: a saved one asks first */}
       <div className="flex justify-end">
         {fresh
@@ -131,7 +131,7 @@ export function DesignerCard() {
             </Button>
           </div>
         </Block>
-        {changeLlms.isError && <Block><ErrorNote>{changeLlms.error.message}</ErrorNote></Block>}
+        {changeLlms.isError && <Block><Failed what="Not saved" error={changeLlms.error} /></Block>}
       </Card>
       <Card
         setting="designer.notes"
@@ -172,7 +172,7 @@ export function DesignerCard() {
             <Button onClick={() => setNewNotes((list) => [...list, { id: shortId(), name: "", text: "" }])}>Add system prompt</Button>
           </div>
         </Block>
-        {changeNotes.isError && <Block><ErrorNote>{changeNotes.error.message}</ErrorNote></Block>}
+        {changeNotes.isError && <Block><Failed what="Not saved" error={changeNotes.error} /></Block>}
       </Card>
       <Card title="Conversation history">
         <Row
@@ -183,7 +183,7 @@ export function DesignerCard() {
         >
           <TwoStep label="Clear every conversation" tone="danger" title="Clear every conversation with the designer" yes="Clear all" busy={forget.isPending} onAsk={() => forget.reset()} onYes={() => forget.mutate()} />
         </Row>
-        {forget.isError && <Block><ErrorNote>{forget.error.message}</ErrorNote></Block>}
+        {forget.isError && <Block><Failed what="Conversations not forgotten" error={forget.error} /></Block>}
       </Card>
     </div>
   );

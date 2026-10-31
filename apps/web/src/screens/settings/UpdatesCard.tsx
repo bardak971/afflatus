@@ -5,7 +5,8 @@ import { api, type SettingsPatch, type UpdateRow } from "../../api";
 import { useModelUpdates, useSettings } from "../../data";
 import { dateTime, dayOf, fileLabel, plural } from "../../format";
 import { Dialog, DialogHead, DIALOG } from "../../Dialog";
-import { Button, cx, ErrorNote, SearchField, Segmented, Toggle } from "../../ui";
+import { Button, cx, ErrorNote, Failed, SearchField, Segmented, Toggle } from "../../ui";
+import { firstFailed } from "../../sayFailed";
 import { Block, Card, Row } from "./Rows";
 import { LookupsOff } from "./CivitaiCard";
 import { queryKeys } from "../../queryKeys";
@@ -20,6 +21,7 @@ export function UpdatesCard() {
   const [open, setOpen] = useState(false);
   const save = useMutation({ mutationFn: (patch: SettingsPatch) => api.saveSettings(patch), onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.settings() }) });
   const check = useMutation({ mutationFn: api.checkModelUpdates, onSuccess: (r) => client.setQueryData(queryKeys.modelUpdates(), r) });
+  const updatesFailed = firstFailed([["Not checked", check], ["Not saved", save]]);
   // "Get it" per row: each row its own state, one error line for the list
   const rowKey = (u: UpdateRow) => `${u.folder}/${u.file}`;
   const [got, setGot] = useState<Record<string, "pending" | "started">>({});
@@ -119,7 +121,7 @@ export function UpdatesCard() {
           )}
         </>
       )}
-      {(check.isError || save.isError) && <Block><ErrorNote>{(check.error ?? save.error)?.message}</ErrorNote></Block>}
+      {updatesFailed && <Block><Failed what={updatesFailed.what} error={updatesFailed.error} /></Block>}
     </Card>
   );
 }

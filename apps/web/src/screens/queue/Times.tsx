@@ -4,7 +4,7 @@ import { useAsset, useQueue } from "../../data";
 import { machineLabel, severalMachines } from "../../machines";
 import { Select } from "../../Select";
 import { brief, long, plural, took, UI_LOCALE } from "../../format";
-import { cx, Empty, ErrorNote, Segmented } from "../../ui";
+import { cx, Empty, Failed, Segmented } from "../../ui";
 import { TimeChart, useChartColors } from "./Chart";
 import { flagsOf } from "./flagRules";
 import { Flags } from "./Flags";
@@ -63,7 +63,7 @@ export function RenderTimes() {
   const d = times.data;
   const flags = useMemo(() => (d ? flagsOf(d, lanes.data?.items) : []), [d, lanes.data]);
   // the error alone only with nothing read: a failed refetch keeps the last figures (StaleNote says so)
-  if (times.isError && !d) return <ErrorNote>{times.error.message}</ErrorNote>;
+  if (times.isError && !d) return <Failed what="Render times not loaded" error={times.error} />;
   if (!d) return <div className="text-ink-2">Loading render history…</div>;
 
   const t = d.tiles;

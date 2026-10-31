@@ -13,7 +13,7 @@ import { Kbd } from "../Keys";
 import { modelGroups } from "../picker";
 import { clock, fileLabel, hourMinute, leftWords, notReady, plural, recipeLabel, size, took, UI_LOCALE, when } from "../format";
 import { Select } from "../Select";
-import { Button, cx, Help, SectionTitle } from "../ui";
+import { Button, cx, Failed, Help, SectionTitle } from "../ui";
 import { leftOf } from "../screens/library/justify";
 import { daysSaid, unkeptMs, useKeepFor } from "../keepFor";
 import { FieldRow } from "../fields";
@@ -161,7 +161,7 @@ function OpenInComfy({ asset }: { asset: Asset }) {
       <div>
         <Button size="sm" onClick={() => open.mutate()} disabled={open.isPending || !online} data-tip={online ? "Its graph, built again from these parameters, in ComfyUI's editor. The images and sounds it used are named, not carried over." : "ComfyUI is not running."}>Open in ComfyUI</Button>
       </div>
-      {open.isError && <span className="text-xs text-warn-ink">{open.error.message}</span>}
+      {open.isError && <Failed inline what="Not opened in ComfyUI" error={open.error} />}
       {opened && !opened.direct && (
         <span className="text-xs text-ink-2">
           Saved in ComfyUI as <span className="font-mono text-ink">{opened.path}</span>: open the Workflows sidebar there (key W) and pick it under "afflatus".{opened.restart ? " Restart ComfyUI once: from then on it opens straight away." : ""}
@@ -307,7 +307,7 @@ function TimelinePicker({ asset }: { asset: Asset }) {
         />
         <Button size="sm" className="shrink-0" disabled={start.isPending} data-tip={asset.kind === "image" ? "Start a timeline from it: clip 1 opens on this picture, its form open" : "Start a timeline from it: this video is clip 1"} onClick={() => start.mutate(asset)}>New <Kbd>N</Kbd></Button>
       </div>
-      {add.isError && <span className="text-warn-ink">{add.error.message}</span>}
+      {add.isError && <Failed inline what="Not added to the timeline" error={add.error} />}
     </FieldRow>
   );
 }
@@ -345,7 +345,7 @@ function ReferencePicker({ asset, onDone }: { asset: Asset; onDone?(): void }) {
           return { value: r.id, label: r.title, detail: r.summary, group: r.imported ? "Your workflows" : family?.name, search: family?.name };
         })}
       />
-      {start.isError && <span className="text-warn-ink">{start.error.message}</span>}
+      {start.isError && <Failed inline what="Draft not opened" error={start.error} />}
     </FieldRow>
   );
 }
@@ -461,7 +461,11 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
   // this one, and an old one does not hide a newer one
   const [shownSince, setShownSince] = useState(() => ({ id: a.id, at: Date.now() }));
   if (shownSince.id !== a.id) setShownSince({ id: a.id, at: Date.now() });
-  const failed = latestFailure([reuse, saveFrame, takeSound, silence, everyScene, animate, carryOn, cutRange, between, extendHere, mirror, follow, openTool], shownSince.at).error;
+  const failed = latestFailure([
+    ["Draft not opened", reuse], ["Frame not saved", saveFrame], ["Sound not taken", takeSound], ["Sound not removed", silence], ["Scenes not cut", everyScene],
+    ["Draft not opened", animate], ["Draft not opened", carryOn], ["Range not cut", cutRange], ["Draft not opened", between], ["Draft not opened", extendHere],
+    ["Not mirrored", mirror], ["Draft not opened", follow], ["Tool not opened", openTool],
+  ], shownSince.at);
   return (
     <aside className="flex w-[420px] shrink-0 flex-col border-l border-line bg-panel">
       <ViewerHeader acts={acts} asset={asset} detail={detail} title={title} trail={trail} crumbs={crumbs} onTrail={setTrail} items={items} naming={naming} onNaming={onNaming} onClose={onClose} />
@@ -508,7 +512,7 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
             {group === "passes" && !a.inBin && <MorePasses madeWith={madeWith} shown={passTools} start={openTool} />}
           </div>
         ))}
-        {failed && <span className="-mt-2 text-warn-ink">{failed.message}</span>}
+        {failed.error && <span className="-mt-2"><Failed inline what={failed.what} error={failed.error} /></span>}
         {choose.menu?.subject.items && <ContextMenu at={choose.menu.at} label={choose.menu.subject.label} head={{ title: choose.menu.subject.label, sub: "on which model" }} items={choose.menu.subject.items} onClose={choose.close} />}
 
         {g && (

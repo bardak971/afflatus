@@ -5,7 +5,7 @@ import { useSettings } from "../../data";
 import { queryKeys } from "../../queryKeys";
 import { useSayFailed } from "../../sayFailed";
 import { allowNotifications, useNotify } from "../../store";
-import { Button, Checkbox, Chip, cx, ErrorNote, fieldClass, Help, Toggle } from "../../ui";
+import { Button, Checkbox, Chip, cx, ErrorNote, Failed, fieldClass, Help, Toggle } from "../../ui";
 import { Block, Card, Row, Status } from "./Rows";
 import { PasswordAsk } from "./PasswordAsk";
 import { SecretField } from "./SecretField";
@@ -154,7 +154,7 @@ export function WhereCard() {
         <Button onClick={() => test.mutate("discord")} disabled={!n.hasDiscordWebhook || test.isPending}>Send a test</Button>
       </Row>
       {asking && <PasswordAsk said={asking.said} busy={saveSecret.isPending} onConfirm={(password) => saveSecret.mutate({ notify: asking.notify, password })} onCancel={() => setAsking(null)} />}
-      {saveSecret.isError && !asking && <Block><ErrorNote>{saveSecret.error.message}</ErrorNote></Block>}
+      {saveSecret.isError && !asking && <Block><Failed what="Not saved" error={saveSecret.error} /></Block>}
       {said && (
         <Block>
           {said.ok ? <span className="text-body text-good">{said.text}</span> : <ErrorNote>{said.text}</ErrorNote>}
