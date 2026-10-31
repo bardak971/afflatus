@@ -128,7 +128,8 @@ export function Operations({ group, recipe, why, pick, noteOf }: { group: ModelG
             data-tip={`${why(r) ? `${why(r)} ` : ""}${noteOf?.(r) ? `${noteOf(r)}. ` : ""}${r.summary}`}
             onClick={() => pick(r.id)}
             onKeyDown={(e) => step(e, i)}
-            className={cx("flex h-7 min-w-0 grow items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-semibold", own ? "basis-[45%]" : "basis-[30%]", on ? "bg-line-strong text-ink-strong" : why(r) ? "text-ink-3" : "text-ink-2 hover:text-ink")}
+            className={cx("flex h-7 min-w-0 grow items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-semibold", // a built-in operation as wide as its name, the strip wrapping before it is cut (the inspector is narrower than Studio)
+            own ? "basis-[45%]" : "basis-auto", on ? "bg-line-strong text-ink-strong" : why(r) ? "text-ink-3" : "text-ink-2 hover:text-ink")}
           >
             {own && <Workflow size={12} className="shrink-0" />}
             <span className="truncate">{r.title}</span>
