@@ -373,7 +373,8 @@ def test_a_graph_saved_from_0_5_2_gets_its_swap_mask_values_back_in_their_places
         def Output(self, **_):
             return None
 
-    io = types.SimpleNamespace(Schema=lambda **kw: kw, Int=Kind(True), Float=Kind(True), Image=Kind(False), Mask=Kind(False))
+    # NodeOutput too: Python 3.14 reads the annotations of execute when inspect.signature is asked for them (PEP 649)
+    io = types.SimpleNamespace(Schema=lambda **kw: kw, Int=Kind(True), Float=Kind(True), Image=Kind(False), Mask=Kind(False), NodeOutput=object)
     monkeypatch.setattr(swap_mask, "io", io)
     monkeypatch.setattr(swap_mask, "SAM3TrackData", Kind(False))
     inputs = swap_mask.AfflatusSwapMask.define_schema()["inputs"]

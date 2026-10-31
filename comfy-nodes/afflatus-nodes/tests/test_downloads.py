@@ -771,8 +771,9 @@ def test_too_many_requests_falls_back_to_one_connection(tmp_path, parts_site):
     assert job.state == "done"
     with open(job.path, "rb") as f:
         assert f.read() == FILE
-    # the last request is one connection's, from the bytes whole from the first on
-    assert re.match(r"^bytes=\d+-$", s.asked[-1])
+    # the last request is one connection's, from the bytes whole from the first on: with none whole yet (the 429 came before
+    # the first piece ended, as a busy runner has it) it asks for the whole file, with no Range at all
+    assert s.asked[-1] is None or re.match(r"^bytes=\d+-$", s.asked[-1])
 
 
 def test_a_stop_ends_every_connection_and_keeps_only_whole_bytes_when_asked(tmp_path, parts_site):
