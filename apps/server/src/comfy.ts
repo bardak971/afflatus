@@ -37,9 +37,10 @@ export class Comfy {
    * The files sent to this ComfyUI under a name their content gives (pictures, videos, sounds, latents), by folder and name
    * (queueSubmit's sentOnce): the same picture in every window of a motion transfer goes up once, the same video a take
    * before had keeps ComfyUI's cache of it. Forgotten when ComfyUI starts again (it empties its temp folder then) and with
-   * everything else it is told.
+   * everything else it is told. `at`: when a job last named it (a file in use is never taken as gone, and sent again over
+   * itself under a prompt reading it); `sent`: when its bytes last went up.
    */
-  readonly uploaded = new Map<string, { at: number; name: Promise<string> }>();
+  readonly uploaded = new Map<string, { at: number; sent: number; name: Promise<string> }>();
   /**
    * The files this ComfyUI saved that Afflatus keeps a copy of (an H3 latent), by the key they are stored under: named where
    * they are there ("Afflatus/h3_00001_.safetensors [temp]"), so that a job on this machine that joins onto one names it

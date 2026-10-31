@@ -141,14 +141,23 @@ interface Up {
   /** A file into ComfyUI under the name given, whether or not it was sent before. */
   send: Send;
   /** The latents named where the machine saved them (sendLatent), each with how to send it after all. */
-  resend: Array<{ name: string; send: () => Promise<string> }>;
+  resend: Again;
 }
 
 /**
- * How long a file sent under its content's name is taken to be still in ComfyUI: its input folder is cleaned of what
- * Afflatus left there a day ago (cleanComfy), and its temp folder empties when it starts again (Comfy.uploaded is forgotten then).
+ * How long a file sent under its content's name is taken to be still in ComfyUI once no job named it: its temp folder
+ * empties when it starts again (Comfy.uploaded is forgotten then), and a file it lost unseen is sent again when the prompt is
+ * refused for it (resentFor).
  */
 const SENT_KEPT_MS = 6 * 60 * 60_000;
+/**
+ * How long a file sent into ComfyUI's input folder is taken to be there, used or not: that folder is cleaned of what Afflatus
+ * left there a day ago by its time on the disk (cleanComfy), which naming it again does not change. Sent again before then.
+ */
+const INPUT_KEPT_MS = 12 * 60 * 60_000;
+
+/** The files a job took as there already, by name: each sent again under it when ComfyUI's refusal names it (resentFor). */
+export type Again = Array<{ name: string; send: () => Promise<string> }>;
 
 /** A stored file as it goes up to ComfyUI: streamed from where it is on the disk, else its bytes (a bucket). */
 async function sendable(storage: Storage, key: string): Promise<Uint8Array | Blob> {
@@ -233,7 +242,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   // transfer (55 % of what a window sent) went up again each time, while the pod's GPU waited; a video or sound under a
   // fresh name made ComfyUI encode it again for a take with the same inputs. Sent again under the same name when ComfyUI
   // turns out not to have it any more (see below)
-  const again: Array<() => Promise<string>> = [];
+  const again: Again = [];
   const upload: Up["upload"] = (bytes, ext, opts = {}) => sentOnce(comfy, bytes, ext, send, again, opts);
   const resend: Up["resend"] = [];
   const up: Up = { recipe, db, storage, comfy, input, catalog, finishedFrom: row.finished_from, mirror: plan?.mirror ?? [], sent: { uploads: {}, media: {}, warnings: [] }, signal, upload, send, resend };
@@ -345,13 +354,14 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   resume.promptId = await comfy.client.submit(prompt.graph, asked).catch(async (err: unknown) => {
     if (!(err instanceof ComfyError)) throw err;
     // a file this machine had from an earlier job is no longer there (ComfyUI started again unseen, its input folder
-    // cleaned): sent again under the same name, the graph stays the same, and the prompt goes once more
-    const pictures = again.length > 0 && /afflatus_[0-9a-f]{32}/.test(err.message);
+    // cleaned): sent again under the same name, the graph stays the same, and the prompt goes once more. Only the files the
+    // refusal names: one still there may be read by a prompt running, and sending it again rewrites it under that prompt
+    const pictures = named(err.message, again);
     // a latent named where this machine saved it, no longer there: sent after all, and named as sent in the graph
     const latents = resend.filter((r) => err.message.includes(r.name.replace(/ \[\w+\]$/, "")));
-    if (!pictures && !latents.length) throw err;
+    if (!pictures.length && !latents.length) throw err;
     going(signal);
-    const [, sentNow] = await Promise.all([pictures ? Promise.all(again.map((send) => send())) : null, Promise.all(latents.map(async (r) => [r.name, await r.send()] as const))]);
+    const [, sentNow] = await Promise.all([Promise.all(pictures.map((a) => a.send())), Promise.all(latents.map(async (r) => [r.name, await r.send()] as const))]);
     const renamed = new Map(sentNow);
     for (const node of Object.values(prompt.graph)) {
       for (const [k, v] of Object.entries(node.inputs)) if (typeof v === "string" && renamed.has(v)) node.inputs[k] = renamed.get(v)!;
@@ -382,35 +392,47 @@ export async function contentName(file: Uint8Array | Blob, ext: string): Promise
  * same picture in every window of a motion transfer, or every take of a timeline finished with one photo, goes up once; the
  * same video, sound or cut a take before had is named as it was, so ComfyUI's cache keeps what it made of it (H3's encode of
  * a swap's references, up to 90 s, 2026-10-30). Never sent again while it is there: LoadVideo and the latent loaders know
- * a file by its time on the disk, which a second sending changes. One taken as there already is sent again under the same
- * name by `again`, when ComfyUI refuses the prompt for want of it (resentFor). Two jobs sending the same file at once
- * share one sending: the name is noted as it starts.
+ * a file by its time on the disk, which a second sending changes; and a second sending truncates and writes again the file a
+ * prompt still running may be reading (a video decoded as it goes). So each job naming it keeps it taken as there (the 6 h
+ * count from the last use, not the sending), and one taken as there already is sent again under the same name by `again`
+ * only when ComfyUI refuses the prompt naming it (resentFor). Two jobs sending the same file at once share one sending:
+ * the name is noted as it starts.
  */
-export async function sentOnce(comfy: Comfy, file: Uint8Array | Blob, ext: string, upload: Send, again: Array<() => Promise<string>>, opts: { into?: "input" } = {}): Promise<string> {
+export async function sentOnce(comfy: Comfy, file: Uint8Array | Blob, ext: string, upload: Send, again: Again, opts: { into?: "input" } = {}): Promise<string> {
   const name = await contentName(file, ext);
   const key = `${opts.into ?? "temp"}/${name}`;
   const send = () => upload(file, ext, { ...opts, name });
   const kept = comfy.uploaded.get(key);
-  if (kept && Date.now() - kept.at < SENT_KEPT_MS) {
-    again.push(send);
+  const at = Date.now();
+  if (kept && at - kept.at < SENT_KEPT_MS && (opts.into !== "input" || at - kept.sent < INPUT_KEPT_MS)) {
+    kept.at = at;
+    again.push({ name, send });
     return kept.name.catch(send);
   }
   const sent = send();
-  comfy.uploaded.set(key, { at: Date.now(), name: sent });
+  comfy.uploaded.set(key, { at, sent: at, name: sent });
   sent.catch(() => {
     if (comfy.uploaded.get(key)?.name === sent) comfy.uploaded.delete(key);
   });
   return sent;
 }
 
+/** The files taken as there already that ComfyUI's refusal names, each once. */
+function named(message: string, again: Again): Again {
+  const seen = new Set<string>();
+  return again.filter((a) => message.includes(a.name) && !seen.has(a.name) && Boolean(seen.add(a.name)));
+}
+
 /**
  * Whether ComfyUI refused a prompt for a file sentOnce took as there already (ComfyUI started again unseen, its input
- * folder cleaned): then those pictures were sent again under the same names, and the prompt can go once more.
+ * folder cleaned): then the files it names were sent again under the same names, and the prompt can go once more. The
+ * others stay as they are: a prompt running may be reading one.
  */
-export async function resentFor(err: unknown, again: ReadonlyArray<() => Promise<string>>, signal?: AbortSignal): Promise<boolean> {
-  if (!(err instanceof ComfyError) || !again.length || !/afflatus_[0-9a-f]{32}/.test(err.message)) return false;
+export async function resentFor(err: unknown, again: Again, signal?: AbortSignal): Promise<boolean> {
+  const gone = err instanceof ComfyError ? named(err.message, again) : [];
+  if (!gone.length) return false;
   going(signal);
-  await Promise.all(again.map((send) => send()));
+  await Promise.all(gone.map((a) => a.send()));
   return true;
 }
 

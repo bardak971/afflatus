@@ -1126,7 +1126,7 @@ describe("a pod's file waiting its turn at the node pack", () => {
 describe("the pod's files read again as its files land or fail", () => {
   it("once for the files that land together, at once for the one that lets a job start, never for a failure; the pictures sent stay", async () => {
     const comfy = new Comfy(pod.url, t.services.registry);
-    comfy.uploaded.set("input/zz-test", { at: Date.now(), name: Promise.resolve("zz-test.png") });
+    comfy.uploaded.set("input/zz-test", { at: Date.now(), sent: Date.now(), name: Promise.resolve("zz-test.png") });
     const told: boolean[] = [];
     const pf = new PodFiles({
       db: t.services.db, downloads: t.services.downloads,

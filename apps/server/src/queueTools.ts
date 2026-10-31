@@ -13,7 +13,7 @@ import { paceOn, recordTool, toolPace, toolPaces, type ToolPaces } from "./rende
 import type { CutOptions, ExportOptions, Timelines } from "./timelines";
 import { CUT_JOB } from "./timelineModel";
 import { Died, GPU_AT_WORK, readJson, SHUTDOWN, Stuck, type JobRow, type QueueCore, type Running } from "./queueModel";
-import { rawFactsOf, resentFor, sentOnce, taken } from "./queueSubmit";
+import { rawFactsOf, resentFor, sentOnce, taken, type Again } from "./queueSubmit";
 import { ANY_PACKS, asBuilt, inputsIn, optionsIn, packsSaid, ranWithoutSaid } from "./jobPacks";
 
 /** The jobs that need no model of their own: a cut (a copy, a split, a slow-motion, a finish) and an export, done by ffmpeg, with ComfyUI only for RIFE and the upscale routes. */
@@ -103,7 +103,7 @@ async function toolSlots(core: QueueCore, comfy: Comfy, family: string, which: (
   return slots;
 }
 
-async function followed(core: QueueCore, comfy: Comfy, run: Running, row: Pick<JobRow, "id" | "resume">, g: GraphBuilder, outNode: string, loads: string[] = [], note?: ToolNote, resend: Array<() => Promise<string>> = []) {
+async function followed(core: QueueCore, comfy: Comfy, run: Running, row: Pick<JobRow, "id" | "resume">, g: GraphBuilder, outNode: string, loads: string[] = [], note?: ToolNote, resend: Again = []) {
   const signal = run.abort.signal;
   const sent = readJson<{ promptId?: unknown }>(row.resume, {}).promptId;
   const again = typeof sent === "string" && (await taken(comfy, sent).catch(() => false)) ? sent : null;
@@ -299,7 +299,7 @@ async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Time
     const source = fromRaw ? { width: rawFacts!.width, height: rawFacts!.height } : { width: video.width ?? 0, height: video.height ?? 0 };
     const by = (opts.by ?? 2) * (fromRaw && video.width ? video.width / source.width : 1);
     // under its content's name, once to each ComfyUI, as a render's files: a take enlarged again is not sent again
-    const resend: Array<() => Promise<string>> = [];
+    const resend: Again = [];
     const file = await sentOnce(comfy, fromRaw ? raw! : await core.storage.get(video.file_key), extOf(video.mime), (bytes, ext, o) => comfy.client.upload(bytes, ext, o), resend);
     const g = new GraphBuilder();
     const parts = g.add("GetVideoComponents", { video: g.out("LoadVideo", { file }) });
@@ -376,7 +376,7 @@ async function runFaceFinish(core: QueueCore, row: JobRow, run: Running, clips: 
     const picture = opts.picture ? await core.db.selectFrom("assets").select(["file_key", "mime"]).where("id", "=", opts.picture).executeTakeFirst() : undefined;
     // the frames, the photo and the take's own sound go up at once, each once to each ComfyUI under its content's name:
     // a timeline's takes are finished with the same photo, and each sent it again while the pod's GPU waited
-    const resend: Array<() => Promise<string>> = [];
+    const resend: Again = [];
     const upload = (bytes: Uint8Array, ext: string) => sentOnce(comfy, bytes, ext, (b, e, o) => comfy.client.upload(b, e, o), resend);
     const [framesFile, pictureFile, soundFile] = await Promise.all([
       upload(doubled ? raw! : taken, extOf(video.mime)),
@@ -445,7 +445,7 @@ async function runSlowRife(core: QueueCore, row: JobRow, run: Running, clips: Ti
     if (missing.length || !rife) throw new Error(`ComfyUI has no RIFE frame interpolation to run this on${missing.length ? ` (missing nodes: ${missing.join(", ")})` : " (no model in models/frame_interpolation)"}`);
     run.gpu = true;
     const part = await clips.range.rangeSlice(video, opts.startMs, opts.endMs);
-    const resend: Array<() => Promise<string>> = [];
+    const resend: Again = [];
     const file = await sentOnce(comfy, part.bytes, "mp4", (bytes, ext, o) => comfy.client.upload(bytes, ext, o), resend);
     const g = new GraphBuilder();
     const parts = g.add("GetVideoComponents", { video: g.out("LoadVideo", { file }) });
