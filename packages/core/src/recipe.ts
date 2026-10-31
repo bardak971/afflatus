@@ -439,6 +439,18 @@ export const REMOVE_BACKGROUND = "tools.remove-background";
 /** The upscale route that samples a video's own latent again, larger (H3's): kept in the recipe, not run as a tool. */
 export const LATENT_RESAMPLE = "Latent: re-sampled";
 
+/**
+ * The upscale routes as they are said, the same in a video form's Upscale list and in Finish's Route (card #172), by
+ * Finish's route id: the name, and what each does in a line. The form's saved values stay what they were ("Pixel: upscale
+ * model"), only said with these words.
+ */
+export const UPSCALE_ROUTE_WORDS = {
+  seedvr: { label: "SeedVR2", detail: "restores and enlarges with the whole clip in view: no flicker, compression and softness repaired; minutes per clip" },
+  latent: { label: "Latent re-sample", detail: "the clip's own latent enlarged and sampled again with its prompt: the same motion, new detail, joins kept" },
+  rtx: { label: "RTX Video Super Resolution", detail: "NVIDIA's VSR: near real time, steady, modest detail; an RTX card and a node that drives it" },
+  model: { label: "Upscale model", detail: "an ESRGAN-type model from models/upscale_models, frame by frame: fast, sharp, may flicker" },
+} as const;
+
 /** A recipe whose form offers the latent re-sample as an upscale route: its clips can be finished that way. */
 export function resamplesLatent(recipe: { inputs: InputSpec[] } | undefined): boolean {
   return Boolean(recipe?.inputs.some((i) => i.id === "upscale" && i.type === "choice" && Array.isArray(i.options) && i.options.includes(LATENT_RESAMPLE)));

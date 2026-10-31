@@ -12,6 +12,7 @@ import { withNote } from "./fieldNotes";
 import { fileLabel } from "./format";
 import { MaskField } from "./MaskField";
 import { MakeFromDriving } from "./motionPicture";
+import { Select } from "./Select";
 import { Slider } from "./Slider";
 import { ClipField, CuesField, PictureField, ReferencesField, SoundField, type PartProps } from "./PictureField";
 import { cx, Segmented, Toggle } from "./ui";
@@ -168,11 +169,15 @@ export function Field({ spec, value, values, specs, options, setup, family, mode
       // a value an older form saved shows as the option that replaced it
       const current = spec.renamed?.[raw] ?? raw;
       // a few short choices sit side by side; file names and long lists go in a list
-      const few = all.length <= 4 && all.every((o) => fileLabel(o).length <= 14);
+      const said = (o: string) => spec.labels?.[o] ?? fileLabel(o);
+      const few = all.length <= 4 && all.every((o) => said(o).length <= 14);
       return (
         <FieldRow label={spec.label} note={spec.note} htmlFor={few ? undefined : id} trail={few}>
           {few ? (
-            <Segmented label={spec.label} value={current} options={all.map((o) => ({ value: o, label: fileLabel(o) }))} onChange={onChange} className="w-fit" />
+            <Segmented label={spec.label} value={current} options={all.map((o) => ({ value: o, label: said(o) }))} onChange={onChange} className="w-fit" />
+          ) : spec.labels || spec.details ? (
+            // fixed options said in other words than their values, each with what it does (the upscale routes)
+            <Select id={id} label={spec.label} value={current} onChange={onChange} options={all.map((o) => ({ value: o, label: said(o), detail: spec.details?.[o] }))} />
           ) : (
             <FileSelect id={id} label={spec.label} value={current} onChange={onChange} files={all.includes(current) ? all : [current, ...all]} folder={Array.isArray(spec.options) ? undefined : FOLDER_OF[spec.options.input]} />
           )}

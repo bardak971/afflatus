@@ -1,4 +1,4 @@
-import { LATENT_RESAMPLE, roundTo, wanted, type BuildContext, type GraphBuilder, type InputSpec, type Ref } from "@afflatus/core";
+import { LATENT_RESAMPLE, roundTo, UPSCALE_ROUTE_WORDS, wanted, type BuildContext, type GraphBuilder, type InputSpec, type Ref } from "@afflatus/core";
 import { loadUnet } from "../shared/unet";
 
 /**
@@ -92,7 +92,7 @@ export const SEEDVR_NODES = ["ResizeImageMaskNode", "SeedVR2Preprocess", "VAEEnc
 export const SEEDVR_SLOTS = [
   {
     id: "seedvr", label: "SeedVR2 model (video upscale)", folder: "diffusion_models", detect: ["seedvr2.*3b", "seedvr2"], byName: true, optional: true,
-    hint: "Optional, 3.4 GB: with a SeedVR2 model in ComfyUI's models/diffusion_models folder, the \"Video: SeedVR2\" upscale route restores and enlarges clips with the whole clip in view (no flicker). The 3B model; the 7B one (8 GB) is sharper and slower.",
+    hint: "Optional, 3.4 GB: with a SeedVR2 model in ComfyUI's models/diffusion_models folder, the SeedVR2 upscale route restores and enlarges clips with the whole clip in view (no flicker). The 3B model; the 7B one (8 GB) is sharper and slower.",
     get: { file: "seedvr2_3b_int8_convrot.safetensors", url: "https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/diffusion_models/seedvr2_3b_int8_convrot.safetensors" },
   },
   {
@@ -125,11 +125,17 @@ export interface UpscaleValues {
 
 /** The inputs of the choice, for a form: the route, the factor, and the model file for the pixel route. */
 export function upscaleInputs(opts: { latent?: boolean } = {}): InputSpec[] {
-  const routes: string[] = [UPSCALE.off, UPSCALE.model, UPSCALE.rtx, UPSCALE.seedvr, ...(opts.latent ? [UPSCALE.latent] : [])];
+  // in Finish's order (card #172): its Route list and this one say the same routes with the same words
+  const routes: string[] = [UPSCALE.off, UPSCALE.seedvr, ...(opts.latent ? [UPSCALE.latent] : []), UPSCALE.rtx, UPSCALE.model];
+  const words = { [UPSCALE.seedvr]: UPSCALE_ROUTE_WORDS.seedvr, [UPSCALE.latent]: UPSCALE_ROUTE_WORDS.latent, [UPSCALE.rtx]: UPSCALE_ROUTE_WORDS.rtx, [UPSCALE.model]: UPSCALE_ROUTE_WORDS.model };
   return [
     {
+      // the values are what drafts and jobs saved ("Pixel: upscale model"): said with Finish's words, never renamed
       id: "upscale", type: "choice", label: "Upscale", options: routes, default: UPSCALE.off, section: "out",
-      note: `how the clip is made larger after it is generated. Pixel: upscale model — an ESRGAN-type model from models/upscale_models, frame by frame; sharp, fast, may flicker. Pixel: RTX — NVIDIA's RTX Video Super Resolution, video-aware, fast; needs an NVIDIA RTX card and a node that drives it (NVIDIA's own ${RTX_NVIDIA}, or DaSiWa's ${RTX_NODE}, installed on first use); without them it upscales with an upscale model, else a plain resize. Video: SeedVR2 — a one-step restoration model that sees the whole clip: no flicker, and compression and softness are repaired too; minutes per clip, needs its two files (Settings → Models).${opts.latent ? " Latent: re-sampled — the latent enlarged and sampled again lightly in tiles: real new detail, consistent with the clip; about as long again as the clip." : ""}`,
+      labels: Object.fromEntries(Object.entries(words).map(([value, w]) => [value, w.label])),
+      details: { [UPSCALE.off]: "the clip as generated", ...Object.fromEntries(Object.entries(words).map(([value, w]) => [value, w.detail])) },
+      // RTX without its node (NVIDIA's ${RTX_NVIDIA} or DaSiWa's ${RTX_NODE}, installed on first use) falls back to an upscale model, else a plain resize
+      note: "the upscale pass after decoding (and interpolation). Each route's line in the list says what it does; SeedVR2 needs its two files (Settings › Models)",
     },
     {
       id: "upscaleColour", type: "choice", label: "SeedVR2 colour match", options: SEEDVR_COLOURS, default: "lab", section: "out", showWhen: { input: "upscale", in: [UPSCALE.seedvr] },
@@ -141,24 +147,28 @@ export function upscaleInputs(opts: { latent?: boolean } = {}): InputSpec[] {
       note: "the 3B (fast) or the 7B (sharper, slower, and steadier over its wider window); left as it is, the one of Settings › Models",
     },
     {
-      id: "seedvrFrames", type: "number", label: "SeedVR2 frames together", min: 1, max: 49, step: 4, default: 0, auto: "auto", section: "out", advanced: true, showWhen: { input: "upscale", in: [UPSCALE.seedvr] },
-      note: "SeedVR2's window: how many frames it restores together in one pass (1, 5, 9, 13…), each seeing the others. Wider is steadier from frame to frame and has fewer joins. Auto (the left end): the 7B takes 49, with 2 latent frames crossfaded between passes, or the widest the card holds, never under 5; the 3B goes by the frame's size (9 at about 1.7 megapixels, fewer for larger frames). More frames need more video memory; past what the card holds it spills into system memory and slows to a crawl, and fewer is then faster",
+      id: "seedvrFrames", type: "number", label: "SeedVR2 batch size", min: 1, max: 49, step: 4, default: 0, auto: "auto", section: "out", advanced: true, showWhen: { input: "upscale", in: [UPSCALE.seedvr] },
+      // auto: the 7B takes 49 with 2 latent frames crossfaded between passes, or the widest the card holds, never under 5; the 3B goes
+      // by the frame's size (9 at about 1.7 megapixels, fewer for larger ones). Past what the card holds it spills into system memory
+      note: "batch_size: frames restored together (1, 5, 9…), each seeing the others. Wider is steadier, with fewer joins; auto (the left end) fits it to the model and the card",
     },
     {
-      id: "upscaleBy", type: "number", label: "Upscale factor", min: 1.25, max: 3, step: 0.25, default: 2, unit: " ×", section: "out",
+      id: "upscaleBy", type: "number", label: "Upscale by", min: 1.25, max: 3, step: 0.25, default: 2, unit: " ×", section: "out",
       showWhen: { input: "upscale", in: routes.filter((r) => r !== UPSCALE.off) },
       note: "the final frame is said under the aspect ratio",
     },
     {
       // a 2× model first: the usual 2× asked for needs no 4×-then-down round trip, which costs time and softens
-      id: "upscaleModel", type: "choice", label: "Upscale model", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "2xNomosUni_span_multijpg.pth", prefer: ["^2x.*nomos", "^2x|_x2", "nomosuni.*span", "nomos8ksc", "nomos", "ultrasharp", "realesrgan", "esrgan", "animesharp", "nmkd", "."], section: "out",
+      id: "upscaleModel", type: "choice", label: "Upscaler", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "2xNomosUni_span_multijpg.pth", prefer: ["^2x.*nomos", "^2x|_x2", "nomosuni.*span", "nomos8ksc", "nomos", "ultrasharp", "realesrgan", "esrgan", "animesharp", "nmkd", "."], section: "out",
       showWhen: { input: "upscale", in: [UPSCALE.model] },
-      note: "from models/upscale_models. The model enlarges by its own factor, then the frames are resized to the factor asked for: a 2× model (2xNomosUni_span_multijpg, RealESRGAN_x2plus) is the direct road for ×2. NomosUni_span is fast, steady from frame to frame and forgiving of compression; Nomos8kSC is sharper on clean footage; UltraSharp and ESRGAN tend to flicker",
+      // the model enlarges by its own factor, then the frames are resized to the one asked for. NomosUni_span is fast, steady from
+      // frame to frame and forgiving of compression; Nomos8kSC is sharper on clean footage; UltraSharp and ESRGAN tend to flicker
+      note: "from models/upscale_models. A 2× model (2xNomosUni_span) is the direct road for ×2; UltraSharp and ESRGAN tend to flicker",
     },
     {
       id: "upscaleSharpen", type: "number", label: "RCAS sharpen", min: 0, max: 1, step: 0.05, default: 0, section: "out",
       showWhen: { input: "upscale", in: PIXEL_ROUTES },
-      note: `RCAS (AMD FSR's robust contrast-adaptive sharpen) on the upscaled frames: crisps the edges an upscale leaves soft, without the halos of a plain sharpen or unsharp mask. 0.3 is a usual amount; 0 = off. Needs KJNodes (${SHARPEN_NODE})`,
+      note: `AMD FSR's contrast-adaptive sharpen (KJNodes' ${SHARPEN_NODE}) on the upscaled frames, without a plain sharpen's halos. 0.3 is usual; 0 = off`,
     },
   ];
 }

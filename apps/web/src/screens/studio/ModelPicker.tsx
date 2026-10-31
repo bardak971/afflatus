@@ -99,8 +99,11 @@ export function useModelPick({ recipe, draft, onPick }: {
   return { all, kinds, groups, group, why, notHere, notReadyWhy, pick, pickModel, pickKind };
 }
 
-/** The radio buttons of a model's operations: one stop for Tab, the arrow keys go from one to the next (and pick it). */
-function Operations({ group, recipe, why, pick }: { group: ModelGroup; recipe: RecipeInfo; why(r: RecipeInfo): string | null; pick(id: string): void }) {
+/**
+ * The radio buttons of a model's operations: one stop for Tab, the arrow keys go from one to the next (and pick it). Studio's,
+ * and the clip inspector's (card #172), where `noteOf` says how each would meet the clip before.
+ */
+export function Operations({ group, recipe, why, pick, noteOf }: { group: ModelGroup; recipe: RecipeInfo; why(r: RecipeInfo): string | null; pick(id: string): void; noteOf?(r: RecipeInfo): string | undefined }) {
   const self = useRef<HTMLDivElement>(null);
   const step = (e: KeyboardEvent, i: number) => {
     const by = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
@@ -122,7 +125,7 @@ function Operations({ group, recipe, why, pick }: { group: ModelGroup; recipe: R
             role="radio"
             aria-checked={on}
             tabIndex={on ? 0 : -1}
-            data-tip={`${why(r) ? `${why(r)} ` : ""}${r.summary}`}
+            data-tip={`${why(r) ? `${why(r)} ` : ""}${noteOf?.(r) ? `${noteOf(r)}. ` : ""}${r.summary}`}
             onClick={() => pick(r.id)}
             onKeyDown={(e) => step(e, i)}
             className={cx("flex h-7 min-w-0 grow items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-semibold", own ? "basis-[45%]" : "basis-[30%]", on ? "bg-line-strong text-ink-strong" : why(r) ? "text-ink-3" : "text-ink-2 hover:text-ink")}

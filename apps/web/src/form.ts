@@ -205,7 +205,7 @@ export function summariesOf(recipe: RecipeInfo, layout: FormLayout, values: Reco
     if (i.type === "model") return fileLabel(String(v ?? ""));
     if (i.type === "number") return `${i.label.toLowerCase()} ${v}${i.unit ?? ""}`;
     if (i.type === "toggle") return v ? i.label.toLowerCase() : "";
-    if (i.type === "choice") return fileLabel(String(v ?? ""));
+    if (i.type === "choice") return i.labels?.[String(v ?? "")] ?? fileLabel(String(v ?? ""));
     return "";
   };
   const loraCount = loras.reduce((n, i) => n + ((values[i.id] as LoraValue[] | undefined)?.length ?? 0), 0);

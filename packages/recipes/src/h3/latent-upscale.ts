@@ -4,12 +4,12 @@ import type { H3Video } from "./inputs";
 import { AUTO_SAMPLER } from "./model";
 
 /**
- * The third-party MiniMax H3 node pack (Comfyui-MMH3-UltimateUpscale) the "Latent: re-sampled" upscale runs on: the pass itself, the two
+ * The third-party MiniMax H3 node pack (Comfyui-MMH3-UltimateUpscale) the Latent re-sample upscale route runs on: the pass itself, the two
  * splits it works in, and the two ways of enlarging the latent (one of the two is used, by the upscaler's file).
  */
 export const H3_LATENT_UPSCALE_NODES = ["MMH3UltimateUpscale", "MMH3SpatialSplitParams", "MMH3TemporalSplitParams"];
 export const H3_LATENT_ENLARGE_NODES = ["MMH3LatentUpscaleWithModelParams", "MMH3LatentUpscaleParams"];
-const NO_PACK = `The "Latent: re-sampled" upscale runs on the MiniMax H3 upscale nodes of the Comfyui-MMH3-UltimateUpscale pack (bbaudio-2025), which this ComfyUI does not have. Install the pack, or pick another upscale route.`;
+const NO_PACK = `The Latent re-sample upscale route runs on the MiniMax H3 upscale nodes of the Comfyui-MMH3-UltimateUpscale pack (bbaudio-2025), which this ComfyUI does not have. Install the pack, or pick another upscale route.`;
 
 /**
  * How many pieces the re-sample samples one after another, each with its own steps: the stretches of frames

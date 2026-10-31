@@ -202,24 +202,25 @@ export const h3Inputs: InputSpec[] = [
   ...COLOUR_MATCH_INPUTS,
   ...FACE_REFINE_INPUTS,
   {
-    id: "upscaleNoise", type: "number", label: "Upscale denoise", min: 0.05, max: 0.95, step: 0.01, default: 0.35, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true,
+    id: "upscaleNoise", type: "number", label: "Re-sample denoise", min: 0.05, max: 0.95, step: 0.01, default: 0.35, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true,
     fromDenoise: { id: "upscaleDenoise", steps: "upscaleSteps", shift: "shiftVideo", oldDefault: { denoise: 0.15, steps: 2 } },
-    note: "the noise level the re-sampling starts at (sigma), whatever the shift: 0.35 re-noises to 35 %, then eases down to 0.012 and 0 over the steps (karras). Higher redraws more detail, but moving edges flicker more and mouths and faces drift from the draft; lower leaves the upscaler's grain and smooths skin. A plain resize of the latent (no H3 latent upscaler file) needs about 0.8 or more, else it stays soft",
+    // eased down to 0.012 and 0 over the steps (karras); higher also makes moving edges flicker, lower leaves the upscaler's grain
+    note: "the σ the re-sample starts at, whatever the shift (0.35 = 35 % noise). Higher redraws more, and faces drift from the draft; Bicubic needs about 0.8",
   },
-  { id: "upscaleSteps", type: "number", label: "Upscale steps", min: 1, max: 6, step: 1, default: 3, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true, note: "steps of the re-sampling, from its denoise down to 0: 1 goes there in one jump, 3 eases down gently; each step is a pass over the whole clip" },
+  { id: "upscaleSteps", type: "number", label: "Re-sample steps", min: 1, max: 6, step: 1, default: 3, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true, note: "from its denoise down to 0 (karras); each step is a pass over the whole clip" },
   {
-    id: "upscaleWith", type: "choice", label: "Latent upscaler", options: ["H3's latent upscaler", "Plain resize"], renamed: { Auto: "H3's latent upscaler" }, default: "H3's latent upscaler", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true,
-    note: "H3's own 3D upscaler model; while its file is not in ComfyUI, a plain resize is used instead: a bicubic resize of the latent, which is soft unless the re-sampling has steps and denoise to work with. The file is one click in Settings → Models, under MiniMax H3",
+    id: "upscaleWith", type: "choice", label: "Latent upscale method", options: ["H3's latent upscaler", "Plain resize"], renamed: { Auto: "H3's latent upscaler" }, labels: { "H3's latent upscaler": "Latent upscaler", "Plain resize": "Bicubic" }, default: "H3's latent upscaler", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true,
+    note: "Latent upscaler: H3's 3D latent upscale model (Settings › Models, MiniMax H3); while its file is missing, Bicubic. Bicubic stays soft without denoise to work with",
   },
   {
     // the enlarging alone is a choice (the owner, 2026-10-29, card #159): the re-sampling stays on the clip's own model, its
     // look and its joins
-    id: "upscaleLatentModel", type: "model", label: "Latent upscaler model", folder: "latent_upscale_models", slot: "latentUpscaler", match: ["minimax.?h3.?latent.?upscaler"], showWhen: { input: "upscaleWith", in: ["H3's latent upscaler"] }, advanced: true,
-    note: "the file that enlarges the latent, from models/latent_upscale_models; left as it is, the one of Settings › Models. The re-sampling after it runs on the clip's own model",
+    id: "upscaleLatentModel", type: "model", label: "Latent upscaler", folder: "latent_upscale_models", slot: "latentUpscaler", match: ["minimax.?h3.?latent.?upscaler"], showWhen: { input: "upscaleWith", in: ["H3's latent upscaler"] }, advanced: true,
+    note: "from models/latent_upscale_models; left as it is, Settings › Models' file. The re-sample after it runs on the clip's own model",
   },
-  { id: "upscaleTile", type: "number", label: "Upscale tile size", min: 256, max: 1024, step: 32, default: 512, unit: " px", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true, note: "the frame is re-sampled one tile at a time: smaller tiles need less memory" },
-  { id: "upscaleOverlap", type: "number", label: "Upscale tile overlap", min: 32, max: 256, step: 32, default: 128, unit: " px", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true },
-  { id: "upscaleChunk", type: "number", label: "Upscale temporal chunk", min: 17, max: 255, step: 17, default: 85, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true, note: "the clip is re-sampled in stretches of this many frames, overlapping by 17" },
+  { id: "upscaleTile", type: "number", label: "Re-sample tile size", min: 256, max: 1024, step: 32, default: 512, unit: " px", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true, note: "the frame is re-sampled one tile at a time: smaller tiles need less memory" },
+  { id: "upscaleOverlap", type: "number", label: "Re-sample tile overlap", min: 32, max: 256, step: 32, default: 128, unit: " px", showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true },
+  { id: "upscaleChunk", type: "number", label: "Re-sample temporal chunk", min: 17, max: 255, step: 17, default: 85, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true, note: "the clip is re-sampled in stretches of this many frames, overlapping by 17" },
   {
     id: "fast", type: "toggle", label: "Turbo", note: "a few steps, about twice as fast, for drafts: with the turbo LoRA (one click in Settings → Models), or as it is with a turbo model. Without either, the full steps run", default: false, advanced: true, perModel: true,
     // the shifts the turbo LoRAs were trained at

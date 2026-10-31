@@ -2365,9 +2365,12 @@ describe("the upscale routes of the video forms", () => {
 
   it("every video form offers the routes; only H3 offers the latent one", () => {
     const routes = (r: { inputs: Array<{ id: string; type: string; options?: unknown }> }) => (r.inputs.find((i) => i.id === "upscale") as { options: string[] }).options;
-    expect(routes(wanVideo)).toEqual(["Off", "Pixel: upscale model", "Pixel: RTX Video Super Resolution", "Video: SeedVR2 (restores)"]);
-    expect(routes(ltxVideo)).toEqual(["Off", "Pixel: upscale model", "Pixel: RTX Video Super Resolution", "Video: SeedVR2 (restores)"]);
-    expect(routes(h3Video)).toEqual(["Off", "Pixel: upscale model", "Pixel: RTX Video Super Resolution", "Video: SeedVR2 (restores)", "Latent: re-sampled"]);
+    // in Finish's order (card #172); the values stay what drafts saved, said with Finish's words
+    expect(routes(wanVideo)).toEqual(["Off", "Video: SeedVR2 (restores)", "Pixel: RTX Video Super Resolution", "Pixel: upscale model"]);
+    expect(routes(ltxVideo)).toEqual(["Off", "Video: SeedVR2 (restores)", "Pixel: RTX Video Super Resolution", "Pixel: upscale model"]);
+    expect(routes(h3Video)).toEqual(["Off", "Video: SeedVR2 (restores)", "Latent: re-sampled", "Pixel: RTX Video Super Resolution", "Pixel: upscale model"]);
+    const said = (h3Video.inputs.find((i) => i.id === "upscale") as { labels: Record<string, string> }).labels;
+    expect(routes(h3Video).slice(1).map((o) => said[o])).toEqual(["SeedVR2", "Latent re-sample", "RTX Video Super Resolution", "Upscale model"]);
     // SeedVR2: ComfyUI's own nodes, one step in temporal chunks, the frames matched in colour to the enlarged originals
     const sv = wanOf({ upscale: "Video: SeedVR2 (restores)", upscaleBy: 2 }, undefined, { seedvr: "seedvr2_3b_int8_convrot.safetensors", seedvrVae: "seedvr2_ema_vae_fp16.safetensors" });
     expect(node(sv, "KSampler")[0]!.inputs).toMatchObject({ steps: 1, cfg: 1, denoise: 1 });
