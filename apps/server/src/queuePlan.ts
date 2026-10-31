@@ -89,12 +89,14 @@ export interface PodFetch {
   holding(machine: string): boolean;
   /** Files are coming to that machine now, their bytes moving: what holds a rented pod's idle time (podFiles.ts moving). */
   moving(machine: string): boolean;
+  /** Why a job planned there cannot start soon, these files and node packs not coming (podFiles.ts stalled); null while they come or are there. */
+  stalled(machine: string, job: string, files: Lack["files"], packs?: string[]): string | null;
   /** The node packs that failed on that pod, each with why: its jobs are built without what they bring (jobPacks.ts packFacts). */
   failingPacks(machine: string): ReadonlyMap<string, string>;
 }
 
 /** A rented pod's files as the queue reads them, from podFiles.ts. */
-export function podFetchOf(files: Pick<PodFiles, "failed" | "failedPacks" | "failingPacks" | "short" | "untilThere" | "want" | "wantPacks" | "jobState" | "holding" | "moving" | "dropUnsought" | "holdsFor">): PodFetch {
+export function podFetchOf(files: Pick<PodFiles, "failed" | "failedPacks" | "failingPacks" | "short" | "untilThere" | "want" | "wantPacks" | "jobState" | "holding" | "moving" | "stalled" | "dropUnsought" | "holdsFor">): PodFetch {
   return {
     short: (machine, list) => files.short(machine, list),
     failed: (machine, list, packs = []) => list.map((f) => files.failed(machine, f.folder, f.file)).find((why) => why !== null) ?? files.failedPacks(machine, packs),
@@ -108,6 +110,7 @@ export function podFetchOf(files: Pick<PodFiles, "failed" | "failedPacks" | "fai
     jobState: (machine, job, only) => files.jobState(machine, job, only)?.state ?? null,
     holding: (machine) => files.holding(machine),
     moving: (machine) => files.moving(machine),
+    stalled: (machine, job, list, packs) => files.stalled(machine, job, list, packs),
     failingPacks: (machine) => files.failingPacks(machine),
   };
 }
