@@ -142,6 +142,13 @@ describe("ffmpeg in the command bar, as Settings › About has it", () => {
   });
 });
 
+describe("spending in the command bar", () => {
+  it("promises on Settings › Costs only what that tab has: the balance is Rented GPUs › RunPod account's", () => {
+    const [, settings] = commandActions({ client: new QueryClient() } as unknown as BarCtx, { cmd: "spending" });
+    expect(settings).toMatchObject({ label: "Open Settings › Costs", note: "the caps, this month's costs" });
+  });
+});
+
 const GB = 2 ** 30;
 const dl = (id: string, over: Partial<Download> = {}): Download => ({ id, file: `${id}.safetensors`, folder: "loras", title: id, bytes: 0, total: GB, status: "starting", via: "afflatus", ...over });
 const serveDownloads = (items: Download[]) => fakeApi.on("GET /downloads", { on: true, items, manager: { found: false }, via: "afflatus" });

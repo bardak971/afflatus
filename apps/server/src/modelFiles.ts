@@ -9,16 +9,25 @@ import { isNetworkPath } from "./linked";
  * past the header is read: a few hundred kilobytes of a file of many gigabytes.
  */
 
-/** ComfyUI's older names for some folders, still read beside the new ones, and named in extra_model_paths.yaml (A1111's layout among them). */
+/** ComfyUI's older names for some folders, which extra_model_paths.yaml may still use (A1111's layout among them): folder_paths.map_legacy. */
 const LEGACY: Record<string, string[]> = { diffusion_models: ["unet"], text_encoders: ["clip"] };
+
+/**
+ * The directories under `models/` ComfyUI reads a folder from, in its own order (folder_paths.py): models/unet before
+ * models/diffusion_models, so a name held in both is unet's file. Read the other way round, the file ComfyUI loads was the
+ * one marked shadowed (no "needed by", a Delete with no warning) and the name's hash, a pod's source, the other file's.
+ */
+const OWN: Record<string, string[]> = { diffusion_models: ["unet", "diffusion_models"], text_encoders: ["text_encoders", "clip"], controlnet: ["controlnet", "t2i_adapter"] };
 
 /** The biggest header read: a safetensors header is small, and a file that claims more is not one. */
 const HEADER_MOST = 64 * 1024 * 1024;
 
 /**
- * The directories ComfyUI reads a model folder from: `<comfyDir>/models/<folder>` (and its older
- * name), then what `extra_model_paths.yaml` adds. Empty when ComfyUI's folder is not known or not here. A folder on a
- * network share is never looked at (see isNetworkPath): a stat of it reaches for the share, the files come through ComfyUI.
+ * The directories ComfyUI reads a model folder from, in the order it looks for a name in them: `<comfyDir>/models/<folder>`
+ * (and its older name, OWN's order), then what `extra_model_paths.yaml` adds, a section with `is_default` put first as
+ * ComfyUI puts it (add_model_folder_path). Empty when ComfyUI's folder is not known or not here. A folder on a network
+ * share is never looked at (see isNetworkPath): a stat of it reaches for the share, the files come through ComfyUI.
+ * Where Afflatus writes a new file is not this order's first: placesOf (modelDownload.ts) puts `models/<folder>` first.
  */
 export async function modelDirs(comfyDir: string, folder: string): Promise<string[]> {
   return (await modelDirsSaid(comfyDir, folder)).dirs;
@@ -32,21 +41,36 @@ export async function modelDirs(comfyDir: string, folder: string): Promise<strin
 export async function modelDirsSaid(comfyDir: string, folder: string): Promise<{ dirs: string[]; all: boolean }> {
   const base = comfyDir.trim();
   if (!base || isNetworkPath(base) || !(await isDir(base))) return { dirs: [], all: false };
-  const dirs = [join(base, "models", folder), ...(LEGACY[folder] ?? []).map((f) => join(base, "models", f))];
-  const own = dirs.length;
+  const dirs = (OWN[folder] ?? [folder]).map((f) => ({ path: join(base, "models", f), extra: false }));
+  let extra: ExtraDir[] = [];
   try {
-    dirs.push(...extraDirs(await readFile(join(base, "extra_model_paths.yaml"), "utf8"), base, folder));
+    extra = extraPaths(await readFile(join(base, "extra_model_paths.yaml"), "utf8"), base, folder);
   } catch {
     // no extra paths file: the default folders are all there is
   }
+  // as ComfyUI adds them: a path listed already is not added twice, and a default one goes first (moved there when listed)
+  for (const e of extra) {
+    const at = dirs.findIndex((d) => d.path === e.path);
+    if (at >= 0 && !e.isDefault) continue;
+    if (at >= 0) dirs.splice(at, 1);
+    // a directory the file names may be a drive unplugged for now: `all` says so when it is not there
+    if (e.isDefault) dirs.unshift({ path: e.path, extra: true });
+    else dirs.push({ path: e.path, extra: true });
+  }
   const out: string[] = [];
   let all = true;
-  for (const [i, d] of dirs.entries()) {
-    if (out.includes(d) || isNetworkPath(d)) continue;
-    if (await isDir(d)) out.push(d);
-    else if (i >= own) all = false;
+  for (const d of dirs) {
+    if (out.includes(d.path) || isNetworkPath(d.path)) continue;
+    if (await isDir(d.path)) out.push(d.path);
+    else if (d.extra) all = false;
   }
   return { dirs: out, all };
+}
+
+/** A directory extra_model_paths.yaml names for a folder, and whether its section is `is_default` (ComfyUI reads it first). */
+export interface ExtraDir {
+  path: string;
+  isDefault: boolean;
 }
 
 /**
@@ -55,10 +79,33 @@ export async function modelDirsSaid(comfyDir: string, folder: string): Promise<{
  * small reader of its own: the file is simple and a YAML library is not worth carrying for it.
  */
 export function extraDirs(yaml: string, comfyDir: string, folder: string): string[] {
+  return extraPaths(yaml, comfyDir, folder).map((d) => d.path);
+}
+
+/**
+ * extraDirs, with each section's `is_default` (read for the whole section, wherever the key is in it, as ComfyUI pops it
+ * before the folders). Its base path too applies to the whole section, as ComfyUI pops it first.
+ */
+export function extraPaths(yaml: string, comfyDir: string, folder: string): ExtraDir[] {
   const names = [folder, ...(LEGACY[folder] ?? [])];
-  const out: string[] = [];
-  let basePath = "";
+  const out: ExtraDir[] = [];
+  /** The section being read: its paths, as written, resolved once its base path and is_default are known. */
+  let section = { basePath: "", isDefault: false, paths: [] as string[] };
+  const flush = () => {
+    for (const p of section.paths) out.push({ path: resolveUnder(section.basePath, comfyDir, p), isDefault: section.isDefault });
+    section = { basePath: "", isDefault: false, paths: [] };
+  };
   let block: boolean = false;
+  /** A `key: value` line of a section: its base path, its is_default, or a folder's path (or the start of a | block). */
+  const keyLine = (key: string, value: string) => {
+    const v = value.trim();
+    if (key === "base_path") section.basePath = v;
+    else if (key === "is_default") section.isDefault = !/^(false|no|off|0|null|~)?$/i.test(v.replace(/^["']|["']$/g, ""));
+    else if (names.includes(key)) {
+      if (v === "|" || v === "") block = true;
+      else section.paths.push(v);
+    }
+  };
   const lines = yaml.split(/\r?\n/);
   for (const raw of lines) {
     const line = raw.replace(/#.*$/, "").trimEnd();
@@ -66,40 +113,27 @@ export function extraDirs(yaml: string, comfyDir: string, folder: string): strin
     const indent = line.length - line.trimStart().length;
     const text = line.trim();
     if (indent === 0 && /^[\w-]+:\s*$/.test(text)) {
-      // a new section (comfyui:, a1111:, …): its base path comes next
-      basePath = "";
+      // a new section (comfyui:, a1111:, …)
+      flush();
       block = false;
       continue;
     }
     const m = /^([\w-]+):\s*(.*)$/.exec(text);
     if (m && !block) {
-      const [, key, value] = m;
-      if (key === "base_path") {
-        basePath = value!.trim();
-        continue;
-      }
-      if (names.includes(key!)) {
-        if (value!.trim() === "|" || value!.trim() === "") {
-          block = true;
-          continue;
-        }
-        out.push(resolveUnder(basePath, comfyDir, value!.trim()));
-      }
+      keyLine(m[1]!, m[2]!);
       continue;
     }
     if (block) {
       // the lines of a | block: paths, until a line that is a key again
-      if (/^[\w-]+:/.test(text) && indent <= 5) {
+      if (m && indent <= 5) {
         block = false;
-        const mm = /^([\w-]+):\s*(.*)$/.exec(text)!;
-        if (mm[1] === "base_path") basePath = mm[2]!.trim();
-        else if (names.includes(mm[1]!) && mm[2]!.trim() && mm[2]!.trim() !== "|") out.push(resolveUnder(basePath, comfyDir, mm[2]!.trim()));
-        else if (names.includes(mm[1]!)) block = true;
+        keyLine(m[1]!, m[2]!);
         continue;
       }
-      out.push(resolveUnder(basePath, comfyDir, text));
+      section.paths.push(text);
     }
   }
+  flush();
   return out;
 }
 

@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { Link } from "wouter";
 import { Server } from "lucide-react";
-import { modelName, roughly } from "@afflatus/core";
+import { formModelInput, modelName, roughly } from "@afflatus/core";
 import type { api, MachineState, RecipeInfo } from "./api";
 import { useQueue } from "./data";
 import { useDraftMachine } from "./draftMachine";
@@ -66,7 +66,7 @@ export function GenerateOn({ recipe, pickKey, whole, look, msOn, of, off }: {
   off?: boolean;
 }) {
   const { lacksOn } = useLoadChoices({ recipe, input: whole, look });
-  const spec = recipe.inputs.find((i) => i.type === "model");
+  const spec = formModelInput(recipe);
   const file = spec && typeof whole[spec.id] === "string" ? modelName(whole[spec.id] as string) : null;
   const makes = recipe.output === "image" ? "image" : "video";
   const why = (m: MachineState) => unpickable(m, makes) ?? (lacksOn(m.id) && !m.rented ? "lacks this model" : null);

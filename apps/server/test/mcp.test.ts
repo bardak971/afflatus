@@ -438,6 +438,11 @@ describe("the tools, through the SDK's client over HTTP", () => {
     expect(pageOf("/")).toBe("Studio");
     expect(pageOf("/settings/interface")).toBe("Settings › Interface");
     expect(pageOf("/queue?tab=costs")).toBe("Queue");
+    // a Settings tab as its strip names it, an old address as the tab it lands on
+    expect(pageOf("/settings/model-files")).toBe("Settings › Model files");
+    expect(pageOf("/settings/signin")).toBe("Settings › Sign-in");
+    expect(pageOf("/settings/access")).toBe("Settings › Sign-in");
+    expect(pageOf("/settings")).toBe("Settings › ComfyUI");
   });
 });
 

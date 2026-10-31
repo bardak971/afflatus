@@ -41,9 +41,13 @@ const PAID_WORDS = /early access|buzz|purchase/i;
 /** A Civitai download address's version: `/api/download/models/<version>`. */
 const versionOf = (url: string) => Number(/\/api\/download\/models\/(\d+)/.exec(url)?.[1] ?? 0);
 
+const PAID_SAID = "This version is paid on Civitai";
 /** A paid version's words: until when when Civitai says so (Early Access ends, the version is free then), and its page. */
 export const paidSaid = (page: string | null, until?: string | null): string =>
-  `This version is paid on Civitai (Early Access${until ? ` until ${until.slice(0, 10)}` : ""}): unlock it with Buzz on its page${page ? ` (${page})` : ""}, or pick another version.`;
+  `${PAID_SAID} (Early Access${until ? ` until ${until.slice(0, 10)}` : ""}): unlock it with Buzz on its page${page ? ` (${page})` : ""}, or pick another version.`;
+
+/** Whether a refusal is a paid version's (paidSaid): one for a while only, or until the user unlocks it. */
+export const isPaidSaid = (said: string): boolean => said.startsWith(PAID_SAID);
 
 /**
  * Why a site refused a download (a 401 or a 403, or a sign-in page), in the words that say what to do. Civitai says its

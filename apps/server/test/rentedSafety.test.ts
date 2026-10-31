@@ -263,6 +263,22 @@ describe("money safety", () => {
     expect(podA().status).toBe("EXITED");
   });
 
+  // the 0.9.0 review (M2): a render its ComfyUI says nothing of (busy, not answering) held a capped pod up to the hour
+  it("at a cap, does not wait for a render its ComfyUI answers nothing of", async () => {
+    const id = await add(podA().id);
+    await started(id, podA);
+    await t.app.inject({ method: "POST", url: "/api/queue/pause", payload: { machine: "m1" } });
+    await post(t.app, "/api/jobs", job());
+    await until(() => t.services.queue.runningOn(id));
+    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { rentCaps: { day: 0.0000001, month: 0 } } });
+    await t.services.rented.poll();
+    expect(podA().status).toBe("RUNNING");
+    // its ComfyUI found silent while the pod runs (queue.ts sayBusy): no longer heard
+    (t.services.queue as unknown as { busy: Map<string, { since: number; said: string }> }).busy.set(id, { since: Date.now(), said: "ComfyUI isn't answering" });
+    await t.services.rented.poll();
+    expect(podA().status).toBe("EXITED");
+  });
+
   it("at a cap, starts nothing new on the pod: the render running ends, the next one waits with why, and the pod stops", async () => {
     const id = await add(podA().id);
     await started(id, podA);

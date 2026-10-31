@@ -1,4 +1,4 @@
-import type { InputSpec, Recipe } from "@afflatus/core";
+import { formModelInput, type InputSpec, type Recipe } from "@afflatus/core";
 import { stemOf, type FoundSettings } from "./embedded";
 
 /**
@@ -36,7 +36,7 @@ export function targetsFor(found: FoundSettings, recipes: Recipe<any>[], options
   const rank = (r: Recipe<any>): { score: number; why?: string } => {
     if (!found.checkpoint) return { score: 0 };
     if ((r.files ?? []).some((f) => sameModel(found.checkpoint!, f.file))) return { score: 3, why: "it uses this model" };
-    const model = r.inputs.find((i) => i.type === "model");
+    const model = formModelInput(r);
     if (model && fileFor(found.checkpoint, optionsOf(r.id)[model.id])) return { score: 2, why: "it can load this model" };
     return { score: 0 };
   };
@@ -70,7 +70,7 @@ export function fill(found: FoundSettings, recipe: Recipe<any>, options: Options
   if (quality) input[quality.id] = "";
 
   // the model: picked in the form when the recipe has it to pick; an imported workflow loads its own
-  const model = recipe.inputs.find((i) => i.type === "model");
+  const model = formModelInput(recipe);
   const own = (recipe.files ?? []).find((f) => found.checkpoint && sameModel(found.checkpoint, f.file));
   const picked = model ? fileFor(found.checkpoint, options[model.id]) : undefined;
   if (model && picked) input[model.id] = picked;

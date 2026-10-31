@@ -393,8 +393,9 @@ async function runFaceFinish(core: QueueCore, row: JobRow, run: Running, clips: 
     const options = asBuilt(catalog, (await core.packFacts?.().catch(() => null)) ?? ANY_PACKS, packsSaid(row));
     const ctx: BuildContext = { seed: Math.floor(Math.random() * 2 ** 31), slots, uploads: {}, media: {}, has: (n: string) => n in catalog, options: optionsIn(catalog), inputs: inputsIn(catalog), wants: options.wants };
     // the H3 model picked in Finish (card #192: it was left out, the pass ran on the fused turbo whatever was picked), its
-    // steps by that model (4 on a turbo, more on a full model) as an H3 clip's pass takes them; none picked, the fused turbo at 4
-    const values = { faceRefine: true, faceRefineDenoise: opts.faceDenoise ?? 0.35, faceRefineSteps: pickedFace(opts) ? 0 : 4, ...faceModelAsked(opts), references: [], subject: "", quick: true };
+    // steps by that model (4 on a turbo, more on a full model) as an H3 clip's pass takes them; none picked, the fused turbo at 4.
+    // The steps the clip's form typed go over both (faceSteps)
+    const values = { faceRefine: true, faceRefineDenoise: opts.faceDenoise ?? 0.35, faceRefineSteps: opts.faceSteps || (pickedFace(opts) ? 0 : 4), ...faceModelAsked(opts), references: [], subject: "", quick: true };
     const why = faceRefineSkipped(values, ctx, { picture: pictureFile, own: true, audio: Boolean(sound) });
     if (why) throw new Error(why);
     const faces = faceRefined(g, ctx, values, [parts, 0], { audio: sound, picture: pictureFile, frames });

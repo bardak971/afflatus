@@ -50,10 +50,13 @@ export function latestFailure(actions: ReadonlyArray<Failing | readonly [string,
 type Failing = { error: Error | null; submittedAt: number };
 
 /**
- * The first of a place's actions that failed, with what did not happen ("Not checked"), for <Failed what>: one error line
- * under several buttons names the one that failed rather than showing its words alone (card #177).
+ * The newest of a place's actions that failed, with what did not happen ("Not checked"), for <Failed what>: one error line
+ * under several buttons names the one that failed rather than showing its words alone (card #177). The newest, as
+ * latestFailure: "Bin idle takes" failed, then "Keep what is in the bin" failed, says the second, not the first's old error.
+ * When (a mutation's `submittedAt`, a query's `errorUpdatedAt`); one with neither comes first, as its list has them.
  */
-export function firstFailed(actions: ReadonlyArray<readonly [string, { isError: boolean; error: unknown }]>): { what: string; error: unknown } | undefined {
-  const hit = actions.find(([, x]) => x.isError);
+export function firstFailed(actions: ReadonlyArray<readonly [string, { isError: boolean; error: unknown; submittedAt?: number; errorUpdatedAt?: number }]>): { what: string; error: unknown } | undefined {
+  const when = (x: { submittedAt?: number; errorUpdatedAt?: number }) => x.submittedAt ?? x.errorUpdatedAt ?? 0;
+  const hit = actions.filter(([, x]) => x.isError).reduce<(typeof actions)[number] | undefined>((last, a) => (!last || when(a[1]) > when(last[1]) ? a : last), undefined);
   return hit && { what: hit[0], error: hit[1].error };
 }

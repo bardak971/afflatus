@@ -105,6 +105,22 @@ export const H3_NO_TAGS = "No <Picture 1> or <Video 1> to type: Afflatus adds H3
  * Every H3 form's Sound card (card #170): the sound effects and the music H3 makes, the source's sound kept and its audio guide,
  * a recording's start and loudness. Reached under the Inputs tab, so that the four forms keep the same six tabs.
  */
+/**
+ * The rows Swap and Motion transfer share for their source video, written once so that their words cannot drift (every H3
+ * form alike): the part's start, keeping the source's sound, and that sound as H3's guide.
+ */
+export const SOURCE_START: InputSpec = { id: "sourceStart", type: "number", label: "Source: start", min: 0, max: 3600, step: 0.1, default: 0, unit: " s", showWhen: "source" };
+export const SOURCE_SOUND_INPUTS: InputSpec[] = [
+  { id: "keepSound", type: "toggle", label: "Keep the source's sound", default: true, advanced: true, chapter: "sound", note: "the file carries the source video's own sound over its part; off, the sound H3 makes" },
+  {
+    // H3 moves the mouth to the sound it makes with the frames; without the source's, it drew lips to a sound then thrown
+    // away for the source's own (the owner, 2026-10-17: "how his lips move are really awkward"). With it, the new mouth
+    // followed the source person's 0.57 against 0.46 over the owner's Bulin 47 window, 0.51 against 0.39 on another mask (§9.11)
+    id: "soundGuide", type: "toggle", label: "Audio guide", default: true, advanced: true, showWhen: "keepSound", chapter: "sound",
+    note: "the source video's own sound given to H3 as a guide, as Lip sync gives its recording, so that the mouth is drawn to the words heard",
+  },
+];
+
 export const H3_SOUND_CHAPTER = { id: "sound", label: "Sound", under: "inputs", help: "The sound H3 makes with the picture (its effects and music) and what it is given to hear: a recording, the source's own sound as an audio guide, a voice sample brought to one loudness." };
 
 export const h3Inputs: InputSpec[] = [

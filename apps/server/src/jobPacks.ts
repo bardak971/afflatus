@@ -157,5 +157,5 @@ export interface PackWait {
   waitsFor?: string;
 }
 
-/** Whether a machine of the user's own installs what a render asks for without asking (Settings › Machines). */
+/** Whether a machine of the user's own installs what a render asks for without asking (Settings › ComfyUI › Missing node packs). */
 export const installsUnasked = (machine: Pick<Machine, "packs" | "rented">): boolean => Boolean(machine.rented) || machine.packs === "always";

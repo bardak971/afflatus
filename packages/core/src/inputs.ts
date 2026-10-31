@@ -529,6 +529,17 @@ export const OWN_MODEL = "Clip's own model";
 /** The file a model input's value names: none for an empty one or OWN_MODEL. */
 export const pickedFile = (value: unknown): string | null => (typeof value === "string" && value && value !== OWN_MODEL ? value : null);
 
+/**
+ * The form's own model input: its first model input of the recipe's family. One of another family (Face refine's H3 model
+ * on a SCAIL-2 or LTX 2.5 form, ModelInput.family) is a second model the pass may load, never the form's: read as it, a
+ * SCAIL-2 form's renders were filed, forecast and warmed under the H3 file, and Generate refused a machine lacking it with
+ * Face refine off. Without the recipe's family, every input naming a family is skipped (the field says it is another one).
+ * A LoRA row's file (`inList`: SCAIL-2's DPO and lightx2v LoRAs, Turbo's) is a LoRA put on the model, never the model either.
+ */
+export function formModelInput(recipe: { family?: string; inputs: readonly InputSpec[] }): Extract<InputSpec, { type: "model" }> | undefined {
+  return recipe.inputs.find((i): i is Extract<InputSpec, { type: "model" }> => i.type === "model" && !i.inList && (!i.family || i.family === recipe.family));
+}
+
 const multipleOf = (n: number, grid: number) => Math.round(n / grid) * grid;
 
 function schemaOf(spec: InputSpec): z.ZodType {

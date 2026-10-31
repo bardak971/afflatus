@@ -284,7 +284,7 @@ function StartPod({ pod, pinned, machines }: { pod: string; pinned: boolean; mac
         <button
           type="button" disabled={r.capped || ops.start.isPending || ops.redeploy.isPending} onClick={() => void ops.askStart(m)}
           className="shrink-0 text-xs font-semibold text-accent hover:underline disabled:text-ink-3 disabled:no-underline"
-          data-tip={r.capped ? "A spending cap is reached: no pod starts until it is raised (Settings › Rented GPUs)." : `Start ${name}: its rate is said before it starts.`}
+          data-tip={r.capped ? "A spending cap is reached: no pod starts until it is raised (Settings › Costs)." : `Start ${name}: its rate is said before it starts.`}
         >
           Start
         </button>
@@ -308,7 +308,7 @@ function PacksNote({ wait, machine, onPacks }: { wait: PackWait; machine: string
     return (
       <>
         {/* short words, the packs named in the tip: their names ran the line out under Install and restart at 1100 px */}
-        <span className="min-w-0 truncate text-xs text-attention-ink" data-tip={`It asks for ${said}, which ${machine ?? "your ComfyUI"} lacks. Settings › Machines can have such packs installed without asking.`}>
+        <span className="min-w-0 truncate text-xs text-attention-ink" data-tip={`It asks for ${said}, which ${machine ?? "your ComfyUI"} lacks. Settings › ComfyUI › Missing node packs can have such packs installed without asking.`}>
           waits for {names.length > 1 ? `${names.length} node packs` : "a node pack"}
         </span>
         {onPacks && (

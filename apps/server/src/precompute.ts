@@ -37,8 +37,13 @@ interface Unit {
   slow: boolean;
 }
 
-/** The setting that says every take's video has had its length read again as its picture's (card #207); its value: when. */
-const PICTURE_LENGTHS = "videoLength.pictureRead";
+/**
+ * The setting that says every video with sound has had its length read again as its picture's (card #207); its value:
+ * when. The first pass's (FIRST_PICTURE_LENGTHS) read the takes' videos alone, counted a video it could not read as read,
+ * and left the steps Undo keeps as they were: this one reads them all again, on data that pass was through with too.
+ */
+const PICTURE_LENGTHS = "videoLength.pictureRead.2";
+const FIRST_PICTURE_LENGTHS = "videoLength.pictureRead";
 
 /** The background measure of each database's server (one per createServices): what the hooks in the stores reach. */
 const of = new WeakMap<object, Precompute>();
@@ -125,32 +130,36 @@ export class Precompute {
   }
 
   /**
-   * The takes' videos with sound stored before their length was their picture's (card #207), newest first: each read once
-   * more, its length and the joins set from it made right where its sound ran past its picture (TimelineMedia.pictureLength).
-   * Once every one has been read, the setting says so and they are not read again.
+   * The videos with sound stored before their length was their picture's (card #207), newest first, in the library or on a
+   * timeline (one in the library alone is placed later, or a take of it brought back by Undo): each read once more, its
+   * length and the joins set from it made right where its sound ran past its picture (TimelineMedia.pictureLength). Once
+   * every one has been read with an answer, the setting says so and they are not read again; one that could not be read
+   * for now (ffprobe missing or out of time, the storage not answering) leaves it unsaid, and all are read at the next start.
    */
   private async pictureLengths(): Promise<void> {
     const media = this.media;
     if (!media.pictureLength) return;
     if (await this.db.selectFrom("settings").select("key").where("key", "=", PICTURE_LENGTHS).executeTakeFirst()) return;
+    const firstReadAt = (await this.db.selectFrom("settings").select("value").where("key", "=", FIRST_PICTURE_LENGTHS).executeTakeFirst())?.value ?? null;
     const videos = await this.db
       .selectFrom("assets")
       .select("id")
       .where("kind", "=", "video")
       .where("has_sound", "=", 1)
       .where("duration_ms", "is not", null)
-      .where("id", "in", (eb) => eb.selectFrom("takes").select("asset_id"))
       .orderBy("created_at", "desc")
       .execute();
     const read = () => this.db.insertInto("settings").values({ key: PICTURE_LENGTHS, value: now(), updated_at: now() }).onConflict((oc) => oc.column("key").doNothing()).execute();
     if (!videos.length) return void (await read());
-    // said once the last one is through (a stop forgets the rest: read again at the next start)
+    // said once the last one is through, every one with an answer (a stop forgets the rest: read again at the next start)
     let left = videos.length;
-    const counted = async () => {
-      if (--left === 0 && !this.stopped) await read();
+    let failed = false;
+    const through = async (answered: boolean) => {
+      if (!answered) failed = true;
+      if (--left === 0 && !failed && !this.stopped) await read();
     };
     for (const v of videos) {
-      this.add(`length:${v.id}`, { slow: true, work: () => this.opts.run(() => media.pictureLength!(v.id), { last: true }).catch(() => false).then(counted) });
+      this.add(`length:${v.id}`, { slow: true, work: () => this.opts.run(() => media.pictureLength!(v.id, firstReadAt), { last: true }).then(() => true, () => false).then(through) });
     }
   }
 

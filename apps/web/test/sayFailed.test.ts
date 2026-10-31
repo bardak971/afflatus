@@ -38,4 +38,10 @@ describe("the first failure of a place's actions", () => {
     expect(firstFailed([["Not checked", of(null)], ["Not saved", of("disk full")], ["Not updated", of("later")]])).toMatchObject({ what: "Not saved", error: { message: "disk full" } });
     expect(firstFailed([["Not checked", of(null)]])).toBeUndefined();
   });
+
+  it("names the newest failure, not the first of its list: a second action failed after says its own words", () => {
+    const failedAt = (error: string, submittedAt: number) => ({ ...of(error), submittedAt });
+    expect(firstFailed([["Idle takes not binned", failedAt("old", 5)], ["Not saved", failedAt("new", 9)]])).toMatchObject({ what: "Not saved", error: { message: "new" } });
+    expect(firstFailed([["Token not copied", failedAt("new", 9)], ["Token not renewed", failedAt("old", 5)]])).toMatchObject({ what: "Token not copied" });
+  });
 });
