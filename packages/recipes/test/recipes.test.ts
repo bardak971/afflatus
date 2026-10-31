@@ -669,12 +669,15 @@ describe("things done to a picture", () => {
     const slots = { unet: "k.safetensors", clip: "q.safetensors", vae: "v.safetensors" };
     const scheduled = (width: number, steps: number) => {
       const b = sharper.build(parseInput(sharper, { source: "p", upscaler: "u.pth", steps }), dryContext({ slots, uploads: { source: "s.png" }, media: { source: { width, height: width } } }));
-      return Object.values(b.graph).filter((n) => n.class_type === "Flux2Scheduler").map((n) => n.inputs.steps);
+      // the steps run: a quarter of the form's, cut from a longer schedule so that they start from 0.25 of real noise (card #146)
+      const laid = Object.values(b.graph).filter((n) => n.class_type === "Flux2Scheduler").map((n) => n.inputs.steps as number);
+      const split = Object.values(b.graph).filter((n) => n.class_type === "SplitSigmasDenoise").map((n) => n.inputs.denoise as number);
+      return laid.map((t, i) => Math.round(t * split[i]!));
     };
-    // a distilled Klein's 4, not the base model's 20
-    expect(scheduled(640, 4)).toEqual([4]);
-    expect(scheduled(2048, 4)).toEqual([4]);
-    expect(scheduled(640, 20)).toEqual([20]);
+    // a distilled Klein's 4 (one step of it), not the base model's 20 (five)
+    expect(scheduled(640, 4)).toEqual([1]);
+    expect(scheduled(2048, 4)).toEqual([1]);
+    expect(scheduled(640, 20)).toEqual([5]);
   });
 });
 

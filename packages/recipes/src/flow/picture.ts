@@ -2,7 +2,6 @@ import { defineRecipe, GraphBuilder, roundTo, type InputSpec, type Recipe, type 
 import { HIRES_PASS_INPUTS, hiresPass, UPSCALER_PREFER, type HiresPass } from "../sdxl/common";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { redrawInTiles, tileInputs, tileNodes, tilePass, inTiles, type TileSettings } from "../shared/tiles";
-import { PASS_NOISE, PASS_NOISE_INPUT, type PassNoise } from "../shared/passNoise";
 import type { FlowBase, FlowKit, FlowSpec } from "./kit";
 
 export interface FlowPicture extends FlowBase, HiresPass, DetailSettings, TileSettings {
@@ -15,7 +14,6 @@ export interface FlowPicture extends FlowBase, HiresPass, DetailSettings, TileSe
   hiresUpscaler: string;
   hiresDenoise: number;
   hiresSteps: number;
-  passNoise?: PassNoise;
 }
 
 const LOOK_NODES = ["LoadImage", "CLIPVisionLoader", "CLIPVisionEncode", "StyleModelLoader", "StyleModelApply"];
@@ -23,7 +21,7 @@ const LOOK_NEEDED = "The look of a picture needs FLUX.1 Redux and its vision mod
 
 /** txt2img, with hires fix: an upscale, then a second pass over the larger picture (in tiles past about twice the model's size each side). */
 export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
-  const { inputs, loadNodes, SOMETIMES, load, shifted, cond, sample, tuned, noiseWords, secondPass } = kit;
+  const { inputs, loadNodes, SOMETIMES, load, shifted, cond, sample, tuned, noiseWords } = kit;
   const files = spec.files;
   /** The area the model draws at, and the size a hires pass enlarges to. */
   const AREA = spec.megapixels * 1024 * 1024;
@@ -62,7 +60,6 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       { id: "hiresSteps", type: "number", label: "Hires steps", min: 1, max: 60, step: 1, default: hiresDefault.steps, showWhen: "hires", advanced: true, perModel: true },
       ...HIRES_PASS_INPUTS,
       ...tileInputs("hires"),
-      PASS_NOISE_INPUT,
       inputs.at(-1)!,
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),
@@ -102,22 +99,20 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
         g.phase("refining");
         // a model run for a few steps (Turbo, or a file made for it) redraws in as many as it was made for at most:
         // the full model's half (25 steps for Qwen Image) is not what it was distilled for, and takes six times as long
-        const steps = k.turbo ? Math.min(input.hiresSteps, k.steps) : input.hiresSteps;
-        const pass = { steps, ...hiresPass(input) };
+        const pass = { steps: k.turbo ? Math.min(input.hiresSteps, k.steps) : input.hiresSteps, denoise: input.hiresDenoise, ...hiresPass(input) };
         if (inTiles(input, large, AREA)) {
           // each tile is a picture the model's size to it: the shift for that size
           const tile = Math.min(input.tileSize, Math.max(large.width, large.height));
-          const tiled = secondPass(g, k.model, input, { width: tile, height: tile }, steps, input.hiresDenoise);
+          const tiled = shifted(g, k.model, input, { width: tile, height: tile });
           image = redrawInTiles(g, ctx, scaled, k.vae, large, input, (l) => {
-            const second = sample(g, k, input, tiled.model, c, l, ctx.seed, { ...pass, denoise: tiled.denoise }, detail);
+            const second = sample(g, k, input, tiled, c, l, ctx.seed, pass, detail);
             passes.push(tilePass(second.pass, large, input));
             return second.latent;
           });
           // each pass at its own size: the first at the picture's first, the tiles at a tile's
           passes[0] = { ...passes[0]!, pixels: size.width * size.height };
         } else {
-          const whole = secondPass(g, k.model, input, large, steps, input.hiresDenoise);
-          const second = sample(g, k, input, whole.model, c, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), ctx.seed, { ...pass, denoise: whole.denoise }, detail);
+          const second = sample(g, k, input, shifted(g, k.model, input, large), c, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), ctx.seed, pass, detail);
           latent = second.latent;
           passes.push(second.pass);
         }
@@ -133,9 +128,6 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       { name: "detail boost, hires fix 3× in tiles", input: { prompt: "a", detail: true, hires: true, hiresScale: 3, hiresUpscaler: "u.pth" } as Partial<FlowPicture>, slots: files, has: withoutDaemon },
       { name: "a GGUF model, in fp8 asked for (no effect on it)", input: { prompt: "a", model: `${spec.family}-Q4_K_M.gguf`, precision: "fp8_e4m3fn" } as Partial<FlowPicture>, slots: files },
       { name: "a fine-tune with a shift, a LoRA, a negative prompt and hires fix", input: { prompt: "a", ...tuned, hires: true, hiresUpscaler: "u.pth", size: { width: 1152, height: 1536 } } as Partial<FlowPicture>, slots: files },
-      // card #146's two other readings of the denoise, for side-by-sides
-      { name: "hires fix at the 1 MP shift", input: { prompt: "a", hires: true, hiresUpscaler: "u.pth", passNoise: PASS_NOISE.oneMp } as Partial<FlowPicture>, slots: files },
-      { name: "hires fix from the real σ", input: { prompt: "a", hires: true, hiresUpscaler: "u.pth", passNoise: PASS_NOISE.real } as Partial<FlowPicture>, slots: files },
       ...(spec.turbo
         ? [
           { name: "Turbo with its LoRA", input: { prompt: "a", fast: true } as Partial<FlowPicture>, slots: { ...files, [spec.turbo.slot]: "turbo.safetensors" } },

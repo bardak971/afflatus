@@ -4,7 +4,7 @@ import { addedLora, applyLoras, loraLoads, putAdded } from "../shared/model";
 import { addedInputs, addedRow, type AddedSpec } from "../shared/addedRows";
 import { TILE_NODES } from "../shared/tiles";
 import { GGUF_LOADER, loadUnet, unetNodes } from "../shared/unet";
-import { PASS_NOISE, sigmaWords, type PassNoise } from "../shared/passNoise";
+import { sigmaWords } from "../shared/sigmaWords";
 
 /**
  * The picture models that are built the same way in ComfyUI (a diffusion model in a file of its own, one
@@ -26,6 +26,13 @@ export interface FlowSpec {
   shift: { node: "ModelSamplingFlux" | "ModelSamplingAuraFlow"; default: number; note: string; own?: FlowSampling };
   /** Flux's guidance: a number the model was taught to follow, not the CFG scale. */
   guidance?: { default: number; note: string };
+  /**
+   * Upscale 2x's denoise is the real σ its light pass starts from, not ComfyUI's share of a schedule laid out at the model's
+   * shift (card #146). FLUX.1's: its shift grows with the size, so ComfyUI's 0.25 started from 0.81 of real noise on a
+   * 1536×2048 gone over whole and redrew the face as another person's; side by side on a pod, the owner took the real σ, which
+   * "invents less". The others' shift does not grow with the size (0.25 starts from about 0.51): untried, left as ComfyUI has it.
+   */
+  sharperRealSigma?: true;
   /** A LoRA that makes the model work in a few steps at CFG 1, when the family has one. */
   turbo?: { slot: string; steps: number; note: string; stepsNote: string; named: RegExp };
   /** The negative prompt: where it starts, and what stands for it when it is empty. */
@@ -248,15 +255,12 @@ export function flowKit(spec: FlowSpec) {
   };
 
   /**
-   * The model and the denoise a light second pass (hires fix, Upscale 2x) samples with at this size, read as `passNoise`
-   * says (card #146, shared/passNoise.ts): ComfyUI's way, the shift of 1 MP (FLUX.1's; the others' does not follow the size),
-   * or the denoise that starts from the field's own real σ on the simple schedule.
+   * The KSampler denoise of a pass of `steps` at this size that starts from the real σ `sigma` (spec.sharperRealSigma): on the
+   * simple schedule, the one it is worked out for; another scheduler starts near it. Unknown sampling: the field as it is.
    */
-  const secondPass = (g: GraphBuilder, model: Ref, input: FlowBase & { passNoise?: PassNoise }, size: { width: number; height: number }, steps: number, denoise: number) => {
-    const mode = input.passNoise ?? PASS_NOISE.comfy;
-    const at = mode === PASS_NOISE.oneMp ? { width: 1024, height: 1024 } : size;
-    const s = mode === PASS_NOISE.real ? samplingOf(input.shift, at) : null;
-    return { model: shifted(g, model, input, at), denoise: s ? denoiseForSigma(s, steps, denoise) : denoise };
+  const realDenoise = (input: FlowBase, size: { width: number; height: number }, steps: number, sigma: number): number => {
+    const s = samplingOf(input.shift, size);
+    return s ? denoiseForSigma(s, steps, sigma) : sigma;
   };
 
   /** The size a picture (or a part of one) is worked on at: its own shape, both edges multiples of 16, at most about `megapixels`. */
@@ -281,6 +285,6 @@ export function flowKit(spec: FlowSpec) {
   /** The family's files with a turbo LoRA among them, for each operation's "Turbo with its LoRA" variant; null without Turbo. */
   const turboFiles = spec.turbo ? { ...spec.files, [spec.turbo.slot]: "turbo.safetensors" } : null;
 
-  return { inputs, loadNodes, SOMETIMES, SECOND_PASS, load, shifted, condFrom, cond, sample, sizeOf, tuned, turboNeeds, turboFiles, samplingOf, startSigma, noiseWords, secondPass };
+  return { inputs, loadNodes, SOMETIMES, SECOND_PASS, load, shifted, condFrom, cond, sample, sizeOf, tuned, turboNeeds, turboFiles, samplingOf, startSigma, noiseWords, realDenoise };
 }
 export type FlowKit = ReturnType<typeof flowKit>;

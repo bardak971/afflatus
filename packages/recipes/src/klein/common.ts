@@ -1,7 +1,7 @@
 import { flowStartSigma, flux2ForSigma, flux2StartSigma, roundTo, type BuildContext, type GraphBuilder, type InputSpec, type LoraValue, type Phase, type Preset, type ReferenceValue, type Ref } from "@afflatus/core";
 import { detailModel, detailSampler, sharpenRange, usesDaemon, type DetailSettings } from "../shared/detail";
 import { loadUnet, unetNodes } from "../shared/unet";
-import { PASS_NOISE, sigmaWords, type PassNoise } from "../shared/passNoise";
+import { sigmaWords } from "../shared/sigmaWords";
 
 /** What every Klein recipe asks for besides its own inputs. */
 export interface KleinBase {
@@ -52,18 +52,14 @@ export function kleinSize(of: { width: number; height: number } | undefined, meg
 }
 
 /**
- * A light second pass (hires fix, Upscale 2x) as `passNoise` reads its denoise (card #146, shared/passNoise.ts): ComfyUI's way,
- * `steps` of Flux2Scheduler for the pass's size cut at `strength` (Klein's mu is already 2.2 at 1 MP and grows with the size);
- * the schedule of one megapixel; or the schedule laid out over as many steps as it takes to run the same steps from the
- * field's own real σ. `size` is what the scheduler is told, not the picture's.
+ * A light pass that starts from the real σ `sigma` (Upscale 2x, card #146): the round(steps × sigma) steps ComfyUI's cut would
+ * run, from a Flux2Scheduler laid out over as many steps as it takes for them to start there. Cut at `sigma` itself, Klein's
+ * schedule (its mu is 2.2 already at 1 MP) starts 0.25 from 0.73–0.75 of real noise and narrows a face; side by side on a
+ * pod, the owner took the real σ, which "invents less".
  */
-export function kleinPass(mode: PassNoise | undefined, size: { width: number; height: number }, steps: number, strength: number) {
-  if (mode === PASS_NOISE.oneMp) return { steps, strength, size: { width: 1024, height: 1024 } };
-  if (mode === PASS_NOISE.real) {
-    const laid = flux2ForSigma(Math.max(1, Math.round(steps * strength)), size.width, size.height, strength);
-    return { steps: laid.steps, strength: laid.denoise, size };
-  }
-  return { steps, strength, size };
+export function kleinRealPass(size: { width: number; height: number }, steps: number, sigma: number) {
+  const laid = flux2ForSigma(Math.max(1, Math.round(steps * sigma)), size.width, size.height, sigma);
+  return { steps: laid.steps, strength: laid.denoise };
 }
 
 /** Klein's FaceDetailer passes sample on the model's own schedule, FLUX's mu at 2.02 (card #146). */

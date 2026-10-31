@@ -1,5 +1,5 @@
 import { defineRecipe, GraphBuilder, type Recipe } from "@afflatus/core";
-import { sigmaWords } from "../shared/passNoise";
+import { sigmaWords } from "../shared/sigmaWords";
 import type { FlowBase, FlowKit, FlowSpec } from "./kit";
 
 export interface FlowRedraw extends FlowBase { source: string; prompt: string; strength: number }
