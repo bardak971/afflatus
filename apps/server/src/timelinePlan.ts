@@ -344,7 +344,8 @@ export class TimelinePlan {
     const carried = finishedFrom && prevSpec ? (raw[prevSpec.id] as { asset?: string; at?: number } | undefined) : undefined;
     const beforeDraft = before.take.finished_from ? (await this.core.db.selectFrom("takes").select("asset_id").where("id", "=", before.take.finished_from).executeTakeFirst())?.asset_id : undefined;
     const sameBefore = Boolean(carried?.asset && typeof carried.at === "number" && (carried.asset === before.asset.id || carried.asset === beforeDraft));
-    if (sameBefore) at = carried!.at!;
+    // (never past the picture of the clip before: a draft carried on from a pod's video read with its padded sound, card #207)
+    if (sameBefore) at = Math.min(carried!.at!, lengthOnGrid(before.asset) - before.take.tail_ms);
     if (prevSpec) {
       // the clip before ends frozen: hand over where it still moved, unless the form says not to
       // a window of a long source carries on exactly where the window before ends: its part of the source starts there
