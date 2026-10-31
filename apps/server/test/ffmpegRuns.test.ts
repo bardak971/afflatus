@@ -176,7 +176,7 @@ describe("a range of a video kept", () => {
       const removal = runs.timeouts.find((r) => r.args.includes("-filter_complex"))!.args;
       expect(removal.filter((a) => a === "-i")).toHaveLength(3);
       // each opening of the file, by what is said before it: the sound's from the start, its picture's packets passed over
-      const opened = removal.join(" ").split(/ -i \S+/).slice(0, -1).map((s) => s.replace(/^.*-loglevel error ?/, "").replace(/ ?-protocol_whitelist \S+/, "").trim());
+      const opened = removal.join(" ").split(/ -i \S+/).slice(0, -1).map((s) => s.replace(/^.*-loglevel error ?/, "").replace(/ ?-(protocol|format)_whitelist \S+/g, "").trim());
       expect(opened).toEqual(["-t 4", "-ss 2 -t 7", "-discard:v all -t 9"]);
       runs.timeouts.length = 0;
       // on keyframes at both ends: copied as it is, as before

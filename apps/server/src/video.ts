@@ -27,29 +27,71 @@ export function chooseTools(ffmpeg: string, ffprobe: string, said: string | null
 }
 
 /**
- * A run's arguments with every input it reads limited to files and pipes. A file from a stranger can be a
- * playlist naming other addresses (a web address on the LAN, a service on this machine) that ffmpeg would
- * otherwise go and read; the option comes before each `-i` of ffmpeg, and first for ffprobe, whose input
- * is its last argument.
- */
-export function localInputs(args: string[]): string[] {
-  const only = ["-protocol_whitelist", "file,pipe"];
-  return args.includes("-i") ? args.flatMap((a) => (a === "-i" ? [...only, a] : [a])) : [...only, ...args];
-}
-
-/**
  * The containers a file from a stranger may be read as (an upload, MCP's import_from_url, a workflow fetched from an
  * address): videos and sounds, by ffmpeg's demuxer names. Lists of other files (HLS, DASH, concat, an image sequence),
  * lavfi and the rest are refused before anything is opened: with only `file` allowed, a DASH or HLS manifest still opened
- * files elsewhere on the disk, and a frame of one would have come back into the library. Afflatus's own runs (an export's
- * concat list, lavfi's silence) are not held to it.
+ * files elsewhere on the disk, and a frame of one would have come back into the library.
  */
 const STRANGER_FORMATS = "mov,mp4,matroska,webm,avi,mpegts,mpeg,flv,ogg,wav,w64,aiff,mp3,flac,aac,asf";
 
-/** A run's arguments with its input read only as one of STRANGER_FORMATS: before each `-i` of ffmpeg, first for ffprobe. */
-export function strangerInput(args: string[]): string[] {
-  const only = ["-format_whitelist", STRANGER_FORMATS];
-  return args.includes("-i") ? args.flatMap((a) => (a === "-i" ? [...only, a] : [a])) : [...only, ...args];
+/**
+ * The containers browsers' recorders make (webm, ogg, mp4), and WAV: what a take recorded from the microphone is read as.
+ * Its body is not probed before it is turned into the WAV the models are given (cut.ts recordingWav).
+ */
+const RECORDING_FORMATS = "matroska,webm,ogg,mov,mp4,wav";
+
+/**
+ * The containers a file kept by Afflatus may be read as, whatever brought it in: a stranger's videos and sounds, the
+ * pictures (PNG, JPEG, WebP: their own demuxers, or image2, which reads the one picture named), and ComfyUI's moving
+ * takes (GIF, APNG, animated WebP: `webp_anim` on recent builds). Only an upload is probed as a stranger's file: a ComfyUI
+ * or pod take, a linked folder's file is kept as it comes, and an `.mp4` that is a DASH manifest or an ffconcat list had
+ * every other run read the file it names, elsewhere on the disk. ffmpeg picks the demuxer first, by the content and the
+ * name, and refuses it after when it is not listed: the list changes what is refused, never what a file is read as.
+ */
+const STORED_FORMATS = `${STRANGER_FORMATS},png_pipe,jpeg_pipe,webp_pipe,image2,gif,apng,webp_anim`;
+
+/**
+ * Where the file a run reads comes from, and so the containers it may be read as:
+ * - `stranger`: a file not yet kept, as it arrived (an upload's probe, MCP's import_from_url, a linked folder's file);
+ * - `recording`: a take from the browser's microphone, never probed before it is read;
+ * - `stored`: any file Afflatus keeps (a library video, a picture, a ComfyUI or pod take, a sound), and the files it makes
+ *   from them (a cut, a WAV, an export's piece). Every run is held to it unless it says otherwise (localInputs).
+ * Afflatus's own lists and sources (an export's concat list, lavfi's silence) name their format with `-f`: such an input is
+ * read as that format and held to no list.
+ */
+export type Origin = "stranger" | "recording" | "stored";
+export const READ_AS: Record<Origin, string> = { stranger: STRANGER_FORMATS, recording: RECORDING_FORMATS, stored: STORED_FORMATS };
+
+/** The options of each input of a run, from the end of the input before (or the start) to its `-i`, by the index of that `-i`. */
+function inputOptions(args: string[], at: number): string[] {
+  let from = at;
+  while (from > 0 && args[from - 1] !== "-i") from--;
+  // past the input before's file, when there is one
+  return args.slice(from === 0 ? 0 : from + 1, at);
+}
+
+/**
+ * A run's arguments with every input it reads held to the containers of `origin`: before each `-i` of ffmpeg, first for
+ * ffprobe, whose input is its last argument. An input that names its format (`-f concat`, `-f lavfi`) is left as it is, and
+ * so is one already held to a list.
+ */
+export function readAs(origin: Origin, args: string[]): string[] {
+  const only = ["-format_whitelist", READ_AS[origin]];
+  const free = (opts: string[]) => !opts.includes("-f") && !opts.includes("-format_whitelist");
+  if (!args.includes("-i")) return free(args) ? [...only, ...args] : args;
+  return args.flatMap((a, k) => (a === "-i" && free(inputOptions(args, k)) ? [...only, a] : [a]));
+}
+
+/**
+ * A run's arguments with every input it reads limited to files and pipes, and held to the containers of a kept file unless
+ * the run held it to others (readAs). A file from a stranger can be a playlist naming other addresses (a web address on the
+ * LAN, a service on this machine) that ffmpeg would otherwise go and read, or other files on the disk. Every run of
+ * ffmpeg and ffprobe goes through here (cut.ts ffRun, `run` below).
+ */
+export function localInputs(args: string[]): string[] {
+  const only = ["-protocol_whitelist", "file,pipe"];
+  const held = readAs("stored", args);
+  return held.includes("-i") ? held.flatMap((a) => (a === "-i" ? [...only, a] : [a])) : [...only, ...held];
 }
 
 /** The major version in ffmpeg's `-version` line ("ffmpeg version 9.0.2-full_build…" → 9); null when it names none (a nightly names a commit, "N-112345-g…"). */
@@ -194,7 +236,7 @@ export function factsOf(info: ProbeInfo): VideoFacts | null {
 /** The first frame of a video file, as a PNG; null when ffmpeg is not there or could not read it. */
 export async function firstFrame(file: string): Promise<Uint8Array | null> {
   const out = join(dirname(file), `${basename(file)}.frame.png`);
-  const made = await run(tools.ffmpeg, strangerInput(["-y", "-loglevel", "error", "-i", file, "-frames:v", "1", out]), "utf8");
+  const made = await run(tools.ffmpeg, readAs("stranger", ["-y", "-loglevel", "error", "-i", file, "-frames:v", "1", out]), "utf8");
   const frame = made.out === null ? null : await readFile(out).then((b) => new Uint8Array(b), () => null);
   await rm(out, { force: true }).catch(() => {});
   return frame;
