@@ -11,7 +11,7 @@ import { useCopied } from "../../hooks";
 import { Button, Checkbox, Chip, cx, ErrorNote, fieldClass, Toggle, TwoStep } from "../../ui";
 import { PasswordAsk } from "./PasswordAsk";
 import { Link } from "wouter";
-import { Block, Card, Row } from "./Rows";
+import { Block, Card, CardLoading, Row } from "./Rows";
 import { settingHref } from "./settingsIndex";
 
 /**
@@ -150,7 +150,7 @@ export function AccessCard() {
     },
     onError: sayFailed("Not signed out"),
   });
-  if (!a || !settings) return null;
+  if (!a || !settings) return <CardLoading />;
   const listen = devices.data?.listen;
   const where = listen ? `${listen.host}:${listen.port}` : "";
   const telegramSet = settings.notify.hasTelegramToken && Boolean(settings.notify.telegramChat);

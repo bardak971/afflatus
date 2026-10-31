@@ -14,7 +14,7 @@ import { queryKeys } from "../../queryKeys";
 import { useSayFailed } from "../../sayFailed";
 import { Button, Checkbox, cx, ErrorNote, Failed, fieldClass, Help } from "../../ui";
 import { runwayNowSaid, runwaySaid, runwayWhy } from "../queue/costsView";
-import { Block, Card, Row } from "./Rows";
+import { Block, Card, CardLoading, Row } from "./Rows";
 import { settingHref, tabHref } from "./settingsIndex";
 import { COLUMNS } from "./wide";
 import { capAmount } from "./capAmount";
@@ -98,7 +98,7 @@ function S3Key() {
 export function RentRow() {
   const settings = useSettings();
   const running = useQueue().data?.machines.filter((m) => m.rented?.status === "RUNNING").length ?? 0;
-  if (!settings.data) return null;
+  if (!settings.data) return <CardLoading />;
   return (
     <Row setting="comfy.runpod" label="Or a RunPod pod" help={WHY_RUNPOD}>
       <span className="grow text-xs text-ink-2">{settings.data.hasRunpodKey ? `key saved${running ? ` · ${plural(running, "pod")} running` : ""}` : "no RunPod key yet"}</span>

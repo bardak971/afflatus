@@ -234,7 +234,7 @@ function ByProject({ d }: { d: CostsView }) {
   return (
     <section className={CARD} aria-label="By project">
       <Head title="By project" note="renders only: a pod's waits are in Where it went" help="Each render on a pod at its pod's rate, under the project of its timeline or draft (the Inbox for those in none). Its boot, its files and its idle time are the pod's, not a render's." />
-      {d.projects.length ? d.projects.map((p) => <ProjectRow key={p.id ?? "inbox"} p={p} most={most} />) : <span className="text-sm text-ink-3">No project yet.</span>}
+      {d.projects.length ? d.projects.map((p) => <ProjectRow key={p.id ?? "inbox"} p={p} most={most} />) : <span className="text-sm text-ink-3">No project yet</span>}
     </section>
   );
 }

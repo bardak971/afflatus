@@ -225,7 +225,7 @@ export function SnippetTable({ snippets, query, only, onOnly: setOnly, fresh }: 
       {snippets.length === 0 && (
         <Empty title="No snippets yet" helpTitle="Snippets" help={`A snippet is a bit of prompt text kept under a name: a pose, a light, a camera move. Under "Snippets" above a form, tick it and it is appended to your prompt each time you generate; the dice ticks one of each category at random.`} />
       )}
-      {snippets.length > 0 && found.length === 0 && <Empty title="Nothing matches" />}
+      {snippets.length > 0 && found.length === 0 && <Empty title="Nothing matches" action={only ? <Button size="sm" onClick={() => setOnly(null)}>Every category</Button> : undefined}>{query ? `No snippet has “${query}”${only ? ` in ${only}` : ""}.` : undefined}</Empty>}
       {found.length > 0 && (
         <div className="grid grid-cols-[auto_minmax(110px,190px)_minmax(90px,150px)_minmax(0,1fr)_148px_auto] gap-1.5 px-1.5 text-meta font-bold tracking-label text-ink-3 uppercase">
           <span className="w-7" /><span className="px-2">Name</span><span className="px-2">Category</span><span className="px-2">Text</span><span>Prompt style</span><span className="w-8" />

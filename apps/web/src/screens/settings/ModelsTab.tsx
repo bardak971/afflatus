@@ -10,7 +10,7 @@ import { machineLabel } from "../../machines";
 import { DownloadTo, NO_ROUTE, useDownloads } from "../../useGetFile";
 import { settingHref } from "./settingsIndex";
 import { Button, buttonClass, Chip, CloseButton, cx, Failed, Help, Toggle } from "../../ui";
-import { Block, Card } from "./Rows";
+import { Block, Card, CardLoading } from "./Rows";
 import { FamilyBody, FamilyFetch, useFamilyFetch } from "./ModelsFamily";
 import { ModelFilesLine } from "./ModelFilesTab";
 import { modelHelp } from "../../modelHelp";
@@ -121,7 +121,7 @@ export function ModelsCard({ machine }: { machine?: Machine }) {
         : api.saveSettings({ families: next }),
     onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved),
   });
-  if (!recipes.data || !settings.data) return null;
+  if (!recipes.data || !settings.data) return <CardLoading />;
   // the switches set by hand that this card shows: the machine's own, or those of every machine
   const said = machine ? families.own : settings.data.families;
   const where = machine ? machineLabel(machine) : null;

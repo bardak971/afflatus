@@ -145,7 +145,7 @@ export function Snippets({ style, look, onLook, text, onInsert }: {
           {adding && <NewSnippet style={style} categories={categories} first={text} onDone={(made) => { setQuery(""); if (made.kind === "snippet" && made.def.category) flip(made.def.category, true); setAdding(false); }} onCancel={() => setAdding(false)} />}
           <div className="flex min-h-0 grow flex-col gap-1 overflow-y-auto p-2">
             {all.length === 0 && !adding && <span className="p-2 text-ink-2">No snippets yet. Keep a bit of prompt text under a name with "New": a pose, a light, a camera move. Tick it and it is appended to your prompt each time.</span>}
-            {found && (found.length ? <div className="flex flex-wrap gap-1.5 p-1">{found.map(chip)}</div> : <span className="p-2 text-ink-2">Nothing matches.</span>)}
+            {found && (found.length ? <div className="flex flex-wrap gap-1.5 p-1">{found.map(chip)}</div> : <span className="p-2 text-ink-2">Nothing matches</span>)}
             {!found && groups.map(([cat, items]) => group(`c:${cat}`, cat || (groups.length > 1 ? "No category" : "All"), items, groups.length <= 3))}
             {!found && others.length > 0 && group("other-style", `Written for ${style === "tags" ? "natural-language" : "tag"} prompts`, others, false)}
           </div>

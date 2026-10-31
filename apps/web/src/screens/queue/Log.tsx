@@ -205,7 +205,7 @@ export function ComfyLog({ online, pod = false, machine }: {
         </div>
         {!shown.length && (online || pod) && !log.isError && (
           <span className="text-ink-3">
-            {lines.length ? "Nothing matches." : boot ? "No boot log yet: the pod's image is still being pulled, or it runs an image without one (RunPod's ComfyUI image, Afflatus's before 0.1.12)." : "Waiting for ComfyUI's log…"}
+            {lines.length ? "Nothing matches" : boot ? "No boot log yet: the pod's image is still being pulled, or it runs an image without one (RunPod's ComfyUI image, Afflatus's before 0.1.12)." : "Waiting for ComfyUI's log…"}
           </span>
         )}
       </div>

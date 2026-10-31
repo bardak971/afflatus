@@ -493,7 +493,7 @@ export function Workflows() {
                 title="No workflow of your own yet"
                 helpTitle="Your workflows"
                 help="A workflow you build in ComfyUI can be used here like any built-in model: Import ComfyUI workflow, above."
-                action="Drop a .json, PNG or MP4 anywhere on this page"
+                action={<Button size="sm" onClick={() => input.current?.click()} disabled={open.isPending}><FileUp size={14} /> Import ComfyUI workflow</Button>}
               />
             )
           )}

@@ -208,7 +208,7 @@ export function VolumeFiles({ volume, name, folder: askedFolder, pickUnused = fa
                     </button>
                   );
                 })}
-                {!rows.length && <div className="p-5 text-xs text-ink-3">{searching ? "Nothing matches." : "This folder is empty."}</div>}
+                {!rows.length && <div className="p-5 text-xs text-ink-3">{searching ? "Nothing matches" : "This folder is empty"}</div>}
               </div>
             </div>
           </div>

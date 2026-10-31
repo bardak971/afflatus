@@ -114,7 +114,7 @@ export function UpdatesCard() {
                   </tbody>
                   ))}
                 </table>
-                {!shown.length && <div className="p-4 text-xs text-ink-3">Nothing matches.</div>}
+                {!shown.length && <div className="p-4 text-xs text-ink-3">Nothing matches</div>}
               </div>
               {getError && <ErrorNote>{getError}</ErrorNote>}
             </Dialog>
