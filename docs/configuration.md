@@ -38,7 +38,7 @@ Everything else is in **Settings**, saved as you change it:
 - **ComfyUI:** its address, its folder when it runs on this machine (for the node pack and to read model files), its ComfyUI token, the Afflatus node pack and the missing node packs renders need, when to unload models, the machines added.
 - **Rented GPUs:** the RunPod API key, your pods on RunPod, network volumes and the S3 API key that reads them, the next deploy's choices, unused volumes, boot logs.
 - **Costs:** the price of a kWh for this PC's electricity, the costs so far, the spending caps on rented GPUs (a day and a month).
-- **Models:** which families are on, what each has ready or missing, the files in use, downloads into ComfyUI's model folders, a Civitai API key for files that need an account, a Hugging Face token, searching Hugging Face and Civitai.
+- **Models:** which families are on, what each has ready or missing (Get the minimum), the files in use, downloading missing models into ComfyUI's model folders and the Downloads line, the Civitai & Hugging Face card (searching them, a Civitai API key for files that need an account, a Hugging Face token), a download from a URL.
 - **Model files:** every model file on this PC with its use (Delete, Put back, Empty), your models online, newer versions of your models on Civitai, model sets.
 - **Prompts:** an optional OpenAI-style language model that writes prompts (LM Studio, Ollama, llama.cpp or a service), its system prompts, context size and conversations; the prompting guide per model family that the designer follows, wildcards and weights, and the Danbooru tag check.
 - **Interface:** theme and accent colour, the progress bar, explanations under every setting or behind the `?`, playing videos and sound on hover, pinned fields; the command bar: its shortcut, whether it learns what you use, its preview, and its optional parts (prompt snippets, `@` cast).
@@ -48,7 +48,7 @@ Everything else is in **Settings**, saved as you change it:
 - **Storage:** disk usage, the bin, takes that never play, how long render times are kept, backups.
 - **About:** the version and its updates (a new version's notes, Update and Go back on a bundle, the command for Docker and the sources), "Check for new versions" (once a day, on by default: one request to GitHub, nothing about you in it), the start-up checks (ffmpeg, ffprobe, Node, the data folder), and the first launch, to show again.
 
-Nothing leaves your machine unless you turn on a download or a lookup; each such switch is off until you turn it on.
+Besides the daily update check, what leaves your machine on its own is the model lookups: on a new install, "Search Hugging Face and Civitai" sends your model files' hashes to name them and look for newer versions (the first launch says so; Settings › Models turns it off; an install from before keeps it as it was). Notifications, the designer's hosted language model and rented GPUs ask nothing until you set them up, and nothing is downloaded without asking you first.
 
 ## Metrics
 

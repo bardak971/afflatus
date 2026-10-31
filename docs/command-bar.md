@@ -12,7 +12,7 @@ Everything is searched together: an index of the timelines, drafts, projects, fo
 | --- | --- | --- |
 | Timeline | open it in the editor | name · clips · length · exported · project |
 | Draft | open it in the Studio | name · recipe · renders · last used |
-| Render or item | open it in the viewer | its name (`Harbor walk · c2 · t3`, `Night market 04`) · kind · size · when; an item in the bin is found too, listed after the rest and said "In the bin" |
+| Render or item | open it in the viewer | its name (`Harbor walk · Clip 2 · take 3`, `Night market 04`) · kind · size · when; an item in the bin is found too, listed after the rest and said "In the bin" |
 | Project | work in it (an archived one: unarchive it) | name · timelines · items · size; the Inbox is listed with them, worked in the same way |
 | Folder | open it in the library | name · project · items · size |
 | Workflow | Try it (a new draft on it) | name · output · whether it can be built |
@@ -80,7 +80,7 @@ Anywhere in plain search, `key:value` words find renders: the library's own list
 
 ## Civitai and Hugging Face
 
-With "Search Hugging Face and Civitai" on (Settings › Models); off, a pasted link says so and leads there. Every download from the bar is asked first, with its size, its folder and the ComfyUI it goes to: a stray Enter is easy, and a model is gigabytes.
+A link pasted and a `civitai:` or `hf:` search ask the sites whatever "Search Hugging Face and Civitai" says (Settings › Models): that switch covers only what Afflatus asks on its own, so `> model updates` alone needs it on. Every download from the bar is asked first, with its size, its folder and the ComfyUI it goes to: a stray Enter is easy, and a model is gigabytes. A version sold on Civitai says **Paid** or **Early Access · until <day>** on its row, and its download's question says Civitai refuses it until it is unlocked on its page.
 
 - **A pasted link** (a Civitai model page or version, a Hugging Face repository or file) is read into its files (`/api/browse/link`), a row each: name and version, type, base, size, the folder it goes in (asked when the source does not say), "you have it". Enter downloads it onto this PC; with several ComfyUIs, Ctrl+Enter onto the next (a rented pod's), else it opens Find models on the link. Tab: each ComfyUI, Find models, its page, its trigger words copied.
 - **Downloads in `!`**, after the jobs: how far each is ("25 % of 48 MB"), its folder and file, its machine. Under way: show the downloads, cancel it (one waiting its turn: take it out of the line). Failed or stopped: Try again (as it was first asked, `POST /api/downloads/:id/again`; not after a restart of Afflatus), dismiss. Done: dismiss, and its place on disk (Show in folder, Copy path, as below). `> remove waiting downloads` takes every file waiting its turn out of the line, as its Remove all waiting (listed in `!` after the jobs while one waits).
