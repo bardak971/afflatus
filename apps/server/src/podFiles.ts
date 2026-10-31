@@ -119,6 +119,8 @@ export interface PodFilesDeps {
   busy(machine: string): boolean;
   /** Something changed: the pod's row says it. */
   changed?(): void;
+  /** A Hugging Face file's size as the site says it, 0 when it does not (hfSize; a test stands in for the site). */
+  siteSize?(src: { url: string }): Promise<number>;
   /**
    * A file came to a pod or left it (`files`), or failed there, or its node packs were loaded: the queue looks at its jobs
    * again, and what lists the pod's files is read again only when they changed (a failure changes none of them).
@@ -175,6 +177,23 @@ const gbSaid = (bytes: number) => `${(bytes / 2 ** 30).toFixed(1)} GB`;
 const keyOf = (folder: string, file: string) => `${folder}|${fileName(file).toLowerCase()}`;
 /** A source in a word, to know one that refused a file again: a Civitai version is refused whatever file of it is picked. */
 const sourceKey = (src: PodSource) => (src.kind === "civitai" ? `civitai|${src.version}` : src.kind === "url" ? `url|${src.url}` : `upload|${src.path}`);
+
+/**
+ * A Hugging Face file's size as the site says it (X-Linked-Size, on the redirect to its storage, whose own length is the
+ * redirect's), 0 when it is not Hugging Face's or does not say. Judged as any address fetched on a user's say-so
+ * (outbound.ts), redirects too.
+ */
+async function hfSize(src: { url: string }): Promise<number> {
+  if (measureKind({ kind: "url", url: src.url }) !== "hf") return 0;
+  let said = 0;
+  const seen = (res: Response) => (said ||= Number(res.headers.get("x-linked-size") ?? 0));
+  const res = await Promise.resolve()
+    .then(() => assertPublicUrl(src.url))
+    .then(() => fetchPublic(src.url, { method: "HEAD", signal: AbortSignal.timeout(10_000) }, [], 1, seen))
+    .catch(() => null);
+  if (res) seen(res);
+  return said > 0 ? said : 0;
+}
 
 export class PodFiles {
   private readonly pods = new Map<string, Map<string, Entry>>();
@@ -715,8 +734,17 @@ export class PodFiles {
     return value;
   }
 
-  /** A file's size before it is fetched: this computer's copy's, a preset's that names it, the site's, else a cautious guess. */
+  /**
+   * A file's size before it is fetched: this computer's copy's, a preset's that names it, the site's, else a cautious guess.
+   * It is the size said to the pod's node pack, which refuses any other (0.44.1): a Hugging Face file not proven the same
+   * bytes as this computer's copy by its hash takes the site's size first, as a copy of the same name may be other bytes
+   * (the owner's int8 video VAE was 3.17 GB, Hugging Face's 2.81, and no H3 job could start on a fresh pod).
+   */
   private async readSize(f: PodFileWant, src: PodSource): Promise<number> {
+    if (src.kind === "url" && !src.sha256 && (await this.d.settings().catch(() => null))?.civitaiLookups) {
+      const said = await (this.d.siteSize ?? hfSize)(src);
+      if (said > 0) return said;
+    }
     const path = src.kind === "upload" ? src.path : await localCopy(await this.d.lookup.comfyDir(), f.folder, f.file);
     const size = path ? (await stat(path).catch(() => null))?.size : undefined;
     if (size) return size;
@@ -732,15 +760,8 @@ export class PodFiles {
       if (src.kind === "civitai") {
         const found = await civitaiVersion(src.version, src.pick ?? fileName(f.file), settings.civitaiKey, src).catch(() => null);
         if (found?.file.sizeKB) return Math.round(found.file.sizeKB * 1024);
-      } else if (src.kind === "url" && measureKind(src) === "hf") {
-        // judged as any address fetched on a user's say-so (outbound.ts), redirects too; the size is on the first answer
-        let said = 0;
-        const seen = (res: Response) => (said ||= Number(res.headers.get("x-linked-size") ?? 0));
-        const res = await Promise.resolve()
-          .then(() => assertPublicUrl(src.url))
-          .then(() => fetchPublic(src.url, { method: "HEAD", signal: AbortSignal.timeout(10_000) }, [], 1, seen))
-          .catch(() => null);
-        if (res) seen(res);
+      } else if (src.kind === "url") {
+        const said = await (this.d.siteSize ?? hfSize)(src);
         if (said > 0) return said;
       }
     }

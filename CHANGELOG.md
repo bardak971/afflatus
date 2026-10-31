@@ -6,7 +6,7 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [0.9.0] - 2026-10-31
 
-Rented GPUs ranked by $ per render and fetching big Civitai files over 8 connections (pod image 0.1.43, node pack 0.44.0), H3 that lets go of its text encoder before sampling, pod renders that no longer freeze at seamless joins, Settings › Model files safer and Settings in twelve tabs, the four H3 forms on one skeleton with their sound prompts beside the prompt, FLUX.1 and Klein's Upscale 2x at the real noise its field says, and the 0.9.0 review's money, data and security fixes.
+Rented GPUs ranked by $ per render and fetching big Civitai files over 8 connections (pod image 0.1.44, node pack 0.44.1), H3 that lets go of its text encoder before sampling, pod renders that no longer freeze at seamless joins, Settings › Model files safer and Settings in twelve tabs, the four H3 forms on one skeleton with their sound prompts beside the prompt, FLUX.1 and Klein's Upscale 2x at the real noise its field says, and the 0.9.0 review's money, data and security fixes.
 
 ### Added
 - **SCAIL-2 (24 fps) and LTX 2.5 forms have a Face refine model**, as the H3 forms do: the H3 model the faces are redrawn with during the render, the fused turbo of Settings › Models when left out (drafts made before render the same graph). Its steps follow the model (4 on a turbo, 10 on a full model, a value typed wins), the file picked is the one sent to a rented GPU, and Finish › Face refine "as each clip's form" takes it too. "Clip's own model" is not offered: these models are not H3's, and the list holds H3 files alone, never the form's own LTX or SCAIL models, which would fail there (card #204).

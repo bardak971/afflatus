@@ -140,6 +140,20 @@ describe("a rented pod's model files", () => {
     expect(start.mock.calls[0]?.[2]).toMatchObject({ file: "c.safetensors", sha256: sha(FILE), directOnly: true });
   });
 
+  // 0.9.0's pod check: the node pack refuses a size other than the one said (0.44.1), and the size said was this computer's
+  // copy's, the owner's int8 video VAE of other bytes than Hugging Face's: no H3 job could run on a fresh pod
+  it("are said to the pod's node pack at their source's size, never at this computer's copy's of the same name", async () => {
+    mkdirSync(join(home, "models", "loras"), { recursive: true });
+    writeFileSync(join(home, "models", "loras", "a.safetensors"), Buffer.alloc(FILE.length + 1000));
+    // the site's size, as Hugging Face says it on the file's address
+    (files as unknown as { d: { siteSize(src: { url: string }): Promise<number> } }).d.siteSize = async () => FILE.length;
+    const start = vi.spyOn(t.services.downloads, "start");
+    files.want("pod", [{ file: "a.safetensors", folder: "loras", url: `${siteUrl}/files/a.safetensors` }], { tier: "need" });
+    await settle("pod", "a.safetensors");
+    expect(files.view("pod")[0]).toMatchObject({ state: "ready", bytes: FILE.length });
+    expect(start.mock.calls[0]?.[2]).toMatchObject({ total: FILE.length });
+  });
+
   // card #93, #81's test pod: a model picked in a form has no address in its job's plan; the deploy's list, read once the pod is
   // up, came after with one, and was not read. The file failed, the job stayed planned there, held by that entry, the pod billed
   it("that failed with no site known come once an address is given, and a job is held only by the files it is sent for now", async () => {

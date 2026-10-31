@@ -123,7 +123,7 @@ export const runningRate = (gpuCost: number, containerGb: number, diskGb: number
  * Each pinned to one version, so that a deploy runs what Afflatus was tested with.
  */
 export const POD_IMAGES = {
-  afflatus: () => envSaid.podImage()?.trim() || "ghcr.io/bardak971/afflatus-pod:0.1.43",
+  afflatus: () => envSaid.podImage()?.trim() || "ghcr.io/bardak971/afflatus-pod:0.1.44",
   runpod: () => "runpod/comfyui:1.4.0-comfyuiv0.35.0-cuda12.8",
 } as const;
 /** The first Afflatus pod image whose ComfyUI's death is always reported, as "comfy_died" (died.py, broken.py). */
