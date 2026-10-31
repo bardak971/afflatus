@@ -1,3 +1,4 @@
+import { SETTING_TABS, SETTING_TABS_MOVED } from "@afflatus/core";
 import { deviceName } from "./access";
 import type { Db } from "./db";
 import { unwrittenOf } from "./unwrittenDrafts";
@@ -49,8 +50,10 @@ export function pageOf(path: string): string {
   if (p.startsWith("/workflows")) return "Workflows";
   if (p === "/queue") return "Queue";
   if (p.startsWith("/settings")) {
-    const tab = p.split("/")[2];
-    return tab ? `Settings › ${tab[0]!.toUpperCase()}${tab.slice(1)}` : "Settings";
+    // the tab as its strip names it ("Model files", "Sign-in"), an old address's as the tab it lands on now
+    const asked = p.split("/")[2];
+    const id = asked ? (SETTING_TABS_MOVED[asked] ?? asked) : "comfyui";
+    return `Settings › ${SETTING_TABS.find((t) => t.id === id)?.label ?? SETTING_TABS[0].label}`;
   }
   return p;
 }

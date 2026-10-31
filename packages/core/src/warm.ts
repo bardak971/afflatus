@@ -69,6 +69,12 @@ export function mainModel(built: Pick<BuiltGraph, "graph" | "outputs">): string 
   return names.size ? [...names].sort().join(" + ") : null;
 }
 
+/**
+ * The pack's node that unloads H3's text encoder once its prompt is encoded (card #202). Its first output is the conditioning
+ * given, its second the `also` given (else the first again).
+ */
+export const FREE_TEXT_ENCODER = "AfflatusFreeTextEncoder";
+
 /** The node a warm-up ends on. It takes anything, shows it as text, and is an output: ComfyUI runs what feeds it. */
 export const WARM_SINK = "PreviewAny";
 
@@ -103,6 +109,16 @@ export function warmGraph(built: BuiltGraph, opts: { unread?: readonly string[] 
   const keep = upstream(built.graph, ends);
   const graph: Graph = {};
   for (const id of keep) graph[id] = { class_type: built.graph[id]!.class_type, inputs: { ...built.graph[id]!.inputs } };
+  // the free node left out, what it passes on read from what it was given: kept, it unloaded the ~15 GB encoder the warm-up
+  // had just loaded, and the render after (another prompt or pictures than the warm-up's stand-in) loaded it again
+  for (const id of [...keep]) {
+    const node = graph[id]!;
+    if (node.class_type !== FREE_TEXT_ENCODER) continue;
+    const passed = [node.inputs.conditioning, node.inputs.also ?? node.inputs.conditioning];
+    for (const other of Object.values(graph)) for (const [k, v] of Object.entries(other.inputs)) if (isRef(v) && v[0] === id) other.inputs[k] = passed[v[1]];
+    delete graph[id];
+    keep.delete(id);
+  }
 
   // one step: where the pass has its count, or where the scheduler it reads from has it, typed in or
   // held by a number node; a schedule written out by hand ("1.0, 0.99, …") keeps its first step

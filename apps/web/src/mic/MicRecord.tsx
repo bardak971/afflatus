@@ -9,7 +9,7 @@ import { projectForNew } from "../project";
 import { queryKeys } from "../queryKeys";
 import { canRecord } from "../secureContext";
 import { Select } from "../Select";
-import { Button, CloseButton, cx, ErrorNote, IconButton } from "../ui";
+import { Button, CloseButton, cx, ErrorNote, Failed, IconButton } from "../ui";
 import { barHeight, barsOf, LIVE_BARS, takeName, trimSaid, type Trim } from "./take";
 import { useMicTake, type Take } from "./useMicTake";
 
@@ -195,7 +195,7 @@ export function MicDialog({ slot, kit, onTake, onClose }: { slot: string; kit?: 
             {take && kept && !trimming && <span className="text-xs text-ink-2">Trimmed: {seconds((kept.to - kept.from) * 1000)} kept</span>}
           </div>
           {trimming && take && <span className="text-sm text-ink-2"><Scissors size={13} className="mr-1.5 inline" />{trimSaid(trimming, take.seconds)} Drag either edge to adjust.</span>}
-          {(mic.error ?? send.error?.message) && <ErrorNote>{mic.error ?? send.error?.message}</ErrorNote>}
+          {mic.error ? <ErrorNote>{mic.error}</ErrorNote> : send.error && <Failed what="Recording not sent" error={send.error} />}
 
           <div className="flex flex-wrap items-center gap-2">
             {/* each step its own buttons (keyed): a button kept from one step to the next would keep the focus, Record turning

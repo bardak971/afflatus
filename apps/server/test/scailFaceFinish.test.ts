@@ -147,6 +147,23 @@ describe.skipIf(!ffmpegThere)("Finish › Face refine on a SCAIL-2 take at 24 fp
     expect(Object.values(graph).filter((n) => n.class_type === "UNETLoader").map((n) => n.inputs.unet_name)).toEqual([full]);
   });
 
+  // release review 0.9.0, B7: the steps the form typed came out as the full model's 10
+  it("with no model picked in Finish, redraws at the steps the clip's form typed", async () => {
+    const full = "minimax_h3_ref2va_pruned_int8_convrot.safetensors";
+    fake.models = { ...FILES, diffusion_models: [...FILES.diffusion_models, full] };
+    const driving = await asset("video", four!);
+    const picture = await asset("image", png(192, 320));
+    const tl = await call("POST", "/api/timelines", { name: "zz-test dance form steps" });
+    const clip = (await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "scail.motion24" })).clip as string;
+    await call("POST", `/api/timelines/${tl.id}/render`, { clips: [{ id: clip, input: { picture, driving: { asset: driving }, drivingStart: 0, drivingSeconds: 3.05, prompt: "zz-test", seed: 1, faceRefine: true, faceRefineModel: full, faceRefineSteps: 12 } }] });
+    await finish(four!, 1);
+    const res = await call("POST", `/api/timelines/${tl.id}/finish`, { route: "face", factor: 2, redo: true });
+    const job = await t.db.selectFrom("jobs").selectAll().where("id", "=", res.jobs[0]).executeTakeFirstOrThrow();
+    expect(JSON.parse(job.inputs)).toMatchObject({ route: "face", faceModel: full, faceSteps: 12 });
+    const graph = await finish(four!, 2);
+    expect(Object.values(graph).filter((n) => n.class_type === "BasicScheduler")[0]!.inputs).toMatchObject({ steps: 12 });
+  });
+
   it("asked for the clip's own model: SCAIL-2's is not H3's, so the fused turbo, and its job says so", async () => {
     const driving = await asset("video", four!);
     const picture = await asset("image", png(192, 320));

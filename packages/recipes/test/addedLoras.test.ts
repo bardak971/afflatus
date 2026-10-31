@@ -275,3 +275,18 @@ describe("Turbo's steps start where the row's LoRA is made for them (card #191)"
     });
   }
 });
+
+describe("Motion transfer with a reference video and no cast picture (release review 0.9.0, B2)", () => {
+  const REF4 = "minimax_h3_ref2v_turbo_4steps.safetensors";
+  const motion = recipeById("h3.motion")!;
+  const input = parseInput(motion, { picture: "p1", source: { asset: "v1" }, description: "A man dances.", fast: true, refVideos: [{ asset: "rv1", role: "person" }] }) as unknown as Record<string, unknown>;
+  const all = { ...slots, refTurbo: REF4 };
+
+  it("puts the reference model's turbo LoRA in its Turbo row, the one its graph loads", () => {
+    expect(addedRows(lorasSpec(motion), input, all)[0]?.file).toBe(REF4);
+  });
+
+  it("starts that 4-step LoRA at its 4 steps, 6 / 3", () => {
+    expect(ruledDefaults(motion.starts, input, all)).toMatchObject({ turboSteps: 4, shiftVideo: 6, shiftAudio: 3 });
+  });
+});

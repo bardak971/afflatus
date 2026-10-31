@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { PAGES, SETTINGS } from "../src/bar/settingsRegistry";
-import { INDEX, spotOf } from "../src/screens/settings/settingsIndex";
+import { INDEX, spotOf, TABS } from "../src/screens/settings/settingsIndex";
 
 /**
  * Every setting is found: each field of the server's settings and each thing this browser keeps is either a row of the
@@ -144,6 +144,17 @@ describe("settings coverage", () => {
     const anchors = new Set(files("screens/settings").flatMap((f) => [...read(f).matchAll(/(?:data-)?setting="([^"]+)"/g)].flatMap((m) => m[1]!.split(" "))));
     expect(INDEX.filter((i) => !anchors.has(i.key) && !(i.near && anchors.has(i.near))).map((i) => i.key)).toEqual([]);
     expect(INDEX.filter((i) => i.near && !anchors.has(i.near)).map((i) => i.key)).toEqual([]);
+  });
+
+  // a tip or a note naming "Settings › Machines" sends the user to a tab there is none of; another site's own settings
+  // ("RunPod › Settings › API Keys") come after a "› " and are not Afflatus's
+  it("names only tabs Settings has, wherever the app's words send the user to one", () => {
+    const wrong = files(".").flatMap((f) => [...read(f).matchAll(/(?<!› )Settings › /g)].flatMap((m) => {
+      const after = read(f).slice(m.index + m[0].length);
+      const tab = TABS.find((t) => after.startsWith(t.label) && !/[A-Za-z]/.test(after[t.label.length] ?? ""));
+      return tab || after.startsWith("${") ? [] : [`${f}: Settings › ${after.slice(0, 20)}`];
+    }));
+    expect(wrong).toEqual([]);
   });
 
   it("gives every setting the bar flips a row to open", () => {

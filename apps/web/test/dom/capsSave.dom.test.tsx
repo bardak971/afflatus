@@ -130,4 +130,18 @@ describe("Settings › Costs' caps", () => {
     await waitFor(() => expect(screen.queryByText(/The day cap was not saved/)).toBeNull());
     await waitFor(() => expect(box("Cap a day").value).toBe("4"));
   });
+
+  it("refuses a 0 and a cap in euros, says why, and saves nothing (0 would be no cap, €50 is not $50)", async () => {
+    serveSaves();
+    const { user } = draw(<CapsCard />);
+    await user.type(await screen.findByLabelText("Cap a day"), "0");
+    await user.tab();
+    expect(await screen.findByText(/a cap is above \$0/)).toBeTruthy();
+    await user.type(box("Cap a month"), "€50");
+    await user.tab();
+    expect(await screen.findByText(/caps are in US dollars/)).toBeTruthy();
+    expect(bodies()).toHaveLength(0);
+    expect(box("Cap a day").value).toBe("");
+    expect(box("Cap a month").value).toBe("");
+  });
 });

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useContext, useEffect, useMemo, type MouseEvent, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, Pin, PinOff, RotateCcw } from "lucide-react";
-import { isShown, LIMITS, sameFile, typedInto, type InputSpec } from "@afflatus/core";
+import { formModelInput, isShown, LIMITS, sameFile, typedInto, type InputSpec } from "@afflatus/core";
 import { ContextMenu, groups, headLine, useMenu } from "./ContextMenu";
 import { FieldNameNote } from "./fields/FieldName";
 import { FieldRow } from "./fields/FieldRow";
@@ -202,7 +202,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
   // what it will take: the same query as the Generate button's (advice.ts)
   const advice = useAdvice(recipe, values);
   // the model in use: the one picked in the form, else the one an imported workflow loads. LoRAs made for it come first.
-  const picker = recipe.inputs.find((i) => i.type === "model");
+  const picker = formModelInput(recipe);
   const inUse = (picker ? String(values[picker.id] ?? "") : recipe.models?.[0]) || undefined;
   /** The form names a model file this ComfyUI does not list (a preset made elsewhere, a file removed). */
   // a family's official file picked greyed says itself under its field (ModelField: Download, or fetched by the pod)

@@ -1,7 +1,7 @@
 import { defineRecipe, gridAtOrBefore, type BuildContext, type BuiltGraph, type ClipValue, type GraphBuilder, type InputSpec, type Ref, type Variant } from "@afflatus/core";
 import { H3_MOTION_GUIDE } from "./guide";
 import { H3_FPS, H3_GRID } from "./family";
-import { H3_NO_TAGS, H3_SOUND_CHAPTER, h3Inputs, type H3Video } from "./inputs";
+import { H3_NO_TAGS, H3_SOUND_CHAPTER, h3Inputs, SOURCE_SOUND_INPUTS, SOURCE_START, type H3Video } from "./inputs";
 import { MOTION_STARTS, MOTION_TURBO_ROW, withTurboRow } from "./turboRow";
 import { buildH3, h3Video, SHOT_WORDS } from "./video";
 import { H3_CONTINUATION_NODES, H3_SEAM, H3_TRIM } from "./join";
@@ -114,9 +114,9 @@ const inputs: InputSpec[] = [
   {
     id: "source", type: "clip", role: "source", label: "Source video", frames: [SWAP_FRAMES], fps: H3_FPS, whole: true,
     window: { start: "sourceStart", seconds: "sourceSeconds", fits: { frames: SWAP_FRAMES, fps: H3_FPS, pad: 0, min: MOTION_LEAST / H3_FPS, grid: H3_GRID } },
-    note: "how it moves: the body, the hands, the face, drawn as skeletons. One job takes 5.8 s of it; a longer video goes on a timeline's source lane, window by window",
+    note: "how it moves: the body, the hands, the face, drawn as skeletons. One job takes 5.9 s of it; a longer video goes on a timeline's source lane, window by window",
   },
-  { id: "sourceStart", type: "number", label: "Source: start", min: 0, max: 3600, step: 0.1, default: 0, unit: " s", showWhen: "source" },
+  SOURCE_START,
   { id: "sourceSeconds", type: "number", label: "Source: length", min: MOTION_PART.least, max: MOTION_PART.most, step: 0.01, default: 5.175, unit: " s", showWhen: "source" },
   {
     // not for a window that carries on from a swap, which has none (afterSwap): any other one needs it (build)
@@ -133,11 +133,7 @@ const inputs: InputSpec[] = [
     note: `who is in the picture and what they do in this part, in the present tense: optional, it helps H3 keep what is there. Left empty, it is written from the parts above; typed, it is sent as it is and the parts wait. Each clip of a source keeps its own. ${H3_NO_TAGS} After a swap, tags typed are taken out`,
   },
   // the Sound card's first rows: Sound effects and Music after them show while the take makes its own sound
-  { id: "keepSound", type: "toggle", label: "Keep the source's sound", default: true, advanced: true, chapter: "sound", note: "the file carries the source video's own sound over its part; off, the sound H3 makes" },
-  {
-    id: "soundGuide", type: "toggle", label: "Audio guide", default: true, advanced: true, showWhen: "keepSound", chapter: "sound",
-    note: "the source video's sound given to H3 as a guide, as Lip sync gives its recording, so that the mouth is drawn to the words heard",
-  },
+  ...SOURCE_SOUND_INPUTS,
   // H3's colour match pulls towards the first frame: here the picture
   // H3's Model is this form's own: a window after a swap shows the swap's in its place (the one it runs on)
   // (Turbo's row in the LoRA list on whichever model the window runs on, card #160)

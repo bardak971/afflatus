@@ -286,6 +286,9 @@ describe("show_page", () => {
     expect(heard[2]).toMatchObject({ said: "Settings › Sign-in", to: { settings: "signin", setting: "access.password" } });
     expect(await ok(c, "show_page", { settings: "designer" })).toMatchObject({ shown: true });
     expect(heard[3]).toMatchObject({ said: "Settings › Prompts", to: { settings: "prompts" } });
+    // a setting named with a tab it is not on: the page opens the setting's own tab, and the agent is told that one
+    expect(await ok(c, "show_page", { settings: "interface", setting: "notify.what" })).toMatchObject({ shown: true, said: "The user's page now shows Settings › Notifications." });
+    expect(heard[4]).toMatchObject({ to: { settings: "notifications", setting: "notify.what" } });
     await c.close();
   });
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { dryContext, parseInput, typedInto, type Recipe } from "@afflatus/core";
 import { recipeById, recipes } from "../src/index";
-import { swapFromParts, swapSent, SWAP_CAPTION, typedPrompt, type H3Swap } from "../src/h3/swap";
+import { swapFromParts, swapPrompt, swapSent, SWAP_CAPTION, typedPrompt, type H3Swap } from "../src/h3/swap";
 import { motionFromParts, motionTransferFromParts } from "../src/h3/motionTransfer";
 import { h3Video } from "../src/h3/video";
 
@@ -134,9 +134,27 @@ describe("the tags, said in the ? of the H3 forms' texts", () => {
     ];
     for (const [recipe, input] of texts) expect(noteOf(recipe, input), `${recipe} ${input}`).toMatch(/Afflatus adds/);
   });
-  it("Swap's prompt as sent: what <Video 1> and <Picture 1> are, and that a typed prompt goes as it is", () => {
+  it("Swap's prompt as sent: what <Video 1> and <Picture 1> are, and what a typed prompt becomes", () => {
     const note = noteOf("h3.swap", "who");
     expect(note).toMatch(/<Video 1> is the source, <Picture 1> the person/);
-    expect(note).toMatch(/typed: sent as is/);
+    // release review 0.9.0, R1: typed with the tags it goes as it is; without them it is put in the swap LoRA's caption
+    expect(note).toMatch(/typed with <Video 1> or <Picture 1>: sent as is/);
+    expect(note).toMatch(/without them: its words name who is replaced, inside the swap LoRA's caption/);
+    expect(swapPrompt("Swap <Video 1>'s man with <Picture 1>", 1)).toBe("Swap <Video 1>'s man with <Picture 1>");
+    expect(swapPrompt("A man dances", 1)).not.toBe("A man dances");
+    expect(swapPrompt("A man dances", 1)).toContain("A man dances");
+  });
+});
+
+// release review 0.9.0, R4: the rows the two forms share for their source video, said once
+describe("Swap's and Motion transfer's source rows", () => {
+  const spec = (recipe: string, id: string) => recipeById(recipe)!.inputs.find((i) => i.id === id);
+  it("say the same on both forms", () => {
+    for (const id of ["sourceStart", "keepSound", "soundGuide"]) expect(spec("h3.motion", id), id).toEqual(spec("h3.swap", id));
+  });
+  it("give one job's length of the source the same way", () => {
+    const said = (recipe: string) => /(?:holds|takes) (\d+(?:\.\d+)?) s/.exec(String((spec(recipe, "source") as { note?: string }).note))?.[1];
+    expect(said("h3.swap")).toBe("5.9");
+    expect(said("h3.motion")).toBe(said("h3.swap"));
   });
 });

@@ -1,5 +1,5 @@
 import { UPSCALE } from "../video/upscale";
-import type { BuildContext, GraphBuilder, MediaFacts, Ref } from "@afflatus/core";
+import { FREE_TEXT_ENCODER, type BuildContext, type GraphBuilder, type MediaFacts, type Ref } from "@afflatus/core";
 import { H3_FPS } from "./family";
 import type { H3Video } from "./inputs";
 import { H3_HEAD_GUIDE, H3_LANDING, H3_TRIM, type H3Join } from "./join";
@@ -9,9 +9,9 @@ import { h3Prompt, h3ReferencePrompt, type H3Mode, type H3Run } from "./prompt";
 /**
  * The pack's node that unloads H3's text encoder once its prompt is encoded (card #202): the ~15 GB Qwen3-VL stayed loaded
  * through the sampling, its pinned RAM last in ComfyUI's eviction, and a swap on 32 GB of RAM stalled at step 1. Without it
- * (a pack before 0.43.0) the graph is as it was.
+ * (a pack before 0.43.0) the graph is as it was. Named in core, whose warm-ups leave it out (warmGraph).
  */
-export const FREE_TEXT_ENCODER = "AfflatusFreeTextEncoder";
+export { FREE_TEXT_ENCODER };
 
 /**
  * A conditioning passed through the free node, and a second one by the same encoder when there is one, so that it is let go
@@ -151,7 +151,7 @@ function pinNeighbours(g: GraphBuilder, ctx: BuildContext, input: H3Video, join:
  * then the neighbouring clips and the keyframe pinned at their frames) and the latent to fill (the clip's
  * own, or the window that continues the clip before).
  */
-export function conditionFor(g: GraphBuilder, ctx: BuildContext, input: H3Video, how: H3Uses, join: H3Join, frame: Frame, prompt?: (pictures: number) => string, more: MorePicture[] = []): { positive: Ref; latent: Ref; previous: Ref | null; plain: Ref; clip: Ref } {
+export function conditionFor(g: GraphBuilder, ctx: BuildContext, input: H3Video, how: H3Uses, join: H3Join, frame: Frame, prompt?: (pictures: number) => string, more: MorePicture[] = [], sampled = true): { positive: Ref; latent: Ref; previous: Ref | null; plain: Ref; clip: Ref } {
   const clip = g.out("CLIPLoader", { clip_name: ctx.slots.clip, type: "minimax", device: "default" });
   const continued = continuationWindow(g, ctx, join);
   const { window } = continued;
@@ -167,8 +167,10 @@ export function conditionFor(g: GraphBuilder, ctx: BuildContext, input: H3Video,
     positive = [start, 0];
   }
   const latent: Ref = window ? [window, 0] : [start, 1];
-  // every encode of the clip's done: its text encoder let go before anything is sampled
-  const [own, alone] = freeTextEncoder(g, ctx, clip, positive, plain ?? [start, 0]);
+  // every encode of the clip's done: its text encoder let go before anything is sampled. A finish (`sampled` false: the draft's
+  // own latent loaded) reads only the prompt alone: the clip's conditioning through the free node too made ComfyUI run its
+  // whole start for nothing (a second Qwen3-VL encode, a VAE encode of the first or last frame, the opening guide)
+  const [own, alone] = sampled ? freeTextEncoder(g, ctx, clip, positive, plain ?? [start, 0]) : [positive, freeTextEncoder(g, ctx, clip, plain ?? [start, 0])[0]];
   positive = pinNeighbours(g, ctx, input, join, frame, own, latent, continued);
   // on the reference route the clip's own conditioning, before any frame is pinned on it: the references, the voice and the
   // words carry over to any size, the opening picture and the neighbours' frames were pinned for the sampled frame (B11)

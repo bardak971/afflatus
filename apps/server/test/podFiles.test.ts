@@ -24,6 +24,8 @@ const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex").toUpperC
 const FILE = Buffer.alloc(200_000, 3);
 /** The Civitai version whose downloads its creator disabled (card #206), and this computer's mine.safetensors' hash. */
 const CLOSED = 164898;
+/** A Civitai version in Early Access: its download refused with a 403 in Civitai's own words, for a while only. */
+const PAID = 164899;
 const MINE_SHA = sha(Buffer.alloc(150_000, 9));
 let site: Server;
 let siteUrl: string;
@@ -57,6 +59,14 @@ beforeEach(async () => {
     if (req.url === `/api/v1/model-versions/${CLOSED}`) {
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify({ id: CLOSED, name: "v1", model: { name: "Mine" }, files: [{ name: "mine.safetensors", sizeKB: 150_000 / 1024, primary: true, downloadUrl: `${siteUrl}/api/download/models/${CLOSED}`, hashes: { SHA256: MINE_SHA } }] }));
+    }
+    if (req.url === `/api/v1/model-versions/${PAID}`) {
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ id: PAID, name: "v1", model: { name: "Mine" }, files: [{ name: "mine.safetensors", sizeKB: 150_000 / 1024, primary: true, downloadUrl: `${siteUrl}/api/download/models/${PAID}`, hashes: { SHA256: MINE_SHA } }] }));
+    }
+    if (req.url?.startsWith(`/api/download/models/${PAID}`)) {
+      res.writeHead(403, { "content-type": "application/json; charset=utf-8" });
+      return res.end(JSON.stringify({ error: "Early Access", message: "This version is in Early Access: unlock it with Buzz" }));
     }
     if (req.url?.startsWith(`/api/download/models/${CLOSED}`)) {
       res.writeHead(401, { "content-type": "application/json; charset=utf-8" });
@@ -361,6 +371,26 @@ describe("a rented pod's model files", () => {
     for (const d of t.services.downloads.list()) t.services.downloads.stop(d.id);
   });
 
+  // the 0.9.0 review (M1): between "fetching" and the download asked for (the pod's ComfyUI reached, a Civitai lookup), the
+  // entry had no clock, read as "has brought nothing", and an idle check stopped the pod that was about to work
+  it("hold the pod's idle time from the moment one starts, while its source is still being looked up", async () => {
+    let reach!: () => void;
+    const reached = new Promise<void>((r) => (reach = r));
+    const comfy = new Comfy(pod.url, t.services.registry);
+    const slow = new PodFiles({
+      db: t.services.db, downloads: t.services.downloads,
+      comfyOf: async () => (await reached, comfy), cloudOf: async () => "SECURE", alive: () => true, busy: () => false,
+      lookup: { db: t.services.db, presets: async () => [], families: () => [], comfyDir: async () => home },
+      settings: async () => ({ civitaiKey: "", downloadModels: true, civitaiLookups: true }),
+    });
+    slow.want("pod", [{ file: "a.safetensors", folder: "loras", url: `${siteUrl}/files/a.safetensors` }], { tier: "need", job: "j1" });
+    await until(async () => (await slow.tick(), slow.view("pod")[0]?.state === "fetching"));
+    expect(slow.moving("pod")).toBe(true);
+    expect(slow.stalled("pod", "j1", [{ file: "a.safetensors", folder: "loras" }])).toBeNull();
+    reach();
+    await until(async () => (await slow.tick(), slow.view("pod")[0]?.state === "ready"));
+  });
+
   it("are stopped and forgotten with the pod", async () => {
     files.want("pod", [{ file: "a.safetensors", folder: "loras", url: `${siteUrl}/files/a.safetensors` }], { tier: "need" });
     files.forget("pod");
@@ -371,10 +401,12 @@ describe("a rented pod's model files", () => {
 // card #206: Civitai answers a version whose creator disabled downloads with a 401, key or none. Said as "key refused", the
 // pod waited, billed, for a file that would never come, with this computer's copy at hand
 describe("a rented pod's file its Civitai version refuses", () => {
-  const closedRow = async () => {
+  const closedRow = async (over: { civitai_version?: number | null; hf_url?: string | null; civitai_closed_at?: string | null; hashed_at?: string; matched_at?: string | null } = {}) => {
     const st = statSync(join(home, "models", "loras", "mine.safetensors"));
-    await t.services.db.insertInto("model_hashes").values({ folder: "loras", file: "mine.safetensors", size: st.size, mtime: Math.round(st.mtimeMs), sha256: MINE_SHA, hashed_at: "2026-10-14", civitai_version: CLOSED, hf_url: null, matched_at: "2026-10-14" }).execute();
+    await t.services.db.insertInto("model_hashes").values({ folder: "loras", file: "mine.safetensors", size: st.size, mtime: Math.round(st.mtimeMs), sha256: MINE_SHA, hashed_at: "2026-10-14", civitai_version: CLOSED, hf_url: null, matched_at: "2026-10-14", ...over }).execute();
   };
+  const lookup = () => ({ db: t.services.db, presets: async () => [], families: () => [], comfyDir: async () => home });
+  const closedAt = async () => (await t.services.db.selectFrom("model_hashes").select("civitai_closed_at").where("file", "=", "mine.safetensors").executeTakeFirstOrThrow()).civitai_closed_at;
   beforeEach(() => {
     // the real ask for the site's link, of the pretend Civitai: its two 401s
     t.services.downloads.signer = (source, headers) => signedLink(source, headers);
@@ -409,10 +441,64 @@ describe("a rented pod's file its Civitai version refuses", () => {
     USUAL_COPIES[MINE_SHA] = "https://huggingface.co/org/repo/resolve/main/mine.safetensors";
     try {
       await closedRow();
-      expect(await podSource(l, { file: "mine.safetensors", folder: "loras" }, { live: true })).toEqual({ kind: "url", url: "https://huggingface.co/org/repo/resolve/main/mine.safetensors" });
+      expect(await podSource(l, { file: "mine.safetensors", folder: "loras" }, { live: true })).toEqual({ kind: "url", url: "https://huggingface.co/org/repo/resolve/main/mine.safetensors", sha256: MINE_SHA });
     } finally {
       delete USUAL_COPIES[MINE_SHA];
     }
+  });
+
+  // the 0.9.0 review (M3): a close was for good, and every later pod got the file uploaded over the home line
+  it("in Early Access is sent from here this time, and its version is not closed: it is asked again once free", async () => {
+    await closedRow({ civitai_version: PAID });
+    files.want("pod", [{ file: "mine.safetensors", folder: "loras" }], { tier: "need", job: "j1" });
+    await settle("pod", "mine.safetensors");
+    expect(files.view("pod")[0]).toMatchObject({ state: "ready", via: "upload" });
+    expect(t.services.downloads.list().find((d) => d.file === "mine.safetensors")).toMatchObject({ status: "error", refused: true, error: expect.stringContaining("paid on Civitai") });
+    expect(await closedAt()).toBeNull();
+    expect(await podSource(lookup(), { file: "mine.safetensors", folder: "loras" }, { live: true })).toMatchObject({ kind: "civitai", version: PAID });
+  });
+
+  it("is asked of its version again once the file is hashed or matched again, or once a download of the version succeeds", async () => {
+    // hashed again after the close (other bytes, or the same ones read afresh): the close no longer stands
+    await closedRow({ civitai_closed_at: "2026-10-15T00:00:00.000Z", hashed_at: "2026-10-16T00:00:00.000Z" });
+    expect(await podSource(lookup(), { file: "mine.safetensors", folder: "loras" }, { live: true })).toMatchObject({ kind: "civitai", version: CLOSED });
+    await t.services.db.updateTable("model_hashes").set({ hashed_at: "2026-10-14", civitai_closed_at: "2026-10-15T00:00:00.000Z" }).execute();
+    expect(await podSource(lookup(), { file: "mine.safetensors", folder: "loras" }, { live: true })).toMatchObject({ kind: "upload" });
+    // the version gave its file on a pod after all: open again for the next lookup
+    await t.services.db.updateTable("model_hashes").set({ civitai_version: 77 }).execute();
+    t.services.downloads.signer = async (source) => `${source.replace("/files/", "/signed/")}?sig=1`;
+    files.want("pod", [{ file: "c.safetensors", folder: "loras", civitai: { version: 77 } }], { tier: "need" });
+    await settle("pod", "c.safetensors");
+    expect(files.view("pod")[0]).toMatchObject({ state: "ready", via: "civitai" });
+    expect(await closedAt()).toBeNull();
+  });
+
+  // the 0.9.0 review (S2): the fallback took any file of the bare name at the folder's top, another LoRA as well as this one
+  it("is replaced by this computer's copy only when that copy has the bytes the version lists", async () => {
+    const want = () => files.want("pod", [{ file: "wan/mine.safetensors", folder: "loras", civitai: { version: CLOSED, pick: "mine.safetensors" } }], { tier: "need" });
+    want();
+    await settle("pod", "wan/mine.safetensors");
+    // loras/mine.safetensors was never hashed: nothing says it is the version's file
+    expect(files.view("pod")[0]).toMatchObject({ state: "failed", error: DOWNLOADS_DISABLED });
+    files.forget("pod");
+    await closedRow({ civitai_version: null, matched_at: null });
+    want();
+    await settle("pod", "wan/mine.safetensors");
+    expect(files.view("pod")[0]).toMatchObject({ state: "ready", via: "upload" });
+  });
+
+  // the 0.9.0 review (S1): a Hugging Face copy was fetched with no check, the repo's main branch free to change under it
+  it("is fetched from a Hugging Face copy matched by its hash with that hash handed to the pod's node pack", async () => {
+    const start = vi.spyOn(t.services.downloads, "start");
+    await closedRow({ civitai_version: null, hf_url: `${siteUrl}/files/mine.safetensors` });
+    files.want("pod", [{ file: "mine.safetensors", folder: "loras" }], { tier: "need" });
+    await until(async () => (await files.tick(), start.mock.calls.length > 0));
+    expect(start.mock.calls[0]?.[2]).toMatchObject({ file: "mine.safetensors", sha256: MINE_SHA });
+    for (const d of t.services.downloads.list()) t.services.downloads.stop(d.id);
+  });
+
+  it("pins the usual files' copies to a commit, never a branch", () => {
+    for (const url of Object.values(USUAL_COPIES)) expect(url).toMatch(/\/resolve\/[0-9a-f]{40}\//);
   });
 });
 

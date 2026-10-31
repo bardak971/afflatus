@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { capAmount } from "../src/screens/settings/capAmount";
+import { capAmount, capRefusal } from "../src/screens/settings/capAmount";
 
 /** A spending cap as typed in its box (Settings › Rented GPUs): read as the one amount it means, or refused. */
 
@@ -7,7 +7,6 @@ describe("a cap typed in its box", () => {
   it("reads a plain amount, with or without its sign and spaces", () => {
     expect(capAmount("5")).toBe(5);
     expect(capAmount(" $12.50 ")).toBe(12.5);
-    expect(capAmount("€ 7")).toBe(7);
     expect(capAmount(".5")).toBe(0.5);
     expect(capAmount("0.125")).toBe(0.125);
   });
@@ -39,5 +38,20 @@ describe("a cap typed in its box", () => {
     expect(capAmount("-5")).toBeNull();
     expect(capAmount("five")).toBeNull();
     expect(capAmount("5$5")).toBeNull();
+  });
+
+  it("refuses an amount in another currency: caps are US dollars, as RunPod bills", () => {
+    expect(capAmount("€50")).toBeNull();
+    expect(capAmount("50 €")).toBeNull();
+    expect(capAmount("£5")).toBeNull();
+    expect(capRefusal("€50")).toMatch(/US dollars/);
+  });
+
+  it("refuses a typed 0, which would be no cap, the opposite of stopping all spending", () => {
+    expect(capAmount("0")).toBeNull();
+    expect(capAmount("$0.00")).toBeNull();
+    expect(capAmount("0,0")).toBeNull();
+    expect(capRefusal("0")).toMatch(/above \$0/);
+    expect(capRefusal("five")).toMatch(/not one amount/);
   });
 });

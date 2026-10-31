@@ -3,7 +3,7 @@ import { H3_FPS, H3_GRID, H3_HYBRIDS, SWAP_MODELS } from "./family";
 import { modelOf, REF_TURBO_4_STEPS, REF_TURBO_4_VALUES } from "./model";
 import { latentUpscaleNeeds } from "./latent-upscale";
 import { upscaleNeeds } from "../video/upscale";
-import { H3_SOUND_CHAPTER, h3Inputs, type H3Video } from "./inputs";
+import { H3_SOUND_CHAPTER, h3Inputs, SOURCE_SOUND_INPUTS, SOURCE_START, type H3Video } from "./inputs";
 import { SWAP_MODEL_TURBO, SWAP_TURBO_ROW } from "./turboRow";
 /** Said in the "?" of a swap's parts (card #49): the tags are written for them. */
 const PART_NO_TAGS = "No <Video 1> or <Picture 1> to type: Afflatus adds them";
@@ -171,14 +171,14 @@ export const swapInputs: InputSpec[] = [
     id: "who", type: "prompt", weights: false, label: "Prompt as sent", style: "sentences", noCast: true, designed: true, optional: true,
     default: "", placeholder: SWAP_CAPTION,
     // empty, the swap LoRA's caption comes first, as it was trained; typed without the tags, its words are who is replaced in it
-    note: "empty: written from the parts above; typed: sent as is. <Video 1> is the source, <Picture 1> the person. The click on the stage picks who is replaced, not the words",
+    note: "empty: written from the parts above; typed with <Video 1> or <Picture 1>: sent as is; typed without them: its words name who is replaced, inside the swap LoRA's caption. <Video 1> is the source, <Picture 1> the person. The click on the stage picks who is replaced, not the words",
   },
   {
     id: "source", type: "clip", role: "source", label: "Source video", frames: [SWAP_FRAMES], fps: H3_FPS, whole: true, pick: true,
     window: { start: "sourceStart", seconds: "sourceSeconds", fits: { frames: SWAP_FRAMES, fps: H3_FPS, pad: 0, min: SWAP_LEAST / H3_FPS, grid: H3_GRID } },
     note: "the video whose person is replaced. One swap holds 5.9 s of it; a longer one goes on a timeline's source lane, swapped window by window",
   },
-  { id: "sourceStart", type: "number", label: "Source: start", min: 0, max: 3600, step: 0.1, default: 0, unit: " s", showWhen: "source" },
+  SOURCE_START,
   // the bounds a Motion transfer form's part has, so that every window a timeline makes is taken (its 141 frames and the half
   // frame windows add: 5.875 s refused them). 5.175 s by default: 124 frames, the length the swap held 3 times of 3 at,
   // within the 4-5 s its LoRA's author found safest
@@ -210,14 +210,7 @@ export const swapInputs: InputSpec[] = [
     id: "swapSize", type: "choice", label: "Resolution", options: [...SWAP_SIZES], default: "576p", section: "out",
     note: "the height it renders at, in the source's shape: 576p by default (a small phone clip swapped better made larger), or the source's own size",
   },
-  { id: "keepSound", type: "toggle", label: "Keep the source's sound", default: true, advanced: true, chapter: "sound", note: "the file carries the source video's own sound; off, the sound H3 makes" },
-  {
-    // H3 moves the mouth to the sound it makes with the frames; without the source's, it drew lips to a sound then thrown
-    // away for the source's own (the owner, 2026-10-17: "how his lips move are really awkward"). With it, the new mouth
-    // followed the source person's 0.57 against 0.46 over the owner's Bulin 47 window, 0.51 against 0.39 on another mask (§9.11)
-    id: "soundGuide", type: "toggle", label: "Audio guide", default: true, advanced: true, showWhen: "keepSound", chapter: "sound",
-    note: "the source's own sound given to H3 as a guide, as Lip sync gives its recording, so that the mouth is drawn to the words heard",
-  },
+  ...SOURCE_SOUND_INPUTS,
   // ---- the Mask card: who is replaced is clicked on the stage (the source's pick); these are the nodes' own inputs, at the
   // values the swaps were tested with
   {

@@ -1,4 +1,4 @@
-import { SETTING_TABS } from "@afflatus/core";
+import { SETTING_TABS, SETTING_TABS_MOVED } from "@afflatus/core";
 import { useLocation } from "wouter";
 import { PageHeader, Segmented } from "./ui";
 
@@ -17,7 +17,9 @@ const SCREENS: Array<{ at: RegExp; title: string }> = [
 export function ScreenSkeleton({ path }: { path: string }) {
   const [, go] = useLocation();
   const screen = SCREENS.find((s) => s.at.test(path));
-  const tab = path.split("/")[2] || "comfyui";
+  // the tab the address lands on: an old one's (/settings/access, /settings/bar) is the tab that has its settings now
+  const asked = path.split("/")[2] || "comfyui";
+  const tab = SETTING_TABS_MOVED[asked] ?? asked;
   const tabs = screen?.title === "Settings" ? (
     <Segmented oneLine className="w-max" label="Settings" value={tab} options={SETTING_TABS.map((t) => ({ value: t.id, label: t.label }))} onChange={(t) => go(t === "comfyui" ? "/settings" : `/settings/${t}`)} />
   ) : undefined;

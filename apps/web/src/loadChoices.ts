@@ -1,5 +1,5 @@
 import { useQueries, useQueryClient } from "@tanstack/react-query";
-import { modelName, sameFile } from "@afflatus/core";
+import { formModelInput, modelName, sameFile } from "@afflatus/core";
 import { api, type RecipeInfo, type Scan } from "./api";
 import { useDrafts, useQueue, useRecipes, useSetup } from "./data";
 import { fileLabel } from "./format";
@@ -68,7 +68,7 @@ export function useLoadChoices(form?: LoadForm | null) {
   const recipeOf = (id: string) => recipes.data?.recipes.find((x) => x.id === id);
   const familyName = (id: string) => recipes.data?.families.find((f) => f.id === recipeOf(id)?.family)?.name ?? "";
   /** An operation's model input, and the file it uses when the form picks none: its family's usual one, from the scan. */
-  const modelInput = (id: string) => recipeOf(id)?.inputs.find((i) => i.type === "model");
+  const modelInput = (id: string) => { const r = recipeOf(id); return r ? formModelInput(r) : undefined; };
   const usual = (id: string): string | null => {
     const i = modelInput(id);
     const slot = i && "slot" in i ? i.slot : undefined;
@@ -88,7 +88,7 @@ export function useLoadChoices(form?: LoadForm | null) {
 
   // the form's own values, less what it no longer has
   const whole = form ? Object.fromEntries(Object.entries(form.input).filter(([k, v]) => form.recipe.inputs.some((i) => i.id === k) && v !== undefined)) : {};
-  const formInput = form?.recipe.inputs.find((i) => i.type === "model");
+  const formInput = form ? formModelInput(form.recipe) : undefined;
   const formFile = formInput && typeof whole[formInput.id] === "string" && whole[formInput.id] ? (whole[formInput.id] as string) : null;
 
   const choices: Array<LoadChoice & { draft?: string }> = [];
