@@ -54,7 +54,7 @@ Since 0.8, agents drive the studio over MCP: see [docs/mcp.md](docs/mcp.md). Eve
 
 ## Film
 
-<p align="center"><img src="docs/media/timeline.webp" alt="The timeline editor with a range marked across two clips and its actions: Regenerate, Loop, Split, Remove, Copy, Slow" width="820"></p>
+<p align="center"><img src="docs/media/timeline.webp" alt="The timeline editor: five MiniMax H3 clips carried on in the latent, the join between clips 2 and 3 open on Seamless and Hard cut, with how it holds" width="820"></p>
 
 Clips are easy to make. A film is the hard part, and that is what the timeline is for.
 
@@ -64,7 +64,7 @@ Clips are easy to make. A film is the hard part, and that is what the timeline i
 - **Takes, not re-rolls.** Each clip is a form of its own. Render three takes at once; each is listed with how cleanly it joins in and out and how close its face is to the person, the smoothest is marked, you pick the one that plays, and the rest wait on the shelf for a later cut.
 - **Regenerate a range.** Mark two seconds, inside a clip or across the join of two, and press Regenerate: a new clip is made for that stretch, joined to the clips on both sides, and the rest of the timeline stays as it was.
 
-<p align="center"><img src="docs/media/insight.webp" alt="A clip's takes with their join figures, and its look measured against the clips before and after it" width="820"></p>
+<p align="center"><img src="docs/media/insight.webp" alt="A clip's takes with their join figures in and out, the smoothest marked, and one flagged as a cut at the join" width="820"></p>
 
 - **Measured, not eyeballed.** Every take carries the figures of its joins, in and out, and of its look against the clip before and the start of its run: brightness, sharpness, grain, pace, colour, flicker, and the face against the person's own pictures when there is one. The figures come from the frames, and a chart follows them along the run. When a join jumps, the timeline names the take that would join more cleanly; the call stays yours.
 - **The rest of an editor.** Ranges that snap to the quiet moments and the cuts, split at the playhead, stills held on screen, slow motion, loops, music that ducks under voices.
@@ -117,8 +117,12 @@ Your key, RunPod's bill, no account with Afflatus and no cut for anyone. It is o
 <td><img src="docs/media/locked.webp" alt="A locked ComfyUI: the page a browser gets without the token"><br><b>And the ComfyUIs behind it, locked.</b> Afflatus puts a token in front of every ComfyUI it drives, a pod's from its first second. Without it, a browser gets this page and nothing else.</td>
 </tr>
 <tr>
-<td><img src="docs/media/models.webp" alt="Settings → Models: what each family has and lacks, and where each of your models is online"><br><b>Your models, accounted for.</b> What each family lacks, with the button that fetches it; your own files hashed and matched to their pages.</td>
+<td><img src="docs/media/models.webp" alt="Settings → Models: each family folded to what it lacks, Get the minimum, and the Civitai and Hugging Face card"><br><b>Your models, accounted for.</b> What each family lacks, with the button that fetches its minimum; Civitai and Hugging Face in one card.</td>
 <td><img src="docs/media/find.webp" alt="Find models: Civitai and Hugging Face browsed from the app"><br><b>Find models.</b> Civitai and Hugging Face from inside the app, filtered to your families, straight onto this PC, a pod or a set.</td>
+</tr>
+<tr>
+<td><img src="docs/media/model-files.webp" alt="Settings → Model files: every model file with its uses, the files never used by Afflatus selected, Delete 19 files"><br><b>Model files.</b> Every file in ComfyUI's folders with how often Afflatus loaded it, what needs it and its copies. What you never use goes to the Recycle Bin in one click, and comes back with Put back.</td>
+<td><img src="docs/media/deploy.webp" alt="Deploy a GPU: RunPod's stock ranked by $ per render for the renders waiting, the time beside it"><br><b>The GPU that costs least per render.</b> RunPod's stock ranked by what a render waiting would cost on each card, from your own renders; a card you never used is a guess, marked ≈.</td>
 </tr>
 </table>
 
