@@ -166,10 +166,13 @@ describe("a job a ComfyUI had when Afflatus stopped", () => {
     t.services.queue.stop();
     await t.services.queue.idle();
     const { Queue } = await import("../src/queue");
-    const again = new Queue(t.db, t.services.storage, () => t.services.machines(), t.services.registry);
+    // the test's fast waits: the default one reads the history every 5 s, past a 5 s test limit
+    const again = new Queue(t.db, t.services.storage, () => t.services.machines(), t.services.registry, FAST);
     await again.start();
     complete(two, sentTo(two)[0]!);
     await until(async () => (await row(a)).status === "done");
+    // followed, not sent again: that ComfyUI still had the one prompt, the other none
+    expect(sentTo(two)).toHaveLength(1);
     expect(sentTo(one)).toHaveLength(0);
     again.stop();
     await again.idle();
