@@ -5,8 +5,8 @@ import { useSettings } from "../../data";
 import { queryKeys } from "../../queryKeys";
 import { useSayFailed } from "../../sayFailed";
 import { allowNotifications, useNotify } from "../../store";
-import { Button, Checkbox, Chip, cx, ErrorNote, fieldClass, Help, Toggle } from "../../ui";
-import { Block, Card, Row, Status } from "./Rows";
+import { Button, Checkbox, Chip, cx, ErrorNote, Failed, fieldClass, Help, Toggle } from "../../ui";
+import { Block, Card, CardLoading, Row, Status } from "./Rows";
 import { PasswordAsk } from "./PasswordAsk";
 import { SecretField } from "./SecretField";
 import { SETTING_HELP } from "@afflatus/core";
@@ -111,7 +111,7 @@ export function WhereCard() {
     },
     onError: (err) => setSaid({ ok: false, text: `Telegram: ${err.message}` }),
   });
-  if (!n) return null;
+  if (!n) return <CardLoading />;
   const commitChat = () => {
     if (chat.trim() !== n.telegramChat) void secret({ telegramChat: chat.trim() }).catch(() => {});
   };
@@ -154,7 +154,7 @@ export function WhereCard() {
         <Button onClick={() => test.mutate("discord")} disabled={!n.hasDiscordWebhook || test.isPending}>Send a test</Button>
       </Row>
       {asking && <PasswordAsk said={asking.said} busy={saveSecret.isPending} onConfirm={(password) => saveSecret.mutate({ notify: asking.notify, password })} onCancel={() => setAsking(null)} />}
-      {saveSecret.isError && !asking && <Block><ErrorNote>{saveSecret.error.message}</ErrorNote></Block>}
+      {saveSecret.isError && !asking && <Block><Failed what="Not saved" error={saveSecret.error} /></Block>}
       {said && (
         <Block>
           {said.ok ? <span className="text-body text-good">{said.text}</span> : <ErrorNote>{said.text}</ErrorNote>}
@@ -187,7 +187,7 @@ export function WhatCard() {
     },
   });
   const put = (kind: NotifyKind, notify: NotifyPatch) => (kind === "newDevice" ? guarded.mutate({ notify }) : save.mutate(notify));
-  if (!n) return null;
+  if (!n) return <CardLoading />;
   // ticked, the browser's box asks for the right first (as the Queue's switch does)
   const tickBrowser = async (kind: NotifyKind, on: boolean) => {
     if (on && !(await allowNotifications())) return setRefused(true);

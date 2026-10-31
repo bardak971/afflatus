@@ -734,11 +734,12 @@ export function ErrorNote({ children, tone = "warn" }: { children: ReactNode; to
  * A failure said where it happened: what did not happen, in bold ("Not rendered"), then the error's own words (the
  * server's, written to say what to do), and the way to it when there is one (`children`). In place of a bare
  * `{x.error.message}`, which said a refusal with no title (card #177); `inline`: a line of text in a row, not a note.
+ * `polite`: said when the reader is free (a background refresh that failed under figures still shown), not at once.
  */
-export function Failed({ what, error, inline, children }: { what: string; error: unknown; inline?: boolean; children?: ReactNode }) {
+export function Failed({ what, error, inline, polite, children }: { what: string; error: unknown; inline?: boolean; polite?: boolean; children?: ReactNode }) {
   const words = error instanceof Error ? error.message : String(error);
   const said = <><span className="font-semibold">{what}</span>: {words}{children ? <> {children}</> : null}</>;
-  return inline ? <span role="alert" className="min-w-0 text-xs text-warn-ink">{said}</span> : <ErrorNote>{said}</ErrorNote>;
+  return inline ? <span role={polite ? "status" : "alert"} className="min-w-0 text-xs text-warn-ink">{said}</span> : <ErrorNote>{said}</ErrorNote>;
 }
 
 /**

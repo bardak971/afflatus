@@ -65,6 +65,11 @@ export interface CutOptions {
   faceDenoise?: number;
   picture?: string;
   family?: string;
+  /**
+   * "face": the H3 model the faces are redrawn with, over the family's fused turbo (Finish › Face refine model, card #192): a
+   * file, or OWN_MODEL, which on these clips is the fused turbo too (their model is not H3's) and said on the job.
+   */
+  faceModel?: string;
   by?: number;
   colour?: string;
   upscaleModel?: string;

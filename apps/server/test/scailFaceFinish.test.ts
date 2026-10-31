@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { OWN_MODEL } from "@afflatus/core";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { newId, now } from "../src/db";
 import { newAssetRow } from "../src/media";
@@ -101,6 +102,47 @@ describe.skipIf(!ffmpegThere)("Finish › Face refine on a SCAIL-2 take at 24 fp
     const after = withTakes((await get(t.app, `/api/timelines/${tl.id}`)).json()).clips[0];
     expect(after.take.finishedFrom).toBe(draft.id);
     expect(after.take.asset.name).toMatch(/face refined$/);
+  });
+
+  // card #192: the model picked was left out, the pass ran on the fused turbo at 4 steps whatever Finish said
+  it("redraws with the Face refine model picked in Finish, at that model's steps, and a redo with another model is a change", async () => {
+    const full = "minimax_h3_ref2va_pruned_int8_convrot.safetensors";
+    fake.models = { ...FILES, diffusion_models: [...FILES.diffusion_models, full] };
+    const driving = await asset("video", four!);
+    const picture = await asset("image", png(192, 320));
+    const tl = await call("POST", "/api/timelines", { name: "zz-test dance model" });
+    const clip = (await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "scail.motion24" })).clip as string;
+    await call("POST", `/api/timelines/${tl.id}/render`, { clips: [{ id: clip, input: { picture, driving: { asset: driving }, drivingStart: 0, drivingSeconds: 3.05, prompt: "zz-test", seed: 1 } }] });
+    await finish(four!, 1);
+    await call("POST", `/api/timelines/${tl.id}/finish`, { route: "face", factor: 2, redo: true });
+    await finish(four!, 2);
+
+    const res = await call("POST", `/api/timelines/${tl.id}/finish`, { route: "face", factor: 2, faceModel: full, redo: "changed" });
+    expect(res.jobs).toHaveLength(1);
+    const job = await t.db.selectFrom("jobs").selectAll().where("id", "=", res.jobs[0]).executeTakeFirstOrThrow();
+    expect(JSON.parse(job.inputs)).toMatchObject({ route: "face", faceModel: full });
+    const graph = await finish(four!, 3);
+    const of = (type: string) => Object.values(graph).filter((n) => n.class_type === type);
+    expect(of("UNETLoader").map((n) => n.inputs.unet_name)).toEqual([full]);
+    expect(of("BasicScheduler")[0]!.inputs).toMatchObject({ steps: 10 });
+    // the same model again: nothing changed
+    expect((await call("POST", `/api/timelines/${tl.id}/finish`, { route: "face", factor: 2, faceModel: full, redo: "changed" })).jobs).toEqual([]);
+  });
+
+  it("asked for the clip's own model: SCAIL-2's is not H3's, so the fused turbo, and its job says so", async () => {
+    const driving = await asset("video", four!);
+    const picture = await asset("image", png(192, 320));
+    const tl = await call("POST", "/api/timelines", { name: "zz-test dance own" });
+    const clip = (await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "scail.motion24" })).clip as string;
+    await call("POST", `/api/timelines/${tl.id}/render`, { clips: [{ id: clip, input: { picture, driving: { asset: driving }, drivingStart: 0, drivingSeconds: 3.05, prompt: "zz-test", seed: 1 } }] });
+    await finish(four!, 1);
+    const res = await call("POST", `/api/timelines/${tl.id}/finish`, { route: "face", factor: 2, faceModel: OWN_MODEL, redo: true });
+    const graph = await finish(four!, 2);
+    const of = (type: string) => Object.values(graph).filter((n) => n.class_type === type);
+    expect(of("UNETLoader").map((n) => n.inputs.unet_name)).toEqual([FILES.diffusion_models[1]]);
+    expect(of("BasicScheduler")[0]!.inputs).toMatchObject({ steps: 4 });
+    const job = await t.db.selectFrom("jobs").select("warning").where("id", "=", res.jobs[0]).executeTakeFirstOrThrow();
+    expect(job.warning).toContain(`Face refine ran on ${FILES.diffusion_models[1]}, the fused turbo of Settings › Models: this clip's own model is not H3's.`);
   });
 
   it("finds its files in the scan kept and sends its Picture once to that ComfyUI, finished again or not", async () => {

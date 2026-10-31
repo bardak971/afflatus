@@ -31,8 +31,8 @@ export const DETAIL_INPUTS: InputSpec[] = [
     id: "detailMethod", type: "choice", label: "Detail method", options: [DETAIL_AUTO, DETAIL_DAEMON, DETAIL_SHARPEN], default: DETAIL_AUTO, showWhen: "detail", advanced: true, perModel: true,
     note: "Auto: Lying sigma when the Detail Daemon pack is installed, else the built-in sharpen. Lying sigma (dishonesty factor = strength × −0.06) adds detail; the sharpen (alpha = strength × 0.2) crisps what is there",
   },
-  { id: "detailStart", type: "number", label: "Detail from", note: "the part of the sampling it works on: the start sets the composition, best left alone", min: 0, max: 1, step: 0.05, default: 0.2, unit: "", showWhen: "detail", advanced: true, perModel: true },
-  { id: "detailEnd", type: "number", label: "Detail until", min: 0, max: 1, step: 0.05, default: 0.9, showWhen: "detail", advanced: true, perModel: true },
+  { id: "detailStart", type: "number", label: "Detail start %", note: "the part of the sampling it works on: the start sets the composition, best left alone", min: 0, max: 1, step: 0.05, default: 0.2, unit: "", showWhen: "detail", advanced: true, perModel: true },
+  { id: "detailEnd", type: "number", label: "Detail end %", min: 0, max: 1, step: 0.05, default: 0.9, showWhen: "detail", advanced: true, perModel: true },
 ];
 
 /** Whether this render boosts detail with Detail Daemon's sampler (and so samples through ComfyUI's custom sampler nodes). */

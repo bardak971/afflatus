@@ -263,6 +263,13 @@ export interface ChoiceInput extends Base {
   extra?: string[];
   /** Values an older form saved, read as the option that replaced them (never shown): { Latent: "Auto" }. */
   renamed?: Record<string, string>;
+  /**
+   * How an option is said on screen when its value, saved in drafts and jobs and compared by the recipe, says it otherwise:
+   * the upscale routes' "Pixel: upscale model" is shown "Upscale model", the name Finish gives the same route (card #172).
+   */
+  labels?: Record<string, string>;
+  /** A line under an option in its list: what it does, to choose between them. */
+  details?: Record<string, string>;
   default: string;
   /**
    * For options read from ComfyUI, when the default is not among them: regex sources tried in order,
@@ -627,6 +634,9 @@ export const looksLikeFiles = (choices: string[]) =>
  * do (prefer): it stays, and is said to be missing (an imported workflow's VAE swapped for another model's breaks
  * the render, or quietly changes it: an x2 upscaler for an x1.5 one).
  */
+/** A choice's option as it is said on screen (its `labels`), else its value as it is. */
+export const choiceSaid = (spec: ChoiceInput, value: string): string => spec.labels?.[value] ?? value;
+
 export function pickChoice(spec: ChoiceInput, offered: string[] | undefined): string {
   if (Array.isArray(spec.options) || !offered?.length || offered.includes(spec.default)) return spec.default;
   // the same file kept in another folder ("MiniMaxH3/x.safetensors" saved, "x.safetensors" here): that one, before

@@ -102,7 +102,7 @@ const BY_STEPS = "By steps";
  */
 export const LTX_JOIN_FRAMES = [25, 9];
 /**
- * The run-ups the form offers (Frames from the clip before, card #87): H3's 5, 22 and 39 on LTX's grid of whole tokens (8k - 7),
+ * The run-ups the form offers (Overlap frames, card #87): H3's 5, 22 and 39 on LTX's grid of whole tokens (8k - 7),
  * 2, 4 and 6 tokens of the clip before. 41 frames (1.6 to 1.7 s) give the model more of a turn or a walk to read its direction
  * from; a clip before too short for the count asked gives the next one down. 41 is the default: in the 0.7.0 series (card #85)
  * the head's sound followed the clip before's best with it on both versions (r 0.92 and 0.99, against 0.81 to 0.88 at 25), for
@@ -284,13 +284,16 @@ function msrHeld(input: LtxVideo, slot: string | undefined, warnings: string[]):
 const MSR_INPUTS: InputSpec[] = [
   {
     id: "references", type: "references", label: "Reference images", max: MSR_NUMBERED + 1, roles: ["person", "clothing", "object", "place"], subjects: true,
-    note: "pictures of a person, clothes, an object or a place: they are followed, they are not frames of the clip. Each picture is a subject of its own (two people: a picture of each), four at most, and one place, the scene's background. A clip that opens on a picture (a start frame, or carried on from the clip before) takes the face from that frame rather than from the reference. Through the MSR reference LoRA (Settings › Models has it) and its node pack; without them, left out",
+    // each picture is a subject of its own (two people: a picture of each); the place is the scene's background
+    note: "MSR reference LoRA: up to 4 subjects and 1 place, followed, not frames. A clip that opens on a picture takes the face from that frame. Without the LoRA, left out",
   },
   {
     id: "voice", type: "audio", role: "voice", label: "Voice sample", optional: true, window: { start: "voiceStart", seconds: "voiceSeconds", even: "voiceEven" },
     // the MSR pack puts it ahead of the clip as a reference (its own time slot, at timestep 0) and takes it out of the
     // model's output: a voice to speak in, never laid into the take as H3 lays a lone sound reference (card #79)
-    note: "someone speaking: a voice to speak in, not a sound of the take. The person in the first reference image says the prompt's line (in quotation marks) in that voice, the mouth on the model's own sound; the sample itself is not heard. The model hears the first 5 seconds of the part. Under a recording, the recording is heard instead. The LoRA's authors find the clip's other sounds come out only when the sample has music under the voice",
+    // under a recording, the recording is heard instead; the LoRA's authors find the clip's other sounds come out only when the
+    // sample has music under the voice
+    note: "voice reference (its first 5 s): the first reference's person says the quoted line in that voice. The sample itself is not heard",
   },
   { id: "voiceStart", type: "number", label: "Voice sample: start", min: 0, max: 600, step: 0.5, default: 0, unit: " s", showWhen: "voice" },
   // the MSR LoRA's voice slot is 5 s (its metadata); a person's own part, up to H3's 15 s, is taken and cut there by the guide
@@ -309,7 +312,9 @@ const MSR_STRENGTHS: InputSpec[] = [
   },
   {
     id: "refFaceCrop", type: "toggle", label: "Crop people's pictures to the face", default: true, showWhen: "references", advanced: true,
-    note: "a picture of a person is cut around the face to the clip's frame shape, its short side 2.5 face heights, and brought to the frame's size: MSR fits the whole picture in a slot the size of the clip's frame, where the face of a large or far portrait comes out a few latent cells, and a picture of another shape (a square in a 16:9 clip) goes between white bars, which a clip that does not carry on from the one before can copy. Off: the picture whole (to follow the clothes or the figure from it), with those bars when its shape is not the clip's",
+    // MSR fits the whole picture in a slot the size of the clip's frame: the face of a large or far portrait comes out a few
+    // latent cells, and a picture of another shape goes between white bars, which a clip that does not carry on can copy
+    note: "each person's picture cut to the face (2.5 face heights) at the clip's shape. Off: the whole picture (for the clothes or the figure), letterboxed when its shape differs",
   },
   {
     id: "refFaceSize", type: "number", label: "Face crop size", min: 1.5, max: 4, step: 0.25, default: 2.5, unit: " face heights", showWhen: "refFaceCrop", advanced: true,
@@ -823,8 +828,10 @@ function ltxCues(spec: LtxSpec): InputSpec[] {
   const cues: InputSpec = {
     id: "cues", type: "cues", label: "Sound cues", max: H3_CUES,
     note: spec.lipSync
-      ? `sounds that land at moments of the clip: a door slam, a clap, a music hit. Each one is a part of its file and the moment it lands, in the clip's own time, added over the recording and held with it, so the take carries it as it is; the picture meets it when What happens names it at that moment ("she claps her hands once"). ${repeats}`
-      : `sounds that land at moments of the clip: a door slam, a clap, a line, a music hit. Each one is a part of its file and the moment it lands, in the clip's own time. ${spec.name} hears it there as the clip's own sound and makes the rest around it, and the take carries the file's part there; the picture meets it when the prompt names it at that moment ("she claps her hands once"). ${repeats}`,
+      // added over the recording and held with it, so the take carries it as it is
+      ? `a part of a file at a moment of the clip (a slam, a clap), laid over the recording; name it in What happens at that moment. ${repeats}`
+      // the model hears it there as the clip's own sound and makes the rest around it; the take carries the file's part
+      : `a part of a file at a moment of the clip (a slam, a clap, a line): ${spec.name} hears it as its own sound; name it in the prompt at that moment. ${repeats}`,
   };
   if (spec.lipSync) return [cues];
   // The file's sound only, never drawn: a clip or take saved with "<model>'s own" (0.7.0's test builds) still loads, read as
@@ -1019,7 +1026,7 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
         note: "the clip this one carries on from: its last frames (a second, by default) open this clip as a guide, its sound under them, so that the motion and the sound carry over, not only the last picture. On a timeline those frames are hidden, the clip plays from its own. A first frame is not used with it",
       },
       {
-        id: "context", type: "choice", label: "Frames from the clip before", options: [...LTX_RUN_UPS], default: "41", showWhen: "previous", advanced: true, section: "rare",
+        id: "context", type: "choice", label: "Overlap frames", options: [...LTX_RUN_UPS], default: "41", showWhen: "previous", advanced: true, section: "rare",
         note: "pinned at the start as the run-up: 9 is a position, 25 brings its motion and voice too, 41 a long run-in. When the join jumps, try another count",
       },
       {

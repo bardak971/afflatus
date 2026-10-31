@@ -268,7 +268,7 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
               </button>
               </Fragment>
             ))}
-            {!shown.length && <span className="px-3 py-2.5 text-ink-2">{options.length ? "Nothing matches." : "There is nothing to choose from."}</span>}
+            {!shown.length && <span className="px-3 py-2.5 text-ink-2">{options.length ? "Nothing matches" : "Nothing to choose from"}</span>}
             {found.length > shown.length && <span className="px-3 py-2 text-xs text-ink-3">{found.length - shown.length} more: type to narrow the list.</span>}
           </div>
           {footer && <div className="shrink-0 border-t border-line p-1.5">{footer(() => close())}</div>}

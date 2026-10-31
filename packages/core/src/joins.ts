@@ -90,7 +90,7 @@ type JoinForm = { inputs: ReadonlyArray<{ id: string; type: string; role?: strin
 
 /**
  * How many frames of the clip before (`previous`) or after (`next`) a join of this recipe takes: the count its form asks in
- * the input its clip input names (`framesFrom`: H3's "Frames from the clip before", its Landing), else that input's default,
+ * the input its clip input names (`framesFrom`: H3's "Overlap frames", its Landing), else that input's default,
  * else the clip input's first count. 0 when the recipe takes no such clip.
  */
 export function joinFrames(recipe: JoinForm | undefined, role: "previous" | "next", form: Record<string, unknown> = {}): number {

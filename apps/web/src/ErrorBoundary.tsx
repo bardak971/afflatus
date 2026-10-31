@@ -42,6 +42,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode; whole?: bool
           <p className="m-0 text-ink-2">
             {stale ? "This page is older than the server: the part it asked for is no longer there. A reload gets the new one." : "Something went wrong while drawing it. A reload usually brings it back; what was saved is kept."}
           </p>
+          {/* design: the crash's own words, under its title and above Reload, for a bug report */}
           <p className="m-0 font-mono text-xs break-all text-ink-3">{error.message}</p>
           <Button tone="primary" onClick={() => location.reload()}>Reload</Button>
         </div>

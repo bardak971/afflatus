@@ -136,8 +136,7 @@ describe("the tags, said in the ? of the H3 forms' texts", () => {
   });
   it("Swap's prompt as sent: what <Video 1> and <Picture 1> are, and that a typed prompt goes as it is", () => {
     const note = noteOf("h3.swap", "who");
-    expect(note).toMatch(/<Video 1> is the source's window/);
-    expect(note).toMatch(/<Picture 1> the person's picture \(the reference, or the cast person's first photo\)/);
-    expect(note).toMatch(/sent as it is/);
+    expect(note).toMatch(/<Video 1> is the source, <Picture 1> the person/);
+    expect(note).toMatch(/typed: sent as is/);
   });
 });

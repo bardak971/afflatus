@@ -5,7 +5,7 @@ import { useSettings, useSetup } from "../../data";
 import { gb } from "../../format";
 import { Slider } from "../../Slider";
 import { Button, ButtonLink, cx, ErrorNote, Failed, fieldClass } from "../../ui";
-import { Block, Card, Fact, Row, Status } from "./Rows";
+import { Block, Card, CardLoading, Fact, Row, Status } from "./Rows";
 import { queryKeys } from "../../queryKeys";
 import { useSayFailed } from "../../sayFailed";
 import { useQueue } from "../../data";
@@ -146,7 +146,7 @@ export function ComfyCard() {
   // the machines not read yet, or not read at all: nothing said of them (the "no ComfyUI" cards flashed while they loaded,
   // and stood in for a failure to read them)
   // a read again that failed keeps the settings in hand (React Query keeps its data): the card stays, the note only with none
-  if (!settings.data) return settings.isError ? <Failed what="The settings could not be read" error={settings.error} /> : null;
+  if (!settings.data) return settings.isError ? <Failed what="The settings could not be read" error={settings.error} /> : <CardLoading />;
   // no ComfyUI of the user's own (a rented-only start, none added yet): its question, the pods below, nothing offline
   if (!machines.some((m) => !m.rented)) {
     return (

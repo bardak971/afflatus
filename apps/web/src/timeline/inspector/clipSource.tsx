@@ -42,7 +42,7 @@ export type ClipSource = {
   /** Every window the source made, in order: its clip, its part, how it opens, its run-up, whether its prompt is its own, rendered. */
   list: Array<{ id: string; number: number; startMs: number; seconds: number; opens: boolean; form: string; carried: number; own: boolean; rendered: boolean }>;
   onSelectWindow(id: string): void;
-  /** Frames from the clip before, for every window (H3's 5 / 22 / 39): changed, the source is cut again. Null: the model has one count. */
+  /** Overlap frames, for every window (H3's 5 / 22 / 39): changed, the source is cut again. Null: the model has one count. */
   runUp: { counts: number[]; value: number; on(n: number): void } | null;
   /** The source's start moved after Make, rendered windows in the way: said here, Change or Keep. */
   stretchAsk: { fromMs: number; rendered: number; windows: number; change(): void; keep(): void } | null;
@@ -139,9 +139,9 @@ export function sourceLead(s: ClipSource, clip: { inputs: Record<string, unknown
         />
         {s.runUp && (
           <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-semibold">Frames from the clip before</span>
+            <span className="text-xs font-semibold">Overlap frames</span>
             <Segmented<string>
-              label="Frames from the clip before"
+              label="Overlap frames"
               size="sm"
               oneLine
               value={String(s.runUp.value)}

@@ -4,7 +4,8 @@ import { api, type RecipeInfo } from "../api";
 import { sameValue } from "../fields";
 import { modelSaved, type FormSetup } from "../form";
 import { fileLabel, plural } from "../format";
-import { Button, ErrorNote } from "../ui";
+import { Button, Failed } from "../ui";
+import { firstFailed } from "../sayFailed";
 import { queryKeys } from "../queryKeys";
 
 /**
@@ -37,6 +38,7 @@ export function ModelDefaults({ recipe, setup, file, hasSaved, values, defaults,
     },
   });
   const forget = useMutation({ mutationFn: () => api.forgetModelSettings(recipe.family, file), onSuccess: refetch });
+  const failed = firstFailed([["Model defaults not saved", save], ["Not forgotten", forget]]);
   const model = fileLabel(file) || "this model";
   if (!perModel.length || !file) return null;
   return (
@@ -53,7 +55,7 @@ export function ModelDefaults({ recipe, setup, file, hasSaved, values, defaults,
         {differs.length > 0 && <Button size="sm" onClick={() => onClear(differs.map((i) => i.id))}>Reset all</Button>}
         {hasSaved && !differs.length && <Button size="sm" onClick={() => forget.mutate()} disabled={forget.isPending}>Forget saved defaults</Button>}
       </span>
-      {(save.isError || forget.isError) && <ErrorNote>{(save.error ?? forget.error)?.message}</ErrorNote>}
+      {failed && <Failed what={failed.what} error={failed.error} />}
     </div>
   );
 }

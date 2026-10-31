@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { api, type LlmInfo } from "../../api";
-import { Button, Chip, cx, ErrorNote, fieldClass, Help, NumberBox, Toggle, TwoStep } from "../../ui";
+import { Button, Chip, cx, Failed, fieldClass, Help, NumberBox, Toggle, TwoStep } from "../../ui";
 import { Block, Row } from "./Rows";
 
 const field = `h-10 min-w-0 font-mono text-xs placeholder:font-sans ${fieldClass}`;
@@ -102,7 +102,7 @@ export function LlmEditor({ llm, inUse, only, fresh, onSave, onUse, onRemove }: 
                   <Help text={`It said "${test.data.answer}".${test.data.vision && !test.data.vision.ok ? ` Asked the colour of a small red picture, it said "${test.data.vision.answer}": turn Vision off, or pick a model that reads images.` : ""}`} />
                 </span>
               )}
-              {test.isError && <ErrorNote>{test.error.message}</ErrorNote>}
+              {test.isError && <Failed what="Test failed" error={test.error} />}
             </Block>
           )}
           {/* in a row of its own, away from Test: a saved one asks first */}

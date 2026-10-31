@@ -54,7 +54,7 @@ Every built-in form runs on ComfyUI's own nodes first. Some forms and options ne
 |---|---|
 | **afflatus-nodes**, Afflatus's own (MIT, in [comfy-nodes](../comfy-nodes)) | MiniMax H3 clips that carry on from the clip before's own latent: seamless joins on the timeline, landings on the clip after, the H3 latent re-sample finish. Reading model headers through ComfyUI. Downloads into a ComfyUI on another machine (0.11.0). The lock (0.12.0), the watchdog of a rented pod (0.13.0), uploads to a pod (0.14.0). Face likeness figures: Face Match (0.16.0) and Face At (0.17.0), see below. The GPU's power for this PC's electricity (0.18.0). A pod's disk and room made on it (0.19.0) |
 | [ComfyUI-Manager](https://github.com/Comfy-Org/ComfyUI-Manager) | Installing the packs an imported workflow needs; downloads when neither Afflatus nor its node pack can write ComfyUI's model folders |
-| [Comfyui-MMH3-UltimateUpscale](https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale) | H3's latent re-sample: the "Latent: re-sampled" upscale and the H3 finish route |
+| [Comfyui-MMH3-UltimateUpscale](https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale) | H3's latent re-sample: the Latent re-sample upscale route and the H3 finish route |
 | [ComfyUI-DaSiWa-Nodes](https://github.com/darksidewalker/ComfyUI-DaSiWa-Nodes) | H3's step cache; the RTX upscaler and refiner node |
 | [Nvidia_RTX_Nodes_ComfyUI](https://github.com/Comfy-Org/Nvidia_RTX_Nodes_ComfyUI) | RTX Video Super Resolution, as an upscale and a finish route (NVIDIA cards) |
 | [ComfyUI-Impact-Pack](https://github.com/ltdrdata/ComfyUI-Impact-Pack) and [Impact-Subpack](https://github.com/ltdrdata/ComfyUI-Impact-Subpack) | Face refine (the face detailer) |

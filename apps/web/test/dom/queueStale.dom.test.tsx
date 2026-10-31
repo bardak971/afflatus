@@ -26,7 +26,7 @@ describe("the Costs tab", () => {
     await screen.findByText(/No RunPod key: only this PC's renders are counted/);
     fakeApi.on("GET /costs", () => jsonAnswer({ error: "zz-test server away" }, 500));
     await client.refetchQueries();
-    await screen.findByText(/Not refreshed since \d\d:\d\d: zz-test server away/);
+    await waitFor(() => expect(screen.getByRole("status").textContent).toMatch(/^Not refreshed since \d\d:\d\d: zz-test server away$/));
     expect(screen.getByText(/No RunPod key: only this PC's renders are counted/)).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
   });
@@ -34,7 +34,7 @@ describe("the Costs tab", () => {
   it("says the error alone when nothing was ever read", async () => {
     fakeApi.on("GET /costs", () => jsonAnswer({ error: "zz-test server away" }, 500));
     draw(<Costs />);
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("zz-test server away"));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Costs not loaded: zz-test server away"));
   });
 });
 
@@ -99,7 +99,7 @@ describe("the Render times tab", () => {
     await screen.findByText("No render history yet");
     fakeApi.on("GET /renders/summary", () => jsonAnswer({ error: "zz-test server away" }, 500));
     await client.refetchQueries({ queryKey: ["renders", "summary"] });
-    await screen.findByText(/Not refreshed since \d\d:\d\d: zz-test server away/);
+    await waitFor(() => expect(screen.getByRole("status").textContent).toMatch(/^Not refreshed since \d\d:\d\d: zz-test server away$/));
     expect(screen.getByText("No render history yet")).toBeTruthy();
   });
 });

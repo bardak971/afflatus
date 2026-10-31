@@ -1,6 +1,6 @@
 import { hourMinute } from "../../format";
 import { Kbd } from "../../Keys";
-import { Button, cx, fieldClass, Segmented } from "../../ui";
+import { Button, cx, Failed, fieldClass, Segmented } from "../../ui";
 import { PRESETS, toLocalInput, typedWindow, type View } from "./useTimesView";
 
 /**
@@ -56,5 +56,5 @@ export function WindowBar({ view, shown, typed, onTyped, onPreset, onZoom, prese
  */
 export function StaleNote({ error, at }: { error: Error | null; at: number }) {
   if (!error) return null;
-  return <span role="status" className="text-xs text-warn-ink">Not refreshed since {hourMinute(at)}: {error.message}</span>;
+  return <Failed inline polite what={`Not refreshed since ${hourMinute(at)}`} error={error} />;
 }
