@@ -10,7 +10,7 @@ import { dayOf, plural, size, when } from "../../format";
 import { queryKeys } from "../../queryKeys";
 import { useSayFailed } from "../../sayFailed";
 import { useBanners } from "../../store";
-import { Button, Checkbox, Chip, CloseButton, cx, Failed, Help, SearchField, Segmented, Spinner, TwoStep } from "../../ui";
+import { Button, Checkbox, Chip, CloseButton, cx, Empty, Failed, Help, SearchField, Segmented, Spinner, TwoStep } from "../../ui";
 import { ModelFileDetail, Picture } from "./ModelFileDetail";
 import { DeleteDialog } from "./ModelFilesDelete";
 import { UnseenFolder, useComfyListed } from "./unseenFolder";
@@ -106,6 +106,8 @@ export function ModelFilesTab() {
   const ro = l.readOnly;
   // nothing read in this PC's folder while its ComfyUI lists files: the folder is the wrong one, or cannot be read
   const unseen = !ro && !l.noFolder && !l.files.length && listed > 0;
+  // no file at all on this PC: one line and its way forward, not figures, filters and a selection of nothing (card #179)
+  const none = !ro && !l.files.length;
   const live = rows.filter((x) => !x.removed);
   const picked = l.files.filter((x) => sel.has(x.id) && !x.removed);
   const pickedBytes = picked.reduce((n, x) => n + (x.size ?? 0), 0);
@@ -155,7 +157,6 @@ export function ModelFilesTab() {
           <Button size="sm" tone="primary" onClick={() => openFindModels(thisPcTarget(client))}><Plus size={14} /> Find models</Button>
         </div>
         {ro && <div className="border-b border-line bg-picture/5 px-[18px] py-2 text-body text-ink-2">{l.machines.find((m) => m.id === l.machine)?.name}'s files, as its ComfyUI lists them: names only, no sizes. Delete is done on that machine. <Help text="Afflatus reads another machine's files through its ComfyUI (its last scan). It never deletes files there; a rented pod's volume has its own Files (Settings › Rented GPUs)." /></div>}
-        {l.noFolder && !ro && <div className="border-b border-line px-[18px] py-3 text-body text-ink-2">No model folder is known on this PC: set ComfyUI's folder in Settings › ComfyUI › Folder on this computer. Files can then be listed, dropped here and deleted.</div>}
         {!ro && l.hashing.files > l.hashing.hashed && (
           <div className="flex items-center gap-3 border-b border-line px-[18px] py-2 text-body">
             <span className="font-mono text-xs">Hashing {l.hashing.hashed} of {l.hashing.files}</span>
@@ -164,7 +165,7 @@ export function ModelFilesTab() {
             <Help text="Each file's sha256 is read once (kept with its size and date, so only new or changed files are read again), then looked up on Civitai and Hugging Face. Sizes, dates and uses are known already: sorting and deleting work meanwhile." />
           </div>
         )}
-        {!ro && (
+        {!ro && !none && (
           <div className="grid grid-cols-4 gap-4 border-b border-line px-[18px] py-4 @max-[1000px]:grid-cols-2">
             <Figure big={size(figs.total.bytes)} said={`in ${plural(figs.total.files, "file")}${familyName ? ` of ${familyName}` : ""}`} />
             <Figure big={size(figs.idle.bytes)} tone="attention" said={<>{idleWords(figs.idle.never, l.since, day)} · {plural(figs.idle.files.length, "file")} <Help text={idleHelp(figs.idle.never, l.since, day)} /></>}
@@ -190,6 +191,18 @@ export function ModelFilesTab() {
         )}
         {emptying && away.files > 0 && !ro && <EmptyAsk files={l.files.filter((x) => x.removed)} from={away.bin && away.aside ? "the Recycle Bin and the set-aside folder" : away.bin ? "the Recycle Bin" : "the set-aside folder"} />}
         <AddingStrip drop={drop} />
+        {none ? (
+          <div className="p-[18px]">
+            <Empty
+              title={l.noFolder ? "No model folder known on this PC" : unseen ? "Afflatus cannot see ComfyUI's model files" : "No model file in ComfyUI's model folders"}
+              action={l.noFolder || unseen
+                ? <Button size="sm" onClick={() => go("/settings")}>Open Settings › ComfyUI</Button>
+                : <Button size="sm" tone="primary" onClick={() => openFindModels(thisPcTarget(client))}><Plus size={14} /> Find models</Button>}
+            >
+              {l.noFolder ? "Set ComfyUI's folder on this computer (Folder on this computer): its files are then listed, dropped here and deleted." : unseen ? <UnseenFolder listed={listed} /> : "Fetch a family's files with Find models, or drop model files here: each goes to its kind's folder."}
+            </Empty>
+          </div>
+        ) : (<>
         <div className="flex flex-wrap items-center gap-2 border-b border-line px-[18px] py-2.5">
           {familyName && <Chip size="sm" onRemove={() => go("/settings/model-files")} removeLabel="Every family again">Family: {familyName}</Chip>}
           {f.noMatch && <Chip size="sm" onRemove={() => set({ noMatch: false })} removeLabel="Every file again">No match</Chip>}
@@ -209,7 +222,7 @@ export function ModelFilesTab() {
         </div>
         <div className={cx("flex min-h-[44px] items-center gap-3 border-b border-line px-[18px] py-1.5", picked.length > 0 && "bg-accent-wash/40")}>
           <Checkbox checked={allOn ? true : live.some((x) => sel.has(x.id)) ? "some" : false} disabled={ro} label={`Select the ${plural(live.length, "file")} shown`} onChange={() => setSel(allOn ? new Set() : new Set(live.map((x) => x.id)))} />
-          <button type="button" disabled={ro} onClick={() => setSel(allOn ? new Set() : new Set(live.map((x) => x.id)))} className="text-body text-accent hover:underline disabled:text-ink-3 disabled:no-underline">Select all {live.length} shown</button>
+          <button type="button" disabled={ro || !live.length} onClick={() => setSel(allOn ? new Set() : new Set(live.map((x) => x.id)))} className="text-body text-accent hover:underline disabled:text-ink-3 disabled:no-underline">Select all {live.length} shown</button>
           <span className="h-4 w-px bg-line-strong" />
           {picked.length
             ? <span className="flex items-center gap-2 text-body"><b>{plural(picked.length, "file")} selected · {size(pickedBytes)}</b>{needy.length > 0 && <Chip size="xs" tone="attention" tip="A preset or a model set needs them: Delete asks first">{plural(needy.length, "needed by a preset or set", "needed by a preset or set")}</Chip>}<button type="button" className="text-xs text-ink-3 underline hover:text-ink" onClick={() => setSel(new Set())}>Clear</button></span>
@@ -285,13 +298,14 @@ export function ModelFilesTab() {
             );
           })}
           {!rows.length && (
-            <div className="flex flex-col items-center gap-2 px-[18px] py-10 text-center">
-              <h3 className="text-title font-semibold">{l.files.length ? "No file matches" : unseen ? "Afflatus cannot see ComfyUI's model files" : "No model file in ComfyUI's model folders"}</h3>
-              <p className="text-body text-ink-2">{l.files.length ? `Nothing${f.q ? ` named "${f.q}"` : ""} with these filters.` : unseen ? <UnseenFolder listed={listed} /> : "Fetch a family's files or any model with Find models, or drop model files here: each goes to its kind's folder."}</p>
-              {l.files.length > 0 && <Button size="sm" onClick={() => { go("/settings/model-files"); setF({ ...NO_FILTER, sort: f.sort }); }}>Show every file</Button>}
+            <div className="p-[18px]">
+              <Empty title="No file matches" action={<Button size="sm" onClick={() => { go("/settings/model-files"); setF({ ...NO_FILTER, sort: f.sort }); }}>Clear filters</Button>}>
+                Nothing{f.q ? ` named "${f.q}"` : ""} with these filters.
+              </Empty>
             </div>
           )}
         </div>
+        </>)}
       </section>
       {drop.over && (
         <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center rounded-card border-2 border-dashed border-accent bg-panel/85 text-title font-semibold">

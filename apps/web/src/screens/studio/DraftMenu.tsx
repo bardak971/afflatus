@@ -246,7 +246,7 @@ export function DraftMenu({ drafts: rows, open: current, titleOf, onPick, onNew,
                 );
               })}
             </div>
-            {!list.length && query && <div className="px-3 py-4 text-sm text-ink-3">No draft matches.</div>}
+            {!list.length && query && <div className="px-3 py-4 text-sm text-ink-3">No draft matches</div>}
             {empties > 0 && (
               <div className="flex h-10 items-center gap-2 pr-3">
                 <button type="button" aria-expanded={emptyShown} data-tip="No prompt, no name and nothing made from them: settings picked and left" onClick={() => setEmptyShown(!emptyShown)} className="flex h-full min-w-0 grow items-center gap-2 px-3 text-left text-xs text-ink-2 hover:text-ink">

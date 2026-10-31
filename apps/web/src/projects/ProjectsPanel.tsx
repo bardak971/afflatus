@@ -9,7 +9,7 @@ import { FolderPicker } from "../FolderPicker";
 import { size } from "../format";
 import { useProject } from "../project";
 import { useOpenDraft, type Place } from "../store";
-import { Button, cx, Empty, ErrorNote } from "../ui";
+import { Button, cx, Empty, Failed } from "../ui";
 import { usePins } from "./pins";
 import { groupKey, rangePick, type Row, type Target } from "./tree";
 import { PanelBar, ScopedFoot, SortHeads } from "./PanelParts";
@@ -240,7 +240,7 @@ export function ProjectsPanel({ anchor, onClose, onNew, onView, hidden, search: 
       >
         {/* the columns: a click sorts each level by it, again turns it around */}
         <SortHeads headRef={head} columns={columns} scoped={scoped} sort={sort} sortBy={sortBy} />
-        {tree.isError && <div className="p-3"><ErrorNote>{tree.error.message}</ErrorNote></div>}
+        {tree.isError && <div className="p-3"><Failed what="Projects not loaded" error={tree.error} /></div>}
         {tree.isPending && <div className="p-4 text-ink-2">Reading your projects…</div>}
         {tree.isSuccess && q && !groups.length && <div className="p-4"><Empty title={`Nothing called “${q}”`}>The search looks at projects, folders, timelines and drafts.</Empty></div>}
         {/* the rows drawn: those in sight and a few more, the row the keys are on, the one renamed or dragged, the Bin (it stays at the foot) */}

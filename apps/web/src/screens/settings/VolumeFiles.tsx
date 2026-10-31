@@ -8,7 +8,7 @@ import { gb, plural, usd, verb, when } from "../../format";
 import { Keys } from "../../Keys";
 import { queryKeys } from "../../queryKeys";
 import { useSayFailed } from "../../sayFailed";
-import { Button, Chip, CloseButton, cx, ErrorNote, IconButton, SearchField, Spinner } from "../../ui";
+import { Button, Chip, CloseButton, cx, Failed, IconButton, SearchField, Spinner } from "../../ui";
 
 /** A file no render used for this long, and not put there lately, is offered for deleting first. */
 const UNUSED_DAYS = 30;
@@ -139,7 +139,7 @@ export function VolumeFiles({ volume, name, folder: askedFolder, pickUnused = fa
           <CloseButton data-dialog-close="" keys="Esc" onClose={onClose} />
         </div>
 
-        {files.isError && <div className="p-5"><ErrorNote>{files.error.message}</ErrorNote></div>}
+        {files.isError && <div className="p-5"><Failed what="Files not loaded" error={files.error} /></div>}
         {files.isPending && <div className="p-5 text-xs text-ink-3">Reading the volume…</div>}
         {v && v.source === "none" && <div className="p-5 text-body text-ink-2">{v.why}</div>}
 
@@ -208,7 +208,7 @@ export function VolumeFiles({ volume, name, folder: askedFolder, pickUnused = fa
                     </button>
                   );
                 })}
-                {!rows.length && <div className="p-5 text-xs text-ink-3">{searching ? "Nothing matches." : "This folder is empty."}</div>}
+                {!rows.length && <div className="p-5 text-xs text-ink-3">{searching ? "Nothing matches" : "This folder is empty"}</div>}
               </div>
             </div>
           </div>
@@ -270,7 +270,7 @@ function DeleteFiles({ view, files, onDone, onClose }: { view: VolumeFilesView; 
         {only.length > 0 && <li>{only.length === files.length ? (files.length === 1 ? "This PC has no copy of it" : "This PC has a copy of none of them") : `This PC has no copy of ${only.length} of them`}: {only.slice(0, 3).map((f) => f.name.split("/").pop()).join(", ")}{only.length > 3 ? "…" : "."}</li>}
         {view.volume.usedBy && <li>{view.volume.usedBy.name}, running on it, reads its folders again.</li>}
       </ul>
-      {del.isError && <ErrorNote>{del.error.message}</ErrorNote>}
+      {del.isError && <Failed what="Not deleted" error={del.error} />}
       <DialogFoot>
         <Button tone="quiet" onClick={onClose}>Keep them <Keys keys="Esc" size="sm" /></Button>
         <Button tone="danger" onClick={() => del.mutate()} disabled={del.isPending}><Trash2 size={13} /> Delete {plural(files.length, "file")}</Button>

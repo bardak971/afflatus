@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type SettingsPatch } from "../../api";
 import { useSettings } from "../../data";
-import { AutoText, Button, Chip, ErrorNote, Help, Toggle } from "../../ui";
+import { AutoText, Button, Chip, Failed, Help, Toggle } from "../../ui";
 import { Block, Card, Fact, Row } from "./Rows";
 import { queryKeys } from "../../queryKeys";
 import { SETTING_HELP } from "@afflatus/core";
@@ -11,7 +11,7 @@ import { SETTING_HELP } from "@afflatus/core";
 function Guides({ own, onSave }: { own: Record<string, string>; onSave(id: string, text: string): Promise<unknown> }) {
   const guides = useQuery({ queryKey: queryKeys.designerGuides(), queryFn: api.designerGuides, staleTime: 60_000 });
   const [open, setOpen] = useState<string | null>(null);
-  if (guides.isError) return <Block><ErrorNote>{guides.error.message}</ErrorNote></Block>;
+  if (guides.isError) return <Block><Failed what="Guides not loaded" error={guides.error} /></Block>;
   return (
     <>
       {(guides.data?.items ?? []).map((g) => (
@@ -61,7 +61,7 @@ function GuideEditor({ guide, own, open, onOpen, onSave }: {
               <Help text={yours ? "The designer is given your text for this family." : "Change it and save: yours replaces the built-in text for this family only."} />
             </span>
           </div>
-          {save.isError && <ErrorNote>{save.error.message}</ErrorNote>}
+          {save.isError && <Failed what="Guide not saved" error={save.error} />}
         </div>
       )}
     </div>
@@ -95,7 +95,7 @@ export function WritingCard() {
         <Fact tip="A wildcard: one of the choices for each output">{"{red|black|white}"}</Fact>
         <Fact tip="Changes the weight of the tag the cursor is in">Ctrl + ↑ ↓</Fact>
       </Row>
-      {save.isError && <Block><ErrorNote>{save.error.message}</ErrorNote></Block>}
+      {save.isError && <Block><Failed what="Not saved" error={save.error} /></Block>}
     </Card>
   );
 }

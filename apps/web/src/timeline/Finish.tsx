@@ -1,25 +1,33 @@
-import { OWN_MODEL, resamplesLatent } from "@afflatus/core";
+import { OWN_MODEL, resamplesLatent, UPSCALE_ROUTE_WORDS, type InputSpec } from "@afflatus/core";
 import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { api, type Clip, type FinishRedo, type FinishSettings } from "../api";
 import { useRecipes, useSettings } from "../data";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "../Dialog";
-import { FieldRow } from "../fields";
+import { Field, FieldRow } from "../fields";
 import { est, fileLabel, plural } from "../format";
 import { Select } from "../Select";
 import { Button, Chip, cx, Failed, Help, NumberBox, Segmented, Toggle } from "../ui";
 import { queryKeys } from "../queryKeys";
 import { seedvrBatch } from "../snap";
 
+// the same names, order and lines as a video form's Upscale list (card #172), then Face refine, which only Finish offers as a route
 const ROUTES: Array<{ value: FinishSettings["route"]; label: string; detail: string }> = [
-  { value: "seedvr", label: "SeedVR2 (restores + enlarges)", detail: "any clip; the whole clip in view, so no flicker; compression and softness repaired too. Minutes per clip" },
-  { value: "latent", label: "H3 latent re-sample", detail: "H3 clips: the draft's own latent re-sampled larger with the prompt in hand: the same motion, detail the model would have drawn, seamless joins kept. Other clips take SeedVR2" },
-  { value: "rtx", label: "RTX Video Super Resolution", detail: "NVIDIA's driver: near real time, steady, modest detail. Windows and an RTX card" },
-  { value: "model", label: "Pixel upscale model", detail: "an ESRGAN-type model, frame by frame: fast, sharp, may shimmer" },
-  { value: "face", label: "Face refine (H3, SCAIL 24 fps, LTX 2.5)", detail: "H3 and LTX 2.5 clips with a person's picture (the cast's, else the first reference picture; an LTX 2.5 clip's first frame too), and SCAIL-2 clips at 24 fps (towards their Picture): the take's own frames, its faces redrawn closer to the picture, nothing else changed. Best on slow-moving shots. Other clips are skipped" },
+  { value: "seedvr", ...UPSCALE_ROUTE_WORDS.seedvr },
+  { value: "latent", label: UPSCALE_ROUTE_WORDS.latent.label, detail: `${UPSCALE_ROUTE_WORDS.latent.detail}. A model that does not offer it (H3 does) takes SeedVR2` },
+  { value: "rtx", ...UPSCALE_ROUTE_WORDS.rtx },
+  { value: "model", ...UPSCALE_ROUTE_WORDS.model },
+  { value: "face", label: "Face refine", detail: "the take's faces redrawn closer to the person's picture, nothing else changed: H3 and LTX 2.5 clips, SCAIL-2 at 24 fps; the others are skipped" },
 ];
+/** SeedVR2's batch size as the form's own field draws it: "auto" at the left end, never a bare 0 read as off. */
+const SEEDVR_BATCH: InputSpec = {
+  id: "seedvrFrames", type: "number", label: "SeedVR2 batch size", min: 1, max: 49, step: 4, default: 0, auto: "auto",
+  note: "batch_size: frames restored together (1, 5, 9…), each seeing the others. Wider is steadier, with fewer joins; auto (the left end) takes 49 on the 7B where it fits",
+};
 const COLOURS = ["lab", "wavelet", "adain", "none"] as const;
+// a strong denoise at the model's shift: on H3 the whole range starts near 0.84–0.96 of real noise, so a step of 0.05 changes little
+const FACE_DENOISE_NOTE = "denoise at the model's shift: full on faces of 30 px and under, a third at 120 px and up. Higher is closer to the picture, further from the take. A SCAIL-2 clip keeps its own";
 const FALLBACK: FinishSettings = { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentNoise: 0.35, latentSteps: 3, faceDenoise: 0.45, seedvrFrames: 0, sharpen: 0 };
 
 /**
@@ -73,7 +81,7 @@ export function FinishDialog({ timeline, clips, upscaleModels, models = { face: 
       row.clips.push(clips.indexOf(c) + 1);
       by.set(family, row);
     }
-    const pixel = v.route === "rtx" ? "RTX VSR" : v.route === "model" ? "a pixel model" : "SeedVR2";
+    const pixel = v.route === "rtx" ? "RTX VSR" : v.route === "model" ? "an upscale model" : "SeedVR2";
     return [...by.values()].map((row) => ({
       ...row,
       route: v.route === "face" ? (row.face ? "Face refine" : "left as it is") : v.route === "latent" && row.latent ? `latent re-sample${v.face && row.face ? " + Face refine" : ""}` : v.face && row.face ? `Face refine, then ${pixel}` : pixel,
@@ -104,28 +112,22 @@ export function FinishDialog({ timeline, clips, upscaleModels, models = { face: 
             <Select label="Route" value={v.route} onChange={(route) => setV({ ...v, route: route as FinishSettings["route"] })} options={ROUTES.map((r) => ({ value: r.value, label: r.label, detail: r.detail }))} />
           </FieldRow>
           {v.route !== "face" && <FieldRow label="Upscale by" note={v.route === "latent" ? "1.5 is light on video memory; 2 asks much more of H3's re-sample" : v.route === "seedvr" ? "2 is what SeedVR2 is tuned for; 1 restores without enlarging" : "2 is what the routes are tuned for"} trail>
-            <NumberBox label="Upscale factor" value={v.factor} min={1} max={4} step={0.25} unit="×" onCommit={(factor) => setV({ ...v, factor })} />
+            <NumberBox label="Upscale by" value={v.factor} min={1} max={4} step={0.25} unit="×" onCommit={(factor) => setV({ ...v, factor })} />
           </FieldRow>}
           {v.route === "face" && (
-            <FieldRow label="Denoise" note="ComfyUI's denoise at the model's shift, so the face is redrawn strongly: on H3 the whole range starts near 0.84–0.96 of real noise, and a step of 0.05 changes little. In full on the smallest faces (30 px and under); a face of 120 px and more gets about a third of it. More is closer to the picture and further from the take. H3 and LTX 2.5 clips; a SCAIL-2 clip keeps its own (0.35 unless its form said otherwise)" trail>
+            <FieldRow label="Face refine denoise" note={FACE_DENOISE_NOTE} trail>
               <NumberBox label="Face refine denoise" value={v.faceDenoise ?? 0.45} min={0.3} max={0.6} step={0.05} onCommit={(faceDenoise) => setV({ ...v, faceDenoise })} />
             </FieldRow>
           )}
           {(v.route === "seedvr" || (v.route === "latent" && resampled < videos.length)) && (
             <>
               <FieldRow label="SeedVR2 model" note="The 3B (fast) or the 7B (sharper, slower, steadier over its wider window); its VAE is the same">
-                <Select label="SeedVR2 model" value={v.seedvrModel ?? ""} onChange={(seedvrModel) => setV({ ...v, seedvrModel })} options={[{ value: "", label: "Settings › Models' file" }, ...models.seedvr.map((m) => ({ value: m, label: fileLabel(m) }))]} />
+                <Select label="SeedVR2 model" value={v.seedvrModel ?? ""} onChange={(seedvrModel) => setV({ ...v, seedvrModel })} options={[{ value: "", label: "Default (Settings › Models)" }, ...models.seedvr.map((m) => ({ value: m, label: fileLabel(m) }))]} />
               </FieldRow>
-              <FieldRow label="Colour match" note="SeedVR2's restored frames matched in colour to the originals: lab is the most faithful, wavelet keeps the new fine detail, adain is a global tint">
-                <Segmented<(typeof COLOURS)[number]> label="Colour match" value={v.colour} onChange={(colour) => setV({ ...v, colour })} options={COLOURS.map((c) => ({ value: c, label: c }))} />
+              <FieldRow label="SeedVR2 colour match" note="the restored frames matched in colour to the originals: lab the most faithful, wavelet keeps the new fine detail, adain a global tint">
+                <Segmented<(typeof COLOURS)[number]> label="SeedVR2 colour match" value={v.colour} onChange={(colour) => setV({ ...v, colour })} options={COLOURS.map((c) => ({ value: c, label: c }))} />
               </FieldRow>
-              <FieldRow label="Batch size" note="SeedVR2's window: how many frames it restores together, each seeing the others. Wider is steadier from frame to frame and has fewer joins. 0 is auto: the 7B takes 49, with 2 latent frames crossfaded between passes, or the widest the card holds, never under 5; the 3B goes by the frame's size (5 at ×2 of a 576p clip, fewer when larger). More needs more video memory; past what the card holds it slows to a crawl" trail>
-                {/* 0 said as what it does, beside the box: a bare 0 read as off */}
-                <span className="flex items-center gap-2">
-                  <NumberBox label="SeedVR2 batch size (0 is auto)" value={v.seedvrFrames ?? 0} min={0} max={49} step={1} onCommit={(n) => setV({ ...v, seedvrFrames: seedvrBatch(n) })} />
-                  <span className="text-xs text-ink-3">{v.seedvrFrames ? "frames" : "auto: 49 on the 7B where it fits"}</span>
-                </span>
-              </FieldRow>
+              <Field spec={SEEDVR_BATCH} options={undefined} value={v.seedvrFrames ?? 0} onChange={(n) => setV({ ...v, seedvrFrames: seedvrBatch(Number(n)) })} />
             </>
           )}
           {/* what each model's clips take, a row a family: the timeline mixes models (H3, SCAIL-2, LTX) */}
@@ -146,39 +148,39 @@ export function FinishDialog({ timeline, clips, upscaleModels, models = { face: 
             </FieldRow>
           )}
           {v.route !== "face" && v.face && refined > 0 && (
-            <FieldRow label="Face denoise" note="ComfyUI's denoise at the model's shift: on H3 it starts near 0.84–0.96 of real noise. In full on the smallest faces (30 px and under); a face of 120 px and more gets about a third of it" trail>
+            <FieldRow label="Face refine denoise" note={FACE_DENOISE_NOTE} trail>
               <NumberBox label="Face refine denoise" value={v.faceDenoise ?? 0.45} min={0.3} max={0.6} step={0.05} onCommit={(faceDenoise) => setV({ ...v, faceDenoise })} />
             </FieldRow>
           )}
           {(v.route === "face" || v.face) && refined > 0 && (
-            <FieldRow label="Face refine model" note={`The model the faces are redrawn with. As each clip's form: the Face refine model its form says (a Swap starts on its own model). ${OWN_MODEL}: the clip's model, with its turbo when Turbo is on, nothing more loaded. Any other file is a second model to load beside the clip's: more RAM, and the time to load it. 4 steps on a fused or distilled turbo or the clip's model with its turbo, more on a full model. H3 clips; the others keep their own`}>
+            <FieldRow label="Face refine model" note={`As each clip's form: the one its form says. ${OWN_MODEL}: the clip's model, nothing more loaded; another file is a second model in RAM. H3 clips; the others keep their own`}>
               <Select label="Face refine model" value={v.faceModel ?? ""} onChange={(faceModel) => setV({ ...v, faceModel })} options={[{ value: "", label: "As each clip's form" }, ...(models.face.includes(OWN_MODEL) ? [{ value: OWN_MODEL, label: OWN_MODEL }] : []), ...models.face.filter((m) => m !== OWN_MODEL).map((m) => ({ value: m, label: fileLabel(m) }))]} />
             </FieldRow>
           )}
           {v.route === "latent" && resampled > 0 && (
-            <FieldRow label="Latent upscaler" note="The file that enlarges the latent, from models/latent_upscale_models; the re-sampling after it runs on each clip's own model">
-              <Select label="Latent upscaler" value={v.latentModel ?? ""} onChange={(latentModel) => setV({ ...v, latentModel })} options={[{ value: "", label: "Settings › Models' file" }, ...models.latent.map((m) => ({ value: m, label: fileLabel(m) }))]} />
+            <FieldRow label="Latent upscaler" note="from models/latent_upscale_models; the re-sample after it runs on each clip's own model">
+              <Select label="Latent upscaler" value={v.latentModel ?? ""} onChange={(latentModel) => setV({ ...v, latentModel })} options={[{ value: "", label: "Default (Settings › Models)" }, ...models.latent.map((m) => ({ value: m, label: fileLabel(m) }))]} />
             </FieldRow>
           )}
           {v.route === "latent" && (
             <>
-              <FieldRow label="Denoise" note="Re-sample denoise: the real noise level it starts at, whatever the model's shift. 0.35 re-noises to 35 %; higher redraws more, and moving edges flicker more, mouths and faces drift from the draft; lower leaves grain and smooths skin" trail>
+              <FieldRow label="Re-sample denoise" note="the σ the re-sample starts at, whatever the shift (0.35 = 35 % noise). Higher redraws more, and faces drift from the draft" trail>
                 <NumberBox label="Re-sample denoise" value={v.latentNoise} min={0.05} max={0.95} step={0.01} onCommit={(latentNoise) => setV({ ...v, latentNoise })} />
               </FieldRow>
-              <FieldRow label="Steps" note="Re-sample steps, from the denoise down to 0 on a gentle (karras) curve: 1 goes there in one jump; each step is a pass over the whole clip" trail>
+              <FieldRow label="Re-sample steps" note="from its denoise down to 0 (karras); each step is a pass over the whole clip" trail>
                 <NumberBox label="Re-sample steps" value={v.latentSteps} min={1} max={6} step={1} onCommit={(latentSteps) => setV({ ...v, latentSteps: Math.round(latentSteps) })} />
               </FieldRow>
             </>
           )}
           {v.route === "model" && (
-            <FieldRow label="Upscale model">
-              <Select label="Upscale model" value={v.upscaleModel} onChange={(upscaleModel) => setV({ ...v, upscaleModel })} placeholder={upscaleModels.length ? "The first found" : "No upscale model in ComfyUI"} options={[{ value: "", label: "The first found" }, ...upscaleModels.map((m) => ({ value: m, label: fileLabel(m) }))]} />
+            <FieldRow label="Upscaler" note="from models/upscale_models">
+              <Select label="Upscaler" value={v.upscaleModel} onChange={(upscaleModel) => setV({ ...v, upscaleModel })} placeholder={upscaleModels.length ? "The first found" : "No upscale model in ComfyUI"} options={[{ value: "", label: "The first found" }, ...upscaleModels.map((m) => ({ value: m, label: fileLabel(m) }))]} />
             </FieldRow>
           )}
           {/* every route but H3's own re-sample runs a pixel route, after which RCAS can go (the re-sample samples real detail) */}
           {v.route !== "face" && (v.route !== "latent" || resampled < videos.length) && (
-            <FieldRow label="Sharpen" note="RCAS (AMD FSR's contrast-adaptive sharpen) on the finished frames: crisps the edges an upscale leaves soft, without a plain sharpen's halos. 0.3 is a usual amount; 0 is off. Needs KJNodes" trail>
-              <NumberBox label="Sharpen (RCAS)" value={v.sharpen ?? 0} min={0} max={1} step={0.05} onCommit={(sharpen) => setV({ ...v, sharpen })} />
+            <FieldRow label="RCAS sharpen" note="AMD FSR's contrast-adaptive sharpen (KJNodes) on the finished frames, without a plain sharpen's halos. 0.3 is usual; 0 = off" trail>
+              <NumberBox label="RCAS sharpen" value={v.sharpen ?? 0} min={0} max={1} step={0.05} onCommit={(sharpen) => setV({ ...v, sharpen })} />
             </FieldRow>
           )}
           {finished.length > 0 && (

@@ -6,7 +6,8 @@ import type { MenuItem } from "../../ContextMenu";
 import { api, ApiError, type MachineProbe } from "../../api";
 import { useCopied, useFlash } from "../../hooks";
 import { queryKeys } from "../../queryKeys";
-import { Button, ButtonLink, cx, ErrorNote, fieldClass, Spinner, Toggle } from "../../ui";
+import { Button, ButtonLink, cx, Failed, fieldClass, Spinner, Toggle } from "../../ui";
+import { firstFailed } from "../../sayFailed";
 import { Block, Row } from "./Rows";
 
 const WHY_LOCK =
@@ -66,7 +67,7 @@ export function useAccessActions(id: string, label: string, probe: MachineProbe 
       { label: "Unlock…", icon: <LockOpen size={14} />, disabled: unlock.isPending, note: unlock.isPending ? "unlocking…" : undefined, run: askUnlock },
     ] : []),
   ];
-  const failed = [copyToken, renew, unlock].find((m) => m.isError)?.error;
+  const failed = firstFailed([["Token not copied", copyToken], ["Token not renewed", renew], ["Not unlocked", unlock]]);
   return { items, copyToken: () => copyToken.mutate(), copied, renew: askRenew, unlock: askUnlock, busy: renew.isPending || unlock.isPending, failed };
 }
 
@@ -110,7 +111,7 @@ export function AccessRow({ id, label, probe, url, rented = false, compact = fal
   const actions = useAccessActions(id, label, probe);
   const access = probe?.access;
   if (!access || access.state === "unknown") return null;
-  const failed = [lock, paste].find((m) => m.isError)?.error ?? (compact ? undefined : actions.failed);
+  const failed = firstFailed([["Not locked", lock], ["Token not saved", paste]]) ?? (compact ? undefined : actions.failed);
   const busy = lock.isPending || actions.busy;
 
   let line;
@@ -190,7 +191,7 @@ export function AccessRow({ id, label, probe, url, rented = false, compact = fal
           <span className="text-xs text-warn-ink">{access.manager} is too old: update it from ComfyUI's Manager, to 3.38 or later.</span>
         </Row>
       )}
-      {failed && <Block><ErrorNote>{failed.message}</ErrorNote></Block>}
+      {failed && <Block><Failed what={failed.what} error={failed.error} /></Block>}
     </>
   );
 }

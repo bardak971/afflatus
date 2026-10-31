@@ -8,7 +8,7 @@ import type { InputSpec } from "@afflatus/core";
 const NOTES: Record<string, string> = {
   seed: "The starting noise. The same seed, prompt and settings give the same result; another seed, another take.",
   noise_seed: "The starting noise. The same seed, prompt and settings give the same result; another seed, another take.",
-  loras: "Small add-on models that steer the main one (a style, a person, a motion). The strength is how much each one pulls.",
+  loras: "From models/loras. The strength is each LoRA's weight, as <lora:name:0.8> in A1111.",
   sampler: "How each step removes noise (sampler_name in ComfyUI). Euler is the safe default; ancestral samplers (_a) add noise back and vary more.",
   sampler_name: "How each step removes noise. Euler is the safe default; ancestral samplers (_a) add noise back and vary more.",
   scheduler: "How the noise level falls over the steps. Normal and simple suit most models; karras spends more steps on fine detail.",

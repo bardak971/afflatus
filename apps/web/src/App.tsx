@@ -35,6 +35,7 @@ const KeysHelp = lazy(() => import("./KeysHelp").then((m) => ({ default: m.KeysH
 const FirstLaunch = lazy(() => import("./screens/FirstLaunch").then((m) => ({ default: m.FirstLaunch })));
 import { NavRail } from "./NavRail";
 import { EditorSkeleton } from "./timeline/EditorSkeleton";
+import { ScreenSkeleton } from "./ScreenSkeleton";
 import { WorkflowEditorSkeleton } from "./screens/workflowEditor/EditorSkeleton";
 import { useTheme } from "./theme/store";
 import { useKeepForSync } from "./keepFor";
@@ -157,8 +158,8 @@ export function App() {
     <div className="flex h-full flex-col">
       <div className="flex min-h-0 grow">
         <NavRail />
-        {/* while a screen's code loads: an editor's own shape for the timeline and workflow editors (they then land in place), else a line */}
-        <Suspense fallback={/^\/timelines\/[^/]+/.test(path) ? <EditorSkeleton id={path.split("/")[2]} /> : /^\/workflows\/[^/]+/.test(path) ? <WorkflowEditorSkeleton /> : <div className="grow p-8 text-ink-2">Loading…</div>}>
+        {/* while a screen's code loads: an editor's own shape for the timeline and workflow editors (they then land in place), else the screen's header and cards */}
+        <Suspense fallback={/^\/timelines\/[^/]+/.test(path) ? <EditorSkeleton id={path.split("/")[2]} /> : /^\/workflows\/[^/]+/.test(path) ? <WorkflowEditorSkeleton /> : <ScreenSkeleton path={path} />}>
         <Screens path={path} firstLaunch={first.shows} />
         </Suspense>
       </div>

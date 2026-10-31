@@ -5,7 +5,8 @@ import { useSetup } from "../../data";
 import { dayOf, plural, size, sourceOf, UI_LOCALE, when } from "../../format";
 import { useCopied } from "../../hooks";
 import { Progress } from "../../progress/Progress";
-import { Button, cx, ErrorNote, Help, Toggle } from "../../ui";
+import { Button, cx, Failed, Help, Toggle } from "../../ui";
+import { firstFailed } from "../../sayFailed";
 import { aboutState, askGoBack, followRestart, newsOf, stepsOf, useUpdates, useUpdatesSeen, versionNote } from "../../updates";
 import { Block, Card, Row, Status } from "./Rows";
 import { GetFfmpeg } from "../../GetFfmpeg";
@@ -76,7 +77,7 @@ export function AboutCard() {
             </Fragment>
           ))}
           {health.isSuccess && !checks.length && <Block className="text-xs text-ink-3">Not checked yet: the server started before these checks existed.</Block>}
-          {recheck.isError && <Block><ErrorNote>{recheck.error.message}</ErrorNote></Block>}
+          {recheck.isError && <Block><Failed what="Not checked again" error={recheck.error} /></Block>}
         </Card>
         {/* the first launch's page brought back: it stood on the ComfyUI tab for good (card #168) */}
         <FirstLaunchCard />
@@ -157,7 +158,7 @@ function UpdatesPart({ v, startupUnchecked }: { v: UpdatesView; startupUnchecked
   const latest = v.latest?.version ?? "";
   // Go back refused before its question (a rented GPU runs, a hunt is on), said where the other refusals are
   const [refused, setRefused] = useState<Error | null>(null);
-  const failed = refused ?? [check, update, cancel, back, save].find((m) => m.isError)?.error;
+  const failed = refused ? { what: "Not gone back", error: refused } : firstFailed([["Not checked", check], ["Not updated", update], ["Update not cancelled", cancel], ["Not gone back", back], ["Not saved", save]]);
   const goBack = async () => {
     setRefused(null);
     const yes = await askGoBack(v.previous!.version).catch((err: Error) => (setRefused(err), false));
@@ -255,7 +256,7 @@ function UpdatesPart({ v, startupUnchecked }: { v: UpdatesView; startupUnchecked
         <Toggle bare on={v.checks} onChange={(on) => save.mutate({ afflatusUpdateChecks: on })} label="Check for new versions" />
       </Row>
       {v.last?.kind === "went-back" && v.last.to === v.version && <Block className="text-xs text-ink-3">Back on {v.last.to} since {dayOf(v.last.at)}: {v.last.from} was set aside.</Block>}
-      {failed && <Block><ErrorNote>{failed.message}</ErrorNote></Block>}
+      {failed && <Block><Failed what={failed.what} error={failed.error} /></Block>}
     </>
   );
 }

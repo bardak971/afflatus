@@ -8,7 +8,7 @@ import { NOTIFY_HELP, NOTIFY_REFUSED, NotifyToggle } from "../NotifyToggle";
 import { useQueueOps } from "../queueOps";
 import { unloadBlock } from "../queueRules";
 import { useSayFailed } from "../sayFailed";
-import { Button, cx, ErrorNote, Help, IconButton, LiveDot, PageHeader, SectionTitle, SegmentCount, Segmented } from "../ui";
+import { Button, cx, Failed, Help, IconButton, LiveDot, PageHeader, SectionTitle, SegmentCount, Segmented } from "../ui";
 import { History } from "./queue/History";
 import { RenderTimes } from "./queue/Times";
 import { Costs } from "./queue/Costs";
@@ -168,7 +168,7 @@ export function Queue() {
           box of a fixed share, and the waiting list was drawn over the history, a rendering machine's card cut off, a gap
           left under one waiting job (2026-10-17). The other views keep a box of their own. */}
       <div className={cx("flex min-h-0 grow flex-col overflow-y-auto px-4 pt-4 pb-6 sm:px-8", tab !== "queue" && "lg:overflow-hidden")}>
-        {queue.error && <ErrorNote>Could not read the queue: {queue.error.message}</ErrorNote>}
+        {queue.error && <Failed what="Could not read the queue" error={queue.error} />}
 
         {tab === "times" && <div className="min-h-0 grow overflow-y-auto"><RenderTimes /></div>}
         {tab === "costs" && <div className="min-h-0 grow overflow-y-auto"><Costs /></div>}

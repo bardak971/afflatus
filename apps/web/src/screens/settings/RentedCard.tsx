@@ -14,7 +14,7 @@ import { queryKeys } from "../../queryKeys";
 import { useSayFailed } from "../../sayFailed";
 import { Button, Checkbox, cx, ErrorNote, Failed, fieldClass, Help } from "../../ui";
 import { runwayNowSaid, runwaySaid, runwayWhy } from "../queue/costsView";
-import { Block, Card, Row } from "./Rows";
+import { Block, Card, CardLoading, Row } from "./Rows";
 import { settingHref, tabHref } from "./settingsIndex";
 import { COLUMNS } from "./wide";
 import { capAmount } from "./capAmount";
@@ -49,7 +49,7 @@ function RunpodKey({ setting, label, onSaved, onCancel }: { setting: string; lab
         <SecretField id="runpod-key" label="RunPod API key" saved={false} placeholder="Your RunPod API key" valid={(key) => key.length >= 10} busy={saveKey.isPending} onSave={(key) => saveKey.mutateAsync(key)} />
         {onCancel && <Button tone="quiet" onClick={onCancel}>Cancel</Button>}
       </Row>
-      {saveKey.isError && <Block><ErrorNote>{saveKey.error.message}</ErrorNote></Block>}
+      {saveKey.isError && <Block><Failed what="Key not saved" error={saveKey.error} /></Block>}
     </>
   );
 }
@@ -86,7 +86,7 @@ function S3Key() {
         <SecretField label="S3 API key's secret" saved={false} placeholder="rps_…" valid={(key) => key.length >= 10} busy={save.isPending} onSave={(key) => save.mutateAsync(key)} />
         {changing && <Button tone="quiet" onClick={() => setChanging(false)}>Cancel</Button>}
       </Row>
-      {save.isError && <Block><ErrorNote>{save.error.message}</ErrorNote></Block>}
+      {save.isError && <Block><Failed what="S3 key not saved" error={save.error} /></Block>}
     </>
   );
 }
@@ -98,7 +98,7 @@ function S3Key() {
 export function RentRow() {
   const settings = useSettings();
   const running = useQueue().data?.machines.filter((m) => m.rented?.status === "RUNNING").length ?? 0;
-  if (!settings.data) return null;
+  if (!settings.data) return <CardLoading />;
   return (
     <Row setting="comfy.runpod" label="Or a RunPod pod" help={WHY_RUNPOD}>
       <span className="grow text-xs text-ink-2">{settings.data.hasRunpodKey ? `key saved${running ? ` · ${plural(running, "pod")} running` : ""}` : "no RunPod key yet"}</span>
@@ -264,7 +264,7 @@ function RunpodAccount() {
           {s?.lowBalance && <ErrorNote>Your RunPod balance is low: RunPod stops pods at zero, and may delete their disks after a while.</ErrorNote>}
           {Boolean(s?.storage?.stoppedDisks) && <ErrorNote>{s!.storage!.stoppedDisks === 1 ? "1 stopped pod with a disk: billed while it waits. Terminate it if you will not start it again." : `${s!.storage!.stoppedDisks} stopped pods with a disk: billed while they wait. Terminate them if you will not start them again.`}</ErrorNote>}
           {s?.storage?.unused.map((v) => <ErrorNote key={v.id}>The volume {v.name} is unused {v.usedAt ? `since ${when(v.usedAt)}` : "since Afflatus first saw it"}: {usd(v.perMonth)} a month for nothing. Delete it under Network volumes if you will not deploy on it soon.</ErrorNote>)}
-          {spending.isError && <ErrorNote>{spending.error.message}</ErrorNote>}
+          {spending.isError && <Failed what="Spending not loaded" error={spending.error} />}
         </Block>
       )}
     </Card>
@@ -327,7 +327,7 @@ function RunpodPods() {
       )}
     >
       {!has && <Block><span className="text-xs text-ink-2">Your pods on RunPod show here once the API key is saved (RunPod account, on this tab).</span></Block>}
-      {pods.isError && <Block><ErrorNote>{pods.error.message}</ErrorNote></Block>}
+      {pods.isError && <Block><Failed what="Pods not loaded" error={pods.error} /></Block>}
       {pods.isSuccess && !list.length && <Block><span className="text-xs text-ink-2">No pods on this account. Deploy a GPU, or make one on RunPod (a ComfyUI template, port 8188 exposed): then it shows here.</span></Block>}
       {list.map((p) => {
         const { status, rate } = live(p);
@@ -375,7 +375,7 @@ function RunpodPods() {
           </div>
         );
       })}
-      {add.isError && <Block><ErrorNote>{add.error.message}</ErrorNote></Block>}
+      {add.isError && <Block><Failed what="Pod not added" error={add.error} /></Block>}
     </Card>
   );
 }

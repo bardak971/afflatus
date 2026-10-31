@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ApiError } from "../api";
 import { useNow } from "../hooks";
-import { Button, ErrorNote } from "../ui";
+import { Button, Failed } from "../ui";
 import { CardSkeleton } from "./Card";
 
 /** Past this long, a page being asked says who is slow. */
@@ -38,12 +38,9 @@ export function SlowSaid({ site, waiting }: { site: string; waiting: boolean }) 
 export function SiteFailed({ error, other, onRetry }: { error: Error; other: string; onRetry(): void }) {
   const theSite = error instanceof ApiError && (error.status === 502 || error.status === 504);
   return (
-    <ErrorNote>
-      <span className="flex flex-col items-start gap-1.5">
-        <span className="font-semibold">{error.message}</span>
-        {theSite && <span className="text-xs">Your models (Yours) and {other} still work.</span>}
-        <Button size="sm" onClick={onRetry}>Try again</Button>
-      </span>
-    </ErrorNote>
+    <Failed what="Page not loaded" error={error}>
+      {theSite && <span className="block pt-1 text-xs">Your models (Yours) and {other} still work.</span>}
+      <span className="block pt-1.5"><Button size="sm" onClick={onRetry}>Try again</Button></span>
+    </Failed>
   );
 }

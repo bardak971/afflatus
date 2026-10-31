@@ -8,9 +8,9 @@ import { api, raw, type Entity } from "../../api";
 import { ringBy, useKitEdits } from "../../agentEdits";
 import { useAutosave } from "../../autosave";
 import { Select } from "../../Select";
-import { AutoText, Button, Checkbox, cx, Empty, ErrorNote, fieldClass, Segmented, TwoStep } from "../../ui";
+import { AutoText, Button, Checkbox, cx, Empty, Failed, fieldClass, Segmented, TwoStep } from "../../ui";
 import { remember, remembered, textOf } from "./shared";
-import { useSayFailed } from "../../sayFailed";
+import { firstFailed, useSayFailed } from "../../sayFailed";
 import { copyText } from "../../secureContext";
 import { useBanners } from "../../store";
 import { kitHref } from "./link";
@@ -115,7 +115,7 @@ function SnippetRow({ snippet, ticked, onTick, fresh }: { snippet: Snippet; tick
         options={(["any", "tags", "sentences"] as const).map((v) => ({ value: v, label: STYLE_WORDS[v] }))}
       />
       <TwoStep title={`Delete the snippet ${snippet.name}`} stay yes="Delete" onYes={() => remove.mutate()} />
-      {(save.failure || remove.isError) && <div className="col-span-6"><ErrorNote>{save.failure ?? remove.error?.message}</ErrorNote></div>}
+      {(save.failure || remove.isError) && <div className="col-span-6"><Failed what={save.failure ? "Not saved" : "Not deleted"} error={save.failure ?? remove.error} /></div>}
     </div>
   );
 }
@@ -163,6 +163,7 @@ export function SnippetTable({ snippets, query, only, onOnly: setOnly, fresh }: 
       return refresh();
     },
   });
+  const listFailed = firstFailed([["Not moved", move], ["Not deleted", removeAll]]);
   // a long list starts folded; a search, one category or a short list shows everything
   const narrow = Boolean(query.trim()) || only !== null || snippets.length <= 40;
   const isOpen = (c: string) => narrow || (folds[c] ?? false) || found.some((s) => s.id === fresh && s.def.category === c);
@@ -220,11 +221,11 @@ export function SnippetTable({ snippets, query, only, onOnly: setOnly, fresh }: 
           <Button size="sm" tone="quiet" onClick={() => setTicked(new Set())}>Untick all</Button>
         </div>
       )}
-      {(move.isError || removeAll.isError) && <ErrorNote>{(move.error ?? removeAll.error)?.message}</ErrorNote>}
+      {listFailed && <Failed what={listFailed.what} error={listFailed.error} />}
       {snippets.length === 0 && (
         <Empty title="No snippets yet" helpTitle="Snippets" help={`A snippet is a bit of prompt text kept under a name: a pose, a light, a camera move. Under "Snippets" above a form, tick it and it is appended to your prompt each time you generate; the dice ticks one of each category at random.`} />
       )}
-      {snippets.length > 0 && found.length === 0 && <Empty title="Nothing matches" />}
+      {snippets.length > 0 && found.length === 0 && <Empty title="Nothing matches" action={only ? <Button size="sm" onClick={() => setOnly(null)}>Every category</Button> : undefined}>{query ? `No snippet has “${query}”${only ? ` in ${only}` : ""}.` : undefined}</Empty>}
       {found.length > 0 && (
         <div className="grid grid-cols-[auto_minmax(110px,190px)_minmax(90px,150px)_minmax(0,1fr)_148px_auto] gap-1.5 px-1.5 text-meta font-bold tracking-label text-ink-3 uppercase">
           <span className="w-7" /><span className="px-2">Name</span><span className="px-2">Category</span><span className="px-2">Text</span><span>Prompt style</span><span className="w-8" />

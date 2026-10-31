@@ -6,7 +6,9 @@ import { useEntities, useRecipes } from "../../data";
 import { WritingHelp } from "../../WritingHelp";
 import { appendTo } from "../../promptText";
 import { LookBar, lookWords } from "../../LookBar";
-import { recipeLabel } from "../../format";
+import { plural, recipeLabel } from "../../format";
+import { modelGroups } from "../../picker";
+import { Operations } from "../../screens/studio/ModelPicker";
 import { Form, mainTextOf } from "../../RecipeForm";
 import { timelineKey } from "../../draftMachine";
 import { usePickedMachine } from "../../GenerateOn";
@@ -80,6 +82,14 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
   // before says nothing. The forms made window by window come last, under where they are made from
   const prior = index > 0 && before?.kind === "video" && before.recipe ? all.data?.recipes.find((r) => r.id === before.recipe) : undefined;
   const ordered = [...recipes.filter((r) => !r.traits?.windows), ...recipes.filter((r) => r.traits?.windows)];
+  const groups = modelGroups(ordered, all.data?.families ?? []);
+  const group = groups.find((g) => g.recipes.some((r) => r.id === recipe?.id));
+  const meets = (r: RecipeInfo): string | undefined => (r.traits?.windows ? "a window of the source" : prior ? `${JOIN_WORDS[joinWay(prior, r)]} after clip ${index}` : undefined);
+  // another model keeps the operation where it has it (Video with audio stays Video with audio), else takes its first
+  const pickModel = (key: string) => {
+    const to = groups.find((g) => g.key === key);
+    if (to) onRecipe((to.recipes.find((r) => r.title === recipe?.title) ?? to.recipes[0]!).id);
+  };
   const picker = under ? (
     // under a recording: what the recording does on each form, how it meets the clip before; leaving it is Remove
     <Select
@@ -90,18 +100,24 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
       footer={() => <div className="border-t border-line px-3 py-2 text-xs text-ink-3">{OTHER_MODELS_SAID}</div>}
     />
   ) : (
-    <Select
-      label="Model"
-      value={recipe?.id ?? ""}
-      onChange={onRecipe}
-      placeholder={recipes.length ? "Choose a model for this clip" : "No video model yet: import a workflow"}
-      options={ordered.map((r) => ({
-        value: r.id,
-        label: recipeLabel(all.data?.families.find((f) => f.id === r.family)?.name, r.title),
-        detail: r.summary,
-        ...(r.traits?.windows ? { group: "From a source", note: "a window of the source" } : prior ? { note: `${JOIN_WORDS[joinWay(prior, r)]} after clip ${index}` } : {}),
-      }))}
-    />
+    // as Studio picks (card #172): the model, then its operations side by side
+    <div className="flex flex-col gap-1.5">
+      <Select
+        label="Model"
+        value={group?.key ?? ""}
+        onChange={pickModel}
+        placeholder={recipes.length ? "Choose a model for this clip" : "No video model yet: import a workflow"}
+        options={groups.map((g) => ({
+          value: g.key,
+          label: g.name,
+          detail: g.summary || g.recipes.map((r) => r.title).join(" · "),
+          note: g.recipes.length > 1 ? plural(g.recipes.length, "operation") : meets(g.recipes[0]!),
+          ...(g.recipes.every((r) => r.traits?.windows) ? { group: "From a source" } : {}),
+        }))}
+      />
+      {group && recipe && group.recipes.length > 1 && <Operations group={group} recipe={recipe} why={() => null} pick={onRecipe} noteOf={meets} />}
+      {recipe && meets(recipe) && <span className="block text-xs text-ink-3 first-letter:uppercase">{meets(recipe)}</span>}
+    </div>
   );
   // nothing renders it yet: only the choice of what does
   // a clip made with a model taken out of Afflatus says so: its take plays on, a new one needs another model

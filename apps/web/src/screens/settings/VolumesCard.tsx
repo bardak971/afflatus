@@ -13,7 +13,8 @@ import { est, gb, plural, usd, when } from "../../format";
 import { Keys } from "../../Keys";
 import { queryKeys } from "../../queryKeys";
 import { Select } from "../../Select";
-import { Button, cx, ErrorNote, fieldClass, IconButton } from "../../ui";
+import { Button, cx, Failed, fieldClass, IconButton } from "../../ui";
+import { firstFailed } from "../../sayFailed";
 import { Block, Card } from "./Rows";
 import { VolumeFiles } from "./VolumeFiles";
 
@@ -68,7 +69,7 @@ export function VolumesCard() {
       )}
     >
       {!has && <Block><span className="text-xs text-ink-2">A network volume keeps the models between pods, in one data centre. Yours show here once the RunPod API key is saved (RunPod account, on this tab).</span></Block>}
-      {volumes.isError && <Block><ErrorNote>{volumes.error.message}</ErrorNote></Block>}
+      {volumes.isError && <Block><Failed what="Volumes not loaded" error={volumes.error} /></Block>}
       {volumes.isSuccess && !list.length && <Block><span className="text-xs text-ink-2">No volume on this account. Without one, each deploy fetches its models; with one, they wait there for the next pod.</span></Block>}
       {list.map((v) => <VolumeRow key={v.id} v={v} stock={plan.data?.places.find((p) => p.dataCenter === v.dataCenter)?.gpus ?? null} onAct={(kind) => setOpen({ kind, volume: v })} />)}
       {open?.kind === "make" && <MakeVolume plan={plan.data ?? null} onClose={() => setOpen(null)} />}
@@ -226,7 +227,7 @@ function MakeVolume({ plan, onClose }: { plan: VolumePlan | null; onClose(): voi
           <span className="text-xs text-ink-3">GB{gbs < 10 ? " · 10 at least" : ""} · {setsBytes ? `your sets take ${gb(setsBytes)}` : "no Model set yet"} · a volume grows later, never shrinks</span>
         </label>
         {plan && <span className="text-xs text-ink-2" data-tip={plan.fetch?.guessed ? GUESS_TIP : undefined}>{paysSaid(plan, gbs)}</span>}
-        {make.isError && <ErrorNote>{make.error.message}</ErrorNote>}
+        {make.isError && <Failed what="Volume not made" error={make.error} />}
       </div>
       <DialogFoot info={`Billed every month from now, pod or not`}>
         <Button tone="quiet" onClick={onClose}>Cancel <Keys keys="Esc" size="sm" /></Button>
@@ -252,6 +253,7 @@ function FillVolume({ volume, onClose }: { volume: NetworkVolume; onClose(): voi
       onClose();
     },
   });
+  const fillFailed = firstFailed([["What it needs not read", plan], ["Not filled", fill]]);
   const p = plan.data;
   const nothing = p !== undefined && p.missing.count === 0;
   const accepted = (p?.licences ?? []).every((l) => accept.has(l.id));
@@ -278,7 +280,7 @@ function FillVolume({ volume, onClose }: { volume: NetworkVolume; onClose(): voi
             {!accepted && <span className="text-xs text-warn-ink">Accept the licence above to fill with those files.</span>}
           </span>
         )}
-        {(plan.isError || fill.isError) && <ErrorNote>{(plan.error ?? fill.error)!.message}</ErrorNote>}
+        {fillFailed && <Failed what={fillFailed.what} error={fillFailed.error} />}
       </div>
       <DialogFoot info="Billed from the deploy, as any pod">
         <Button tone="quiet" onClick={onClose}>Cancel <Keys keys="Esc" size="sm" /></Button>
@@ -306,7 +308,7 @@ function GrowVolume({ volume, onClose }: { volume: NetworkVolume; onClose(): voi
         <input inputMode="numeric" aria-label="New size in GB" value={size} onChange={(e) => setSize(Math.min(4096, Number(e.target.value.replace(/\D/g, "")) || 0))} className={cx("h-8 w-[90px] font-mono text-xs", fieldClass)} />
         <span className="text-xs text-ink-3">GB · {usd(perMonth(size))} a month · it never shrinks again</span>
       </label>
-      {grow.isError && <ErrorNote>{grow.error.message}</ErrorNote>}
+      {grow.isError && <Failed what="Volume not grown" error={grow.error} />}
       <DialogFoot>
         <Button tone="quiet" onClick={onClose}>Cancel <Keys keys="Esc" size="sm" /></Button>
         <Button tone="primary" onClick={() => grow.mutate()} disabled={size <= volume.size || size > 4096 || grow.isPending}>Grow · {usd(perMonth(size))} a month</Button>
@@ -331,7 +333,7 @@ function DeleteVolume({ volume, onClose }: { volume: NetworkVolume; onClose(): v
         {volume.holds ? `It holds ${plural(volume.holds.count, "model file")} (as ${volume.holds.seenBy} saw it ${when(volume.holds.seenAt)}): the next deploys fetch them again.` : "What it holds is not known: everything on it goes."}
         {" "}Its {usd(volume.perMonth)} a month stops at once. This cannot be undone.
       </span>
-      {del.isError && <ErrorNote>{del.error.message}</ErrorNote>}
+      {del.isError && <Failed what="Volume not deleted" error={del.error} />}
       <DialogFoot>
         <Button tone="quiet" onClick={onClose}>Cancel <Keys keys="Esc" size="sm" /></Button>
         <Button tone="danger" onClick={() => del.mutate()} disabled={del.isPending}>Delete</Button>

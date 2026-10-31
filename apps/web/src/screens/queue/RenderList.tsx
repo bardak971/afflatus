@@ -3,7 +3,7 @@ import { Clapperboard, Image as ImageIcon } from "lucide-react";
 import { thumbUrl, type RenderItem, type TimesSummary } from "../../api";
 import { long, pace, took, when } from "../../format";
 import { Thumb } from "../../Thumb";
-import { Button, Chip, cx, ErrorNote, SectionTitle, Segmented } from "../../ui";
+import { Button, Chip, cx, Empty, Failed, SectionTitle, Segmented } from "../../ui";
 import { Legend, PhaseBar } from "./phases";
 
 type Page = { total: number; more: boolean; items: RenderItem[] };
@@ -33,7 +33,7 @@ export function RenderList({ d, renders, picked, onModel, only, onOnly, onOpen }
       <div className="grow" />
       <Legend />
     </div>
-    {renders.isError && <ErrorNote>{renders.error.message}</ErrorNote>}
+    {renders.isError && <Failed what="Renders not loaded" error={renders.error} />}
     <div className="flex flex-col gap-1.5">
       {listed.map((r) => (
         <div key={r.id} id={`render-${r.id}`} className="grid grid-cols-[44px_minmax(0,1.2fr)_minmax(0,2fr)_150px_120px] items-center gap-4 rounded-control border border-line bg-panel px-3 py-2 target:border-accent">
@@ -70,7 +70,7 @@ export function RenderList({ d, renders, picked, onModel, only, onOnly, onOpen }
           </div>
         </div>
       ))}
-      {renders.isSuccess && !listed.length && <div className="rounded-xl border border-line px-4 py-5 text-ink-2">No renders.</div>}
+      {renders.isSuccess && !listed.length && <Empty title={only === "trouble" ? "No failed or cancelled render in this window" : "No renders in this window"} action={only === "trouble" ? <Button size="sm" onClick={() => onOnly("all")}>Show all</Button> : undefined} />}
       {renders.hasNextPage && <div><Button size="sm" onClick={() => renders.fetchNextPage()} disabled={renders.isFetchingNextPage}>More</Button></div>}
       <span
         className="self-start text-xs text-ink-3"

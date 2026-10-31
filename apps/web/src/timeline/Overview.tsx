@@ -17,7 +17,7 @@ import { Picker } from "../PictureField";
 import { MicButton } from "../mic/MicRecord";
 import { PartHead } from "../recipeForm/Part";
 import { Select } from "../Select";
-import { Button, Chip, CloseButton, cx, Help, SectionTitle, Segmented } from "../ui";
+import { Button, Chip, CloseButton, cx, Failed, Help, SectionTitle, Segmented } from "../ui";
 import { change, past } from "./lookDrift";
 import { attention, attentionLine, canDismiss, dismissKey, fixAll, fixOf, fixWords, JOIN_HELP, planFix, plansToAsk, SHOWS, withPlans, type Act, type Fix, type JoinFigures, type Plan, type Row } from "./attention";
 
@@ -342,7 +342,7 @@ export function Overview({ timeline: t, aspect, clips, renderable, msOf, plan, w
             <span className="flex flex-wrap items-center gap-2 pt-1 text-xs text-ink-2">
               {elsewhere.length === 1 ? "1 take sits in another folder." : `${elsewhere.length} takes sit in other folders.`}
               <Button size="sm" disabled={gather.isPending} onClick={() => gather.mutate()} data-tip="Move those videos into this folder in the library. Nothing on the timeline changes.">{gather.isPending ? "Moving…" : "Move them here"}</Button>
-              {gather.isError && <span className="text-warn-ink">{gather.error.message}</span>}
+              {gather.isError && <Failed inline what="Not moved" error={gather.error} />}
             </span>
           )}
         </div>

@@ -6,7 +6,7 @@ import { useRecipes, useSettings } from "../../data";
 import { familyOnFor, machineLabel } from "../../machines";
 import { Select } from "../../Select";
 import { cx, Failed, Help, Segmented, Toggle } from "../../ui";
-import { Block, Card } from "./Rows";
+import { Block, Card, CardLoading } from "./Rows";
 import { ModelsCard } from "./ModelsTab";
 import { queryKeys } from "../../queryKeys";
 import { COLUMNS } from "./wide";
@@ -109,7 +109,7 @@ function AllGrid({ machines, scans, onOpen }: { machines: Machine[]; scans: Arra
     },
     onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved),
   });
-  if (!recipes.data || !settings.data) return null;
+  if (!recipes.data || !settings.data) return <CardLoading />;
   const said = settings.data.families;
   const families = recipes.data.families.filter((f) => recipes.data.recipes.some((r) => r.family === f.id));
   const recipesOf = (family: string) => recipes.data.recipes.filter((r) => r.family === family).map((r) => r.id);
