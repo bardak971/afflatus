@@ -138,7 +138,7 @@ class AfflatusExtension(ComfyExtension):
             AfflatusH3LatentHeadGuide,
             AfflatusH3LatentLanding,
             AfflatusH3SeamLatent,
-            # a continuation window held at the clip before's contrast (pack 0.45.0, card #212)
+            # a continuation window held at the clip before's sharpness (pack 0.45.0, its fine detail alone since 0.45.1, card #212)
             AfflatusH3RunUpMatch,
             MiniMaxH3GuidedContinuationWindow,
             MiniMaxH3LatentTailGuide,

@@ -19,8 +19,9 @@ export const H3_TRIM = "AfflatusTrimH3Latent";
 /** The pack's node (0.7.0) that puts the clip before's own last tokens in front of a window's new ones, to decode them as one piece. */
 export const H3_SEAM = "AfflatusH3SeamLatent";
 /**
- * The pack's node (0.45.0) that holds a sampled window at the clip before's contrast: its run-up comes out a few per cent
- * wider than the tail it copies, in every channel, and a chain compounded it clip after clip (card #212).
+ * The pack's node (0.45.0) that holds a sampled window at the clip before's sharpness: its run-up's fine detail comes out a
+ * few per cent sharper than the tail it copies, and a chain compounded it clip after clip (card #212). Since 0.45.1 it
+ * takes back that fine detail alone, the broad picture and the means as sampled.
  */
 export const H3_RUNUP_MATCH = "AfflatusH3RunUpMatch";
 /** The clip after's first tokens anchored at the window's end: a clip put between two others lands exactly on the next (the same pack). */
