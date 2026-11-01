@@ -45,8 +45,10 @@ describe("MiniMax H3 · Swap character", () => {
     expect(of(graph, "MiniMaxH3GuidedContinuationWindow")[0]!.inputs).toMatchObject({ overlap_frames: 22, extension_frames: 141 - 22 });
     expect(of(graph, "MiniMaxH3LatentTailGuide")).toHaveLength(1);
     expect(of(graph, "AfflatusH3SeamLatent")[0]!.inputs.overlap_frames).toBe(22);
-    // the window held at the window before's contrast first, as every H3 form (card #212)
-    expect(graph[(of(graph, "AfflatusH3SeamLatent")[0]!.inputs.sampled_window as [string, number])[0]]!.class_type).toBe("AfflatusH3RunUpMatch");
+    // the window held at the window before's contrast, then to its run's first clip, as every H3 form (cards #212, #215)
+    const anchor = graph[(of(graph, "AfflatusH3SeamLatent")[0]!.inputs.sampled_window as [string, number])[0]]!;
+    expect(anchor.class_type).toBe("AfflatusH3RunAnchor");
+    expect(graph[(anchor.inputs.sampled_window as [string, number])[0]]!.class_type).toBe("AfflatusH3RunUpMatch");
     // no frames pinned in its place: the one guide is the source's sound, for the lips
     expect(of(graph, "MiniMaxH3AddGuide").map((n) => [n.inputs.image === undefined, n.inputs.audio !== undefined])).toEqual([[true, true]]);
     // still masked: the sampler starts from the source's own latent, the person's tokens to redraw

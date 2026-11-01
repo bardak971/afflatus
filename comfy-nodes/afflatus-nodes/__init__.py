@@ -104,7 +104,7 @@ from .continuation_nodes import (  # noqa: E402
     MiniMaxH3GuidedContinuationWindow,
     MiniMaxH3LatentTailGuide,
 )
-from .latent_io import AfflatusH3LatentHeadGuide, AfflatusH3LatentLanding, AfflatusH3RunUpMatch, AfflatusH3SeamLatent, AfflatusH3TailGuide, AfflatusLoadH3Latent, AfflatusNormalizeH3Latent, AfflatusSaveH3Latent, AfflatusTrimH3Latent  # noqa: E402
+from .latent_io import AfflatusH3LatentHeadGuide, AfflatusH3LatentLanding, AfflatusH3RunAnchor, AfflatusH3RunUpMatch, AfflatusH3SeamLatent, AfflatusH3TailGuide, AfflatusLoadH3Latent, AfflatusNormalizeH3Latent, AfflatusSaveH3Latent, AfflatusTrimH3Latent  # noqa: E402
 from .latent_ltx import AfflatusLoadLTXLatent, AfflatusLTXContinuation, AfflatusLTXSeamLatent, AfflatusSaveLTXLatent, AfflatusTrimLTXLatent  # noqa: E402
 from .face_match import AfflatusFaceAt, AfflatusFaceBackdrop, AfflatusFaceCrop, AfflatusFaceFrame, AfflatusFaceMatch, available as face_available  # noqa: E402
 from .swap_mask import AfflatusSwapMask, AfflatusSwapMaskPreview, AfflatusSwapMatch, AfflatusSwapPaste  # noqa: E402
@@ -140,6 +140,8 @@ class AfflatusExtension(ComfyExtension):
             AfflatusH3SeamLatent,
             # a continuation window held at the clip before's sharpness (pack 0.45.0, its fine detail alone since 0.45.1, card #212)
             AfflatusH3RunUpMatch,
+            # and held to its run's first clip, the run's look carried on in its latent (pack 0.46.0, card #215)
+            AfflatusH3RunAnchor,
             MiniMaxH3GuidedContinuationWindow,
             MiniMaxH3LatentTailGuide,
             MiniMaxH3AppendContinuation,

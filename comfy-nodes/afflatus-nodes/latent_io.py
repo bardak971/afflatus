@@ -7,9 +7,11 @@ continuation nodes (Guided Continuation Window, Latent Tail Guide, Append Contin
 
 File layout: safetensors with tensors "video" [1, 24, T, H, W] and "audio" [1, 32, 2, T_audio], and
 metadata {"format": "afflatus-h3-av-latent/1", "frames": "<pixel frames>"}, and "runup_width" for a continuation window
-whose fine detail H3 Run-up Match corrected (its run-up width as sampled, pack 0.45.0).
+whose fine detail H3 Run-up Match corrected (its run-up width as sampled, pack 0.45.0), and "run_look" for a clip of a
+run H3 Run Anchor holds to its first clip (that clip's figures, JSON, pack 0.46.0).
 """
 
+import json
 import os
 import re
 
@@ -74,6 +76,10 @@ class AfflatusSaveH3Latent(io.ComfyNode):
         metadata = {"format": FORMAT, "frames": str(frames), "fps": str(FPS)}
         if samples.get(RUNUP_KEY) is not None and np.isfinite(samples[RUNUP_KEY]):
             metadata["runup_width"] = f"{float(samples[RUNUP_KEY]):.4f}"
+        look = valid_look(samples.get(RUN_KEY), int(video.shape[1]))
+        if look:
+            # the run's look, for the clip that continues this one (Run Anchor): 6 significant digits are ample for a spread
+            metadata["run_look"] = json.dumps({k: [float(f"{x:.6g}") for x in v] for k, v in look.items()}, separators=(",", ":"))
         safetensors.torch.save_file(
             {"video": video.detach().to("cpu").contiguous(), "audio": audio.detach().to("cpu").contiguous()},
             path,
@@ -131,9 +137,17 @@ class AfflatusLoadH3Latent(io.ComfyNode):
         # the run-up width as sampled, when Run-up Match wrote it: a finish keeps the draft's latent, and its figure with it
         from . import read_header
 
-        width = ((read_header(path) or {}).get("__metadata__") or {}).get("runup_width")
+        meta = (read_header(path) or {}).get("__metadata__") or {}
+        width = meta.get("runup_width")
         if isinstance(width, str) and re.fullmatch(r"\d+(\.\d+)?", width):
             out[RUNUP_KEY] = float(width)
+        # and the look of the run it belongs to, when Run Anchor carried one: the clip after is held to it
+        try:
+            look = valid_look(json.loads(meta["run_look"]), int(video.shape[1])) if isinstance(meta.get("run_look"), str) else None
+        except ValueError:
+            look = None
+        if look:
+            out[RUN_KEY] = look
         return io.NodeOutput(out, frames)
 
 
@@ -175,12 +189,16 @@ class AfflatusNormalizeH3Latent(io.ComfyNode):
             display_name="Afflatus: Normalize H3 Latent",
             category="Afflatus",
             description="A sampled MiniMax H3 continuation window carries its audio on the previous run's boundaries, one token more or less than its own frame count says. This trims or pads it to its own boundary, so the window is a valid clip to continue from.",
-            inputs=[io.Latent.Input("samples", tooltip="A sampled MiniMax H3 latent (video and audio).")],
+            inputs=[
+                io.Latent.Input("samples", tooltip="A sampled MiniMax H3 latent (video and audio)."),
+                # (0.46.0) a node that re-encodes the window (Face refine's) hands on no more than its samples
+                io.Latent.Input("figures_from", optional=True, tooltip="The window as sampled, when `samples` was made from it by a node that drops what it carries (Face refine's re-encode): its run-up width and its run's look are kept from there."),
+            ],
             outputs=[io.Latent.Output(display_name="latent"), io.Int.Output(display_name="frames")],
         )
 
     @classmethod
-    def execute(cls, samples) -> io.NodeOutput:
+    def execute(cls, samples, figures_from=None) -> io.NodeOutput:
         video, audio = _extract_h3_av_streams(samples, name="samples")
         frames = frame_count_from_video_latent_t(int(video.shape[2]))
         want = audio_t_at_frame_boundary(frames)
@@ -189,7 +207,7 @@ class AfflatusNormalizeH3Latent(io.ComfyNode):
             audio = audio[..., :want]
         elif have < want:
             audio = torch.cat((audio, audio.new_zeros((*audio.shape[:-1], want - have))), dim=-1)
-        return io.NodeOutput(with_runup({"samples": NestedTensor((video, audio))}, samples), frames)
+        return io.NodeOutput(with_runup({"samples": NestedTensor((video, audio))}, samples, figures_from), frames)
 
 
 class AfflatusTrimH3Latent(io.ComfyNode):
@@ -218,7 +236,11 @@ class AfflatusTrimH3Latent(io.ComfyNode):
         tokens = video_latent_t(frames)
         video = video[:, :, :tokens]
         audio = audio[..., : audio_t_at_frame_boundary(frames)]
-        return io.NodeOutput({"samples": NestedTensor((video.contiguous(), audio.contiguous()))}, frames)
+        # the run's look kept: a clip continued from where it still moved belongs to the same run
+        out = {"samples": NestedTensor((video.contiguous(), audio.contiguous()))}
+        if isinstance(samples, dict) and samples.get(RUN_KEY) is not None:
+            out[RUN_KEY] = samples[RUN_KEY]
+        return io.NodeOutput(out, frames)
 
 
 def guide_frames_of(keyframe) -> int:
@@ -408,6 +430,15 @@ RUNUP_MIN_CORRELATION = 0.98
 # the ten joins of the 2026-11-01 pod test (a cut and a flash among them). Past this it is not the sampler's creep, and the
 # window is left as it was sampled.
 RUNUP_GAIN = (0.9, 1.1)
+# The key of a latent's dict that carries its run's look (Run Anchor, pack 0.46.0): the figures of the run's first clip, a
+# clip that continues none. Each continuation carries them on, Save writes them into the file's metadata ("run_look") and
+# Load reads them back, so that every clip of a run is held to its first, not to the clip before.
+RUN_KEY = "afflatus_run_look"
+# How far a window's own part may sit from its run's look and still be the same run's: the largest of the mean distance of
+# the channel means and the rms log ratio of the broad and fine spreads. On the 2026-11-01 pod tests a café chain left
+# uncorrected for five joins read 0.16 at most, and the run after a cut 0.10 from its own first clip; a new scene sent as a
+# continuation (the probe H3 cut right after its run-up, the rainy bus stop against the café) read 0.43 to 0.86.
+RUN_NEW_LOOK = 0.25
 
 
 def detail_and_broad(tokens):
@@ -471,10 +502,13 @@ def runup_match(tail, runup) -> RunUpMatch:
     return RunUpMatch(width, correlation, gain, scale=1.0 / gain)
 
 
-def with_runup(out: dict, source) -> dict:
-    """`out` with the run-up width `source` (a latent's dict) carries, when it carries one."""
-    if isinstance(source, dict) and source.get(RUNUP_KEY) is not None:
-        out[RUNUP_KEY] = source[RUNUP_KEY]
+def with_runup(out: dict, *sources) -> dict:
+    """`out` with the run-up width and the run's look the first of `sources` (latents' dicts) that carries each carries."""
+    for key in (RUNUP_KEY, RUN_KEY):
+        for source in sources:
+            if isinstance(source, dict) and source.get(key) is not None:
+                out[key] = source[key]
+                break
     return out
 
 
@@ -545,6 +579,150 @@ class AfflatusH3RunUpMatch(io.ComfyNode):
             video = (broad + (x - broad) * scale).to(win_video.dtype).contiguous()
         # the window's other entries kept (a sampler's output may carry more than its samples), the sound the same tensor
         out = {**sampled_window, "samples": NestedTensor((video, win_audio)), RUNUP_KEY: match.width}
+        return io.NodeOutput(out)
+
+
+def run_look(tokens) -> dict:
+    """The look of `tokens` [channels, n, h, w] a run is held to: per channel, the mean, the fine detail's spread and the
+    broad picture's (split as `detail_and_broad` does), as lists of floats (what a latent's metadata keeps)."""
+    t = np.asarray(tokens, dtype=np.float64)
+    channels = t.shape[0]
+    detail, broad = detail_and_broad(t)
+    return {
+        "mean": t.reshape(channels, -1).mean(axis=1).tolist(),
+        "fine": detail.reshape(channels, -1).std(axis=1).tolist(),
+        "broad": broad.reshape(channels, -1).std(axis=1).tolist(),
+    }
+
+
+def valid_look(look, channels: int):
+    """`look` when it is a run's look for `channels` channels (three lists of finite numbers, the spreads above nothing), else None."""
+    if not isinstance(look, dict):
+        return None
+    try:
+        parts = {k: np.asarray(look[k], dtype=np.float64) for k in ("mean", "fine", "broad")}
+    except (KeyError, TypeError, ValueError):
+        return None
+    if any(v.shape != (channels,) or not np.all(np.isfinite(v)) for v in parts.values()):
+        return None
+    if np.any(parts["fine"] <= 0) or np.any(parts["broad"] <= 0):
+        return None
+    return {k: v.tolist() for k, v in parts.items()}
+
+
+class RunAnchor:
+    """What Run Anchor does to a window: `scale` per channel, what its fine detail is multiplied by, and `shift`, what is
+    added to it (both None when it is left as sampled, `why` then says why); `distance`, how far its own part sat from the
+    run's look; and `look`, the run's look the window carries on (its own when it starts a new run)."""
+
+    def __init__(self, look, distance, scale=None, shift=None, why=None):
+        self.look = look
+        self.distance = distance
+        self.scale = scale
+        self.shift = shift
+        self.why = why
+
+
+def run_anchor(look: dict, own) -> RunAnchor:
+    """How to bring a window's own part (`own` [channels, n, h, w], its tokens after the run-up) back to its run's `look`:
+    per channel, its mean moved to the run's, and its fine detail scaled to the run's spread; the broad picture's spread
+    is left as sampled.
+
+    A seamless chain's every clip copies the one before and adds the same small bias, so it builds up along the run: the
+    channel means drift one way at every join (channel 23 down by 0.66, 17 to 20 up by 0.27 over five joins, 2026-11-01),
+    and the fine detail grows. Held to the clip before (Run-up Match), each join is seamless but the drift still adds up;
+    held to the run's first clip, it cannot. Decoded on the CPU from the pod test's kept latents, the sixth clip of the
+    uncorrected chain went from x1.52-1.87 sharper than the first back to x1.02-1.12, highlights and colour with it, where
+    Run-up Match alone kept x1.40-1.54. Neither the means nor the detail's spread alone did it (x1.21, x1.30). The broad
+    picture is left as sampled: matching its channel covariance as well flattened a prompted flash by a fifth, where this
+    kept it at its full height.
+
+    A window whose own part sits far from the run's look (RUN_NEW_LOOK) is a new look the prompt asked for or a cut the
+    model made after its run-up: left as sampled, its own look starts a new run.
+    """
+    o = np.asarray(own, dtype=np.float64)
+    channels = o.shape[0]
+    mine = run_look(o)
+    ref = {k: np.asarray(v, dtype=np.float64) for k, v in look.items()}
+    now = {k: np.asarray(v, dtype=np.float64) for k, v in mine.items()}
+    if np.any(now["fine"] <= 0) or np.any(now["broad"] <= 0):
+        return RunAnchor(look, float("nan"), why="a channel of the window is flat")
+    with np.errstate(divide="ignore", invalid="ignore"):
+        distance = float(
+            max(
+                np.abs(now["mean"] - ref["mean"]).mean(),
+                np.sqrt((np.log(now["broad"] / ref["broad"]) ** 2).mean()),
+                np.sqrt((np.log(now["fine"] / ref["fine"]) ** 2).mean()),
+            )
+        )
+    if not np.isfinite(distance) or distance > RUN_NEW_LOOK:
+        return RunAnchor(valid_look(mine, channels), distance, why=f"its look is {distance:.3f} from the run's, past {RUN_NEW_LOOK}: a new look, which starts a new run")
+    return RunAnchor(look, distance, scale=ref["fine"] / now["fine"], shift=ref["mean"] - now["mean"])
+
+
+class AfflatusH3RunAnchor(io.ComfyNode):
+    """A sampled continuation window held to its run's first clip: per channel, its own part's mean and fine detail brought
+    back to that clip's, the broad picture left as it is; the run's look carried on in the latent for the clip after.
+
+    Run-up Match (before it) holds each join to the clip before, which keeps the join seamless but lets the small bias each
+    continuation adds build up along the chain. This holds every clip to the same look, read once on the run's first clip
+    (a clip that continues none, the first after a cut) and carried along the run in the kept latents (see `run_anchor`).
+    """
+
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="AfflatusH3RunAnchor",
+            display_name="Afflatus: H3 Run Anchor",
+            category="Afflatus",
+            description="Holds a sampled MiniMax H3 continuation window to its run's first clip: per latent channel, the mean of its new frames and the spread of their fine detail (each token less its 3x3 blur) are brought back to that clip's, the broad picture and the sound untouched. The run's look is read on the clip before when it carries none (a clip that continues none), and carried on in the latent. A seamless chain otherwise drifts a little at every join, sharper and off colour clip after clip. A window far from the run's look (a new look asked for, a cut) is left as sampled and starts a new run.",
+            inputs=[
+                io.Latent.Input("previous_av_latent", tooltip="The clip before's latent, as the window was made from it (cut to its hand-over frame when it was), with the run's look it carries."),
+                io.Latent.Input("sampled_window", tooltip="The continuation window after sampling (and Run-up Match): overlap, then the new frames."),
+                io.Int.Input("overlap_frames", default=22, min=5, max=3600, step=17, tooltip="The window's hidden overlap in frames: 5, 22, 39… (17k + 5)."),
+            ],
+            outputs=[io.Latent.Output(display_name="latent")],
+        )
+
+    @classmethod
+    def execute(cls, previous_av_latent, sampled_window, overlap_frames: int = 22) -> io.NodeOutput:
+        prev_video, _prev_audio = _extract_h3_av_streams(previous_av_latent, name="previous_av_latent")
+        win_video, win_audio = _extract_h3_av_streams(sampled_window, name="sampled_window")
+        overlap_t = video_latent_t(overlap_frames)
+        if int(win_video.shape[2]) <= overlap_t:
+            raise ValueError("the window holds no new frames after its overlap")
+        if prev_video.shape[:2] != win_video.shape[:2] or prev_video.shape[3:] != win_video.shape[3:]:
+            raise ValueError("the clip before's latent and the window are not the same size")
+        channels = int(win_video.shape[1])
+
+        def per_channel(tokens):
+            # [channels, tokens, h, w], a batch's tokens counted as more tokens of each channel
+            t = tokens.detach().to(device="cpu", dtype=torch.float64).transpose(0, 1)
+            return t.reshape(channels, -1, *t.shape[-2:]).numpy()
+
+        carried = valid_look(previous_av_latent.get(RUN_KEY), channels)
+        # a clip before with no look of a run (a first clip, an older pack's) starts the run: its own figures, the whole of it
+        look = carried or valid_look(run_look(per_channel(prev_video)), channels)
+        anchor = run_anchor(look, per_channel(win_video[:, :, overlap_t:])) if look else RunAnchor(None, float("nan"), why="the clip before is flat")
+        began = "" if carried else ", the run read on the clip before"
+        # (plain ASCII: a Windows console on another code page fails on more)
+        if anchor.why:
+            print(f"[afflatus-nodes] H3 Run Anchor: left as sampled, {anchor.why}{began}")
+            video = win_video
+        else:
+            print(f"[afflatus-nodes] H3 Run Anchor: held to the run's first clip, means moved {np.abs(anchor.shift).mean():.3f}, fine detail x{anchor.scale.min():.3f} to x{anchor.scale.max():.3f} by channel (look {anchor.distance:.3f} from the run's{began})")
+            x = win_video.float()
+            b, c, t, h, w = x.shape
+            # each token's 3x3 box blur, its edges repeated, as detail_and_broad reads it
+            tokens = x.permute(0, 2, 1, 3, 4).reshape(b * t, c, h, w)
+            broad = torch.nn.functional.avg_pool2d(torch.nn.functional.pad(tokens, (1, 1, 1, 1), mode="replicate"), 3, stride=1)
+            broad = broad.reshape(b, t, c, h, w).permute(0, 2, 1, 3, 4)
+            scale = torch.tensor(anchor.scale, dtype=torch.float32, device=x.device).view(1, channels, 1, 1, 1)
+            shift = torch.tensor(anchor.shift, dtype=torch.float32, device=x.device).view(1, channels, 1, 1, 1)
+            video = (broad + shift + (x - broad) * scale).to(win_video.dtype).contiguous()
+        out = {**sampled_window, "samples": NestedTensor((video, win_audio))}
+        if anchor.look:
+            out[RUN_KEY] = anchor.look
         return io.NodeOutput(out)
 
 

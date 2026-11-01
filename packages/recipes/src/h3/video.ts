@@ -12,7 +12,7 @@ import { FACE_REFINE_OPTIONAL, FACE_REFINE_PACK_NEEDED, FACE_REFINE_SLOTS, clipM
 import { H3_SOUND_CHAPTER, h3Inputs, type H3Video } from "./inputs";
 import { recordingInputs, recordingNodes, recordingOnClip, type Recording } from "../shared/recording";
 import { isH3Layout } from "./prompt";
-import { H3_CONTINUATION_NODES, H3_HEAD_GUIDE, H3_LANDING, H3_RUNUP_MATCH, H3_SEAM, H3_TRIM, resolveJoin } from "./join";
+import { H3_CONTINUATION_NODES, H3_HEAD_GUIDE, H3_LANDING, H3_RUN_ANCHOR, H3_RUNUP_MATCH, H3_SEAM, H3_TRIM, resolveJoin } from "./join";
 import { H3_LATENT_ENLARGE_NODES, H3_LATENT_UPSCALE_NODES, latentUpscaleNeeds, latentUpscalePass, latentUpscaleRounds, plainResizeSaid } from "./latent-upscale";
 import { AUTO_SAMPLER, H3_STARTS, loadH3Model, modelOf, namedFor, referenceNeeds, turboNeeds, uses, vedaNeeds } from "./model";
 
@@ -75,6 +75,8 @@ export const h3Video = defineRecipe<H3Video & Partial<Recording>>({
   optionalNodes: [FACE_NODE, ...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT, ...COLOUR_MATCH_NODES, ...H3_CONTINUATION_NODES, H3_SEAM, H3_HEAD_GUIDE, H3_LANDING, H3_TRIM, ...H3_SAVE_LATENT,
     // a continuation held at the clip before's sharpness (pack 0.45.0): an older pack continues as before
     H3_RUNUP_MATCH,
+    // and held to its run's first clip (pack 0.46.0): an older pack holds it to the clip before only
+    H3_RUN_ANCHOR,
     // the text encoder let go before sampling (pack 0.43.0): an older pack samples with it still loaded, as before
     FREE_TEXT_ENCODER,
     "MiniMaxH3Cache", "VedaSparseAttention", "ModelPatchTorchSettings", "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ",
@@ -342,7 +344,12 @@ export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   // got sharper and more contrasty clip after clip (×2 sharpness over five). Matched from the run-up alone, the run-up stays
   // the clip before's tail and the join seamless. Everything after reads it: the seam, the re-sample, the kept latent, the
   // model's own frames. Not for a finish (own), which re-samples a draft's kept latent as it was approved
-  const sampledWindow: Ref = previous && !own && ctx.has(H3_RUNUP_MATCH) ? g.out(H3_RUNUP_MATCH, { previous_av_latent: previous, sampled_window: [sampled, 0], overlap_frames: join.head }) : [sampled, 0];
+  const matched: Ref = previous && !own && ctx.has(H3_RUNUP_MATCH) ? g.out(H3_RUNUP_MATCH, { previous_av_latent: previous, sampled_window: [sampled, 0], overlap_frames: join.head }) : [sampled, 0];
+  // then held to the run's first clip (card #215): matched to the clip before alone, the small drift each continuation adds
+  // (the channel means one way, the fine detail up) still built up, and a six-clip chain still came out ×1.4 sharper and off
+  // colour. The run's look rides in the kept latents (the clip before's, else read on it: a clip that continues none starts
+  // a run); a window far from it (a new look asked for, a cut the model made) is left as sampled and starts a new run
+  const sampledWindow: Ref = previous && !own && ctx.has(H3_RUN_ANCHOR) ? g.out(H3_RUN_ANCHOR, { previous_av_latent: previous, sampled_window: matched, overlap_frames: join.head }) : matched;
   // decoded as one piece with the clip before (its own last tokens, then the new ones), so that the join is the whole chain's
   // decoded at once and plays as a plain cut. The latent saved for the clips after stays the (matched) sampled window
   const resample = input.upscale === UPSCALE.latent;

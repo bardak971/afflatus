@@ -24,6 +24,13 @@ export const H3_SEAM = "AfflatusH3SeamLatent";
  * takes back that fine detail alone, the broad picture and the means as sampled.
  */
 export const H3_RUNUP_MATCH = "AfflatusH3RunUpMatch";
+/**
+ * The pack's node (0.46.0) that then holds the window to its run's first clip (card #215): matched to the clip before
+ * alone, each join is seamless but the small drift every continuation adds (the channel means one way, the fine detail up)
+ * still built up along the chain. The run's look rides in the kept latents; a clip that continues none starts a run, and so
+ * does a window far from the run's look (a new look asked for, a cut the model made).
+ */
+export const H3_RUN_ANCHOR = "AfflatusH3RunAnchor";
 /** The clip after's first tokens anchored at the window's end: a clip put between two others lands exactly on the next (the same pack). */
 export const H3_HEAD_GUIDE = "AfflatusH3LatentHeadGuide";
 /**

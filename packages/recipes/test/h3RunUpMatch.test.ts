@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { checkGraph, dryContext, parseInput, type BuildContext, type NodeCatalog } from "@afflatus/core";
 import { describe, expect, it } from "vitest";
-import { H3_RUNUP_MATCH } from "../src/h3/join";
+import { H3_RUN_ANCHOR, H3_RUNUP_MATCH } from "../src/h3/join";
 import { h3Video } from "../src/h3/video";
 import { UPSCALE } from "../src/video/upscale";
 
@@ -20,12 +20,15 @@ const slots = {
 const joined = { width: 576, height: 1024, frames: 22, fps: 24, hasSound: true, latentFrames: 124 };
 const continued = { previous: "a.mp4", "previous.latent": "a.safetensors [temp]" };
 
+// a pack of 0.45: the match alone, before Run Anchor (0.46.0, card #215) came after it (h3RunAnchor.test.ts)
+const pack045 = (c: string) => c !== H3_RUN_ANCHOR;
+
 function build(values: Record<string, unknown>, ctx: Partial<BuildContext> = {}, uploads: Record<string, string> = continued) {
-  const built = h3Video.build(parseInput(h3Video, { description: "a", seconds: 5, previous: { asset: "c1" }, ...values }), dryContext({ seed: 7, slots, uploads, media: { previous: joined }, ...ctx }));
+  const built = h3Video.build(parseInput(h3Video, { description: "a", seconds: 5, previous: { asset: "c1" }, ...values }), dryContext({ seed: 7, slots, uploads, media: { previous: joined }, has: pack045, ...ctx }));
   return { built, graph: built.graph as Graph };
 }
 
-describe("MiniMax H3 · a continuation held at the clip before's contrast (card #212)", () => {
+describe("MiniMax H3 · a continuation held at the clip before's contrast (card #212), on a pack of 0.45", () => {
   it("matches the sampled window to the clip before's tail, and the seam, the decode and the kept latent read the matched window", () => {
     const { built, graph } = build({});
     const [[match, n]] = of(graph, H3_RUNUP_MATCH) as [[string, Node]];
@@ -80,7 +83,7 @@ describe("MiniMax H3 · a continuation held at the clip before's contrast (card 
 
   it("leaves the graph as it was on a pack without the node (before 0.45.0)", () => {
     const now = build({}).graph;
-    const { graph } = build({}, { has: (c) => c !== H3_RUNUP_MATCH });
+    const { graph } = build({}, { has: (c) => pack045(c) && c !== H3_RUNUP_MATCH });
     expect(of(graph, H3_RUNUP_MATCH)).toHaveLength(0);
     expect(Object.keys(graph)).toHaveLength(Object.keys(now).length - 1);
     const [sampled] = idOf(graph, "SamplerCustomAdvanced");

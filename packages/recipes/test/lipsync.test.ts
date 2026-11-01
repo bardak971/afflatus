@@ -92,11 +92,13 @@ describe("MiniMax H3 · Lip sync", () => {
     expect((guider.inputs.conditioning as [string, number])[0]).toBe(Object.entries(graph).find(([, n]) => n === audioGuides[0])![0]);
   });
 
-  it("holds a clip that continues in the latent at the clip before's contrast, as every H3 form (card #212)", () => {
+  it("holds a clip that continues in the latent at the clip before's contrast, then to its run's first clip, as every H3 form (cards #212, #215)", () => {
     const { graph } = build({ previous: { asset: "c1" } }, { previous: { ...joined, latentFrames: 124 }, ...recordingOf(4.2) }, { previous: "a.mp4", "previous.latent": "a.safetensors [temp]" });
     const match = Object.entries(graph).find(([, n]) => n.class_type === "AfflatusH3RunUpMatch")![0];
-    expect(of(graph, "AfflatusH3SeamLatent")[0]!.inputs.sampled_window).toEqual([match, 0]);
-    expect(of(graph, "AfflatusNormalizeH3Latent")[0]!.inputs.samples).toEqual([match, 0]);
+    const [anchor, anchorNode] = Object.entries(graph).find(([, n]) => n.class_type === "AfflatusH3RunAnchor")!;
+    expect(anchorNode.inputs.sampled_window).toEqual([match, 0]);
+    expect(of(graph, "AfflatusH3SeamLatent")[0]!.inputs.sampled_window).toEqual([anchor, 0]);
+    expect(of(graph, "AfflatusNormalizeH3Latent")[0]!.inputs.samples).toEqual([anchor, 0]);
   });
 
   it("asks the person to speak, after the scene", () => {
