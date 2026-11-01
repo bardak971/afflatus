@@ -73,7 +73,7 @@ export const h3Video = defineRecipe<H3Video & Partial<Recording>>({
     ];
   },
   optionalNodes: [FACE_NODE, ...UPSCALE_OPTIONAL, VHS, ...CORE_VIDEO_OUT, ...COLOUR_MATCH_NODES, ...H3_CONTINUATION_NODES, H3_SEAM, H3_HEAD_GUIDE, H3_LANDING, H3_TRIM, ...H3_SAVE_LATENT,
-    // a continuation held at the clip before's contrast (pack 0.45.0): an older pack continues as before
+    // a continuation held at the clip before's sharpness (pack 0.45.0): an older pack continues as before
     H3_RUNUP_MATCH,
     // the text encoder let go before sampling (pack 0.43.0): an older pack samples with it still loaded, as before
     FREE_TEXT_ENCODER,

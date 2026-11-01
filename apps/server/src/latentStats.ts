@@ -54,8 +54,8 @@ export function videoTokensOf(frames: number): number {
  * either file is not a saved latent, the sizes differ, or the overlap is off the grid.
  */
 export function latentDriftOf(current: Uint8Array, previous: Uint8Array, overlapFrames: number): { width: number } | null {
-  // a window the pack's Run-up Match brought back to the clip before's contrast (0.45.0, card #212) reads 1.000 by
-  // construction: the width as sampled is in its metadata, and that is the creep this figure is for
+  // a window the pack's Run-up Match corrected (0.45.0, card #212) no longer reads as it was sampled from its tokens:
+  // the width as sampled is in its metadata, and that is the creep this figure is for
   const stored = Number(headerOf(current)?.header.__metadata__?.runup_width);
   if (Number.isFinite(stored) && stored > 0) return { width: Math.round(stored * 1000) / 1000 };
   const cur = videoOf(current);

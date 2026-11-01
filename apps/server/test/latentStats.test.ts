@@ -45,8 +45,8 @@ describe("latent drift", () => {
     expect(latentDriftOf(same, same, 22)!.width).toBe(1);
   });
 
-  it("reads a matched window's width as sampled from its metadata, not the 1.000 its tokens now give", () => {
-    // the pack's Run-up Match (0.45.0) brought the run-up back to the tail: the figure keeps what the model made
+  it("reads a matched window's width as sampled from its metadata, not what its corrected tokens now give", () => {
+    // the pack's Run-up Match (0.45.0) corrected the window: the figure keeps what the model made
     const before = latentFile([1, 2, 7, 2, 2], (_c, _t, i) => (i % 2 ? 1 : -1), 22);
     const matched = latentFile([1, 2, 12, 2, 2], (_c, _t, i) => (i % 2 ? 1 : -1), 39, { runup_width: "1.0347" });
     expect(latentDriftOf(matched, before, 22)).toEqual({ width: 1.035 });

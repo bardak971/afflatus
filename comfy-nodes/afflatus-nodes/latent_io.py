@@ -7,7 +7,7 @@ continuation nodes (Guided Continuation Window, Latent Tail Guide, Append Contin
 
 File layout: safetensors with tensors "video" [1, 24, T, H, W] and "audio" [1, 32, 2, T_audio], and
 metadata {"format": "afflatus-h3-av-latent/1", "frames": "<pixel frames>"}, and "runup_width" for a continuation window
-whose run-up H3 Run-up Match corrected (its width as sampled, pack 0.45.0).
+whose fine detail H3 Run-up Match corrected (its run-up width as sampled, pack 0.45.0).
 """
 
 import os
@@ -397,62 +397,78 @@ class AfflatusH3SeamLatent(io.ComfyNode):
         return io.NodeOutput({"samples": NestedTensor((video.contiguous(), audio.contiguous()))})
 
 
-# The key of a latent's dict that carries a window's run-up width as sampled (before Run-up Match brought it back): Normalize
+# The key of a latent's dict that carries a window's run-up width as sampled (before Run-up Match corrected it): Normalize
 # passes it on, Save writes it into the file's metadata ("runup_width") and Load reads it back, so that Afflatus's figure of
-# the creep still reads what the model made, where the kept latent itself now reads 1.000.
+# the creep still reads what the model made, not what the corrected kept latent reads.
 RUNUP_KEY = "afflatus_runup_width"
 # A run-up guided by the exact latent copies it at a correlation of 0.999 (2026-10-05). Under this, the window left its
 # guide (a cut): there is no copy to match, and a new shot's look must not be pulled to the clip before's.
 RUNUP_MIN_CORRELATION = 0.98
-# What the match may undo, per channel: a gain the sampler adds (2.5 to 4 % on the owner's latents; 0.95 to 1.08 over 337
-# joins of the live database, 2026-11-01) and a mean bias (up to 0.09 on a spread of about 1.1). Past these it is not the
-# sampler's creep, and the window is left as it was sampled.
+# What the match may undo, per channel: the fine detail's growth past the broad picture's, 1.019 to 1.031 on average at
+# the ten joins of the 2026-11-01 pod test (a cut and a flash among them). Past this it is not the sampler's creep, and the
+# window is left as it was sampled.
 RUNUP_GAIN = (0.9, 1.1)
-RUNUP_SHIFT = 0.15
+
+
+def detail_and_broad(tokens):
+    """`tokens` [channels, n, h, w] (each channel's n tokens of h by w) split into its fine detail and its broad picture:
+    the broad picture is each token's 3x3 box blur (its edges repeated), the fine detail what the blur leaves out."""
+    t = np.asarray(tokens, dtype=np.float64)
+    h, w = t.shape[2:]
+    p = np.pad(t, ((0, 0), (0, 0), (1, 1), (1, 1)), mode="edge")
+    broad = sum(p[:, :, 1 + dy : 1 + dy + h, 1 + dx : 1 + dx + w] for dy in (-1, 0, 1) for dx in (-1, 0, 1)) / 9
+    return t - broad, broad
 
 
 class RunUpMatch:
-    """What Run-up Match does to a window: `scale` and `offset` per channel (None when it is left as sampled, `why` then
-    says why), the run-up's width as sampled (the mean over the channels of its spread over the tail's, as Afflatus reads
-    it from two latents) and its correlation with the tail."""
+    """What Run-up Match does to a window: `scale` per channel, what its fine detail is multiplied by (None when it is left
+    as sampled, `why` then says why), the run-up's width as sampled (the mean over the channels of its spread over the
+    tail's, as Afflatus reads it from two latents), its correlation with the tail, and `gain` per channel, the fine
+    detail's growth the match takes back (None on a flat channel)."""
 
-    def __init__(self, width, correlation, scale=None, offset=None, why=None):
+    def __init__(self, width, correlation, gain=None, scale=None, why=None):
         self.width = width
         self.correlation = correlation
+        self.gain = gain
         self.scale = scale
-        self.offset = offset
         self.why = why
 
 
 def runup_match(tail, runup) -> RunUpMatch:
-    """How to bring a window's run-up to the tail of the clip before, channel by channel: `tail` and `runup` are
-    [channels, n] (the clip before's last overlap tokens, the window's first ones, each channel's values flattened).
+    """How to bring a window's fine detail back to the tail of the clip before, channel by channel: `tail` and `runup` are
+    [channels, n, h, w] (the clip before's last overlap tokens, the window's first ones).
 
-    x' = (x - mean(r)) / gain + mean(a), gain = std(r) / std(a): the run-up's mean and spread become the tail's, and the
-    same is done to the whole window, its own part included, since the sampler widened all of it.
+    gain = (std(detail r) / std(detail a)) / (std(broad r) / std(broad a)), and the whole window's fine detail is divided
+    by it, its broad picture and its means left as they are. A continuation window starts about 2 % wider than it ends,
+    in the fine detail and the broad picture alike, and that start excess does not build up along a chain: the run-up's
+    plain gain over the tail (pack 0.45.0) read it as creep and shrank the broad picture 2.2 % a clip, the chain going
+    softer and darker. What does build up is the fine detail's growth past the broad picture's, which this ratio reads
+    (1.031, 1.027, 1.025, 1.026, 1.023 against a real growth of 1.032, 1.026, 1.016, 1.020, 1.013 on a six-clip chain,
+    2026-11-01). A channel scaled or shifted reads the same ratio, so a chain already matched reads alike.
     """
     a = np.asarray(tail, dtype=np.float64)
     r = np.asarray(runup, dtype=np.float64)
-    mean_a, mean_r = a.mean(axis=1), r.mean(axis=1)
-    std_a, std_r = a.std(axis=1), r.std(axis=1)
+    channels = a.shape[0]
+    (da, ba), (dr, br) = detail_and_broad(a), detail_and_broad(r)
+
+    def spread(x):
+        return x.reshape(channels, -1).std(axis=1)
+
     with np.errstate(divide="ignore", invalid="ignore"):
-        gain = std_r / std_a
+        width = float((spread(r) / spread(a)).mean())
+        gain = (spread(dr) / spread(da)) / (spread(br) / spread(ba))
         # pooled over the channels, each centred on its own mean: a channel's mean is not what makes a copy
-        ca, cr = a - mean_a[:, None], r - mean_r[:, None]
+        fa, fr = a.reshape(channels, -1), r.reshape(channels, -1)
+        ca, cr = fa - fa.mean(axis=1, keepdims=True), fr - fr.mean(axis=1, keepdims=True)
         correlation = float((ca * cr).sum() / np.sqrt((ca * ca).sum() * (cr * cr).sum()))
-    width = float(gain.mean())
-    if not (np.all(np.isfinite(gain)) and np.isfinite(correlation)):
+    if not (np.all(np.isfinite(gain)) and np.all(gain > 0) and np.isfinite(correlation)):
         return RunUpMatch(width, correlation, why="a channel of the tail or the run-up is flat")
     if correlation < RUNUP_MIN_CORRELATION:
-        return RunUpMatch(width, correlation, why=f"the run-up is not a copy of the clip before (correlation {correlation:.3f}): a cut")
+        return RunUpMatch(width, correlation, gain, why=f"the run-up is not a copy of the clip before (correlation {correlation:.3f}): a cut")
     low, high = RUNUP_GAIN
     if gain.min() < low or gain.max() > high:
-        return RunUpMatch(width, correlation, why=f"a channel's spread is x{gain.min():.3f} to x{gain.max():.3f} the tail's, outside x{low} to x{high}")
-    shift = np.abs(mean_a - mean_r).max()
-    if shift > RUNUP_SHIFT:
-        return RunUpMatch(width, correlation, why=f"a channel's mean is {shift:.3f} off the tail's, more than {RUNUP_SHIFT}")
-    scale = 1.0 / gain
-    return RunUpMatch(width, correlation, scale=scale, offset=mean_a - mean_r * scale)
+        return RunUpMatch(width, correlation, gain, why=f"a channel's fine detail grew x{gain.min():.3f} to x{gain.max():.3f} past its broad picture, outside x{low} to x{high}")
+    return RunUpMatch(width, correlation, gain, scale=1.0 / gain)
 
 
 def with_runup(out: dict, source) -> dict:
@@ -463,17 +479,19 @@ def with_runup(out: dict, source) -> dict:
 
 
 class AfflatusH3RunUpMatch(io.ComfyNode):
-    """A sampled continuation window held at the clip before's contrast: its run-up's spread and mean per channel brought to
-    the tail it copies, the same done to the whole window.
+    """A sampled continuation window held at the clip before's sharpness: per channel, its fine detail brought back by the
+    growth its run-up shows over the tail it copies, the broad picture left as it is.
 
     A window guided by the clip before's exact latent copies that tail almost exactly (correlation 0.999), but a few per
-    cent wider in every one of the 24 channels, with the same small mean bias per channel at every hop (2026-10-05). The
-    window is what the clip after continues from, so nothing pulls the chain back: over five clips sharpness doubled and
-    the grain rose by half (2026-11-01). Re-anchoring through the VAE (the hybrid tail guide, 2026-10-05) did hold it, but
-    its guide was no longer the clip before's own tokens and the joins stopped being seamless. This keeps the guide exact
-    and corrects the result instead, from the run-up alone: matched to the tail it copies, the run-up stays that tail by
-    construction, and the window's own part, made by the same sampling, loses the same gain. The sound is left as it is:
-    it shows no drift, and the seam takes the clip before's own sound tokens anyway.
+    cent wider (2026-10-05). The window is what the clip after continues from, so nothing pulls the chain back: over five
+    clips sharpness doubled and the grain rose by half (2026-11-01). Re-anchoring through the VAE (the hybrid tail guide,
+    2026-10-05) did hold it, but its guide was no longer the clip before's own tokens and the joins stopped being seamless.
+    This keeps the guide exact and corrects the result instead, from the run-up alone.
+
+    Only the fine detail is corrected (see `runup_match`): matching the whole spread and mean (pack 0.45.0) held the joins
+    but over-read the creep, and a six-clip chain on a pod went x0.86 sharpness, its highlights 201 to 187 and its
+    brightness 80 to 75, where the uncorrected one went x1.51 sharpness with its brightness flat. The sound is left as it
+    is: it shows no drift, and the seam takes the clip before's own sound tokens anyway.
     """
 
     @classmethod
@@ -482,7 +500,7 @@ class AfflatusH3RunUpMatch(io.ComfyNode):
             node_id="AfflatusH3RunUpMatch",
             display_name="Afflatus: H3 Run-up Match",
             category="Afflatus",
-            description="Brings a sampled MiniMax H3 continuation window back to the clip before's contrast: per latent channel, the spread and mean of its hidden overlap (the run-up) are matched to the clip before's last tokens it copies, and the same correction goes on the whole window. A chain continued from exact latents otherwise widens a few per cent at every join. Left as sampled when the run-up is not a copy (a cut) or the correction would be large. The sound is untouched.",
+            description="Holds a sampled MiniMax H3 continuation window at the clip before's sharpness: per latent channel, how much more its fine detail (each token less its 3x3 blur) grew than its broad picture, read on the hidden overlap (the run-up) against the clip before's last tokens it copies, is taken back from the whole window's fine detail. The broad picture, the means and the sound are untouched. A chain continued from exact latents otherwise gets a few per cent sharper at every join. Left as sampled when the run-up is not a copy (a cut) or the correction would be large.",
             inputs=[
                 io.Latent.Input("previous_av_latent", tooltip="The clip before's latent, as the window was made from it (cut to its hand-over frame when it was)."),
                 io.Latent.Input("sampled_window", tooltip="The continuation window after sampling (overlap, then the new frames)."),
@@ -505,19 +523,26 @@ class AfflatusH3RunUpMatch(io.ComfyNode):
             raise ValueError("the clip before's latent and the window are not the same size")
         channels = int(win_video.shape[1])
 
-        def flat(tokens):
-            return tokens.detach().to(device="cpu", dtype=torch.float64).transpose(0, 1).reshape(channels, -1).numpy()
+        def per_channel(tokens):
+            # [channels, tokens, h, w], a batch's tokens counted as more tokens of each channel
+            t = tokens.detach().to(device="cpu", dtype=torch.float64).transpose(0, 1)
+            return t.reshape(channels, -1, *t.shape[-2:]).numpy()
 
-        match = runup_match(flat(prev_video[:, :, prev_t - overlap_t:]), flat(win_video[:, :, :overlap_t]))
+        match = runup_match(per_channel(prev_video[:, :, prev_t - overlap_t :]), per_channel(win_video[:, :, :overlap_t]))
+        # (plain ASCII: a Windows console on another code page fails on more)
         if match.why:
-            # (plain ASCII: a Windows console on another code page fails on more)
             print(f"[afflatus-nodes] H3 Run-up Match: left as sampled, {match.why} (run-up x{match.width:.3f})")
             video = win_video
         else:
-            def per_channel(values):
-                return torch.tensor(values, dtype=torch.float32, device=win_video.device).view(1, channels, 1, 1, 1)
-
-            video = (win_video.float() * per_channel(match.scale) + per_channel(match.offset)).to(win_video.dtype)
+            print(f"[afflatus-nodes] H3 Run-up Match: fine detail /{match.gain.mean():.3f} (x{match.gain.min():.3f} to x{match.gain.max():.3f} by channel; run-up x{match.width:.3f})")
+            x = win_video.float()
+            b, c, t, h, w = x.shape
+            # each token's 3x3 box blur, its edges repeated, as detail_and_broad reads it
+            tokens = x.permute(0, 2, 1, 3, 4).reshape(b * t, c, h, w)
+            broad = torch.nn.functional.avg_pool2d(torch.nn.functional.pad(tokens, (1, 1, 1, 1), mode="replicate"), 3, stride=1)
+            broad = broad.reshape(b, t, c, h, w).permute(0, 2, 1, 3, 4)
+            scale = torch.tensor(match.scale, dtype=torch.float32, device=x.device).view(1, channels, 1, 1, 1)
+            video = (broad + (x - broad) * scale).to(win_video.dtype).contiguous()
         # the window's other entries kept (a sampler's output may carry more than its samples), the sound the same tensor
         out = {**sampled_window, "samples": NestedTensor((video, win_audio)), RUNUP_KEY: match.width}
         return io.NodeOutput(out)
