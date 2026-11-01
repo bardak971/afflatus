@@ -4,6 +4,7 @@ import { colourCarried, colourMatched, finishFrames, openingStart } from "../sha
 import { saveVideo } from "../shared/out";
 import { facePhotos, faceScore } from "../shared/face";
 import { H3_FPS } from "./family";
+import { H3_RUN_ANCHOR } from "./join";
 import type { H3Video } from "./inputs";
 import { faceRefined, openingPicture, type ClipModel } from "./faceRefine";
 
@@ -49,7 +50,10 @@ export function finish(g: GraphBuilder, ctx: BuildContext, input: H3Video, made:
   // carries on from the faces this clip shows (after the latent re-sample, the frames are larger than the sampled latent,
   // which is kept as it was)
   const keptFrom: Ref = refined && !upscaling ? g.out("H3InjectVideoLatent", { av_latent: sampledWindow, images, vae }) : sampledWindow;
-  const kept = H3_SAVE_LATENT.every((n) => ctx.has(n)) ? g.add("AfflatusSaveH3Latent", { samples: g.out("AfflatusNormalizeH3Latent", { samples: keptFrom }), filename_prefix: "Afflatus/h3" }) : null;
+  // the re-encode hands on its samples alone: the run's look and the run-up width are taken from the window it was made from
+  // (pack 0.46.0, which brings Run Anchor), so that the clip after is still held to the run's first clip
+  const figuresFrom = keptFrom !== sampledWindow && ctx.has(H3_RUN_ANCHOR) ? { figures_from: sampledWindow } : {};
+  const kept = H3_SAVE_LATENT.every((n) => ctx.has(n)) ? g.add("AfflatusSaveH3Latent", { samples: g.out("AfflatusNormalizeH3Latent", { samples: keptFrom, ...figuresFrom }), filename_prefix: "Afflatus/h3" }) : null;
   // the latent re-sample's own result, kept for the finish of the clip after (its join decoded as one piece with this)
   const keptFine = kept && fine ? g.add("AfflatusSaveH3Latent", { samples: g.out("AfflatusNormalizeH3Latent", { samples: fine }), filename_prefix: "Afflatus/h3fine" }) : null;
   return {

@@ -17,6 +17,7 @@ colour and voice at the join).
 | Afflatus: H3 Latent Landing | The same from where any of the clip after's 17-frame chunks begins: a clip lands inside another, on time. |
 | Afflatus: H3 Seam Latent | A continuation's new tokens after the clip before's own last ones, to decode the two as one piece: the join then matches the whole chain decoded at once. |
 | Afflatus: H3 Run-up Match | A sampled continuation window held at the clip before's sharpness: per latent channel, how much more its run-up's fine detail (each token less its 3x3 blur) grew over the clip before's last tokens it copies than its broad picture did is taken back from the whole window's fine detail; the broad picture, the means and the sound untouched (0.45.1; 0.45.0 matched the whole spread and mean, and a chain went softer and darker). Left as sampled on a cut (the run-up no copy) or past a small correction. The run-up's width as sampled is kept in the saved latent's metadata (0.45.0). |
+| Afflatus: H3 Run Anchor | The same window held to its run's first clip (a clip that continues none, the first after a cut): per latent channel, the mean of its new frames and the spread of their fine detail brought back to that clip's, the broad picture and the sound untouched. The run's look is read on the clip before when it carries none and kept in the saved latent's metadata for the clip after. A window far from the run's look (a new look asked for, a cut the model made) is left as sampled and starts a new run (0.46.0). |
 | Afflatus: Face Match | How alike the faces of pictures or a clip's frames are to a person's pictures (InsightFace buffalo_l, on the CPU). Registered only when `insightface` is installed in ComfyUI's Python. |
 | Afflatus: Face Crop | A person's picture cut to a square around its largest face, 2.5 face heights a side, kept inside the picture (LTX 2.5's reference pictures); without a face found, the picture as it is. Registered only when `insightface` is installed. |
 | Afflatus: Face Crop to Frame | The same cut to the clip's frame shape (its short side 2.5 face heights) and brought to its size, so that MSR's guide fills its slot with it rather than fitting it between white bars. Without a face found, the picture is cut to the frame's shape in its middle (0.42.1). Registered only when `insightface` is installed. |
@@ -110,7 +111,8 @@ the video. When a clip on a timeline extends the one before, that
 latent is uploaded (cut with Trim when the clip before is handed over early), the Window prepares a hidden
 overlap plus the new frames, the Latent Tail Guide conditions on the overlap, the sampler runs as usual, Run-up
 Match holds the sampled window at the clip before's sharpness (the run-up's fine detail comes out a few per cent
-sharper than the tail it copies, and a chain compounded it), and Seam Latent puts the clip before's last tokens in front of the new ones so that the two decode as one piece:
+sharper than the tail it copies, and a chain compounded it), Run Anchor holds it to the run's first clip (the small
+drift each continuation adds, which matching the clip before alone lets build up), and Seam Latent puts the clip before's last tokens in front of the new ones so that the two decode as one piece:
 the join plays as a plain cut. A constant cost whatever the length of the timeline. A clip put between two
 others also gets the clip after's latent, anchored at the window's end by the Head Guide, or by Landing when
 it lands further into that clip. Append Continuation is included for workflows that want one cumulative

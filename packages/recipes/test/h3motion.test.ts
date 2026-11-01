@@ -56,11 +56,13 @@ describe("MiniMax H3 · Motion transfer after a swap (H3 · Swap motion retired,
     expect(shown({})).not.toContain("swapModel");
   });
 
-  it("holds a window that carries on at the window before's contrast, as every H3 form (card #212)", () => {
+  it("holds a window that carries on at the window before's contrast, then to its run's first clip, as every H3 form (cards #212, #215)", () => {
     const { graph } = carryOn();
     const [seam] = of(graph, "AfflatusH3SeamLatent");
-    expect(node(graph, seam!.inputs.sampled_window).class_type).toBe("AfflatusH3RunUpMatch");
-    expect(node(graph, of(graph, "AfflatusNormalizeH3Latent")[0]!.inputs.samples).class_type).toBe("AfflatusH3RunUpMatch");
+    const anchor = node(graph, seam!.inputs.sampled_window);
+    expect(anchor.class_type).toBe("AfflatusH3RunAnchor");
+    expect(node(graph, anchor.inputs.sampled_window).class_type).toBe("AfflatusH3RunUpMatch");
+    expect(node(graph, of(graph, "AfflatusNormalizeH3Latent")[0]!.inputs.samples).class_type).toBe("AfflatusH3RunAnchor");
   });
 
   it("moves a window that carries on by the pose of its part: the ControlNet on the model it samples with, no swap LoRA, no source video in", () => {
