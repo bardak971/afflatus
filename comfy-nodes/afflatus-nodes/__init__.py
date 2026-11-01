@@ -1,6 +1,6 @@
 """Afflatus nodes for ComfyUI.
 
-Eleven nodes for continuing a MiniMax H3 clip from its own latent rather than from re-encoded pixels, and the nodes of
+Twelve nodes for continuing a MiniMax H3 clip from its own latent rather than from re-encoded pixels, and the nodes of
 Afflatus's other routes:
 
 - Afflatus: Save H3 Latent / Load H3 Latent — a MiniMax H3 video+audio latent as one safetensors file
@@ -10,7 +10,9 @@ Afflatus's other routes:
   and its exact latent for the sound; H3 Latent Head Guide — the clip after's first tokens anchored at the
   end of the window, for a clip that must land on another; H3 Latent Landing — the same from where any of its
   17-frame chunks begins, for a clip that lands inside another; H3 Seam Latent — a continuation's new tokens after
-  the clip before's own last ones, so that decoded, the join is the whole chain's decoded at once.
+  the clip before's own last ones, so that decoded, the join is the whole chain's decoded at once; H3 Run-up Match — a
+  sampled window brought back to the clip before's contrast, its run-up matched per channel to the tail it copies (a chain
+  of exact latents otherwise widens a few per cent at every join).
 - MiniMax H3 Guided Continuation Window, Latent Tail Guide, Append Continuation — the native latent-tail
   continuation by ttulttul (MIT, see LICENSE-continuation), vendored with one change: the check for a recent
   enough ComfyUI says "update ComfyUI" when the module it reads is missing, instead of a bare ImportError.
@@ -102,7 +104,7 @@ from .continuation_nodes import (  # noqa: E402
     MiniMaxH3GuidedContinuationWindow,
     MiniMaxH3LatentTailGuide,
 )
-from .latent_io import AfflatusH3LatentHeadGuide, AfflatusH3LatentLanding, AfflatusH3SeamLatent, AfflatusH3TailGuide, AfflatusLoadH3Latent, AfflatusNormalizeH3Latent, AfflatusSaveH3Latent, AfflatusTrimH3Latent  # noqa: E402
+from .latent_io import AfflatusH3LatentHeadGuide, AfflatusH3LatentLanding, AfflatusH3RunUpMatch, AfflatusH3SeamLatent, AfflatusH3TailGuide, AfflatusLoadH3Latent, AfflatusNormalizeH3Latent, AfflatusSaveH3Latent, AfflatusTrimH3Latent  # noqa: E402
 from .latent_ltx import AfflatusLoadLTXLatent, AfflatusLTXContinuation, AfflatusLTXSeamLatent, AfflatusSaveLTXLatent, AfflatusTrimLTXLatent  # noqa: E402
 from .face_match import AfflatusFaceAt, AfflatusFaceBackdrop, AfflatusFaceCrop, AfflatusFaceFrame, AfflatusFaceMatch, available as face_available  # noqa: E402
 from .swap_mask import AfflatusSwapMask, AfflatusSwapMaskPreview, AfflatusSwapMatch, AfflatusSwapPaste  # noqa: E402
@@ -136,6 +138,8 @@ class AfflatusExtension(ComfyExtension):
             AfflatusH3LatentHeadGuide,
             AfflatusH3LatentLanding,
             AfflatusH3SeamLatent,
+            # a continuation window held at the clip before's contrast (pack 0.45.0, card #212)
+            AfflatusH3RunUpMatch,
             MiniMaxH3GuidedContinuationWindow,
             MiniMaxH3LatentTailGuide,
             MiniMaxH3AppendContinuation,

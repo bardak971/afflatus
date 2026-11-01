@@ -13,10 +13,10 @@ export const H3_SAVE_LATENT = ["AfflatusNormalizeH3Latent", "AfflatusSaveH3Laten
 /**
  * From the finished latent to the files: the frames and the sound decoded, the pixel upscale and the frame
  * interpolation, the result saved (and the model's own frames beside it when they differ), and the sampled
- * latent kept for the clips that continue this one.
+ * latent kept for the clips that continue this one (`sampledWindow`: held at the clip before's contrast when it continues one).
  */
-export function finish(g: GraphBuilder, ctx: BuildContext, input: H3Video, made: { finished: Ref; sampled: string; fine?: Ref | null; vae: Ref; audioVae: Ref; clip?: Ref; model?: ClipModel; width: number; height: number; head?: number; sound?: (decoded: Ref) => Ref; frames?: (images: Ref) => Ref }): { outputs: BuiltGraph["outputs"]; loads: string[]; refine: { node: string; steps: number } | null; said: string | null } {
-  const { finished, sampled, fine, vae, audioVae, width, height } = made;
+export function finish(g: GraphBuilder, ctx: BuildContext, input: H3Video, made: { finished: Ref; sampledWindow: Ref; fine?: Ref | null; vae: Ref; audioVae: Ref; clip?: Ref; model?: ClipModel; width: number; height: number; head?: number; sound?: (decoded: Ref) => Ref; frames?: (images: Ref) => Ref }): { outputs: BuiltGraph["outputs"]; loads: string[]; refine: { node: string; steps: number } | null; said: string | null } {
+  const { finished, sampledWindow, fine, vae, audioVae, width, height } = made;
   const upscaling = input.upscale === UPSCALE.latent;
   g.phase("decoding");
   // the enlarged latent is decoded in tiles and stretches: whole, a doubled 7-second clip asks for tens of GB and falls back to the processor
@@ -37,7 +37,7 @@ export function finish(g: GraphBuilder, ctx: BuildContext, input: H3Video, made:
   const refined = Boolean(faces.pass);
   // the frames as the model made them, before anything changes them: a clip that carries on from this
   // one is guided by these, not by the enlarged or interpolated ones (saved beside the result when they differ)
-  const native: Ref = upscaling ? g.out("VAEDecode", { samples: [sampled, 0], vae }) : images;
+  const native: Ref = upscaling ? g.out("VAEDecode", { samples: sampledWindow, vae }) : images;
   // matched to the first frame (a clip that opens a chain), or carrying that match on (one that continues it: its run-up's last
   // frame is the clip before's last moment)
   const looked = colourCarried(g, ctx, colourMatched(g, ctx, images, openingStart(input), H3_FPS), (made.head ?? 0) - 1, H3_FPS);
@@ -48,7 +48,7 @@ export function finish(g: GraphBuilder, ctx: BuildContext, input: H3Video, made:
   // with its faces refined, the kept latent is the refined frames encoded, the sampled sound kept as it is: the clip after
   // carries on from the faces this clip shows (after the latent re-sample, the frames are larger than the sampled latent,
   // which is kept as it was)
-  const keptFrom: Ref = refined && !upscaling ? g.out("H3InjectVideoLatent", { av_latent: [sampled, 0], images, vae }) : [sampled, 0];
+  const keptFrom: Ref = refined && !upscaling ? g.out("H3InjectVideoLatent", { av_latent: sampledWindow, images, vae }) : sampledWindow;
   const kept = H3_SAVE_LATENT.every((n) => ctx.has(n)) ? g.add("AfflatusSaveH3Latent", { samples: g.out("AfflatusNormalizeH3Latent", { samples: keptFrom }), filename_prefix: "Afflatus/h3" }) : null;
   // the latent re-sample's own result, kept for the finish of the clip after (its join decoded as one piece with this)
   const keptFine = kept && fine ? g.add("AfflatusSaveH3Latent", { samples: g.out("AfflatusNormalizeH3Latent", { samples: fine }), filename_prefix: "Afflatus/h3fine" }) : null;

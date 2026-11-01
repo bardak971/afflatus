@@ -2061,16 +2061,20 @@ describe("H3's upscale pass", () => {
     const words = String(node(b, "MiniMaxH3ImageToVideo")[0]!.inputs.prompt);
     expect(words).toMatch(/carries on the previous shot as one continuous take/);
     expect(words).toMatch(/Next: a/);
-    // decoded as one piece with the clip before: its own last tokens in front of the window's new ones (the join then
-    // matches the whole chain decoded at once), the window itself kept as the clip's latent
+    // the sampled window held at the clip before's contrast first (card #212); then decoded as one piece with the clip
+    // before: its own last tokens in front of the window's new ones (the join then matches the whole chain decoded at
+    // once), the window itself kept as the clip's latent
     const sampled = node(b, "SamplerCustomAdvanced")[0]!;
     const sampledId = Object.entries(b.graph).find(([, n]) => n === sampled)![0];
+    const match = node(b, "AfflatusH3RunUpMatch")[0]!;
+    expect(match.inputs).toEqual({ previous_av_latent: [loadedId, 0], sampled_window: [sampledId, 0], overlap_frames: 22 });
+    const matchId = Object.entries(b.graph).find(([, n]) => n === match)![0];
     const seam = node(b, "AfflatusH3SeamLatent")[0]!;
-    expect(seam.inputs).toEqual({ previous_av_latent: [loadedId, 0], sampled_window: [sampledId, 0], overlap_frames: 22 });
+    expect(seam.inputs).toEqual({ previous_av_latent: [loadedId, 0], sampled_window: [matchId, 0], overlap_frames: 22 });
     const seamId = Object.entries(b.graph).find(([, n]) => n === seam)![0];
     expect(node(b, "VAEDecode")[0]!.inputs.samples).toEqual([seamId, 0]);
     expect(node(b, "MiniMaxH3AppendContinuation")).toHaveLength(0);
-    expect(node(b, "AfflatusNormalizeH3Latent")[0]!.inputs.samples).toEqual([sampledId, 0]);
+    expect(node(b, "AfflatusNormalizeH3Latent")[0]!.inputs.samples).toEqual([matchId, 0]);
     expect(node(b, "AfflatusSaveH3Latent")).toHaveLength(1);
     expect(b.outputs.map((o) => o.role)).toEqual(["result", "latent"]);
     expect(checkGraph(b, catalog)).toEqual([]);
@@ -2079,8 +2083,8 @@ describe("H3's upscale pass", () => {
     // "Latent", saved by an older form, is Auto
     const older = h3Video.build(parseInput(h3Video, { description: "a", previous: { asset: "c1" }, seconds: 5, joinFrom: "Latent" }), ctx());
     expect(older.overlap).toEqual({ headMs: 917, tailMs: 0, latent: true, seam: true });
-    // a pack without the seam node: the window decoded on its own, a plain latent join
-    const noSeam = h3Video.build(parseInput(h3Video, { description: "a", previous: { asset: "c1" }, seconds: 5 }), ctx((c) => c !== "AfflatusH3SeamLatent"));
+    // a pack without the seam node (nor the match, which came later): the window decoded on its own, a plain latent join
+    const noSeam = h3Video.build(parseInput(h3Video, { description: "a", previous: { asset: "c1" }, seconds: 5 }), ctx((c) => c !== "AfflatusH3SeamLatent" && c !== "AfflatusH3RunUpMatch"));
     expect(node(noSeam, "VAEDecode")[0]!.inputs.samples).toEqual([Object.entries(noSeam.graph).find(([, n]) => n.class_type === "SamplerCustomAdvanced")![0], 0]);
     expect(noSeam.overlap).toEqual({ headMs: 917, tailMs: 0, latent: true });
     // asked for frames: ComfyUI's own pinned frames, no window; the clip's latent is still kept for later
