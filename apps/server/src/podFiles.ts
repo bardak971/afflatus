@@ -25,7 +25,9 @@ import { olderThan } from "./version";
  * by its idle stop mid-download (the owner: a pod must not be lost for downloading); its idle time runs again from when
  * the last file is in or failed. Only bytes that come count: a download or upload with nothing new for STALL_MS no longer
  * holds it, so a stuck fetch cannot bill for ever, and the caps, the balance, the watchdog and a Stop by hand act as
- * before. A file that cannot be had is said once and stays failed for that pod: its jobs go elsewhere (queue.ts).
+ * before. A file waiting out a passing failure (its pod's ComfyUI or proxy silent a moment, a site's 429 or 5xx) holds it
+ * too, until it is asked again, at most TRIES times. A file that cannot be had is said once and stays failed for that pod:
+ * its jobs go elsewhere (queue.ts).
  */
 
 export type PodFileState = "next" | "fetching" | "ready" | "failed";
@@ -238,6 +240,10 @@ export class PodFiles {
   moving(machine: string): boolean {
     const now = Date.now();
     for (const e of this.pods.get(machine)?.values() ?? []) {
+      // put back in line after a passing failure, its next try not begun yet (up to nextGraceMs after its time, for the pass
+      // to start it): still coming. Its pod sat idle through the wait, and a deploy's files, which no job waits for, held
+      // nothing: on 2026-11-01 its idle rule took a pod whose files had met a moment of its proxy (card #214). TRIES bounds it
+      if (e.state === "next" && e.tries && now < (e.notBefore ?? 0) + this.nextGraceMs) return true;
       if (e.state !== "fetching") continue;
       const v = e.downloadId ? this.d.downloads.get(e.downloadId) : null;
       if (v) this.moved(e, v.bytes);

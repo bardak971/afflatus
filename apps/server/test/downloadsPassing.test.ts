@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PASSING } from "../src/downloads";
+import { PASSING, PROXY_404 } from "../src/downloads";
 
 /**
  * The node pack's real last words (downloads.py run(), its openers failing as a source does, five tries), as downloads.ts
@@ -22,6 +22,10 @@ describe("which of the node pack's failures pass", () => {
     "the download failed 5 times in a row (<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1006)>)",
   ])("asks again after %s", (why) => {
     expect(PASSING.test(wrap(why))).toBe(true);
+  });
+
+  it("asks again after a 404 to the pack's download route, which the pack never gives there (the pod's proxy, card #214)", () => {
+    expect(PASSING.test(PROXY_404)).toBe(true);
   });
 
   it.each([

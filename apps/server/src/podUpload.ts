@@ -9,6 +9,8 @@ import type { ComfyClient } from "@afflatus/comfy";
 
 /** The first node pack that takes an upload. */
 export const PACK_UPLOADS = "0.14.0";
+/** What a 404 to the pack's upload routes is said as when the pack does not answer beside it (a failure that passes: downloads.ts PASSING). */
+const PROXY_404 = "ComfyUI is not answering behind the pod's proxy (a 404 to the node pack's upload route, which the pack never gives there)";
 /** How much one piece holds: the pack takes up to 64 MB. */
 export const PIECE = 32 * 2 ** 20;
 
@@ -41,6 +43,11 @@ export async function uploadFile(o: UploadOptions): Promise<void> {
   let id: string;
   try {
     const started = await o.client.raw("/afflatus/upload", { method: "POST", headers: json, body: JSON.stringify({ folder: o.folder, filename: o.file.replace(/\\/g, "/"), total }), signal: AbortSignal.timeout(30_000) });
+    // a 404 the pack never gives that route: the pod's proxy, ComfyUI not behind it for a moment (downloads.ts PROXY_404)
+    if (started.status === 404) {
+      await started.body?.cancel().catch(() => {});
+      throw new Error(PROXY_404);
+    }
     if (!started.ok) throw new Error(`The pod's node pack refused the upload (${started.status}: ${(await started.text()).slice(0, 200)})`);
     ({ id } = (await started.json()) as { id: string });
   } catch (err) {
@@ -51,9 +58,19 @@ export async function uploadFile(o: UploadOptions): Promise<void> {
   // the pack keeps an upload in memory: a ComfyUI restarted under it (its node packs loaded) answers 404 for it from then on,
   // and no try of this one can gain anything. Said so that the file is sent again from the start (podFiles.ts PASSING)
   const forgotten = () => new Error("The pod's node pack no longer knows the upload (its ComfyUI restarted): it is sent again");
+  // a 404 is the pack's only when it answers beside it: a pod's proxy answers an empty one too while ComfyUI is not behind it,
+  // a moment's silence. Taken for the pack's, the file was sent again from its first byte, its upload still open there
+  const packAnswers = async () => {
+    const res = await o.client.raw("/afflatus/version", { signal: AbortSignal.timeout(10_000) }).catch(() => null);
+    await res?.body?.cancel().catch(() => {});
+    return res?.ok === true;
+  };
   const state = async (): Promise<State | "forgotten" | null> => {
     const res = await o.client.raw(at, { signal: AbortSignal.timeout(15_000) }).catch(() => null);
-    if (res?.status === 404) return "forgotten";
+    if (res?.status === 404) {
+      await res.body?.cancel().catch(() => {});
+      return (await packAnswers()) ? "forgotten" : null;
+    }
     return res?.ok ? ((await res.json().catch(() => null)) as State | null) : null;
   };
   let bytes = 0;
@@ -80,8 +97,11 @@ export async function uploadFile(o: UploadOptions): Promise<void> {
           fails = 0;
           continue;
         }
-        gone = res.status === 404;
         why = `${res.status}: ${(await res.text()).slice(0, 200)}`;
+        if (res.status === 404) {
+          gone = await packAnswers();
+          if (!gone) why = PROXY_404;
+        }
       } catch (err) {
         if (o.signal.aborted) throw new Error("stopped");
         why = (err as Error).message;

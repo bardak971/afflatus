@@ -16,6 +16,9 @@ describe("a node pack that is busy, or forgot a download", () => {
   let asked = 0;
   let lost = false;
   let slow = false;
+  /** RunPod's proxy in the pack's place once the download is asked for: an empty 404 for it, and no version either. */
+  let proxyAfter = false;
+  let proxy = false;
   const deleted: string[] = [];
   const was = process.env.CIVITAI_URL;
   beforeEach(async () => {
@@ -23,6 +26,8 @@ describe("a node pack that is busy, or forgot a download", () => {
     asked = 0;
     lost = false;
     slow = false;
+    proxyAfter = false;
+    proxy = false;
     deleted.length = 0;
     comfy = createServer((req, res) => {
       if (req.method === "DELETE") {
@@ -32,6 +37,7 @@ describe("a node pack that is busy, or forgot a download", () => {
       }
       if (req.method === "POST" && req.url === "/afflatus/download") {
         asked++;
+        if (proxyAfter) proxy = true;
         if (busy > 0) {
           busy--;
           res.writeHead(429, { "content-type": "text/plain" });
@@ -42,7 +48,7 @@ describe("a node pack that is busy, or forgot a download", () => {
       }
       if (req.method === "GET" && req.url === "/afflatus/download/p1") {
         // a pack restarted under it knows it no more; else it is done at once
-        if (lost) {
+        if (lost || proxy) {
           res.writeHead(404);
           return res.end();
         }
@@ -64,7 +70,7 @@ describe("a node pack that is busy, or forgot a download", () => {
   const stub = () => {
     const baseUrl = `http://127.0.0.1:${(comfy.address() as AddressInfo).port}`;
     // a ComfyUI on another machine (a pod) with a pack that downloads
-    return { url: "http://192.0.2.10:8188", client: { baseUrl, raw: (path: string, init?: RequestInit) => fetch(`${baseUrl}${path}`, init), packVersion: async () => "0.11.1", models: async () => [] }, forgetAll() {} } as unknown as Comfy;
+    return { url: "http://192.0.2.10:8188", client: { baseUrl, raw: (path: string, init?: RequestInit) => fetch(`${baseUrl}${path}`, init), packVersion: async () => (proxy ? null : "0.11.1"), models: async () => [] }, forgetAll() {} } as unknown as Comfy;
   };
   const make = () => {
     const downloads = new Downloads(new EventEmitter());
@@ -131,6 +137,22 @@ describe("a node pack that is busy, or forgot a download", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  // card #214: the pod's proxy answers an empty 404 while ComfyUI is not behind it, as the pack does for a download it no
+  // longer knows. Taken for the pack's, the download was put back in line while the pack still fetched it
+  it("takes a 404 about a download for a moment's silence while the pack does not answer beside it", async () => {
+    proxyAfter = true;
+    const downloads = make();
+    const d = await downloads.start(stub(), "http://127.0.0.1:2", want);
+    await until(() => proxy);
+    await new Promise((r) => setTimeout(r, 60));
+    expect(downloads.get(d.id)!.status).not.toBe("error");
+    // ComfyUI behind the proxy again: the download goes on to its end
+    proxyAfter = false;
+    proxy = false;
+    await until(() => ["saving", "done"].includes(downloads.get(d.id)!.status));
+    expect(asked).toBe(1);
   });
 
   it("keeps a failure that passes off the page's list while the pod's files will ask again (quietPassing), and says it otherwise", async () => {
