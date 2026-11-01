@@ -6,12 +6,15 @@ in the file's metadata, so that a finished clip's latent can be continued later 
 continuation nodes (Guided Continuation Window, Latent Tail Guide, Append Continuation).
 
 File layout: safetensors with tensors "video" [1, 24, T, H, W] and "audio" [1, 32, 2, T_audio], and
-metadata {"format": "afflatus-h3-av-latent/1", "frames": "<pixel frames>"}.
+metadata {"format": "afflatus-h3-av-latent/1", "frames": "<pixel frames>"}, and "runup_width" for a continuation window
+whose run-up H3 Run-up Match corrected (its width as sampled, pack 0.45.0).
 """
 
 import os
+import re
 
 import comfy.utils
+import numpy as np
 import folder_paths
 import node_helpers
 import safetensors.torch
@@ -69,6 +72,8 @@ class AfflatusSaveH3Latent(io.ComfyNode):
         path = os.path.join(full_output_folder, name)
         frames = frame_count_from_video_latent_t(int(video.shape[2]))
         metadata = {"format": FORMAT, "frames": str(frames), "fps": str(FPS)}
+        if samples.get(RUNUP_KEY) is not None and np.isfinite(samples[RUNUP_KEY]):
+            metadata["runup_width"] = f"{float(samples[RUNUP_KEY]):.4f}"
         safetensors.torch.save_file(
             {"video": video.detach().to("cpu").contiguous(), "audio": audio.detach().to("cpu").contiguous()},
             path,
@@ -122,7 +127,14 @@ class AfflatusLoadH3Latent(io.ComfyNode):
         video = tensors["video"].float()
         audio = tensors["audio"].float()
         frames = frame_count_from_video_latent_t(int(video.shape[2]))
-        return io.NodeOutput({"samples": NestedTensor((video, audio))}, frames)
+        out = {"samples": NestedTensor((video, audio))}
+        # the run-up width as sampled, when Run-up Match wrote it: a finish keeps the draft's latent, and its figure with it
+        from . import read_header
+
+        width = ((read_header(path) or {}).get("__metadata__") or {}).get("runup_width")
+        if isinstance(width, str) and re.fullmatch(r"\d+(\.\d+)?", width):
+            out[RUNUP_KEY] = float(width)
+        return io.NodeOutput(out, frames)
 
 
 def latent_path(name: str):
@@ -177,7 +189,7 @@ class AfflatusNormalizeH3Latent(io.ComfyNode):
             audio = audio[..., :want]
         elif have < want:
             audio = torch.cat((audio, audio.new_zeros((*audio.shape[:-1], want - have))), dim=-1)
-        return io.NodeOutput({"samples": NestedTensor((video, audio))}, frames)
+        return io.NodeOutput(with_runup({"samples": NestedTensor((video, audio))}, samples), frames)
 
 
 class AfflatusTrimH3Latent(io.ComfyNode):
@@ -383,6 +395,132 @@ class AfflatusH3SeamLatent(io.ComfyNode):
         lead_audio = prev_audio[..., audio_t_at_frame_boundary(prev_frames - overlap_frames):].to(device=win_audio.device, dtype=win_audio.dtype)
         audio = torch.cat([lead_audio, win_audio[..., int(lead_audio.shape[-1]):]], dim=-1)
         return io.NodeOutput({"samples": NestedTensor((video.contiguous(), audio.contiguous()))})
+
+
+# The key of a latent's dict that carries a window's run-up width as sampled (before Run-up Match brought it back): Normalize
+# passes it on, Save writes it into the file's metadata ("runup_width") and Load reads it back, so that Afflatus's figure of
+# the creep still reads what the model made, where the kept latent itself now reads 1.000.
+RUNUP_KEY = "afflatus_runup_width"
+# A run-up guided by the exact latent copies it at a correlation of 0.999 (2026-10-05). Under this, the window left its
+# guide (a cut): there is no copy to match, and a new shot's look must not be pulled to the clip before's.
+RUNUP_MIN_CORRELATION = 0.98
+# What the match may undo, per channel: a gain the sampler adds (2.5 to 4 % on the owner's latents; 0.95 to 1.08 over 337
+# joins of the live database, 2026-11-01) and a mean bias (up to 0.09 on a spread of about 1.1). Past these it is not the
+# sampler's creep, and the window is left as it was sampled.
+RUNUP_GAIN = (0.9, 1.1)
+RUNUP_SHIFT = 0.15
+
+
+class RunUpMatch:
+    """What Run-up Match does to a window: `scale` and `offset` per channel (None when it is left as sampled, `why` then
+    says why), the run-up's width as sampled (the mean over the channels of its spread over the tail's, as Afflatus reads
+    it from two latents) and its correlation with the tail."""
+
+    def __init__(self, width, correlation, scale=None, offset=None, why=None):
+        self.width = width
+        self.correlation = correlation
+        self.scale = scale
+        self.offset = offset
+        self.why = why
+
+
+def runup_match(tail, runup) -> RunUpMatch:
+    """How to bring a window's run-up to the tail of the clip before, channel by channel: `tail` and `runup` are
+    [channels, n] (the clip before's last overlap tokens, the window's first ones, each channel's values flattened).
+
+    x' = (x - mean(r)) / gain + mean(a), gain = std(r) / std(a): the run-up's mean and spread become the tail's, and the
+    same is done to the whole window, its own part included, since the sampler widened all of it.
+    """
+    a = np.asarray(tail, dtype=np.float64)
+    r = np.asarray(runup, dtype=np.float64)
+    mean_a, mean_r = a.mean(axis=1), r.mean(axis=1)
+    std_a, std_r = a.std(axis=1), r.std(axis=1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        gain = std_r / std_a
+        # pooled over the channels, each centred on its own mean: a channel's mean is not what makes a copy
+        ca, cr = a - mean_a[:, None], r - mean_r[:, None]
+        correlation = float((ca * cr).sum() / np.sqrt((ca * ca).sum() * (cr * cr).sum()))
+    width = float(gain.mean())
+    if not (np.all(np.isfinite(gain)) and np.isfinite(correlation)):
+        return RunUpMatch(width, correlation, why="a channel of the tail or the run-up is flat")
+    if correlation < RUNUP_MIN_CORRELATION:
+        return RunUpMatch(width, correlation, why=f"the run-up is not a copy of the clip before (correlation {correlation:.3f}): a cut")
+    low, high = RUNUP_GAIN
+    if gain.min() < low or gain.max() > high:
+        return RunUpMatch(width, correlation, why=f"a channel's spread is x{gain.min():.3f} to x{gain.max():.3f} the tail's, outside x{low} to x{high}")
+    shift = np.abs(mean_a - mean_r).max()
+    if shift > RUNUP_SHIFT:
+        return RunUpMatch(width, correlation, why=f"a channel's mean is {shift:.3f} off the tail's, more than {RUNUP_SHIFT}")
+    scale = 1.0 / gain
+    return RunUpMatch(width, correlation, scale=scale, offset=mean_a - mean_r * scale)
+
+
+def with_runup(out: dict, source) -> dict:
+    """`out` with the run-up width `source` (a latent's dict) carries, when it carries one."""
+    if isinstance(source, dict) and source.get(RUNUP_KEY) is not None:
+        out[RUNUP_KEY] = source[RUNUP_KEY]
+    return out
+
+
+class AfflatusH3RunUpMatch(io.ComfyNode):
+    """A sampled continuation window held at the clip before's contrast: its run-up's spread and mean per channel brought to
+    the tail it copies, the same done to the whole window.
+
+    A window guided by the clip before's exact latent copies that tail almost exactly (correlation 0.999), but a few per
+    cent wider in every one of the 24 channels, with the same small mean bias per channel at every hop (2026-10-05). The
+    window is what the clip after continues from, so nothing pulls the chain back: over five clips sharpness doubled and
+    the grain rose by half (2026-11-01). Re-anchoring through the VAE (the hybrid tail guide, 2026-10-05) did hold it, but
+    its guide was no longer the clip before's own tokens and the joins stopped being seamless. This keeps the guide exact
+    and corrects the result instead, from the run-up alone: matched to the tail it copies, the run-up stays that tail by
+    construction, and the window's own part, made by the same sampling, loses the same gain. The sound is left as it is:
+    it shows no drift, and the seam takes the clip before's own sound tokens anyway.
+    """
+
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="AfflatusH3RunUpMatch",
+            display_name="Afflatus: H3 Run-up Match",
+            category="Afflatus",
+            description="Brings a sampled MiniMax H3 continuation window back to the clip before's contrast: per latent channel, the spread and mean of its hidden overlap (the run-up) are matched to the clip before's last tokens it copies, and the same correction goes on the whole window. A chain continued from exact latents otherwise widens a few per cent at every join. Left as sampled when the run-up is not a copy (a cut) or the correction would be large. The sound is untouched.",
+            inputs=[
+                io.Latent.Input("previous_av_latent", tooltip="The clip before's latent, as the window was made from it (cut to its hand-over frame when it was)."),
+                io.Latent.Input("sampled_window", tooltip="The continuation window after sampling (overlap, then the new frames)."),
+                io.Int.Input("overlap_frames", default=22, min=5, max=3600, step=17, tooltip="The window's hidden overlap in frames: 5, 22, 39… (17k + 5)."),
+            ],
+            outputs=[io.Latent.Output(display_name="latent")],
+        )
+
+    @classmethod
+    def execute(cls, previous_av_latent, sampled_window, overlap_frames: int = 22) -> io.NodeOutput:
+        prev_video, _prev_audio = _extract_h3_av_streams(previous_av_latent, name="previous_av_latent")
+        win_video, win_audio = _extract_h3_av_streams(sampled_window, name="sampled_window")
+        overlap_t = video_latent_t(overlap_frames)
+        prev_t = int(prev_video.shape[2])
+        if prev_t < overlap_t:
+            raise ValueError(f"the clip before has {frame_count_from_video_latent_t(prev_t)} frames, fewer than the {overlap_frames} the window overlaps")
+        if int(win_video.shape[2]) <= overlap_t:
+            raise ValueError("the window holds no new frames after its overlap")
+        if prev_video.shape[:2] != win_video.shape[:2] or prev_video.shape[3:] != win_video.shape[3:]:
+            raise ValueError("the clip before's latent and the window are not the same size")
+        channels = int(win_video.shape[1])
+
+        def flat(tokens):
+            return tokens.detach().to(device="cpu", dtype=torch.float64).transpose(0, 1).reshape(channels, -1).numpy()
+
+        match = runup_match(flat(prev_video[:, :, prev_t - overlap_t:]), flat(win_video[:, :, :overlap_t]))
+        if match.why:
+            # (plain ASCII: a Windows console on another code page fails on more)
+            print(f"[afflatus-nodes] H3 Run-up Match: left as sampled, {match.why} (run-up x{match.width:.3f})")
+            video = win_video
+        else:
+            def per_channel(values):
+                return torch.tensor(values, dtype=torch.float32, device=win_video.device).view(1, channels, 1, 1, 1)
+
+            video = (win_video.float() * per_channel(match.scale) + per_channel(match.offset)).to(win_video.dtype)
+        # the window's other entries kept (a sampler's output may carry more than its samples), the sound the same tensor
+        out = {**sampled_window, "samples": NestedTensor((video, win_audio)), RUNUP_KEY: match.width}
+        return io.NodeOutput(out)
 
 
 class AfflatusH3TailGuide(io.ComfyNode):

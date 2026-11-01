@@ -16,6 +16,7 @@ colour and voice at the join).
 | Afflatus: H3 Latent Head Guide | Anchors the clip after's first tokens at the end of the window: the clip lands exactly where the clip after begins. |
 | Afflatus: H3 Latent Landing | The same from where any of the clip after's 17-frame chunks begins: a clip lands inside another, on time. |
 | Afflatus: H3 Seam Latent | A continuation's new tokens after the clip before's own last ones, to decode the two as one piece: the join then matches the whole chain decoded at once. |
+| Afflatus: H3 Run-up Match | A sampled continuation window brought back to the clip before's contrast: per latent channel, its run-up's spread and mean matched to the clip before's last tokens it copies, the same correction on the whole window, the sound untouched. Left as sampled on a cut (the run-up no copy) or past a small correction. The width as sampled is kept in the saved latent's metadata (0.45.0). |
 | Afflatus: Face Match | How alike the faces of pictures or a clip's frames are to a person's pictures (InsightFace buffalo_l, on the CPU). Registered only when `insightface` is installed in ComfyUI's Python. |
 | Afflatus: Face Crop | A person's picture cut to a square around its largest face, 2.5 face heights a side, kept inside the picture (LTX 2.5's reference pictures); without a face found, the picture as it is. Registered only when `insightface` is installed. |
 | Afflatus: Face Crop to Frame | The same cut to the clip's frame shape (its short side 2.5 face heights) and brought to its size, so that MSR's guide fills its slot with it rather than fitting it between white bars. Without a face found, the picture is cut to the frame's shape in its middle (0.42.1). Registered only when `insightface` is installed. |
@@ -107,8 +108,9 @@ Every MiniMax H3 render also saves its own sampled window as its latent (Normali
 the file goes to ComfyUI's temp folder (cleared when ComfyUI starts) and Afflatus keeps its own copy beside
 the video. When a clip on a timeline extends the one before, that
 latent is uploaded (cut with Trim when the clip before is handed over early), the Window prepares a hidden
-overlap plus the new frames, the Latent Tail Guide conditions on the overlap, the sampler runs as usual, and
-Seam Latent puts the clip before's last tokens in front of the new ones so that the two decode as one piece:
+overlap plus the new frames, the Latent Tail Guide conditions on the overlap, the sampler runs as usual, Run-up
+Match brings the sampled window back to the clip before's contrast (the run-up comes out a few per cent wider than
+the tail it copies, and a chain compounded it), and Seam Latent puts the clip before's last tokens in front of the new ones so that the two decode as one piece:
 the join plays as a plain cut. A constant cost whatever the length of the timeline. A clip put between two
 others also gets the clip after's latent, anchored at the window's end by the Head Guide, or by Landing when
 it lands further into that clip. Append Continuation is included for workflows that want one cumulative

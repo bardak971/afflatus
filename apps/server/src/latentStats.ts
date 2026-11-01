@@ -7,13 +7,27 @@
  */
 import { gridIndex, LATENT_GRID } from "@afflatus/core";
 
-/** The video stream of a saved latent: its float32 values and shape, or null when the file is not one. */
-function videoOf(bytes: Uint8Array): { data: Float32Array; shape: number[] } | null {
+type Header = Record<string, { dtype?: string; shape?: number[]; data_offsets?: [number, number] }> & { __metadata__?: Record<string, string> };
+
+/** A safetensors file's header and its length, or null when the file is not one. */
+function headerOf(bytes: Uint8Array): { header: Header; n: number } | null {
   try {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const n = Number(view.getBigUint64(0, true));
     if (n <= 0 || n > 1_000_000 || 8 + n > bytes.byteLength) return null;
-    const header = JSON.parse(new TextDecoder().decode(bytes.subarray(8, 8 + n))) as Record<string, { dtype?: string; shape?: number[]; data_offsets?: [number, number] }>;
+    const header = JSON.parse(new TextDecoder().decode(bytes.subarray(8, 8 + n))) as Header;
+    return header && typeof header === "object" ? { header, n } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The video stream of a saved latent: its float32 values and shape, or null when the file is not one. */
+function videoOf(bytes: Uint8Array): { data: Float32Array; shape: number[] } | null {
+  const read = headerOf(bytes);
+  if (!read) return null;
+  const { header, n } = read;
+  try {
     const t = header.video;
     if (!t || t.dtype !== "F32" || !t.shape || t.shape.length !== 5 || !t.data_offsets) return null;
     const [a, b] = t.data_offsets;
@@ -36,9 +50,14 @@ export function videoTokensOf(frames: number): number {
 /**
  * How wide a continuation's hidden run-up (its first `overlapFrames`) came out against the tail of the latent
  * it was guided by, as the mean over the channels of the ratio of their spreads: 1 is the same, 1.03 three per
- * cent wider. null when either file is not a saved latent, the sizes differ, or the overlap is off the grid.
+ * cent wider. As sampled: the width a matched window's metadata keeps, else read from the two files. null when
+ * either file is not a saved latent, the sizes differ, or the overlap is off the grid.
  */
 export function latentDriftOf(current: Uint8Array, previous: Uint8Array, overlapFrames: number): { width: number } | null {
+  // a window the pack's Run-up Match brought back to the clip before's contrast (0.45.0, card #212) reads 1.000 by
+  // construction: the width as sampled is in its metadata, and that is the creep this figure is for
+  const stored = Number(headerOf(current)?.header.__metadata__?.runup_width);
+  if (Number.isFinite(stored) && stored > 0) return { width: Math.round(stored * 1000) / 1000 };
   const cur = videoOf(current);
   const prev = videoOf(previous);
   if (!cur || !prev) return null;
