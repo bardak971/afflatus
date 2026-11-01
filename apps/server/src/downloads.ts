@@ -121,6 +121,15 @@ export const PACK_BUSY_MS = 120_000;
 
 /** What a download onto a machine that cannot reach Afflatus (a rented pod) is refused with when its source gives no link of its own. */
 export const NO_DIRECT = "Its source gives no download link of its own, and a rented GPU cannot reach Afflatus to be sent the file through it.";
+/**
+ * What a 404 to the node pack's download route is said as. The pack never answers that route so (it says 400, 409, 415, 429
+ * or 507, each with its words), and ComfyUI's own 404 for a route it lacks has a body ("404: Not Found"), while a pack too
+ * old for downloads is known before by its version. An empty 404 is RunPod's proxy answering in ComfyUI's place, its port
+ * having nothing behind it for a moment: on 2026-11-01 a pod just up got three of them in a row while /object_info answered,
+ * each file was failed for good, and the pod idled to its stop with nothing rendered (card #214). A failure that passes
+ * (PASSING): the pod's files ask again.
+ */
+export const PROXY_404 = "ComfyUI is not answering behind the pod's proxy (a 404 to the node pack's download route, which the pack never gives there)";
 /** What a download is refused with when ComfyUI's machine would have to fetch it through Afflatus at an address it cannot reach. */
 export const NO_SELF = "ComfyUI runs on another machine and cannot reach Afflatus at this URL. Open Afflatus by its network URL, or set PUBLIC_URL to it.";
 
@@ -953,6 +962,10 @@ export class Downloads {
         res = await ask();
       }
       delete d.waiting;
+      if (res.status === 404) {
+        await res.body?.cancel().catch(() => {});
+        throw new Error(PROXY_404);
+      }
       if (!res.ok) throw new Error(`The Afflatus node pack refused the download (${res.status}: ${(await res.text()).slice(0, 200)})`);
       const got = (await res.json()) as { id: string; path?: string; root?: string };
       d.packId = got.id;
@@ -970,8 +983,15 @@ export class Downloads {
       while (running(d)) {
         await new Promise((r) => setTimeout(r, this.packEveryMs));
         if (!running(d)) return;
-        const asked = await d.comfy.client.raw(`/afflatus/download/${encodeURIComponent(got.id)}`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
-        if (asked?.status === 404) throw new Error("ComfyUI no longer knows the download: was it restarted? Press Download again.");
+        let asked = await d.comfy.client.raw(`/afflatus/download/${encodeURIComponent(got.id)}`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
+        if (asked?.status === 404) {
+          await asked.body?.cancel().catch(() => {});
+          // the pack's own 404 (ComfyUI restarted, the download forgotten) only when the pack answers beside it: a pod's proxy
+          // answers an empty 404 too while ComfyUI is not behind it (PROXY_404), a moment's silence. Taken for the pack's, the
+          // download went back in line, its pack still fetching it, and the pod's files spent a try on it (card #214)
+          if (await d.comfy.client.packVersion().catch(() => null)) throw new Error("ComfyUI no longer knows the download: was it restarted? Press Download again.");
+          asked = null;
+        }
         // an answer that says nothing (a 5xx, a page instead of the state, a body cut short) counts as no answer: two
         // minutes of them and the download is given up, never left "downloading" for good
         const s = asked?.ok ? ((await asked.json().catch(() => null)) as { state?: string; bytes?: number; error?: string; note?: string; expired?: boolean } | null) : null;

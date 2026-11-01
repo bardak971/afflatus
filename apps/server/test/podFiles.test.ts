@@ -249,6 +249,34 @@ describe("a rented pod's model files", () => {
     expect(files.jobState("pod", "j1")?.state).toBe("ready");
   });
 
+  it("carry on with an upload when the pod's proxy answers 404 for a moment, its pack not answering beside it", async () => {
+    // card #214: the pack's 404 for an upload it forgot and the proxy's while ComfyUI is not behind it look alike. Taken for
+    // the pack's, the file was sent again from its first byte, its first upload left open on the pod
+    const real = globalThis.fetch;
+    let proxy = 0;
+    let starts = 0;
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/afflatus/upload") && init?.method === "POST") starts++;
+      if (url.includes("/afflatus/upload/") && init?.method === "PUT" && proxy === 0) proxy = 1;
+      // the piece, the pack's version, the upload's state and the version again: then ComfyUI is behind the proxy again
+      if (proxy > 0 && proxy <= 4 && url.startsWith(pod.url)) {
+        proxy++;
+        return Promise.resolve(new Response(null, { status: 404 }));
+      }
+      return real(input, init);
+    }) as typeof fetch;
+    try {
+      files.want("pod", [{ file: "mine.safetensors", folder: "loras" }], { tier: "need", job: "j1" });
+      await settle("pod", "mine.safetensors");
+    } finally {
+      globalThis.fetch = real;
+    }
+    expect(files.view("pod")[0]).toMatchObject({ state: "ready", via: "upload", bytes: 150_000 });
+    expect(starts).toBe(1);
+    expect(pod.packUploaded.map((p) => p.offset)).toEqual([0]);
+  });
+
   it("fail when no site is known and this computer has no copy", async () => {
     files.want("pod", [{ file: "nowhere.safetensors", folder: "loras" }], { tier: "need", job: "j1" });
     await settle("pod", "nowhere.safetensors");
@@ -305,6 +333,59 @@ describe("a rented pod's model files", () => {
     pod.down = false;
     await settle("pod", "mine.safetensors");
     expect(files.view("pod")[0]).toMatchObject({ state: "ready", via: "upload" });
+  });
+
+  // card #214: a pod just up got an empty 404 from RunPod's proxy for three of its deploy's files, each was failed for good,
+  // and the pod idled to its stop with nothing rendered
+  const proxy404 = (times: number) => {
+    const real = globalThis.fetch;
+    const said = { times: 0 };
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST" && String(input).endsWith("/afflatus/download") && said.times < times) {
+        said.times++;
+        return Promise.resolve(new Response(null, { status: 404 }));
+      }
+      return real(input, init);
+    }) as typeof fetch;
+    return Object.assign(said, { restore: () => (globalThis.fetch = real) });
+  };
+
+  it("are asked again when the pod's proxy answers an empty 404 in its node pack's place, holding the pod's idle time meanwhile", async () => {
+    files.retryMs = 300;
+    files.nextGraceMs = 50;
+    const proxy = proxy404(1);
+    try {
+      // a deploy's file: no job waits for it, so only the file itself can hold the pod
+      files.want("pod", [{ file: "a.safetensors", folder: "loras", url: `${siteUrl}/files/a.safetensors` }], { tier: "ahead" });
+      // put back in line, its next try not begun: the 404 is not taken for the pack's refusal
+      await until(async () => (await files.tick(), proxy.times === 1 && files.view("pod")[0]?.state === "next"));
+      expect(files.view("pod")[0]!.error).toBeUndefined();
+      expect(files.moving("pod")).toBe(true);
+      await settle("pod", "a.safetensors");
+    } finally {
+      proxy.restore();
+    }
+    expect(files.view("pod")[0]).toMatchObject({ state: "ready" });
+    expect(readFileSync(join(disk, "loras", "a.safetensors")).equals(FILE)).toBe(true);
+    expect(files.moving("pod")).toBe(false);
+  });
+
+  it("fail after their tries when the pod's proxy keeps answering 404, and hold the pod's idle time no more", async () => {
+    files.retryMs = 5;
+    files.nextGraceMs = 20;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const proxy = proxy404(1000);
+    try {
+      files.want("pod", [{ file: "a.safetensors", folder: "loras", url: `${siteUrl}/files/a.safetensors` }], { tier: "ahead" });
+      await settle("pod", "a.safetensors");
+    } finally {
+      proxy.restore();
+      warn.mockRestore();
+    }
+    // asked TRIES times in all (podFiles.ts), then failed in words that say where the 404 came from
+    expect(proxy.times).toBe(4);
+    expect(files.view("pod")[0]).toMatchObject({ state: "failed", error: expect.stringContaining("proxy") });
+    expect(files.moving("pod")).toBe(false);
   });
 
   it("a job waits for are not held behind files ahead: one of those gives its place", async () => {
