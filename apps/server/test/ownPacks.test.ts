@@ -17,6 +17,8 @@ import type { Lane } from "../src/queueModel";
 /** A pretend ComfyUI as PodPacks reads it: Manager's install queue and history, its own queue, its restart. */
 function stubComfy(o: { result?: (id: string) => string; queue?: () => { running: unknown[]; pending: unknown[] }; noAnswer?: boolean; loads?: boolean } = {}) {
   const tasks: Array<{ ui_id: string; id: string }> = [];
+  /** Each install asked, with the version Manager was asked for. */
+  const asked: Array<{ id: string; version: string; selected_version: string }> = [];
   const history: Record<string, { result: string }> = {};
   let reboots = 0;
   let installs = 0;
@@ -28,8 +30,9 @@ function stubComfy(o: { result?: (id: string) => string; queue?: () => { running
     raw: async (path: string, init?: RequestInit) => {
       if (o.noAnswer) throw new TypeError("fetch failed");
       if (path === "/v2/manager/queue/task") {
-        const t = JSON.parse(String(init!.body)) as { ui_id: string; params: { id: string } };
+        const t = JSON.parse(String(init!.body)) as { ui_id: string; params: { id: string; version: string; selected_version: string } };
         tasks.push({ ui_id: t.ui_id, id: t.params.id });
+        asked.push({ id: t.params.id, version: t.params.version, selected_version: t.params.selected_version });
         installs++;
         return new Response("", { status: 200 });
       }
@@ -56,7 +59,7 @@ function stubComfy(o: { result?: (id: string) => string; queue?: () => { running
     },
   };
   const comfy = { client, forgetAll: () => {}, openedAt: 0 } as unknown as Comfy;
-  return { comfy, get reboots() { return reboots; }, get installs() { return installs; }, get queueReads() { return queueReads; }, set down(d: boolean) { down = d; } };
+  return { comfy, asked, get reboots() { return reboots; }, get installs() { return installs; }, get queueReads() { return queueReads; }, set down(d: boolean) { down = d; } };
 }
 
 const lane = (comfy: Comfy, more: Partial<Lane> = {}) => ({ id: "own", machine: { id: "own", name: "Studio PC", packs: "ask" }, comfy, device: "cuda:0 NVIDIA GeForce RTX 4090 : cudaMallocAsync", running: null, starting: null, outside: null, ...more }) as unknown as Lane;
@@ -376,6 +379,19 @@ describe("a pack ComfyUI-Manager cannot find in its list", () => {
     await settle(packs, "pod", 6);
     expect(packs.view("pod").find((e) => e.name === "ComfyUI-GGUF")!.state).toBe("installed");
     expect(packs.view("pod").find((e) => e.name === "comfyui-h3-facerefine")!.state).toBe("failed");
+  });
+});
+
+describe("the version a pack is installed at", () => {
+  it("is the Registry's latest, or its repository's head for Krea2Edit, whose 2.0 the Registry does not have (card #219)", async () => {
+    const stub = stubComfy();
+    const packs = new PodPacks({ comfyOf: async () => stub.comfy, busy: () => true });
+    packs.want("pod", ["comfyui-krea2edit", "comfyui-impact-pack"], "job-1");
+    await settle(packs, "pod", 1);
+    expect(stub.asked).toEqual([
+      { id: "comfyui-krea2edit", version: "nightly", selected_version: "nightly" },
+      { id: "comfyui-impact-pack", version: "latest", selected_version: "latest" },
+    ]);
   });
 });
 

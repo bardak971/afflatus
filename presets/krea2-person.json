@@ -1,0 +1,26 @@
+{
+  "id": "krea2-person",
+  "name": "Krea 2 · person reference",
+  "author": "conradlocke",
+  "line": "Identity Edit V2 LoRA, r128",
+  "note": "conradlocke's Identity Edit V2 LoRA for Krea 2 Turbo: txt2img keeps a person from one photo (a cast person, or a reference image of the person). Needs the comfyui-krea2edit node pack 2.0 or newer, which Afflatus installs at its repository's latest. Its licence is the LoRA's own; Krea 2 Turbo comes with its preset.",
+  "homepage": "https://huggingface.co/conradlocke/krea2-identity-edit",
+  "links": [{ "label": "Node pack", "url": "https://github.com/lbouaraba/comfyui-krea2edit" }],
+  "licence": {
+    "name": "Krea 2 Identity Edit V2 License",
+    "url": "https://huggingface.co/conradlocke/krea2-identity-edit/blob/main/LICENSE_V2.md",
+    "note": "Free for non-commercial use (personal projects, hobby art, research); any commercial use needs a paid licence from its author, agreed case by case. The Krea 2 Community License applies too. No sexual, defamatory or deceptive pictures of real people without their consent."
+  },
+  "recipe": "krea2.text-to-picture",
+  "inputs": {
+    "identityLora": "krea2_identity_edit_v2_r128.safetensors"
+  },
+  "files": [
+    {
+      "file": "krea2_identity_edit_v2_r128.safetensors",
+      "folder": "loras",
+      "url": "https://huggingface.co/conradlocke/krea2-identity-edit/resolve/main/krea2_identity_edit_v2_r128.safetensors",
+      "size": 914188768
+    }
+  ]
+}

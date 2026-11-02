@@ -9,6 +9,7 @@ Each file in this folder is listed in every Afflatus as a read-only "built in" p
 | Preset | Listed as · model | Licence |
 |---|---|---|
 | `krea2-turbo` | Krea 2 Turbo, fp8 (pictures) | Krea 2 Community License |
+| `krea2-person` | conradlocke's Identity Edit V2 LoRA, r128: Krea 2's person reference | Krea 2 Identity Edit V2 License: non-commercial, commercial use licensed by its author |
 | `zimage-turbo` | Z-Image Turbo, bf16 (pictures) | Apache 2.0 |
 | `klein-4b` | FLUX.2 Klein 4B base (pictures, edit by instruction) | Apache 2.0 |
 | `klein-9b` | FLUX.2 Klein 9B, fp8, 4 steps (pictures, edit by instruction) | FLUX Non-Commercial License: gated on Hugging Face |

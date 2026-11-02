@@ -11,6 +11,11 @@ interface NodePack {
   repo: string;
   /** Afflatus's own: written into custom_nodes from Settings → ComfyUI. */
   own?: boolean;
+  /**
+   * Installed at its repository's head (Manager's "nightly"), not the Registry's latest: the Registry is behind the version
+   * the forms are built for (Krea2Edit: 1.2.3 there on 2026-11-02, where the person reference needs 2.0's ref_position).
+   */
+  nightly?: true;
   nodes: string[];
 }
 
@@ -31,7 +36,7 @@ const NODE_PACKS: NodePack[] = [
   { name: "veda-sparse-attention", repo: "https://github.com/veda-sparse/Veda-on-ComfyUI", nodes: ["VedaSparseAttention"] },
   { name: "ComfyUI-DaSiWa-Nodes", repo: "https://github.com/darksidewalker/ComfyUI-DaSiWa-Nodes", nodes: ["DaSiWa_RTX_UpscalerRefiner", "MiniMaxH3Cache"] },
   { name: "comfyui_nvidia_rtx_nodes", repo: "https://github.com/Comfy-Org/ComfyUI_Nvidia_VFX_Nodes", nodes: ["RTXVideoSuperResolution"] },
-  { name: "comfyui-impact-pack", repo: "https://github.com/ltdrdata/ComfyUI-Impact-Pack", nodes: ["DetailerForEach", "FaceDetailer", "BboxDetectorSEGS", "ImpactSEGSOrderedFilter", "SAMLoader"] },
+  { name: "comfyui-impact-pack", repo: "https://github.com/ltdrdata/ComfyUI-Impact-Pack", nodes: ["DetailerForEach", "FaceDetailer", "BboxDetectorSEGS", "ImpactSEGSOrderedFilter", "ImpactSEGSRangeFilter", "SAMLoader"] },
   { name: "comfyui-impact-subpack", repo: "https://github.com/ltdrdata/ComfyUI-Impact-Subpack", nodes: ["UltralyticsDetectorProvider"] },
   { name: "comfyui-kjnodes", repo: "https://github.com/kijai/ComfyUI-KJNodes", nodes: ["ModelPreviewOverrideKJ", "PathchSageAttentionKJ", "ModelPatchTorchSettings", "ImageSharpenKJ"] },
   { name: "comfyui-videohelpersuite", repo: "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite", nodes: ["VHS_VideoCombine"] },
@@ -44,6 +49,8 @@ const NODE_PACKS: NodePack[] = [
   // LTX 2.5's reference pictures and voice: the MSR LoRA's own loader (its slot embeddings) and guide, by the LoRA's authors
   { name: "ltx2.5-msr", repo: "https://github.com/liconstudio/ComfyUI-LTX2.5-MSR", nodes: ["ComfyUILTX25MSRICLoRALoader", "ComfyUILTX25MSRMultiReferenceGuide"] },
   { name: "comfyui_controlnet_aux", repo: "https://github.com/Fannovel16/comfyui_controlnet_aux", nodes: ["DepthAnythingV2Preprocessor", "DWPreprocessor", "AIO_Preprocessor"] },
+  // Krea 2's person reference: the Identity Edit LoRA's own patch (the person's picture as reference tokens) and grounded encode
+  { name: "comfyui-krea2edit", repo: "https://github.com/lbouaraba/comfyui-krea2edit", nightly: true, nodes: ["Krea2EditModelPatch", "Krea2EditGroundedEncode"] },
 ];
 
 /**
@@ -105,6 +112,9 @@ export const nodesOfPack = (name: string): string[] => packNamed(name)?.nodes ??
  */
 export const beyondPack = (message: string): Error => Object.assign(new Error(message), { beyondPack: true as const });
 export const isBeyondPack = (err: unknown): boolean => Boolean((err as { beyondPack?: unknown } | null)?.beyondPack);
+
+/** The version ComfyUI-Manager is asked to install a pack at: the Registry's latest, or its repository's head for one ahead of it. */
+export const packVersion = (name: string): "latest" | "nightly" => (packNamed(name)?.nightly ? "nightly" : "latest");
 
 /** The repository a known pack is cloned from by hand, when ComfyUI-Manager cannot install it; null for one not known. */
 export const repoOfPack = (name: string): string | null => packNamed(name)?.repo ?? null;
