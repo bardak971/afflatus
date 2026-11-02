@@ -118,6 +118,12 @@ export function fakeRoutes(fake: FakeState, hooks: { queued(promptId: string, cl
       fake.alive.push({ at: Date.now(), minutes });
       return json(200, { watching: minutes > 0, minutes, can: true });
     }
+    if (path === "/afflatus/face-facts") {
+      if (!fake.faceFacts) return json(404, {});
+      if (!/^application\/octet-stream\b/.test(String(headers["content-type"] ?? ""))) return json(415, { error: "the picture's bytes are expected" });
+      const facts = fake.faceFacts(new Uint8Array(raw));
+      return facts === "unreadable" ? plain(422, "the picture could not be read") : json(200, facts);
+    }
     if (path === "/afflatus/clean-input") {
       // as the pack does: only a JSON body, which a page of another site cannot send without asking first
       if (!/^application\/json\b/.test(String(headers["content-type"] ?? ""))) return json(415, { error: "a JSON body is expected" });

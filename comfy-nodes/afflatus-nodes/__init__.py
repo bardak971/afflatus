@@ -109,7 +109,7 @@ from .latent_ltx import AfflatusLoadLTXLatent, AfflatusLTXContinuation, Afflatus
 from .face_match import AfflatusFaceAt, AfflatusFaceBackdrop, AfflatusFaceCrop, AfflatusFaceFrame, AfflatusFaceMatch, available as face_available  # noqa: E402
 from .swap_mask import AfflatusSwapMask, AfflatusSwapMaskPreview, AfflatusSwapMatch, AfflatusSwapPaste  # noqa: E402
 from .face_refine import AfflatusH3AudioLock  # noqa: E402
-from .colour_follow import AfflatusColorFollow  # noqa: E402
+from .colour_follow import AfflatusColorFollow, AfflatusMatchPicture  # noqa: E402
 from .room_tone import AfflatusRoomTone  # noqa: E402
 from .text_encoder import AfflatusFreeTextEncoder  # noqa: E402
 
@@ -161,6 +161,8 @@ class AfflatusExtension(ComfyExtension):
             AfflatusH3AudioLock,
             # a Motion transfer clip's colours brought to its driving video's, moment by moment
             AfflatusColorFollow,
+            # a person's reference picture brought to the light of the frame an H3 continuation carries on from (pack 0.48.0, card #222)
+            AfflatusMatchPicture,
             AfflatusRoomTone,
             # H3's text encoder let go once its prompt is encoded, before the sampler (the RAM it held on 32 GB, card #202)
             AfflatusFreeTextEncoder,
@@ -325,6 +327,10 @@ try:
     from .power import register as _register_power
 
     _register_power(PromptServer.instance.routes, web)
+
+    from .face_facts import register as _register_face_facts
+
+    _register_face_facts(PromptServer.instance.routes, web)
 except ImportError:
     # outside ComfyUI's server (a bare import, a test): the nodes still load, the routes are simply not there
     pass

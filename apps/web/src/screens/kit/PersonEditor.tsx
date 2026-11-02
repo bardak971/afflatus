@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type DragEvent, type KeyboardEvent,
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Music, Plus, Trash2 } from "lucide-react";
 import { LIMITS } from "@afflatus/core";
-import { api, thumbUrl, type Outfit, type PersonDef, type PlaceDef } from "../../api";
+import { api, thumbUrl, type Outfit, type PersonDef, type PictureFaces, type PlaceDef } from "../../api";
 import { AudioPlayer } from "../../AudioPlayer";
 import { SoundRange } from "../../SoundRange";
 import { DRAG_HAS_SOUND, DRAG_PICTURE, DRAG_SOUND, DRAG_TYPE, useDropZone } from "../../dragging";
@@ -34,8 +34,10 @@ function Takes({ children, tip }: { children: string; tip: string }) {
 /**
  * The pictures of a person or a place: a row to add to, take from and put in order (dragged, or Alt + arrow on a
  * focused one). The first `sent` are what a model is handed, marked by a bar above them; a person's first is the face.
+ * A person whose pictures were read for their faces (`faces`, server faceFacts.ts) has them shown in the order they are
+ * sent, the clearest face first, those without a face said: that order is worked out, not put in by hand.
  */
-function Pictures({ value, onChange, what, sent, face }: { value: string[]; onChange(value: string[]): void; what: string; sent: number; face?: boolean }) {
+function Pictures({ value, onChange, what, sent, face, faces }: { value: string[]; onChange(value: string[]): void; what: string; sent: number; face?: boolean; faces?: PictureFaces }) {
   const [picking, setPicking] = useState(false);
   // a click shows the picture large
   const [open, setOpen] = useState<string | null>(null);
@@ -94,6 +96,11 @@ function Pictures({ value, onChange, what, sent, face }: { value: string[]; onCh
     setRefocus(id);
   };
   const first = Math.min(sent, value.length);
+  // read for their faces: shown as they are sent (a picture just added, not in the order yet, after them), not reordered
+  const ranked = Boolean(faces && faces.unread.length < value.length);
+  const inOrder = ranked ? [...faces!.order.filter((id) => value.includes(id)), ...value.filter((id) => !faces!.order.includes(id))] : value;
+  const faceless = new Set(faces?.none ?? []);
+  const sorts = value.length > 1 && !ranked;
   return (
     <div className={cx("px-4 py-3", first > 0 && "pt-7")}>
       <div
@@ -111,11 +118,11 @@ function Pictures({ value, onChange, what, sent, face }: { value: string[]; onCh
             <span className="h-[3px] rounded-full bg-accent" />
           </span>
         )}
-        {value.map((id, i) => (
+        {inOrder.map((id, i) => (
           <div
             key={id}
             ref={flip(id)}
-            draggable={value.length > 1}
+            draggable={sorts}
             onDragStart={(e) => {
               // a drag of its own: it carries no picture of the library, so that no other place takes it
               e.dataTransfer.effectAllowed = "move";
@@ -132,7 +139,7 @@ function Pictures({ value, onChange, what, sent, face }: { value: string[]; onCh
               const r = e.currentTarget.getBoundingClientRect();
               setOver(e.clientX < r.left + r.width / 2 ? i : i + 1);
             }}
-            className={cx("relative", value.length > 1 && "cursor-grab", dragged === id ? "opacity-40" : i >= first && "opacity-55")}
+            className={cx("relative", sorts && "cursor-grab", dragged === id ? "opacity-40" : i >= first && "opacity-55")}
           >
             {dragged && over === i && <span className="absolute top-0 -left-[6px] h-full w-1 rounded-full bg-accent" />}
             {dragged && over === i + 1 && i === value.length - 1 && <span className="absolute top-0 -right-[6px] h-full w-1 rounded-full bg-accent" />}
@@ -142,15 +149,15 @@ function Pictures({ value, onChange, what, sent, face }: { value: string[]; onCh
                 else buttons.current.delete(id);
               }}
               type="button"
-              aria-label={`Show image ${i + 1} of ${what} large${face && i === 0 ? ", the face" : ""}`}
-              aria-keyshortcuts={value.length > 1 ? "Alt+ArrowLeft Alt+ArrowRight" : undefined}
+              aria-label={`Show image ${i + 1} of ${what} large${face && i === 0 ? ", the face" : ""}${faceless.has(id) ? ", no face found" : ""}`}
+              aria-keyshortcuts={sorts ? "Alt+ArrowLeft Alt+ArrowRight" : undefined}
               onClick={() => setOpen(id)}
-              onKeyDown={(e) => onKey(e, id, i)}
+              onKeyDown={(e) => sorts && onKey(e, id, i)}
               className="block cursor-zoom-in rounded-control"
             >
               <img src={thumbUrl(id)} alt="" draggable={false} className="h-[84px] w-[84px] rounded-control border border-line object-cover hover:border-accent" />
             </button>
-            <span className={cx("pointer-events-none absolute bottom-1 left-1 rounded-key px-1.5 text-micro font-bold", face && i === 0 ? "bg-accent text-ground" : "bg-ground/80 text-ink")}>{face && i === 0 ? "face" : i + 1}</span>
+            <span className={cx("pointer-events-none absolute bottom-1 left-1 rounded-key px-1.5 text-micro font-bold", face && i === 0 && !faceless.has(id) ? "bg-accent text-ground" : "bg-ground/80 text-ink")}>{faceless.has(id) ? "no face" : face && i === 0 ? "face" : i + 1}</span>
             <CloseButton size={24} tone="badge" label="Remove this image" onClose={() => onChange(value.filter((x) => x !== id))} className="absolute top-1 right-1" />
           </div>
         ))}
@@ -300,7 +307,7 @@ function OutfitPicture({ value, onChange, what }: { value: string | null; onChan
 /** The parts of an item an MCP token changed, ringed with its name until the user edits them (agentEdits.ts useKitEdits). */
 type Rings = Readonly<Record<string, string>> | undefined;
 
-export function PersonEditor({ def, name, onChange, rings }: { def: PersonDef; name: string; onChange(def: PersonDef): void; rings?: Rings }) {
+export function PersonEditor({ def, name, onChange, rings, faces }: { def: PersonDef; name: string; onChange(def: PersonDef): void; rings?: Rings; /** Their pictures as they are sent (the kit's list item). */ faces?: PictureFaces }) {
   const recipes = useRecipes();
   const setup = useSetup();
   const rows = modelRows(recipes.data?.families ?? [], recipes.data?.recipes ?? []);
@@ -313,8 +320,8 @@ export function PersonEditor({ def, name, onChange, rings }: { def: PersonDef; n
   return (
     <Halves>
       <div className="flex min-w-0 flex-col gap-3">
-        <Card dense by={ringBy(rings, "pictures", "voice", "voicePart")} title={`Reference images · ${def.pictures.length}`} status={def.pictures.length > 1 && <span className="text-meta text-ink-3">drag to reorder</span>} help={`Used by models that take reference images: the first ${LIMITS.sentPictures.person} are sent, the first being the face. Two or three angles hold a face better than one. Drop pictures on the row, from the computer or the library; drag one, or Alt + ← → on a focused one, to change the order.`}>
-          <Pictures value={def.pictures} onChange={(pictures) => onChange({ ...def, pictures })} what={name} sent={LIMITS.sentPictures.person} face />
+        <Card dense by={ringBy(rings, "pictures", "voice", "voicePart")} title={`Reference images · ${def.pictures.length}`} status={def.pictures.length > 1 && <span className="text-meta text-ink-3">{faces && faces.unread.length < def.pictures.length ? "clearest face first" : "drag to reorder"}</span>} help={`Used by models that take reference images: the first ${LIMITS.sentPictures.person} are sent, the first being the face. They go clearest face first: the Afflatus node pack reads each picture's face once (InsightFace, on the CPU of a machine that renders nothing then), and the largest, most frontal and sharpest face, most like their other pictures, goes first; a picture with no face found goes last. A form's cast chip can send another one first. Until the pictures are read (node pack 0.48.1 with insightface), they go in the row's order: drag one, or Alt + ← → on a focused one, to change it. Two or three angles hold a face better than one. Drop pictures on the row, from the computer or the library.`}>
+          <Pictures value={def.pictures} onChange={(pictures) => onChange({ ...def, pictures })} what={name} sent={LIMITS.sentPictures.person} face faces={faces} />
           <Row label="Voice sample" help="A few seconds of them speaking. Models that generate audio give the person this voice. Under it, the part they are given, in the accent: drag on the waveform for another part, its ends snap to the pauses (Alt: anywhere); a click plays from there. Optional.">
             {/* the part belongs to the sample: another sample starts from the form's own part again */}
             <Voice value={def.voice} part={def.voicePart ?? null} onChange={(voice) => onChange({ ...def, voice, voicePart: null })} onPart={(voicePart) => onChange({ ...def, voicePart })} />

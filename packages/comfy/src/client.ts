@@ -68,6 +68,8 @@ export interface HistoryEntry {
 const META_TIMEOUT = 15_000;
 /** The GPU's power is read every few seconds: an answer later than this is skipped, not waited for. */
 const POWER_TIMEOUT = 2_000;
+/** A picture's face facts: the first one loads InsightFace, and may fetch its files (about 300 MB) into ComfyUI's models folder. */
+const FACE_FACTS_TIMEOUT = 300_000;
 /** How many prompts sent lately keep their node classes (ComfyClient.classesOf): the ones running and waiting, and more. */
 const SENT_KEPT = 32;
 
@@ -441,6 +443,26 @@ export class ComfyClient {
     if (!res?.ok) return null;
     const version = ((await res.json().catch(() => ({}))) as { version?: unknown }).version;
     return typeof version === "string" ? version : null;
+  }
+
+  /**
+   * What a picture holds of a face, as the Afflatus node pack reads it (0.48.1 on, POST /afflatus/face-facts): its answer as
+   * it comes (faceFacts.ts checks it), "unreadable" when the pack could not read the picture, "absent" when the route is not
+   * there (no pack, an older one, or a ComfyUI without insightface), null when ComfyUI did not answer. A long time limit:
+   * the first picture fetches InsightFace's files into ComfyUI's models folder.
+   */
+  async faceFacts(picture: Uint8Array): Promise<unknown | "unreadable" | "absent" | null> {
+    const res = await this.fetcher(`${this.baseUrl}/afflatus/face-facts`, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: new Uint8Array(picture), signal: AbortSignal.timeout(FACE_FACTS_TIMEOUT) }).catch(() => null);
+    if (res && [404, 405, 501].includes(res.status)) {
+      await res.body?.cancel().catch(() => {});
+      return "absent";
+    }
+    if (res?.status === 422) {
+      await res.body?.cancel().catch(() => {});
+      return "unreadable";
+    }
+    if (!res?.ok) return null;
+    return res.json().catch(() => null);
   }
 
   /**

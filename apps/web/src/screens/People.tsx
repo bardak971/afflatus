@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CopyPlus, Eye, Link2, MapPin, Play, Sparkles, Trash2, User, X, FileDown, Upload, Pencil } from "lucide-react";
 import { fuzzyFilter } from "@afflatus/core";
 import { useLocation } from "wouter";
-import { api, thumbUrl, type Entity, type RecipeInfo } from "../api";
+import { api, sentPicture, thumbUrl, type Entity, type RecipeInfo } from "../api";
 import { useEntities, useRecipes } from "../data";
 import { PresetEditor } from "../PresetEditor";
 import { ShippedPreset } from "../ShippedPreset";
@@ -256,7 +256,7 @@ export function People() {
               <div className="flex min-h-0 grow flex-col gap-1 overflow-y-auto px-3 py-3">
                 {head}
                 {(tab === "person" || tab === "place") && found.map((e) => {
-                  const face = e.kind === "person" || e.kind === "place" ? e.def.pictures[0] : undefined;
+                  const face = sentPicture(e);
                   return (
                     <Row
                       key={e.id} active={open === e.id} onClick={() => select(e.id)} onMenu={(ev) => rowMenu.open(ev, e)} title={e.name} summary={summaryOf(e, recipeList)}
@@ -283,7 +283,7 @@ export function People() {
                   item={editing} saved={saved} failure={failure} by={rings?.name} onRename={(name) => change({ ...editing, name })} onRetry={retry}
                   onApply={() => void flush().then(() => applyInStudio(editing.id))} onMenu={(ev) => rowMenu.open(ev, editing)} onClose={() => select(null)}
                 />
-                {editing.kind === "person" && <PersonEditor key={editing.id} def={editing.def} name={editing.name || "this person"} rings={rings} onChange={(def) => change({ ...editing, def })} />}
+                {editing.kind === "person" && <PersonEditor key={editing.id} def={editing.def} name={editing.name || "this person"} rings={rings} faces={stored?.kind === "person" ? stored.faces : undefined} onChange={(def) => change({ ...editing, def })} />}
                 {editing.kind === "place" && <PlaceEditor key={editing.id} def={editing.def} name={editing.name || "this place"} rings={rings} onChange={(def) => change({ ...editing, def })} />}
                 {editing.kind === "style" && <StyleEditor key={editing.id} def={editing.def} rings={rings} onChange={(def) => change({ ...editing, def })} />}
                 {editing.kind === "preset" && <PresetEditor key={editing.id} id={editing.id} def={editing.def} onChange={(def) => change({ ...editing, def })} />}

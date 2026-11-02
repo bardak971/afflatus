@@ -4,7 +4,7 @@ import type { z } from "zod";
 import type { Asset, AssetDetail, ClipOf, ProjectsTree } from "../../web/src/api/types/library";
 import type { HistoryPage, QueueAnswer, RenderItem, TimesSummary as WebTimes } from "../../web/src/api/types/queue";
 import type { ClipPatch, Measure as WebMeasure, Timeline, TimelinePatch } from "../../web/src/api/types/timeline";
-import type { Draft, DraftBrief, DraftPatch, Entity, PresetFilesView as WebPresetFiles } from "../../web/src/api/types/designer";
+import type { Draft, DraftBrief, DraftPatch, Entity, PictureFaces as WebPictureFaces, PresetFilesView as WebPresetFiles } from "../../web/src/api/types/designer";
 import type { Settings as WebSettings, SettingsPatch } from "../../web/src/api/types/settings";
 import type { CommandEntry as WebEntry, CommandEstimate as WebEstimate, CommandIndex, PromptHistoryItem as WebPromptItem } from "../../web/src/api/types/bar";
 import type { Download } from "../../web/src/api/types/models";
@@ -18,6 +18,7 @@ import type { Measure } from "../src/measure";
 import type { DownloadView } from "../src/downloads";
 import type { DraftView, draftsList, saveBody } from "../src/drafts";
 import type { EntityView } from "../src/entities";
+import type { PictureFaces } from "../src/faceFacts";
 import type { LibraryChange } from "../src/events";
 import type { assetView } from "../src/media";
 import type { PresetFilesView } from "../src/presetFiles";
@@ -134,6 +135,8 @@ describe("the web's API types match what the server answers", () => {
     agree<DraftView, Omit<Draft, "cover" | "coverKind" | "outputs" | "bytes" | "unused" | "model" | "models">>().toEqualTypeOf<true>();
     // a kit item's definition is stored as JSON and sent back as read: the web's per-kind shapes are its only word on it
     agree<EntityView, Omit<Entity, "def" | "source">>().toEqualTypeOf<true>();
+    // and what a person's list item says of their pictures: the order they are sent in, the clearest face first
+    agree<PictureFaces, WebPictureFaces>().toEqualTypeOf<true>();
     agree<PresetFilesView, WebPresetFiles>().toEqualTypeOf<true>();
     // the drafts list: each draft's brief with its cover and counts
     agree<Awaited<ReturnType<typeof draftsList>>, { items: DraftBrief[]; unused: number }>().toEqualTypeOf<true>();

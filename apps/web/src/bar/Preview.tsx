@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Music } from "lucide-react";
-import { api, fileUrl, thumbUrl, type AssetDetail, type CommandEntry, type RecipeInfo } from "../api";
+import { api, fileUrl, sentPicture, thumbUrl, type AssetDetail, type CommandEntry, type RecipeInfo } from "../api";
 import { removedName } from "@afflatus/core";
 import { useRecipes, useTimeline } from "../data";
 import { mainTextOf } from "../form";
@@ -213,7 +213,7 @@ export function Preview({ item, detail, recipes, settingCtx, extra }: {
     );
   } else if (item.kind === "person" && item.person) {
     const p = item.person;
-    const pic = p.def.pictures[0];
+    const pic = sentPicture(p);
     body = (
       <>
         {pic && <div data-stage className="flex h-48 items-center justify-center overflow-hidden rounded-xl bg-stage"><img src={thumbUrl(pic)} alt="" className="h-full object-contain" /></div>}

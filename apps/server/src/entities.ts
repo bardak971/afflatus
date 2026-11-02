@@ -3,6 +3,7 @@ import { familyById, recipes } from "@afflatus/recipes";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { httpError } from "./errors";
+import { facesOf, factsOf, sentOrder, type PictureFaces } from "./faceFacts";
 import { oneAtATime } from "./keyedLock";
 import { newId, now, OWNER, type Db, type Tables } from "./db";
 import { SHIPPED } from "./presetFiles";
@@ -21,7 +22,11 @@ import { dropFromUnwritten } from "./unwrittenDrafts";
 
 /** Who is in it and how it looks: people and places (a person with the outfit picked), and one style. */
 export const lookSchema = z.strictObject({
-  cast: z.array(z.strictObject({ id: z.string().min(1), outfit: z.string().nullable().optional() })).max(LIMITS.cast).default([]),
+  /**
+   * `picture`: the person's picture picked in the form to be sent first, in place of their clearest face (faceFacts.ts);
+   * one no longer theirs is left aside.
+   */
+  cast: z.array(z.strictObject({ id: z.string().min(1), outfit: z.string().nullable().optional(), picture: z.string().nullable().optional() })).max(LIMITS.cast).default([]),
   style: z.string().nullable().optional(),
   /** Snippets that are ticked: their text is added after what is written. */
   snippets: z.array(z.string().min(1)).max(LIMITS.snippets).default([]),
@@ -238,6 +243,15 @@ export async function compose(db: Db, recipe: Recipe<any>, asked: Record<string,
   const loras: Array<LoraValue & { from: string }> = [];
   let voice: { asset: string; from: string; part: { start: number; seconds: number } | null } | null = null;
 
+  // a person's pictures go clearest face first, or the one picked in the form first (faceFacts.ts): a model that takes one
+  // picture of them takes that one
+  const cast = look!.cast.flatMap((member) => {
+    const row = byId.get(member.id);
+    return row?.kind === "person" ? [{ member, p: defs.person.parse(JSON.parse(row.def)) as PersonDef }] : [];
+  });
+  const known = await factsOf(db, cast.flatMap((c) => c.p.pictures));
+  const ordered = new Map(cast.map(({ member, p }) => [member.id, sentOrder(facesOf(p.pictures, known).order, member.picture)]));
+
   for (const member of look!.cast) {
     const row = byId.get(member.id);
     if (!row) continue;
@@ -245,9 +259,10 @@ export async function compose(db: Db, recipe: Recipe<any>, asked: Record<string,
       const p = defs.person.parse(JSON.parse(row.def)) as PersonDef;
       const worn = p.outfits.find((o) => o.id === member.outfit);
       const m = p.models[recipe.family];
-      persons.push({ name: row.name, trigger: m?.trigger ?? "", look: (tags ? p.tags : p.sentence) ?? "", worn: (tags ? worn?.tags : worn?.sentence) ?? "", pictures: p.pictures.slice(0, sent.person) });
+      const pictures = (ordered.get(member.id) ?? p.pictures).slice(0, sent.person);
+      persons.push({ name: row.name, trigger: m?.trigger ?? "", look: (tags ? p.tags : p.sentence) ?? "", worn: (tags ? worn?.tags : worn?.sentence) ?? "", pictures });
       if (m?.lora) loras.push({ file: m.lora, weight: m.weight, from: row.name });
-      for (const asset of p.pictures.slice(0, sent.person)) refs.push({ asset, role: "person", from: row.name });
+      for (const asset of pictures) refs.push({ asset, role: "person", from: row.name });
       if (worn?.picture) refs.push({ asset: worn.picture, role: "clothing", from: row.name });
       if (p.voice && !voice) voice = { asset: p.voice, from: row.name, part: p.voicePart };
     } else if (row.kind === "place") {
@@ -318,7 +333,7 @@ export async function compose(db: Db, recipe: Recipe<any>, asked: Record<string,
   }
 
   // the picture the take's face is scored against, on a model that takes no reference pictures (LTX 2.3, Wan): the first cast
-  // person's first, as H3's take is scored against its cast's
+  // person's first sent (their clearest face), as H3's take is scored against its cast's
   const faced = refs.find((r) => r.role === "person");
   if (faceSpec && faced) {
     const alive = await db.selectFrom("assets").select("id").where("id", "=", faced.asset).where("deleted_at", "is", null).where("kind", "=", "image").executeTakeFirst();
@@ -448,10 +463,14 @@ const builtIn = () => httpError("a built-in preset cannot be changed: copy it to
 export type KitItem = ReturnType<typeof view>;
 
 /** The kit, of one kind or all, the shipped presets after the user's own (GET /api/entities, MCP's list_kit). */
-export async function kitList(s: Services, kind?: EntityKind): Promise<Array<KitItem & { source?: "shipped" }>> {
+export async function kitList(s: Services, kind?: EntityKind): Promise<Array<KitItem & { source?: "shipped"; faces?: PictureFaces }>> {
   let q = s.db.selectFrom("entities").selectAll().where("owner_id", "=", OWNER);
   if (kind) q = q.where("kind", "=", kind);
-  const items: Array<KitItem & { source?: "shipped" }> = (await q.orderBy("name").execute()).map(view);
+  const rows = await q.orderBy("name").execute();
+  // each person's pictures as they are sent, the clearest face first: the form's chip and the kit show which one
+  const pictures = (r: Tables["entities"]) => (r.kind === "person" ? ((JSON.parse(r.def) as { pictures?: string[] }).pictures ?? []) : []);
+  const known = await factsOf(s.db, rows.flatMap(pictures));
+  const items: Array<KitItem & { source?: "shipped"; faces?: PictureFaces }> = rows.map((r) => (r.kind === "person" ? { ...view(r), faces: facesOf(pictures(r), known) } : view(r)));
   // the presets that ship with Afflatus come after the user's own: read-only, to apply or to copy
   if (!kind || kind === "preset") items.push(...s.shippedPresets.list().map((p) => s.shippedPresets.entity(p)));
   return items;
@@ -464,6 +483,7 @@ export const kitNew = (s: Services, b: z.output<typeof kitBody>) => inTurn(s, as
   const row: Tables["entities"] = { id: newId(), owner_id: OWNER, kind: b.kind, name: b.name, def: JSON.stringify(def), created_at: at, updated_at: at };
   await s.db.insertInto("entities").values(row).execute();
   await keepTheirs(s, row.kind, row.def);
+  if (row.kind === "person") s.faces?.soon();
   s.queue.events.emit("entities");
   return view(row);
 });
@@ -483,6 +503,8 @@ export const kitEdit = (s: Services, id: string, change: (row: KitItem) => z.out
   // a picture uploaded for them and taken off again, wanted by no one else: to the bin
   if (b.def !== undefined) await binUnwantedKit(s.db, filesOf(row.def).filter((f) => !filesOf(next.def).includes(f)));
   if (b.def !== undefined) await keepTheirs(s, row.kind, next.def);
+  // their pictures not read yet are read in a moment (their clearest face is sent first)
+  if (b.def !== undefined && row.kind === "person") s.faces?.soon();
   s.queue.events.emit("entities");
   return { before: view(row), after: view({ ...row, ...next }) };
 });

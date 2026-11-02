@@ -1,5 +1,5 @@
 import type { BuildContext, GraphBuilder, InputSpec, Ref } from "@afflatus/core";
-import type { MorePicture } from "./condition";
+import { runUpEnd, type MorePicture } from "./condition";
 
 /**
  * MiniMax H3 moved by a pose video: the driving video's people drawn as skeletons, frame by frame, and given to H3 by
@@ -117,9 +117,8 @@ export function poseVideo(g: GraphBuilder, ctx: BuildContext, input: H3Motion, f
  * look on every frame by its picture; this is H3's nearest. None without a clip before.
  */
 export function frameBefore(g: GraphBuilder, ctx: BuildContext): MorePicture[] {
-  if (!ctx.uploads.previous) return [];
-  const frames: Ref = [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: ctx.uploads.previous }) }), 0];
-  return [{ image: g.out("ImageFromBatch", { image: frames, batch_index: -1, length: 1 }), role: "person" }];
+  const image = runUpEnd(g, ctx);
+  return image ? [{ image, role: "person", takeFrame: true }] : [];
 }
 
 /** The model held to `pose` by the Fun ControlNet: the patch loaded and applied, between the strength's start and end. */

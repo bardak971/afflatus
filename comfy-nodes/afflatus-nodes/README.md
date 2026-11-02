@@ -29,6 +29,7 @@ colour and voice at the join).
 | Afflatus: H3 Audio Lock | Encodes a sound into an H3 latent's audio stream and masks it from the noise: the sampler redraws the video only, with that sound beside it (Face refine). |
 | Afflatus: Free Text Encoder | Passes a conditioning (and a second one) through and unloads the text encoder that made it, its VRAM and the RAM pinned for it, leaving every other model loaded: H3's ~15 GB Qwen3-VL encoder is let go before the sampler (0.43.0). |
 | Afflatus: Follow Colours | Brings each frame's colours to a reference video's at the same moment (Lab mean and spread), both averaged over a stretch of frames first, never across a cut: a slow drift is followed, no flicker is added. |
+| Afflatus: Match Picture Colours | Brings a picture's brightness and colour to a frame's by one transform (Lab mean and spread), the spread moved by at most half again and the tint by at most 12 levels, so a face stays a face: Afflatus gives an H3 continuation its person's reference picture in the light of the frame it carries on from (0.48.0). |
 | Afflatus: Room Tone | Lays a faint noise (-50 dBFS) into a sound's stretches of exact digital silence, 20 ms or more, and leaves the rest as it is: for the copy of a sound LTX 2.3 is pinned to, which faded the picture to black over exact silence. |
 | Afflatus: Swap Colour Match (H3) | Passes the swap's render through unchanged. Deprecated (0.31.0): its colour match washed the redrawn wall white and was taken out of Swap character; kept for graphs that name it. |
 | MiniMax H3 Guided Continuation Window | Allocates the continuation target: a hidden overlap of the previous latent's tail plus the new frames. |
@@ -93,6 +94,7 @@ With the pack loaded, ComfyUI answers:
 - `GET /afflatus/power` (0.18.0): the GPU's power draw in watts (NVML through `nvidia-ml-py`, else `nvidia-smi`), for this PC's electricity; null where neither reads it.
 - `GET /afflatus/disk` and `POST /afflatus/models/remove` (0.19.0): the disk the model folders are on (bytes free and in all), and a model file taken off it to make room on a rented pod.
 - `GET /afflatus/models/list` (0.21.0): every model file of the models folder with its size and date, each once; on a pod with a network volume, what the volume holds (Afflatus's volume Files).
+- `POST /afflatus/face-facts` (0.48.1): what a person's picture holds of a face, the picture's bytes sent as `application/octet-stream`: how many faces, and of the largest its box, five points, the detector's score, its sharpness and its ArcFace embedding. Afflatus asks it once per picture of a Prompt kit person, while the machine renders nothing, to send a model that takes one picture their clearest face. InsightFace on the CPU (4 threads), off ComfyUI's event loop, one picture at a time, let go after a minute without a picture; never in ComfyUI's queue. 501 without insightface.
 
 ## Install
 

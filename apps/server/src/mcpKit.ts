@@ -63,7 +63,7 @@ function summaryOf(item: KitItem & { source?: string }) {
 }
 
 /** An item of the kit by id or name (a person's "@Name" too), refused with what there is. */
-async function kitItem(s: Services, asked: string): Promise<KitItem & { source?: "shipped" }> {
+async function kitItem(s: Services, asked: string): Promise<Awaited<ReturnType<typeof kitList>>[number]> {
   const all = await kitList(s);
   const key = (n: string) => n.toLowerCase().replace(/^@/, "").replace(/[^\p{L}\d]+/gu, "");
   const found = all.find((e) => e.id === asked) ?? all.find((e) => key(e.name) === key(asked));
@@ -119,7 +119,7 @@ export function kitEditOf(before: KitItem, after: KitItem, ctx: Pick<ToolCtx, "t
 }
 
 /** The shape of each kind's def, said to the agent (the parts it may set). */
-const DEF_HELP = "person: pictures (library picture ids, the first is the main one), voice (a sound's id, or a video with sound), voicePart ({start, seconds}), tags, sentence (how they look, as tags and as natural language), models ({family: {lora, weight, trigger}}), outfits ([{id, name, tags, sentence, picture}]). place: pictures, tags, sentence. style: models ({family: {loras: [{file, weight}], words}}). snippet: text, category, style (\"tags\" | \"sentences\" | null). preset: recipe (a form's id), inputs ({input: value}), look ({cast: [{id}], style, snippets}), files (the model files it is made for: [{file, folder, url | civitai: {version}}]).";
+const DEF_HELP = "person: pictures (library picture ids; sent clearest face first, the def's order only until they are read), voice (a sound's id, or a video with sound), voicePart ({start, seconds}), tags, sentence (how they look, as tags and as natural language), models ({family: {lora, weight, trigger}}), outfits ([{id, name, tags, sentence, picture}]). place: pictures, tags, sentence. style: models ({family: {loras: [{file, weight}], words}}). snippet: text, category, style (\"tags\" | \"sentences\" | null). preset: recipe (a form's id), inputs ({input: value}), look ({cast: [{id}], style, snippets}), files (the model files it is made for: [{file, folder, url | civitai: {version}}]).";
 
 const listKit = tool({
   name: "list_kit",
@@ -138,12 +138,14 @@ const readKitItem = tool({
   name: "read_kit_item",
   scope: "look",
   title: "Read a kit item",
-  description: `One item of the Prompt kit, whole: its def as the kit holds it (${DEF_HELP}). view_item shows a picture or the voice by its id.`,
+  description: `One item of the Prompt kit, whole: its def as the kit holds it (${DEF_HELP}). A person's picturesSent: their pictures in the order models are sent them, the clearest face first (read once per picture by the Afflatus node pack; noFace last, notReadYet in the def's order); a model that takes one picture takes the first, unless a draft's cast picks another. view_item shows a picture or the voice by its id.`,
   input: { item: z.string().min(1).describe("Its id, its name, or a person's @Name.") },
   async run({ item }, ctx) {
     const e = await kitItem(ctx.s, item);
     ctx.said(`Read ${e.kind} “${e.name}”`);
-    return { ...summaryOf(e), def: e.def, updatedAt: e.updatedAt };
+    // a person's pictures as they are sent: the clearest face first (faceFacts.ts), those with no face or not read yet said
+    const faces = e.kind === "person" ? e.faces : undefined;
+    return { ...summaryOf(e), def: e.def, ...(faces ? { picturesSent: faces.order, ...(faces.none.length ? { noFace: faces.none } : {}), ...(faces.unread.length ? { notReadYet: faces.unread } : {}) } : {}), updatedAt: e.updatedAt };
   },
 });
 
