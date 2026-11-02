@@ -88,8 +88,28 @@ export const referenceNeeds = (input: H3Video, slots: Record<string, string> = {
   return ["refUnet", ...(input.fast && !distilled && !slots.refTurbo && !slots.turbo ? ["refTurbo"] : [])];
 };
 
+/**
+ * A continuation with the person pictures of the take before it (the timeline's faceCarried, card #223): sampled without them,
+ * its face then drawn towards them by Face refine, whatever Face refine's toggle says. Sampled with a person's picture, a beach
+ * chain went yellow and brighter inside each clip (luma 162 to 192 by clip 4, the face score 0.44 / 0.35 / 0.14); sampled
+ * without it, it kept its colour (162 to 162) but lost the face (0.09 by clip 4); without it and then Face refine towards it,
+ * the colour stayed and the face scored best on every clip (0.57 / 0.43 / 0.37). Bringing the picture to the run-up's light
+ * (#222) washed the face out and still yellowed. A first clip, or one whose person pictures changed, is sampled with them:
+ * a new look is asked for there.
+ */
+export const carriesFace = (input: Pick<H3Video, "previous" | "faceCarried" | "references">): boolean =>
+  Boolean(input.previous && input.faceCarried && (input.references ?? []).some((r) => r.role === "person"));
+
+/** Whether reference picture `r` is given to the sampling: a person's is left out of a continuation that carries the face on. */
+export const sampledReference = (input: Pick<H3Video, "previous" | "faceCarried" | "references">) => {
+  const carried = carriesFace(input);
+  return (r: { role: string }): boolean => !carried || r.role !== "person";
+};
+
 export const uses = (input: H3Video) => {
   // (a form that does not take H3's reference videos has none in its input: Motion transfer's Veda on threw here)
+  // (a continuation carrying the face on keeps the reference route, its model, Turbo row and steps as the form has them, and
+  // is given none of the person's pictures: carriesFace)
   const reference = (input.references ?? []).length > 0 || (input.refVideos ?? []).length > 0 || Boolean(input.voice);
   return {
     reference,

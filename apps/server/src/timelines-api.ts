@@ -11,6 +11,7 @@ import { musicTrack } from "./exportJoin";
 import { now } from "./db";
 import { httpError } from "./errors";
 import { compose, lookSchema, withMood } from "./entities";
+import { spreadSaid } from "./timelineFace";
 import { askedOf } from "./jobs-api";
 import { assetView, extOf } from "./media";
 import { sourceOf } from "./storage";
@@ -394,6 +395,13 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
   app.patch<{ Params: { id: string } }>("/api/clips/:id", async (req) => {
     // the form as kept when the server worked out some of it (a voice's part): the editor shows that
     return { ok: true, ...(await t.editClip(req.params.id, clipPatch.parse(req.body))) };
+  });
+  /** What each H3 clip with a person's picture does with it (card #223): carried on by Face refine, or sampled with it. */
+  app.get<{ Params: { id: string } }>("/api/timelines/:id/face", async (req) => ({ clips: await t.face.routes(req.params.id) }));
+  /** Use this one on them too: a clip's changed person picture given to the clips after it that still have the old one. */
+  app.post<{ Params: { id: string } }>("/api/clips/:id/face/spread", async (req) => {
+    const done = await t.face.spread(req.params.id);
+    return { ...done, said: spreadSaid(done) };
   });
   app.delete<{ Params: { id: string } }>("/api/clips/:id", async (req) => {
     await t.removeClip(req.params.id);

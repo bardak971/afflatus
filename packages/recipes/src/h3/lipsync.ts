@@ -1,14 +1,14 @@
 import { defineRecipe, type InputSpec, type Variant } from "@afflatus/core";
 import { H3_FPS } from "./family";
 import { RECORDING_AFTER, recordingInputs, recordingNodes, recordingOnClip, type Recording } from "../shared/recording";
-import { H3_NO_TAGS, H3_SOUND_CHAPTER, REF_VIDEOS_WHAT, h3Inputs, type H3Video } from "./inputs";
+import { H3_NO_TAGS, H3_SOUND_CHAPTER, REF_VIDEOS_WHAT, h3Inputs, withFaceCarried, type H3Video } from "./inputs";
 import { buildH3, h3Video } from "./video";
 import { isH3Layout } from "./prompt";
 import { H3_STARTS, referenceNeeds, turboNeeds, vedaNeeds } from "./model";
 import { latentUpscaleNeeds } from "./latent-upscale";
 import { upscaleNeeds } from "../video/upscale";
 import { rifeNeeds } from "../shared/finish";
-import { clipModelOf, FACE_REFINE_SLOTS, faceRefineNeeds } from "./faceRefine";
+import { clipModelOf, FACE_REFINE_SLOTS, faceRefineNeeds, withFacePass } from "./faceRefine";
 import { cueMixNodes } from "./cue";
 
 /**
@@ -54,7 +54,7 @@ const speechAt: InputSpec = {
  */
 const recording = recordingInputs({ shown: true, less: [speechAt] });
 const IN_SOUND = new Set(["speechAt", "evenLoudness"]);
-const lipSyncInputs: InputSpec[] = h3Inputs.flatMap((spec): InputSpec[] => {
+const lipSyncInputs: InputSpec[] = withFaceCarried(h3Inputs).flatMap((spec): InputSpec[] => {
   // nor In the take: the file's sound is always the recording, so each cue's part is laid over it (H3's own is not in it, B12)
   if (spec.id === "seconds" || spec.id === "voice" || spec.id === "voiceStart" || spec.id === "voiceSeconds" || spec.id === "voiceEven" || spec.id === "cueSound") return [];
   if (spec.id === "description" && spec.type === "prompt") {
@@ -74,7 +74,7 @@ const lipSyncInputs: InputSpec[] = h3Inputs.flatMap((spec): InputSpec[] => {
 export const h3LipSync = defineRecipe<H3LipSync>({
   // Turbo's LoRA, the reference model for a clip with the cast, H3's latent upscaler for an upscale with it, Face refine's
   // files (built by buildH3, as a clip is)
-  needsWith: (input, slots) => [...turboNeeds(input, slots), ...referenceNeeds(input, slots), ...vedaNeeds(input, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth), ...faceRefineNeeds(input, { picture: Boolean(input.start && !input.previous), clip: clipModelOf(input, slots) })],
+  needsWith: (input, slots) => [...turboNeeds(input, slots), ...referenceNeeds(input, slots), ...vedaNeeds(input, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth), ...faceRefineNeeds(withFacePass(input), { picture: Boolean(input.start && !input.previous), clip: clipModelOf(input, slots) })],
   id: "h3.lipsync",
   family: "h3",
   version: 1,

@@ -4,7 +4,7 @@ import { loadUnet } from "../shared/unet";
 import { FREE_TEXT_ENCODER, freeTextEncoder } from "./condition";
 import { H3_HYBRIDS, SWAP_MODELS } from "./family";
 import type { H3Video } from "./inputs";
-import { modelOf, namedFor, uses } from "./model";
+import { carriesFace, modelOf, namedFor, uses } from "./model";
 
 /**
  * Face refine: after an H3 clip is decoded, each frame's face is found and followed (the person of the picture, by face
@@ -95,6 +95,14 @@ export const FACE_REFINE_TAKE_INPUTS: InputSpec[] = FACE_REFINE_INPUTS.filter((s
  * own node types); its pack's nodes and the audio lock stay optional, done without when missing.
  */
 export const FACE_REFINE_H3 = ["MiniMaxH3ReferenceToVideo", "MiniMaxH3SigmaShift", "ModelAttentionBackend", "SamplerCustomAdvanced", "RandomNoise", "BasicGuider"];
+
+/**
+ * The form as its clip is made: Face refine on, whatever its toggle, on a continuation that carries the face on (carriesFace,
+ * card #223). The person's pictures are left out of its sampling there, and this pass is how the face comes to them: without
+ * it, the face had drifted from the picture by the fourth clip (0.09). Its model, denoise and steps are the form's.
+ */
+export const withFacePass = <T extends Pick<H3Video, "faceRefine" | "previous" | "faceCarried" | "references">>(input: T): T =>
+  !input.faceRefine && carriesFace(input) ? { ...input, faceRefine: true } : input;
 
 /** What Face refine reads of a form: its own settings, and the person's words and pictures. */
 export type FaceRefineValues = Pick<H3Video, "faceRefine" | "faceRefineDenoise" | "faceRefineSteps" | "references" | "subject" | "quick"> & Partial<Pick<H3Video, "faceRefineModel">>;

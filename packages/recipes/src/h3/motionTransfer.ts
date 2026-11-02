@@ -97,6 +97,8 @@ const MOTION_PART = partBounds({ fps: H3_FPS, most: SWAP_FRAMES, least: MOTION_L
 const NOT_TAKEN = new Set([
   "description", "start", "end", "mid", "midAt", "handover", "next", "landing",
   "voice", "voiceStart", "voiceSeconds", "voiceEven", "subject", "seconds", "shape",
+  // (a window samples with the person's picture: Face refine in its place is Video with audio's and Lip sync's, card #223)
+  "faceCarried",
 ]);
 
 /**

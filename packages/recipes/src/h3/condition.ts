@@ -3,7 +3,7 @@ import { FREE_TEXT_ENCODER, type BuildContext, type GraphBuilder, type MediaFact
 import { H3_FPS } from "./family";
 import type { H3Video } from "./inputs";
 import { H3_HEAD_GUIDE, H3_LANDING, H3_TRIM, type H3Join } from "./join";
-import type { H3Uses } from "./model";
+import { carriesFace, sampledReference, type H3Uses } from "./model";
 import { h3Prompt, h3ReferencePrompt, type H3Mode, type H3Run } from "./prompt";
 
 /**
@@ -54,15 +54,6 @@ export interface MorePicture {
   takeFrame?: boolean;
 }
 
-/**
- * The pack's node (0.48.0) that brings a picture to a frame's brightness and colour (its Lab mean and spread, within bounds).
- * Continuations given a person's picture went yellow and brighter inside each clip, where the same chain without the picture
- * stayed as it was (the owner's beach chain with a dark night selfie, card #222: brightness 162 to 192 by clip 4 against 162
- * to 162): the picture now comes in the light of the frame the clip carries on from. Without the node (an older pack) the
- * picture is given as it is.
- */
-export const H3_MATCH_PICTURE = "AfflatusMatchPicture";
-
 /** The last frame of the clip before as handed over for the join (the run-up's end), or null without a clip before. */
 export function runUpEnd(g: GraphBuilder, ctx: BuildContext): Ref | null {
   if (!ctx.uploads.previous) return null;
@@ -74,6 +65,10 @@ export function runUpEnd(g: GraphBuilder, ctx: BuildContext): Ref | null {
 function referenceStart(g: GraphBuilder, ctx: BuildContext, input: H3Video, how: H3Uses, join: H3Join, frame: Frame, clip: Ref, length: number | Ref, fixed?: (pictures: number) => string, more: MorePicture[] = []): { start: string; positive: Ref } {
   const { uploads, media } = ctx;
   const { width, height, vae, audioVae } = frame;
+  // the pictures the clip is sampled with, by their place in the form (their uploads are named by it): a continuation that
+  // carries the face on is given none of the person's (carriesFace), Face refine draws the face towards them after
+  const sampled = sampledReference(input);
+  const given = input.references.flatMap((r, i) => (sampled(r) ? [{ r, i }] : []));
   // a voice with a picture to open on and nothing else: that picture is who speaks, and the clip still opens on it (B20)
   const voiceOnly = input.references.length === 0 && input.refVideos.length === 0;
   // reference videos: their frames, and a person's sound as their voice when no voice sample is given. Another role's
@@ -83,30 +78,20 @@ function referenceStart(g: GraphBuilder, ctx: BuildContext, input: H3Video, how:
     role: r.role,
     sound: r.role === "person" && Boolean(media[`refVideos.${i}`]?.hasSound) && !input.voice,
   }));
-  // a continuation's person pictures in the light of the run-up's end (H3_MATCH_PICTURE); a first clip's as they are
-  let end: Ref | null | undefined;
-  const lit = (file: string | undefined): Ref | undefined => {
-    if (!input.previous || !ctx.has(H3_MATCH_PICTURE) || !ctx.has("ImageFromBatch")) return undefined;
-    // (a motion window gives that frame as a picture of its own already: the same frame read once)
-    end ??= more.find((p) => p.takeFrame)?.image ?? runUpEnd(g, ctx);
-    return end ? g.out(H3_MATCH_PICTURE, { image: g.out("LoadImage", { image: file }), reference: end, strength: 1 }) : undefined;
-  };
   // the form's pictures, then those the recipe makes in the graph (a motion window: the clip before's last frame)
   const pictures: Array<{ file?: string; image?: Ref; role: string; takeFrame?: boolean }> = voiceOnly && !more.length
     ? (how.start ? [{ file: uploads.start, role: "person" }] : [])
-    : [...input.references.map((r, i) => {
-      const file = uploads[`references.${i}`];
-      const image = r.role === "person" ? lit(file) : undefined;
-      return image ? { image, role: r.role } : { file, role: r.role };
-    }), ...more];
+    : [...given.map(({ r, i }) => ({ file: uploads[`references.${i}`], role: r.role })), ...more];
   // the clip opens on its picture: with references it is given as one more picture, and pinned at the first frame. With a
   // voice alone it is already the first picture (who speaks), pinned all the same: the First frame was not the opening frame
   // there, and nothing said so (B20)
   const opening = how.start;
   const opensOnFirst = opening && voiceOnly && !more.length;
   const files: Array<{ file?: string; image?: Ref }> = [...pictures, ...(opening && !opensOnFirst ? [{ file: uploads.start }] : [])];
-  // a recipe made on this one can say the prompt itself (a swap: its LoRA's short trained caption)
-  const prompt = fixed ? fixed(files.length) : h3ReferencePrompt(input, { roles: pictures.map((p) => p.role), videos: videos.map(({ role, sound }) => ({ role, sound })), voice: Boolean(input.voice), continues: Boolean(input.previous), takeFrames: pictures.map((p) => Boolean(p.takeFrame)), run: runOf(input, join), opening, opensOnFirst, voiceOnly });
+  // a recipe made on this one can say the prompt itself (a swap: its LoRA's short trained caption). A continuation that carries
+  // the face on, given nothing else, is said as the frames route says a continuation: the words the chain kept its colour with
+  const bare = carriesFace(input) && !files.length && !videos.length && !input.voice;
+  const prompt = fixed ? fixed(files.length) : bare ? h3Prompt("free", join.seconds, input, runOf(input, join)) : h3ReferencePrompt(input, { roles: pictures.map((p) => p.role), videos: videos.map(({ role, sound }) => ({ role, sound })), voice: Boolean(input.voice), continues: Boolean(input.previous), takeFrames: pictures.map((p) => Boolean(p.takeFrame)), run: runOf(input, join), opening, opensOnFirst, voiceOnly });
   const start = g.add("MiniMaxH3ReferenceToVideo", {
     clip, vae, audio_vae: audioVae, prompt, width, height, length, ref_image_size: input.sharpRefs ? "max" : "match",
     // inputs of a group that grows are named "<group>.<prefix><n>", counting from 0

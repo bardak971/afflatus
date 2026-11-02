@@ -24,6 +24,8 @@ export interface H3Video extends ColourMatch {
   /** Whose sound the take's file carries at each cue: CUE_SOUND's. */
   cueSound: string;
   previous?: ClipValue;
+  /** Set by a timeline (traits.faceCarried, card #223): the clip carries on with the person pictures of the take before it. */
+  faceCarried?: boolean;
   /** Whether a frozen tail of the clip before is cut off, so this one carries on from its last lively moment (read by the server, not the graph). */
   handover: boolean;
   /** Frames of the clip before pinned at the start, as a string from H3_LANDINGS (read by the server, which trims the clip to them). */
@@ -92,6 +94,20 @@ export interface H3Video extends ColourMatch {
   seed: number;
 }
 
+/**
+ * What a timeline does with a person's pictures on a continuation (card #223, carriesFace), said in the "?" of the pictures and
+ * of Face refine on the forms that do it (Video with audio, Lip sync): Swap character and Motion transfer windows keep them in
+ * their sampling, and say nothing of it.
+ */
+export function withFaceCarried(inputs: InputSpec[]): InputSpec[] {
+  return inputs.map((spec) =>
+    spec.id === "references" && spec.type === "references" && !spec.media
+      ? { ...spec, note: `${spec.note}. On a timeline, a continuation with the same person pictures as the clip before is sampled without them, then Face refine draws the face towards them: sampled with a person's picture, a continuation takes on the picture's colour and light. A clip whose person pictures changed is sampled with them` }
+      : spec.id === "faceRefine" && spec.type === "toggle"
+        ? { ...spec, note: `${spec.note}. On a timeline it runs on a continuation with the same person pictures as the clip before whatever this says: the face comes from it there` }
+        : spec);
+}
+
 /** The recipe's inputs, in the order the form shows them. */
 /**
  * Said in the "?" of every H3 text the user writes but the prompt as sent (card #49): H3's tags are Afflatus's to write,
@@ -156,6 +172,8 @@ export const h3Inputs: InputSpec[] = [
     id: "previous", type: "clip", role: "previous", label: "Previous clip", optional: true, frames: H3_JOIN_FRAMES, framesFrom: "context", fps: H3_FPS, look: "matched",
     note: "the motion and the voices of that clip continue into this one. With the Afflatus node pack in ComfyUI (Settings → ComfyUI), the clip continues from that clip's own latent, which keeps the look and the voice as well as the motion",
   },
+  // set by a timeline on each clip that carries on (card #223, carriesFace): never shown, never typed
+  { id: "faceCarried", type: "toggle", label: "Same person pictures as the clip before", default: false, internal: true },
   {
     id: "handover", type: "toggle", label: "Skip a frozen tail", default: true, showWhen: "previous", advanced: true, section: "rare",
     note: "H3 often holds its last frames still. When the clip before ends still for a quarter second or more, this clip carries on from its last lively moment and that clip is trimmed to it",

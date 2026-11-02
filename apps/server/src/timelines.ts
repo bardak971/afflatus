@@ -20,6 +20,7 @@ import { TimelineRange } from "./timelineRange";
 import { madeOf, takeView, TimelineViews } from "./timelineViews";
 import { draftOf, generationOfTake, ownInputIds, recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type NewClip, type TakeLinks } from "./timelinePlan";
 import { clipsOfSource, patchedSource, planWindows, sourceOfRow, windowFormFor, windowRunUp, windowsOf, windowsReaching, type SourcePatch, type SourcePlan } from "./timelineSource";
+import { faceRoutes, spreadFace, type FaceRoute } from "./timelineFace";
 import { TimelineTakes } from "./timelineTakes";
 import { cueStretches, laidSong, soundPartsOf, type SoundPart } from "./timelineSong";
 import { aroundRemoved, foldParts, keptAround, removalOf, removedOf, removedView, renderedSince, type ParkedClip, type Removal, type RemovedPart } from "./timelineRemoved";
@@ -203,6 +204,8 @@ export class Timelines {
   /** Takes placed on their clips (a job done, a tool's video), and what a clip is made from (a new clip's form, a job's neighbours). */
   readonly takes: TimelineTakes;
   readonly planner: TimelinePlan;
+  /** What each H3 clip does with its person's picture, and giving a changed one to the clips after it (timelineFace.ts, card #223). */
+  readonly face: { routes(timelineId: string): Promise<Record<string, FaceRoute>>; spread(clipId: string): Promise<{ from: number; to: number }> };
   /** The parts of a timeline's view besides its clips: its takes' records, its jobs, its header. */
   private readonly views: TimelineViews;
 
@@ -225,6 +228,7 @@ export class Timelines {
     this.exporter = new TimelineExport(core, (asset) => this.media.means(asset), (p, prior, next) => this.soundPartsFor(p, prior, next));
     this.takes = new TimelineTakes(core);
     this.planner = new TimelinePlan(core, this.takes, this.media);
+    this.face = { routes: (id) => faceRoutes(core, id), spread: (clip) => spreadFace(core, clip) };
     this.history = new TimelineHistory(db, (id) => this.row(id), () => this.changed(), (id) => this.partKeys(id));
     this.views = new TimelineViews(db);
   }

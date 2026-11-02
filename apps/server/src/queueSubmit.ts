@@ -193,8 +193,12 @@ function going(signal: AbortSignal | undefined): void {
  * `signal`: the job's Stop. Pressed while its files go up, it ends here (ComfyCancelled), before ComfyUI is told to
  * free its memory or given the prompt: a Stop checked only once the prompt was sent unloaded the next job's model.
  */
-export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>, raw: Record<string, unknown>, row: JobRow, hold: (r: Resume) => Promise<void> = async () => {}, signal?: AbortSignal): Promise<Resume> {
+export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>, given: Record<string, unknown>, row: JobRow, hold: (r: Resume) => Promise<void> = async () => {}, signal?: AbortSignal): Promise<Resume> {
   const { db, storage } = core;
+  // a continuation carries the face on only where a timeline says so (its plan, from the take before): a form copied from a
+  // take outside one keeps no word of it
+  const carried = recipe.traits?.faceCarried;
+  const raw = carried && !row.clip_id && given[carried] ? { ...given, [carried]: false } : given;
   const catalog = await timedPart("scan", () => comfy.catalog());
   // a timeline clip: what it joins onto is settled now, when the clips around it have their takes
   const plan = row.clip_id && core.clips ? await core.clips.plan(row.clip_id, recipe, raw, Boolean(row.clip_fit), row.finished_from, false, readJson<string[]>(row.clip_mirror, [])) : null;

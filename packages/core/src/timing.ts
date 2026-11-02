@@ -10,9 +10,11 @@ import { modelFileName } from "./warm";
 /**
  * Settings that change what is made, not how long it takes. Where a Motion transfer part starts in its driving video
  * (drivingStart) is one: with it in the key, every window of a timeline was filed under a key of its own, and no two
- * machines' renders of the same windows were ever compared (forecast.ts machinePaces).
+ * machines' renders of the same windows were ever compared (forecast.ts machinePaces). An H3 continuation that carries the
+ * face on (faceCarried) is another: the pass it brings is said by Face refine's own toggle, which the timeline turns on with
+ * it, so that it is priced from the renders with Face refine on.
  */
-const NO_TIME = /^(seed|crf|drivingStart)$|^shift/i;
+const NO_TIME = /^(seed|crf|drivingStart|faceCarried)$|^shift/i;
 /**
  * Settings said in the key only when moved from their default. SeedVR2's frames together changes its render time
  * several-fold, but every video form holds it: said always, it would have changed the key of every video render and

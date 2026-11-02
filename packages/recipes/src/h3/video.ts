@@ -5,11 +5,11 @@ import { UPSCALE, UPSCALE_OPTIONAL, upscaleNeeds, upscaleNodes } from "../video/
 import { unetNodes } from "../shared/unet";
 import { CORE_VIDEO_OUT, VHS } from "../shared/out";
 import { COLOUR_MATCH_NODES, rifeNeeds, rifeSkippedSaid } from "../shared/finish";
-import { conditionFor, FREE_TEXT_ENCODER, H3_MATCH_PICTURE, type MorePicture } from "./condition";
+import { conditionFor, FREE_TEXT_ENCODER, type MorePicture } from "./condition";
 import { cueMixNodes, cueNodes, cueOwnSoundSaid, cuesFor, guideCues, layCues, laysCues } from "./cue";
 import { finish, H3_SAVE_LATENT } from "./finish";
-import { FACE_REFINE_OPTIONAL, FACE_REFINE_PACK_NEEDED, FACE_REFINE_SLOTS, clipModelOf, faceRefineNeeds, faceRefineSkipped, openingPicture, type ClipModel } from "./faceRefine";
-import { H3_SOUND_CHAPTER, h3Inputs, type H3Video } from "./inputs";
+import { FACE_REFINE_OPTIONAL, FACE_REFINE_PACK_NEEDED, FACE_REFINE_SLOTS, clipModelOf, faceRefineNeeds, faceRefineSkipped, openingPicture, withFacePass, type ClipModel } from "./faceRefine";
+import { H3_SOUND_CHAPTER, h3Inputs, withFaceCarried, type H3Video } from "./inputs";
 import { recordingInputs, recordingNodes, recordingOnClip, type Recording } from "../shared/recording";
 import { isH3Layout } from "./prompt";
 import { H3_CONTINUATION_NODES, H3_HEAD_GUIDE, H3_LANDING, H3_RUN_ANCHOR, H3_RUNUP_MATCH, H3_SEAM, H3_TRIM, resolveJoin } from "./join";
@@ -22,7 +22,7 @@ export type { H3Video } from "./inputs";
 export const h3Video = defineRecipe<H3Video & Partial<Recording>>({
   // Turbo's LoRA, the reference model for a clip with references, H3's latent upscaler for an upscale with it, RIFE with
   // "RIFE ×2" on, Face refine's files with it on
-  needsWith: (input, slots) => [...turboNeeds(input, slots), ...referenceNeeds(input, slots), ...vedaNeeds(input, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth), ...faceRefineNeeds(input, { picture: Boolean(input.start && !input.previous), clip: clipModelOf(input, slots) })],
+  needsWith: (input, slots) => [...turboNeeds(input, slots), ...referenceNeeds(input, slots), ...vedaNeeds(input, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth), ...faceRefineNeeds(withFacePass(input), { picture: Boolean(input.start && !input.previous), clip: clipModelOf(input, slots) })],
   id: "h3.video",
   family: "h3",
   version: 2,
@@ -31,10 +31,10 @@ export const h3Video = defineRecipe<H3Video & Partial<Recording>>({
   output: "video",
   traits: {
     startFrame: true, endFrame: true, midFrames: true, continues: "clip", endAnchor: true, sound: true,
-    fps: H3_FPS, frameGrid: H3_GRID, latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM], faceRefine: "faceRefine",
+    fps: H3_FPS, frameGrid: H3_GRID, latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM], faceRefine: "faceRefine", faceCarried: "faceCarried",
   },
   // a clip under a recording it plays over (card #72): its place in the recording, set by the timeline, never drawn
-  inputs: [...h3Inputs, ...recordingInputs({ shown: false })],
+  inputs: [...withFaceCarried(h3Inputs), ...recordingInputs({ shown: false })],
   // every H3 form's cards (card #170): Sound under the Inputs tab
   chapters: [H3_SOUND_CHAPTER],
   starts: H3_STARTS,
@@ -77,8 +77,6 @@ export const h3Video = defineRecipe<H3Video & Partial<Recording>>({
     H3_RUNUP_MATCH,
     // and held to its run's first clip (pack 0.46.0): an older pack holds it to the clip before only
     H3_RUN_ANCHOR,
-    // a continuation's person picture brought to the run-up's light (pack 0.48.0): an older pack gives it as it is
-    H3_MATCH_PICTURE, "ImageFromBatch",
     // the text encoder let go before sampling (pack 0.43.0): an older pack samples with it still loaded, as before
     FREE_TEXT_ENCODER,
     "MiniMaxH3Cache", "VedaSparseAttention", "ModelPatchTorchSettings", "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ",
@@ -124,6 +122,12 @@ export const h3Video = defineRecipe<H3Video & Partial<Recording>>({
         name: "carries on from a clip",
         input: { description: "a", previous: { asset: "c1" }, start: "ignored" },
         slots: all, uploads: { previous: "a.mp4", start: "a.png" }, media: { previous: joined },
+      },
+      // the person pictures of the take before (card #223): sampled without them, the face drawn towards them by Face refine
+      {
+        name: "carries on with the person's pictures of the clip before, its face from Face refine",
+        input: { description: "a", previous: { asset: "c1" }, references: [{ asset: "r1", role: "person" }], faceCarried: true },
+        slots: { ...all, ...faceSlots }, uploads: { previous: "a.mp4", "references.0": "r1.png" }, media: { previous: joined },
       },
       // (the latent routes are not variants: nodes() declares the pixel route, which is always possible; the
       // recipe tests build them and check them against the catalog)
@@ -293,7 +297,8 @@ const NO_MODEL: ReturnType<typeof loadH3Model> = { model: ["", 0], turbo: false,
 export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}): BuiltGraph {
   // the shot's words open what happens (card #27), every H3 form alike; a recipe that writes its own prompt from parts says
   // them there, and leaves a typed one as it is (its clip's shot "Any")
-  const input = withShot(asked);
+  // (a continuation that carries the face on is face-refined whatever the toggle says: withFacePass)
+  const input = withShot(withFacePass(asked));
   const { slots, media } = ctx;
   const g = new GraphBuilder();
   const more = extra.pictures ? extra.pictures(g) : [];
