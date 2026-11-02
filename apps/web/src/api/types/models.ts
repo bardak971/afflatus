@@ -1,5 +1,5 @@
 /** Models and recipes: what ComfyUI has, what each recipe needs, imported workflows, and where a missing file can be had. */
-import type { Chapter, ComfyTooOld, InputSpec, ModelLine, StartRule, VideoTraits } from "@afflatus/core";
+import type { Chapter, ComfyTooOld, FormRefusal, InputSpec, ModelLine, StartRule, VideoTraits } from "@afflatus/core";
 import type { Bindings, Wiring, WorkflowDef } from "@afflatus/workflows";
 import type { PresetFile } from "./designer";
 
@@ -33,6 +33,8 @@ export interface RecipeInfo {
   starts?: StartRule[];
   /** The family's optional files (slot ids) it cannot run without, as Edit needs FLUX.1's Kontext model. */
   needs?: string[];
+  /** Mixes of inputs it refuses, each with why (core's Recipe.refuses): Render greyed, saying it. */
+  refuses?: FormRefusal[];
 }
 export interface FamilyInfo {
   id: string;

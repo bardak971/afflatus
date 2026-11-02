@@ -119,6 +119,18 @@ const listed = (comfy: Comfy, node: string): Promise<boolean> =>
   comfy.client.raw(`/object_info/${encodeURIComponent(node)}`, { signal: AbortSignal.timeout(15_000) })
     .then(async (r) => (r.ok ? Boolean(((await r.json().catch(() => ({}))) as Record<string, unknown>)[node]) : false), () => false);
 
+/**
+ * A restart's answer that is a pod's proxy's, not ComfyUI-Manager's: a 502, 503 or 504 (RunPod's proxy as ComfyUI goes
+ * down under it, the restart made: on 2026-11-02 a pod's two packs were failed "refused to restart… restart it by hand"
+ * while they loaded, and its jobs not pinned there were free to go to another machine, card #219), or an empty 404 (its
+ * port with nothing behind it for a moment, downloads.ts PROXY_404; ComfyUI's own 404 has a body). Followed as a dropped
+ * connection: followRestart says whether the nodes came. Manager's own refusal (an empty 403 at its security level) is said.
+ */
+async function fromProxy(res: Response): Promise<boolean> {
+  if (res.status === 502 || res.status === 503 || res.status === 504) return true;
+  return res.status === 404 && !(await res.text().catch(() => "")).trim();
+}
+
 export class PodPacks {
   private readonly pods = new Map<string, Map<string, Entry>>();
   /**
@@ -261,6 +273,16 @@ export class PodPacks {
   /** Its ComfyUI restarts now (asked to, not back yet). */
   restartingNow(machine: string): boolean {
     return this.restarting.has(machine);
+  }
+
+  /**
+   * The machine whose ComfyUI restarts now for node packs this job asked for; null: none. The job waits for it (queue.ts
+   * heldOn): the pod cannot be read for that minute, and the plan would give the job to another machine meanwhile, the
+   * user's own PC among them, whose ComfyUI would be asked for the same packs.
+   */
+  restartsFor(job: string): string | null {
+    for (const [machine, pod] of this.pods) if (this.restarting.has(machine) && [...pod.values()].some((e) => e.state === "installed" && e.jobs.includes(job))) return machine;
+    return null;
   }
 
   /** No job may start on the machine: its packs wait for its ComfyUI to restart, or it restarts now. */
@@ -469,9 +491,10 @@ export class PodPacks {
     if (!queue || queue.running.length || queue.pending.length || this.d.busy(machine)) return unwanted.length > 0;
     this.d.beforeRestart?.(machine);
     this.restarting.set(machine, Date.now());
-    // the process replaces itself as it answers: a dropped connection is the restart under way
+    // the process replaces itself as it answers: a dropped connection is the restart under way, and so is a pod's proxy
+    // answering in its place as it goes down (fromProxy)
     const res = await comfy.client.raw("/v2/manager/reboot", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", signal: AbortSignal.timeout(15_000) }).catch(() => null);
-    if (res && !res.ok) {
+    if (res && !res.ok && !(await fromProxy(res))) {
       this.restarting.delete(machine);
       for (const e of all) if (e.state === "installed") Object.assign(e, { state: "failed", failedAt: Date.now(), unloaded: true, error: `installed, but ComfyUI-Manager refused to restart ComfyUI (${res.status}): restart it by hand to load it` });
     }

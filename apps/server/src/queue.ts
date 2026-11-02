@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { ComfyAway, ComfyCancelled, ComfyError, ComfyFailed, ComfyLost, ComfyUnreachable, filesIn, systemLoadFromStatus, waitForOutputs, type Measured } from "@afflatus/comfy";
-import { expandWildcards, fileKey, formModelInput, lorasOverSaid, modelFileName, modelOf, modelStart, parseInput, removedSaid, sameFile, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
+import { expandWildcards, fileKey, formModelInput, lorasOverSaid, modelFileName, modelOf, modelStart, parseInput, refusalOf, removedSaid, sameFile, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
 import { Comfy, NO_COMFY_URL, type MachineComfy } from "./comfy";
 import { fileName } from "./media";
 import type { Insertable } from "kysely";
@@ -559,6 +559,11 @@ export class Queue {
     for (const spec of recipe.inputs as InputSpec[]) {
       if (spec.type === "prompt" && typeof input[spec.id] === "string") input[spec.id] = expandWildcards(input[spec.id] as string);
     }
+    // a mix of inputs the recipe cannot render (Krea 2's person and style references) is refused before it is queued: left
+    // to its build on the machine, the job waited for or booted a pod and failed there (card #219). A load ahead is not:
+    // it is asked while the form is still being filled in
+    const refused = opts.warm ? null : refusalOf(recipe, input);
+    if (refused) throw httpError(opts.who ? `${opts.who}: ${refused}` : refused);
     // a mix of files known to give black frames is refused before it is queued, on every way in (Render, a timeline's Render,
     // Again, a tool): left to the job's own check at submit, a rented pod had fetched its files (22 GB for LTX 2.5's model)
     // and was billed for nothing. A load ahead is not refused: it is asked while the form is being filled in, and its job
@@ -2299,10 +2304,15 @@ export class Queue {
 
   /**
    * The machine a render lost there waits for (Resume.lostAt): the one that may still be rendering it, while it is in the
-   * settings, not down (a pod stopped) and not away past the offline limit. Null: it goes wherever the plan sends it.
+   * settings, not down (a pod stopped) and not away past the offline limit. Or the pod whose ComfyUI restarts now for node
+   * packs it asked for: unread for that minute, the pod was left out of the plan, and the job given to another machine,
+   * the user's own PC among them (card #219). Null: it goes wherever the plan sends it.
    */
   private heldOn(r: JobRow): string | null {
-    if (r.pin_machine || !r.machine_id || r.status !== "queued") return null;
+    if (r.pin_machine || r.status !== "queued") return null;
+    const restarts = this.podFetch?.restartsFor(r.id);
+    if (restarts && this.lanes.get(restarts)?.machine && !this.unavailable(restarts)) return restarts;
+    if (!r.machine_id) return null;
     const lostAt = readJson<Resume | null>(r.resume, null)?.lostAt;
     if (lostAt === undefined || Date.now() - lostAt >= this.opts.offlineExpiryMs) return null;
     const off = this.unavailable(r.machine_id);

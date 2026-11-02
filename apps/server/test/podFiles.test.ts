@@ -968,6 +968,46 @@ describe("a rented pod's node packs", () => {
       await pm.close();
     }
   });
+
+  // RunPod's proxy answers the restart in ComfyUI's place as it goes down: failed "refused to restart", the packs loaded all
+  // the same, and the pod's jobs not pinned there were free to go to another machine, the user's own PC among them (card #219)
+  it.each([
+    ["a 502", 502],
+    ["a 504", 504],
+    ["an empty 404", 404],
+  ])("whose restart the pod's proxy answers with %s are followed as restarting, and ready once ComfyUI lists their nodes", async (_, status) => {
+    const { pm, pf } = await withManager();
+    try {
+      pm.rebootAnswer = status;
+      pf.wantPacks("pod", ["comfyui-impact-pack"], "j1");
+      await until(async () => (await pf.tick(), pm.reboots === 1));
+      // nothing failing meanwhile: the planner keeps the pod for its job (queuePlan.ts ableOf), no other machine is given it
+      expect(pf.packsView("pod")[0]?.state).toBe("installed");
+      expect(pf.failingPacks("pod").size).toBe(0);
+      expect(pf.failedPacks("pod", ["comfyui-impact-pack"])).toBeNull();
+      expect(pf.holding("pod")).toBe(true);
+      await until(async () => (await pf.tick(), pf.packsView("pod")[0]?.state === "ready"), 15_000);
+      expect(pf.jobState("pod", "j1")?.state).toBe("ready");
+      expect(pf.holding("pod")).toBe(false);
+      expect(pm.reboots).toBe(1);
+    } finally {
+      await pm.close();
+    }
+  }, 20_000);
+
+  it("whose restart Manager itself refuses fail, said with how to load them", async () => {
+    const { pm, pf } = await withManager();
+    try {
+      // Manager at a security level that refuses the restart: an empty 403, its own
+      pm.rebootAnswer = 403;
+      pf.wantPacks("pod", ["comfyui-impact-pack"], "j1");
+      await until(async () => (await pf.tick(), pf.packsView("pod")[0]?.state === "failed"));
+      expect(pf.packsView("pod")[0]).toMatchObject({ unloaded: true, error: expect.stringMatching(/refused to restart ComfyUI \(403\): restart it by hand/) });
+      expect(pf.holding("pod")).toBe(false);
+    } finally {
+      await pm.close();
+    }
+  });
 });
 
 describe("a rented pod's disk", () => {
