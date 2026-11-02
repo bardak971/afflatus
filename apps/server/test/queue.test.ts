@@ -180,6 +180,38 @@ describe("while a job renders", () => {
     await until(async () => (await statusOf(id)).status === "done");
   });
 
+  it("says on the job a pass that ran and sampled nothing, and counts its steps only once it samples", async () => {
+    // a face detailer that found no face it redraws (Krea 2's Face refine on a large face: shown 28 steps, ran 8)
+    const recipe = t.services.registry.recipe("sdxl.text-to-picture")!;
+    const build = recipe.build.bind(recipe);
+    const spy = vi.spyOn(recipe, "build").mockImplementation((input, ctx) => {
+      const built = build(input, ctx);
+      const detailer = Object.entries(built.graph).find(([, n]) => n.class_type === "VAEDecode")![0];
+      return { ...built, totalSteps: built.totalSteps + 20, passes: [...built.passes!, { node: detailer, steps: 20, unsampled: "Face left as drawn." }] };
+    });
+    try {
+      const id = await enqueue({ steps: 8 });
+      await until(() => submitted().length === 1);
+      const promptId = submitted()[0]!;
+      const graph = fake.prompts.get(promptId)!;
+      const sampler = Object.entries(graph).find(([, n]) => n.class_type === "KSampler")![0];
+      const detailer = Object.entries(graph).find(([, n]) => n.class_type === "VAEDecode")![0];
+      fake.send("execution_start", { prompt_id: promptId });
+      fake.send("executing", { prompt_id: promptId, node: sampler });
+      fake.send("progress", { prompt_id: promptId, node: sampler, value: 4, max: 8 });
+      await until(async () => (await queue()).running?.step === 4);
+      expect((await queue()).running).toMatchObject({ step: 4, steps: 8 });
+      fake.send("progress", { prompt_id: promptId, node: sampler, value: 8, max: 8 });
+      fake.send("executing", { prompt_id: promptId, node: detailer });
+      await until(async () => (await queue()).running?.step === 8);
+      complete(fake, promptId);
+      await until(async () => (await statusOf(id)).status === "done");
+      expect((await statusOf(id)).warning).toContain("Face left as drawn.");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("pushes live events to the browser", async () => {
     await t.app.listen({ host: "127.0.0.1", port: 0 });
     const address = t.app.server.address() as { port: number };

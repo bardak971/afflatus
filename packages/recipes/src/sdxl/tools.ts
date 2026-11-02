@@ -1,7 +1,7 @@
 import { defineRecipe, GraphBuilder, roundTo, type Ref } from "@afflatus/core";
 import { redrawInTiles, tileInputs, TILE_NODES, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import {
-  boxOf, FACE_INPUTS, FACTOR_INPUT, loadSdxl, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, PASTE_BACK_NODES, pasteBack, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, REPAINT_NODES, repaintGuided, repaintInputs, repaints, samplerOf, stretchedFill, samplingInputs, SDXL_PRESETS, UPSCALER_PREFER, workSize,
+  boxOf, FACE_INPUTS, FACTOR_INPUT, loadSdxl, NO_FACE, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, PASTE_BACK_NODES, pasteBack, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, REPAINT_NODES, repaintGuided, repaintInputs, repaints, samplerOf, stretchedFill, samplingInputs, SDXL_PRESETS, UPSCALER_PREFER, workSize,
   type FaceSettings, type MaskSettings, type OutpaintSettings, type RefineColourMatch, type RepaintSettings, type UpscaleSettings,
   type SdxlBase,
 } from "./common";
@@ -343,7 +343,7 @@ export const sdxlFixFace = defineRecipe<SdxlFixFace>({
     return {
       graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }],
       // each face is redrawn on a crop brought to the guide size: what a step samples, whatever the picture's size
-      totalSteps: steps, passes: [{ node: fixed, steps, pixels: input.faceSize * input.faceSize }], loads: [`checkpoints/${input.checkpoint}`],
+      totalSteps: steps, passes: [{ node: fixed, steps, pixels: input.faceSize * input.faceSize, unsampled: NO_FACE }], loads: [`checkpoints/${input.checkpoint}`],
     };
   },
   variants: [
