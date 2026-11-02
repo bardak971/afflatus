@@ -93,10 +93,12 @@ export interface PodFetch {
   stalled(machine: string, job: string, files: Lack["files"], packs?: string[]): string | null;
   /** The node packs that failed on that pod, each with why: its jobs are built without what they bring (jobPacks.ts packFacts). */
   failingPacks(machine: string): ReadonlyMap<string, string>;
+  /** The pod whose ComfyUI restarts now for node packs this job asked for: the job waits for it (queue.ts heldOn). Null: none. */
+  restartsFor(job: string): string | null;
 }
 
 /** A rented pod's files as the queue reads them, from podFiles.ts. */
-export function podFetchOf(files: Pick<PodFiles, "failed" | "failedPacks" | "failingPacks" | "short" | "untilThere" | "want" | "wantPacks" | "jobState" | "holding" | "moving" | "stalled" | "dropUnsought" | "holdsFor">): PodFetch {
+export function podFetchOf(files: Pick<PodFiles, "failed" | "failedPacks" | "failingPacks" | "short" | "untilThere" | "want" | "wantPacks" | "jobState" | "holding" | "moving" | "stalled" | "dropUnsought" | "holdsFor" | "restartsFor">): PodFetch {
   return {
     short: (machine, list) => files.short(machine, list),
     failed: (machine, list, packs = []) => list.map((f) => files.failed(machine, f.folder, f.file)).find((why) => why !== null) ?? files.failedPacks(machine, packs),
@@ -112,6 +114,7 @@ export function podFetchOf(files: Pick<PodFiles, "failed" | "failedPacks" | "fai
     moving: (machine) => files.moving(machine),
     stalled: (machine, job, list, packs) => files.stalled(machine, job, list, packs),
     failingPacks: (machine) => files.failingPacks(machine),
+    restartsFor: (job) => files.restartsFor(job),
   };
 }
 

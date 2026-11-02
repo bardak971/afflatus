@@ -128,6 +128,8 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
     krea2Kit.inputs.at(-1)!,
   ], STYLE_ROW), PERSON_ROW),
   presets: krea2Spec.presets!,
+  // refused before it is queued, and said by the form (build() still throws it for a job queued before)
+  refuses: [{ when: { all: [{ input: "person", filled: true }, { input: "references", filled: true }] }, why: NOT_BOTH }],
   optionalNodes: [...DETAIL_OPTIONAL, ...FACE_PASS_OPTIONAL],
   // a person reference asks for its LoRA (unless one is picked in its row) and, with Face refine on, Klein's files and the
   // face detector: a pod is sent them; a machine of the user's own makes the picture without the pass rather than wait

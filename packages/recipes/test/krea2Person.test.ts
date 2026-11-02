@@ -147,7 +147,8 @@ describe("Krea 2 · Face refine", () => {
     const positive = node(graph, detailer!.inputs.positive);
     expect(positive.class_type).toBe("ReferenceLatent");
     expect(node(graph, node(graph, node(graph, positive.inputs.latent).inputs.pixels).inputs.image).inputs.image).toBe("nicolas.png");
-    expect(built.passes!.at(-1)).toEqual({ node: expect.any(String), steps: 20 });
+    // a face too large, or none, and the pass samples nothing: its steps are not shown until it does, and its job says so
+    expect(built.passes!.at(-1)).toEqual({ node: expect.any(String), steps: 20, unsampled: expect.stringContaining(`Face refine left the face as drawn: it redraws a face under ${SMALL_FACE_PX} px tall`) });
     expect(built.loads).toEqual(expect.arrayContaining(["diffusion_models/flux-2-klein-base-4b.safetensors", "ultralytics/bbox/face_yolov8m.pt"]));
   });
 

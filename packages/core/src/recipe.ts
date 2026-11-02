@@ -1,7 +1,7 @@
 import type { FrameGrid } from "./frameGrid";
 import type { LintInput, PromptLine } from "./promptLint";
 import type { BuiltGraph } from "./graph";
-import { chosenDefaults, saidRefusal, schemaFor, withoutOldZeros, type InputSpec, type StartRule } from "./inputs";
+import { chosenDefaults, conditionHolds, saidRefusal, schemaFor, withoutOldZeros, type InputSpec, type StartCondition, type StartRule } from "./inputs";
 import { folderOfFileInput, type ModelLine } from "./models";
 import type { WrongFile } from "./modelSet";
 
@@ -344,7 +344,23 @@ export interface Recipe<In = Record<string, unknown>> {
    * other steps): the form starts them there, so that what it shows is what the render runs.
    */
   starts?: StartRule[];
+  /**
+   * Mixes of inputs the recipe cannot render (Krea 2's person reference with style reference images), each with why: a job
+   * asking for one is refused before it is queued (Queue.renderJob: Render, Again, MCP's render alike), and the form says it with
+   * Render greyed. Left to build(), the job was accepted, waited for or booted a pod, and failed there (card #219).
+   */
+  refuses?: FormRefusal[];
 }
+
+/** A mix of inputs a recipe refuses: while `when` holds of the form's values, `why` is said. */
+export interface FormRefusal {
+  when: StartCondition;
+  why: string;
+}
+
+/** Why a recipe refuses this form (its first refusal that holds, Recipe.refuses); null: it does not. */
+export const refusalOf = (recipe: { refuses?: readonly FormRefusal[] }, values: Record<string, unknown>): string | null =>
+  recipe.refuses?.find((r) => conditionHolds(r.when, values, {}))?.why ?? null;
 
 /** Settings for the models whose file name matches `match` (a regular expression, case-insensitive). */
 export interface Preset {
@@ -413,6 +429,8 @@ export function describeRecipe(r: Recipe<any>) {
     ...(r.first?.length ? { first: r.first } : {}),
     // the family's optional files it cannot run without (Edit's Kontext model): Settings › Models says which operations use each file
     ...(r.needs?.length ? { needs: r.needs } : {}),
+    // the mixes it refuses, which the form says before Render
+    ...(r.refuses?.length ? { refuses: r.refuses } : {}),
     // the model files it names itself (an imported workflow's): what its LoRAs are sorted for
     models: (r.files ?? []).filter((f) => ["checkpoints", "diffusion_models"].includes(folderOfFileInput(f.classType, f.input) ?? "")).map((f) => f.file),
   };
