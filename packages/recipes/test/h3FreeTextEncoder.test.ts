@@ -115,3 +115,44 @@ describe("MiniMax H3 · the text encoder let go before sampling (card #202)", ()
     expect([...forms].sort()).toEqual(["h3.lipsync", "h3.motion", "h3.swap", "h3.video"]);
   });
 });
+
+/** The nodes ComfyUI runs: those an output reads, through every link. */
+function live(built: BuiltGraph): Graph {
+  const graph = built.graph as Graph;
+  const seen = new Set<string>();
+  const walk = (id: string) => {
+    if (seen.has(id) || !graph[id]) return;
+    seen.add(id);
+    for (const v of Object.values(graph[id]!.inputs)) if (Array.isArray(v) && v.length === 2 && typeof v[0] === "string" && typeof v[1] === "number") walk(v[0]);
+  };
+  for (const o of built.outputs) walk(o.node);
+  return Object.fromEntries([...seen].map((id) => [id, graph[id]!]));
+}
+
+// code review 2026-11-02, finding 3: since #225 the pass read the free node a Finish › Face refine fed with the clip's own
+// start, and ComfyUI ran it again (the 0.9.0 B8 fix undone): a Qwen3-VL encode with every reference picture, their VAE encodes
+describe("MiniMax H3 · a Finish › Face refine runs nothing of the clip's start (B8, card #234)", () => {
+  const own = { "self.latent": "own.safetensors" };
+  const finishOf = (values: Record<string, unknown>, ctx: Partial<BuildContext> = {}) =>
+    h3Video.build(parseInput(h3Video, { description: "a", faceRefine: true, faceRefineOnly: true, ...values }), dryContext({ seed: 7, slots, uploads: { ...uploads, "references.1": "place.png", ...own }, media: { start: { width: 576, height: 1024 } }, ...ctx })) as BuiltGraph;
+
+  it("on the reference route: the only live encode is the face's own, with its one picture", () => {
+    for (const has of [undefined, freeOnly]) {
+      const graph = live(finishOf({ references: [...person, { asset: "r2", role: "place" }] }, has ? { has } : {}));
+      const encodes = [...of(graph, "MiniMaxH3ReferenceToVideo"), ...of(graph, "AfflatusH3ReferencePrompt")].map(([, n]) => n);
+      expect(encodes, has ? "pack 0.48" : "pack 0.49").toHaveLength(1);
+      expect(encodes[0]!.inputs.prompt).toMatch(/^Close-up of the face/);
+      expect(Object.keys(encodes[0]!.inputs).filter((k) => k.startsWith("ref_images.") || k === "ref_image")).toHaveLength(1);
+      expect(of(graph, "MiniMaxH3ImageToVideo")).toHaveLength(0);
+      // the encoder let go once the face's prompt is encoded, before the pass samples
+      expect(of(graph, FREE_TEXT_ENCODER)).toHaveLength(1);
+    }
+  });
+
+  it("on the picture route: no encode of the first frame", () => {
+    const graph = live(finishOf({ start: "s1" }));
+    expect(of(graph, "MiniMaxH3ImageToVideo")).toHaveLength(0);
+    expect(of(graph, "MiniMaxH3AddGuide")).toHaveLength(0);
+    expect(of(graph, "H3FaceStitch")).toHaveLength(1);
+  });
+});

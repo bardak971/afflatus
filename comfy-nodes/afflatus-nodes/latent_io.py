@@ -541,12 +541,13 @@ class AfflatusH3RunUpMatch(io.ComfyNode):
                 io.Latent.Input("previous_av_latent", tooltip="The clip before's latent, as the window was made from it (cut to its hand-over frame when it was)."),
                 io.Latent.Input("sampled_window", tooltip="The continuation window after sampling (overlap, then the new frames)."),
                 io.Int.Input("overlap_frames", default=22, min=5, max=3600, step=17, tooltip="The window's hidden overlap in frames: 5, 22, 39… (17k + 5)."),
+                io.Int.Input("end_frames", default=0, min=0, max=3600, optional=True, tooltip="The window's last frames pinned to frames of their own (a landing on the clip after's latent, an End frame picture): 0, or 5, 22, 39… (17k + 5). The correction fades out over them to nothing at the last frame."),
             ],
             outputs=[io.Latent.Output(display_name="latent")],
         )
 
     @classmethod
-    def execute(cls, previous_av_latent, sampled_window, overlap_frames: int = 22) -> io.NodeOutput:
+    def execute(cls, previous_av_latent, sampled_window, overlap_frames: int = 22, end_frames: int = 0) -> io.NodeOutput:
         prev_video, _prev_audio = _extract_h3_av_streams(previous_av_latent, name="previous_av_latent")
         win_video, win_audio = _extract_h3_av_streams(sampled_window, name="sampled_window")
         overlap_t = video_latent_t(overlap_frames)
@@ -578,9 +579,24 @@ class AfflatusH3RunUpMatch(io.ComfyNode):
             broad = torch.nn.functional.avg_pool2d(torch.nn.functional.pad(tokens, (1, 1, 1, 1), mode="replicate"), 3, stride=1)
             broad = broad.reshape(b, t, c, h, w).permute(0, 2, 1, 3, 4)
             scale = torch.tensor(match.scale, dtype=torch.float32, device=x.device).view(1, channels, 1, 1, 1)
+            end_t = min(video_latent_t(end_frames), t - overlap_t) if end_frames else 0
+            if end_t:
+                # a window that ends on frames of its own (a landing on the clip after's tokens, an End frame picture): the
+                # correction fades out over them, none at the last token. Divided there too, a landing's end came out 2 to
+                # 3 % softer than the clip after's first frames, which are as they were sampled (card #234)
+                ramp = torch.ones(t, dtype=torch.float32, device=x.device)
+                ramp[t - end_t :] = torch.from_numpy(1.0 - run_ramp(end_t, 1)).float().to(x.device)
+                scale = torch.exp(torch.log(scale) * ramp.view(1, 1, t, 1, 1))
+                print(f"[afflatus-nodes] H3 Run-up Match: faded out over the last {end_t} tokens, pinned to frames of their own")
             video = (broad + (x - broad) * scale).to(win_video.dtype).contiguous()
         # the window's other entries kept (a sampler's output may carry more than its samples), the sound the same tensor
         out = {**sampled_window, "samples": NestedTensor((video, win_audio)), RUNUP_KEY: match.width}
+        # the run's look carried on from the clip before, for a window no Run Anchor follows (a landing, an End frame): its
+        # kept latent carried none, and a clip re-rendered after it started a new run (card #234). Run Anchor puts its own
+        # over it. Not across a cut, which starts a new run
+        look = valid_look(previous_av_latent.get(RUN_KEY), channels) if isinstance(previous_av_latent, dict) else None
+        if look and RUN_KEY not in out and np.isfinite(match.correlation) and match.correlation >= RUNUP_MIN_CORRELATION:
+            out[RUN_KEY] = look
         return io.NodeOutput(out)
 
 
@@ -629,7 +645,9 @@ class RunAnchor:
 def run_ramp(n: int, hold: int):
     """How much of the anchor's correction each of a window's `n` new tokens gets: none at the first, all of it on the last
     `hold` (the tail the clip after copies), a half cosine in between. A new part no longer than its tail ramps over all of
-    it, reaching the whole correction at its last token only."""
+    it, reaching the whole correction at its last token only (a single token is its last: all of it)."""
+    if n == 1:
+        return np.ones(1)
     span = max(n - hold, 1) if n > hold else max(n - 1, 1)
     i = np.arange(n, dtype=np.float64)
     return 0.5 - 0.5 * np.cos(np.pi * np.minimum(i / span, 1.0))

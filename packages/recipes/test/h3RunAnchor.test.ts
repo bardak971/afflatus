@@ -116,3 +116,41 @@ describe("MiniMax H3 · a continuation held to its run's first clip (card #215)"
     expect(of(refined, "AfflatusNormalizeH3Latent")[0]![1].inputs.figures_from).toBeUndefined();
   });
 });
+
+// code review 2026-11-02, finding 13: Run-up Match divided a landed end's fine detail too, and Run Anchor moved an End frame
+// picture's pinned last frame
+describe("MiniMax H3 · a window that ends on frames of its own keeps them (card #234)", () => {
+  // the inputs each node takes, as the server reads them from the machine's catalog (inputsIn)
+  const takes = (node: string) => {
+    const n = (catalog as Record<string, { input?: { required?: object; optional?: object } }>)[node];
+    return n ? [...Object.keys(n.input?.required ?? {}), ...Object.keys(n.input?.optional ?? {})] : null;
+  };
+  const landed = { ...continued, next: "b.mp4", "next.latent": "b.safetensors [temp]" };
+  const matchOf = (graph: Graph) => of(graph, H3_RUNUP_MATCH)[0]![1].inputs;
+
+  it("fades Run-up Match out over a landing's tail, the clip after's own frames", () => {
+    for (const frames of [5, 22, 39]) {
+      const { built, graph } = build({ next: { asset: "c2" } }, { inputs: takes, media: { previous: joined, next: { ...joined, frames } } }, landed);
+      expect(matchOf(graph).end_frames).toBe(frames);
+      expect(checkGraph(built, catalog)).toEqual([]);
+    }
+  });
+
+  it("holds a continuation's End frame picture: Run Anchor left out, Run-up Match faded out over its end", () => {
+    const { built, graph } = build({ end: "e1" }, { inputs: takes }, { ...continued, end: "e.png" });
+    expect(of(graph, "MiniMaxH3ImageToVideo")[0]![1].inputs.last_frame).toBeDefined();
+    expect(of(graph, H3_RUN_ANCHOR)).toHaveLength(0);
+    expect(matchOf(graph).end_frames).toBe(22);
+    const [match] = idOf(graph, H3_RUNUP_MATCH);
+    expect(of(graph, "AfflatusNormalizeH3Latent")[0]![1].inputs.samples).toEqual([match, 0]);
+    expect(checkGraph(built, catalog)).toEqual([]);
+  });
+
+  it("corrects a plain continuation's whole window as before, and sends an older pack's node nothing it does not take", () => {
+    expect(matchOf(build({}, { inputs: takes }).graph).end_frames).toBeUndefined();
+    const older = (node: string) => (node === H3_RUNUP_MATCH ? ["previous_av_latent", "sampled_window", "overlap_frames"] : takes(node));
+    expect(matchOf(build({ next: { asset: "c2" } }, { inputs: older, media: { previous: joined, next: joined } }, landed).graph).end_frames).toBeUndefined();
+    // (not known: what the node took before 0.49.3)
+    expect(matchOf(build({ end: "e1" }, {}, { ...continued, end: "e.png" }).graph).end_frames).toBeUndefined();
+  });
+});
