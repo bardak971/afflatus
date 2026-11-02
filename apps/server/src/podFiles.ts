@@ -681,6 +681,12 @@ export class PodFiles {
     return { via: measureKind(src), size: size === ASSUMED_BYTES ? null : size };
   }
 
+  /** A file as that pod is getting it (its state, and why it failed); null when it was never asked for there. */
+  fileState(machine: string, folder: string, file: string): { state: PodFileState; error?: string } | null {
+    const e = this.pods.get(machine)?.get(keyOf(folder, file));
+    return e ? { state: e.state, ...(e.error ? { error: e.error } : {}) } : null;
+  }
+
   /** Whether a file failed on that pod already (asking again would fail again): its reason. */
   failed(machine: string, folder: string, file: string): string | null {
     const e = this.pods.get(machine)?.get(keyOf(folder, file));

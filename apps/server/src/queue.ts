@@ -340,6 +340,17 @@ export class Queue {
       loadsModel: async (recipe, input, job) => modelOf(recipe.inputs, input) ?? (await this.forecasts.expectedAll(recipe, input, false, job ?? null)).model,
       runTool: (row, work) => this.runTool(l, row, work),
       packFacts: async () => (l.machine?.rented ? this.podPackFacts(l) : this.ownPacks.facts(l)),
+      podFiles: () => {
+        const fetch = this.podFetch;
+        if (!l.machine?.rented || !fetch) return null;
+        return {
+          state: (f) => fetch.fileState(l.id, f),
+          need: (files, job) => {
+            fetch.want(l.id, files, "need", job);
+            return fetch.stalled(l.id, job, files);
+          },
+        };
+      },
     };
     if (id !== TOOLS) l.ready = this.readLane(l);
     this.lanes.set(id, l);
@@ -2210,6 +2221,13 @@ export class Queue {
       // on record before the job says how it ended, as a render that is done
       if (onRecord) await this.note(lane, row, recipe, resume, measured, "cancelled", whole, Date.now() - resume.startedAt);
       await this.finish(row.id, "cancelled", { error: "stopped by you" });
+    } else if (err instanceof submitting.SlotComing && (!err.spends || Math.max(at.attempts, row.attempts + 1) < this.opts.maxAttempts)) {
+      // a family file its pod is getting, or has whole and its folders did not list yet: back in line, never sent, and the
+      // clips that carry on from it wait with it. Only a file had whole and still not listed spends an attempt (a file
+      // coming is bounded by its pod's own rule, podFiles.ts stalled)
+      console.warn(`[queue] job ${row.id} back in line on ${lane.id}: ${err.message}`);
+      await this.requeueLost(row, null, err.spends ? Math.max(at.attempts, row.attempts + 1) : row.attempts, false);
+      if (stoppedNow()) await this.finish(row.id, "cancelled", { error: "stopped by you" }, "queued");
     } else if ((err instanceof ComfyLost || err instanceof ComfyUnreachable || (err instanceof ComfyError && (await this.wentDown(lane)))) && Math.max(at.attempts, row.attempts + 1) < this.opts.maxAttempts) {
       console.warn(`[queue] job ${row.id} lost (${err.message}), queued again`);
       // said offline only when it stopped answering: a ComfyUI that answered but no longer has the prompt (it restarted, or

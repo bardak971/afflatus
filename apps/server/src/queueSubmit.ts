@@ -210,11 +210,13 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
     const kept = await comfy.scanKept()?.catch(() => null);
     throw new Error(`${missingNodesSaid(missing, kept?.comfy.online ? kept.comfy.version : null)}${cannot.length ? ` Not installed by Afflatus: ${cannot.join("; ")}.` : ""}`);
   }
-  const { files: slotFiles, gaps } = await timedPart("scan", () => slots(core, comfy, recipe));
+  const dryOf = async (files: Record<string, string>) => (await builtOf(core, recipe.id, plan ? plan.input : raw, { finishedFrom: row.finished_from, canvas: plan?.canvas, slots: files, catalog, comfy }).catch(() => null))?.graph ?? null;
+  // a family file its pod is getting is waited for, not refused (podHeld)
+  const { files: slotFiles, gaps } = await timedPart("scan", async () => podHeld(core, comfy, recipe, input, row, await slots(core, comfy, recipe), dryOf));
   // a family file not here is refused only when this job's graph reads it, seen before anything goes up when it can be
   if (Object.keys(gaps).length) {
-    const dry = await builtOf(core, recipe.id, plan ? plan.input : raw, { finishedFrom: row.finished_from, canvas: plan?.canvas, slots: slotFiles, catalog, comfy }).catch(() => null);
-    if (dry) refuseGap(dry.graph, gaps);
+    const dry = await dryOf(slotFiles);
+    if (dry) refuseGap(dry, gaps);
   }
 
   // pictures, videos and sounds the recipe takes are uploaded to ComfyUI's temp folder under names their content gives. They
@@ -880,6 +882,85 @@ export async function setCheckOn(core: QueueCore, recipeId: string, raw: unknown
     return await setFindings(core.db, family, recipe, input, built, files);
   } catch {
     return null;
+  }
+}
+
+/**
+ * A job put back in line at its submit, never sent: a family file its graph reads is on its way to its pod, or there whole
+ * and not listed by its folders yet (podHeld). `spends`: it counts as an attempt (a file had whole and still not listed),
+ * so that a pod whose folders never list it fails the job in the end, in these words.
+ */
+export class SlotComing extends Error {
+  constructor(message: string, readonly spends: boolean) {
+    super(message);
+    this.name = "SlotComing";
+  }
+}
+
+/** How many more times a pod's folders are read when its pack has a file whole that they do not list (podHeld). */
+const RELIST_TRIES = 3;
+const RELIST_MS = 3_000;
+
+/**
+ * The family files a job is built with on a rented pod, its gaps waited for while that pod gets them (card #221). On
+ * 2026-11-02 a clip pinned to an RTX PRO 4500 started 1 s after H3's text encoder landed there, and was failed "a model
+ * file MiniMax H3 needs was not found" by the scan its submit read, the three clips after it with it: the plan waits for a
+ * job's files by the pod's own word, the scan by its folder listings, and a listing that fails reads as an empty folder.
+ * Each file the graph reads (the dry build, `dryOf`) that the scan did not find, required or asked for by this input
+ * (Recipe.needs, needsWith: RIFE with RIFE ×2 on), and that the family has a download for, is looked up in what the pod is
+ * getting:
+ * - had whole there: the folders are read again, RELIST_TRIES times at most, RELIST_MS apart; still not listed, the job
+ *   goes back in line (SlotComing, an attempt spent), or one asked for by its input only is done without, as before
+ *   (its render says so: "Not interpolated");
+ * - in its line, under way, or never asked for there: asked for first, for this job, and the job goes back in line to
+ *   wait for it with no attempt spent; unless the pod says it is not coming (podFiles.ts stalled), when the gap stands;
+ * - failed there: the gap stands, refused in its words with why.
+ * Not a pod, or nothing missing: the files as they are.
+ */
+async function podHeld(
+  core: QueueCore, comfy: Comfy, recipe: Recipe<any>, input: Record<string, unknown>, row: Pick<JobRow, "id">,
+  got: { files: Record<string, string>; gaps: Record<string, string> }, dryOf: (files: Record<string, string>) => Promise<BuiltGraph["graph"] | null>,
+): Promise<{ files: Record<string, string>; gaps: Record<string, string> }> {
+  const pod = core.podFiles?.();
+  const family = core.registry.family(recipe.family);
+  if (!pod || !family) return got;
+  // what this input asks for, read as the plan reads it (podSlotFiles): each gap under its download's name
+  const asked = (files: Record<string, string>) => {
+    const named = { ...files, ...Object.fromEntries(Object.keys(got.gaps).flatMap((id) => { const g = family.slots.find((x) => x.id === id)?.get; return g ? [[id, g.file]] : []; })) };
+    return [...(recipe.needs ?? []), ...(recipe.needsWith?.(input, named, { own: false }) ?? [])];
+  };
+  for (let tries = 0; ; tries++) {
+    const wanted = asked(got.files).filter((id) => !got.files[id] && !got.gaps[id]);
+    if (!Object.keys(got.gaps).length && !wanted.length) return got;
+    // the gaps the graph reads (all of them when it cannot be built here), and the files this input asks for that are not here
+    const graph = Object.keys(got.gaps).length ? await dryOf(got.files) : null;
+    const names = graph ? new Set(Object.values(graph).flatMap((n) => Object.values(n.inputs))) : null;
+    const read = Object.keys(got.gaps).filter((id) => !names || names.has(missingSlotFile(id)));
+    const ids = [...new Set([...read, ...wanted])];
+    const files = ids.flatMap((id) => {
+      const s = family.slots.find((x) => x.id === id);
+      return s?.get ? [{ id, file: s.get.file, folder: s.folder, url: s.get.url, gap: read.includes(id), on: pod.state({ file: s.get.file, folder: s.folder }) }] : [];
+    });
+    // one that cannot be had there is refused with why; one asked for by the input only is done without, as before
+    const failed = files.find((f) => f.gap && f.on?.state === "failed");
+    if (failed) throw new Error(`${got.gaps[failed.id]} It could not be had on its pod: ${failed.on!.error ?? "its fetch failed"}.`);
+    const coming = files.filter((f) => f.on === null || f.on.state === "next" || f.on.state === "fetching");
+    if (coming.length) {
+      const why = pod.need(coming.map(({ file, folder, url }) => ({ file, folder, url })), row.id);
+      if (!why) throw new SlotComing(`waits for ${coming.map((f) => f.file).join(", ")}, still coming to its pod`, false);
+      const gap = coming.find((f) => f.gap);
+      if (gap) throw new Error(`${got.gaps[gap.id]} Its pod is not getting it: ${why}.`);
+    }
+    const whole = files.filter((f) => f.on?.state === "ready");
+    if (!whole.length) return got;
+    if (tries >= RELIST_TRIES) {
+      const gap = whole.find((f) => f.gap);
+      if (gap) throw new SlotComing(`${got.gaps[gap.id]} (${gap.file} came to its pod, and its ComfyUI did not list it)`, true);
+      return got;
+    }
+    await new Promise((go) => setTimeout(go, core.opts.relistMs ?? RELIST_MS));
+    comfy.forgetFiles();
+    got = await slots(core, comfy, recipe);
   }
 }
 
