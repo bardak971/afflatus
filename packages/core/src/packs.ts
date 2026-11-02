@@ -29,6 +29,7 @@ const NODE_PACKS: NodePack[] = [
       "AfflatusSaveH3Latent", "AfflatusLoadH3Latent", "AfflatusNormalizeH3Latent", "AfflatusTrimH3Latent", "AfflatusH3TailGuide", "AfflatusH3LatentHeadGuide", "AfflatusH3LatentLanding", "AfflatusH3SeamLatent", "AfflatusH3RunUpMatch", "AfflatusH3RunAnchor",
       "MiniMaxH3GuidedContinuationWindow", "MiniMaxH3LatentTailGuide", "MiniMaxH3AppendContinuation", "AfflatusFaceMatch", "AfflatusFaceAt", "AfflatusFaceCrop", "AfflatusFaceFrame", "AfflatusFaceBackdrop", "AfflatusH3AudioLock",
       "AfflatusSwapMask", "AfflatusSwapMaskPreview", "AfflatusSwapPaste", "AfflatusSwapMatch", "AfflatusColorFollow", "AfflatusMatchPicture", "AfflatusRoomTone", "AfflatusFreeTextEncoder",
+      "AfflatusH3ReferencePrompt", "AfflatusH3ReferenceLatents", "AfflatusFaceMaskStride", "AfflatusFaceDetailKeep", "AfflatusH3InjectRegion",
       "AfflatusSaveLTXLatent", "AfflatusLoadLTXLatent", "AfflatusTrimLTXLatent", "AfflatusLTXContinuation", "AfflatusLTXSeamLatent",
     ],
   },

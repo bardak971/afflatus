@@ -118,6 +118,11 @@ export interface VideoTraits {
    */
   faceCarried?: string;
   /**
+   * The id of the toggle that says whether such a clip's face is drawn towards those pictures by Face refine (card #225), on
+   * unless it is off: the timeline turns Face refine on with faceCarried only then.
+   */
+  holdFace?: string;
+  /**
    * A recipe that makes a long source window by window (Motion transfer on a timeline's source lane): the most and fewest
    * frames a job takes, and the frames of the clip before a window carries on from (sourceWindows.ts).
    */

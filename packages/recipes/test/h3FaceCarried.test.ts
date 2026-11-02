@@ -178,3 +178,105 @@ describe("MiniMax H3 · a continuation's person picture gives the identity alone
     expect(p).toContain("only the identity is taken from <Picture 1>: the face, hair and build, in the light of the given opening frames; the look is taken from <Picture 2>, a frame of this take.");
   });
 });
+
+describe("MiniMax H3 · Face refine's pass on a continuation, cheaper and keeping the skin (card #225)", () => {
+  const NEW = ["AfflatusH3ReferencePrompt", "AfflatusH3ReferenceLatents", "AfflatusFaceMaskStride", "AfflatusFaceDetailKeep", "AfflatusH3InjectRegion"];
+  const older = { has: (n: string) => !NEW.includes(n) };
+  const passGuider = (graph: Graph) => {
+    const pass = of(graph, "SamplerCustomAdvanced").find(([, n]) => node(graph, n.inputs.latent_image).class_type === "H3PerFrameDenoise")![1];
+    return node(graph, pass.inputs.guider);
+  };
+
+  it("encodes the pass's prompt with the clip's, before the clip samples: the text encoder is loaded once", () => {
+    const { built, graph } = build({ faceCarried: true });
+    // one Reference to Video, the clip's own; the pass's prompt by the text encoder alone, handed to the clip's free node
+    expect(of(graph, "MiniMaxH3ReferenceToVideo")).toHaveLength(1);
+    const frees = of(graph, "AfflatusFreeTextEncoder");
+    expect(frees).toHaveLength(1);
+    const [freeId, free] = frees[0]!;
+    const text = node(graph, free.inputs.more);
+    expect(text.class_type).toBe("AfflatusH3ReferencePrompt");
+    expect(text.inputs).toMatchObject({ prompt: expect.stringMatching(/^Close-up of the face of the person in <Picture 1>/), sound: true, width: 512, height: 512 });
+    expect(text.inputs.clip).toEqual(free.inputs.clip);
+    // its picture's and sound's latents put on it once the face track and the clip's sound are there, at the track's size
+    const put = node(graph, passGuider(graph).inputs.conditioning);
+    expect(put.class_type).toBe("AfflatusH3ReferenceLatents");
+    expect(put.inputs.text).toEqual([freeId, 2]);
+    expect(node(graph, put.inputs.width).class_type).toBe("H3FaceTrackCrop");
+    expect(node(graph, put.inputs.ref_audio).class_type).toBe("VAEDecodeAudio");
+    // and the clip itself samples after that one free node, as before
+    expect(checkGraph(built, catalog)).toEqual([]);
+  });
+
+  it("outlines the face with SAM on every 4th crop, and lays the sampled grain back on the pasted face", () => {
+    const { graph } = build({ faceCarried: true });
+    expect(of(graph, "H3FaceMaskSAM")).toEqual([]);
+    const [, stride] = of(graph, "AfflatusFaceMaskStride")[0]!;
+    expect(stride.inputs).toMatchObject({ stride: 4, threshold: 0.93, temporal_smooth: 5 });
+    const [, stitch] = of(graph, "H3FaceStitch")[0]!;
+    expect(node(graph, stitch.inputs.masks).class_type).toBe("AfflatusFaceMaskStride");
+    const [keepId, keep] = of(graph, "AfflatusFaceDetailKeep")[0]!;
+    expect(node(graph, keep.inputs.images).class_type).toBe("H3FaceStitch");
+    expect(keep.inputs.base_images).toEqual(stitch.inputs.base_images);
+    // everything after reads the kept detail (the colour match, the files, the kept latent), nothing the face as pasted
+    const readers = (id: string) => Object.values(graph).filter((n) => Object.values(n.inputs).some((v) => Array.isArray(v) && v[0] === id)).map((n) => n.class_type);
+    expect(readers(of(graph, "H3FaceStitch")[0]![0])).toEqual(["AfflatusFaceDetailKeep"]);
+    expect(readers(keepId)).toEqual(expect.arrayContaining(["AfflatusH3InjectRegion"]));
+  });
+
+  it("keeps the refined face in the kept latent by encoding its region alone, the rest the sampled window's own", () => {
+    const { graph } = build({ faceCarried: true });
+    const [, save] = of(graph, "AfflatusSaveH3Latent")[0]!;
+    const normal = node(graph, save.inputs.samples);
+    const region = node(graph, normal.inputs.samples);
+    expect(region.class_type).toBe("AfflatusH3InjectRegion");
+    expect(region.inputs.margin).toBe(64);
+    expect(node(graph, region.inputs.images).class_type).toBe("AfflatusFaceDetailKeep");
+    expect(node(graph, region.inputs.base_images).class_type).toBe("VAEDecode");
+    // only the pass's own crops are encoded whole
+    expect(of(graph, "H3InjectVideoLatent")).toHaveLength(1);
+  });
+
+  it("samples the pass in 3 steps on a turbo, where Face refine asked for takes the 4 it was tested at", () => {
+    const steps = (graph: Graph) => {
+      const pass = of(graph, "SamplerCustomAdvanced").find(([, n]) => node(graph, n.inputs.latent_image).class_type === "H3PerFrameDenoise")![1];
+      return node(graph, pass.inputs.sigmas).inputs.steps;
+    };
+    // (the pod test's model: a distilled hybrid, its own reference model and turbo)
+    const turbo = { model: "DasiwaMinimaxH3_dasiwaHybridTurboV3_int8.safetensors" };
+    expect(steps(build({ ...turbo, faceCarried: true }).graph)).toBe(3);
+    expect(steps(build({ ...turbo, faceCarried: true, holdFace: false, faceRefine: true }).graph)).toBe(4);
+    expect(steps(build({ ...turbo, faceCarried: true, faceRefineSteps: 6 }).graph)).toBe(6);
+    // a full model keeps its 10
+    expect(steps(build({ faceCarried: true }).graph)).toBe(10);
+  });
+
+  it("is built as before on a pack without these nodes", () => {
+    const { built, graph } = build({ faceCarried: true }, older);
+    expect(of(graph, "MiniMaxH3ReferenceToVideo")).toHaveLength(2);
+    expect(of(graph, "AfflatusFreeTextEncoder")).toHaveLength(2);
+    expect(of(graph, "H3FaceMaskSAM")).toHaveLength(1);
+    expect(of(graph, "H3InjectVideoLatent")).toHaveLength(2);
+    expect(Object.values(graph).filter((n) => NEW.includes(n.class_type))).toEqual([]);
+    expect(of(graph, "AfflatusFreeTextEncoder").every(([, n]) => !("more" in n.inputs))).toBe(true);
+    expect(checkGraph(built, catalog)).toEqual([]);
+  });
+
+  it("with Hold the face on continuations off, is a plain continuation: sampled without the picture, no pass", () => {
+    const { built, graph } = build({ faceCarried: true, holdFace: false });
+    expect(sampledFiles(graph)).toEqual([]);
+    expect(of(graph, "H3FaceTrackCrop")).toEqual([]);
+    expect(built.passes).toHaveLength(1);
+    // Face refine turned on by hand still runs, as the form has it (its own model)
+    const { graph: byHand } = build({ faceCarried: true, holdFace: false, faceRefine: true });
+    expect(refinedTowards(byHand)).toBe("r1.png");
+  });
+
+  it("says the toggle on Video with audio and Lip sync, in the same words, and not on Swap character or Motion transfer", () => {
+    const spec = (r: { inputs: Array<{ id: string; label?: string; default?: unknown }> }) => r.inputs.find((i) => i.id === "holdFace");
+    expect(spec(h3Video)).toMatchObject({ label: "Hold the face on continuations", default: true });
+    expect(spec(h3LipSync)).toEqual(spec(h3Video));
+    expect(spec(h3Swap)).toBeUndefined();
+    expect(spec(h3MotionTransfer)).toBeUndefined();
+  });
+});

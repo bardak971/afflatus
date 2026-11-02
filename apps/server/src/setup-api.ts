@@ -5,7 +5,7 @@ import { said } from "./forecast";
 import { allowedHosts, fromThisComputer, hostAllowed } from "./hostCheck";
 import { z } from "zod";
 import { ComfyClient, ComfyLocked, plannedScan } from "@afflatus/comfy";
-import { comfyTooOld, describeRecipe, listOptions, parseInput, type InputSpec } from "@afflatus/core";
+import { comfyTooOld, describeRecipe, listOptions, parseInput, type InputSpec, type Recipe } from "@afflatus/core";
 import { updateCommands } from "./comfyUpdate";
 import { withMentions } from "./entities";
 import { placesFrom } from "./filePlaces";
@@ -280,8 +280,24 @@ export function registerSetup(app: FastifyInstance, s: Services, version: string
     const on = got.on ? Object.fromEntries(Object.entries(got.on).map(([m, f]) => [m, f.ms])) : null;
     const loadOn = got.on ? Object.fromEntries(Object.entries(got.on).map(([m, f]) => [m, f.loadMs])) : null;
     const auto = "auto" in got ? got.auto : null;
-    return { estimate: { text: said(got.forecast, got.shape).text, pace: got.forecast.pace, ms: got.forecast.ms, loadMs: got.forecast.loadMs, on, loadOn, auto } };
+    const costs = await adviceCosts(s, recipe, b.recipe, b.input);
+    return { estimate: { text: said(got.forecast, got.shape).text, pace: got.forecast.pace, ms: got.forecast.ms, loadMs: got.forecast.loadMs, on, loadOn, auto, ...(costs ? { costs } : {}) } };
   });
+}
+
+/**
+ * What a setting adds to each render where it acts, from the same forecast, by input id: Hold the face on continuations (card
+ * #225), the Face refine pass it brings on a continuation that carries the face on, read as the form with Face refine on less
+ * the form with it off (the renders with Face refine on are filed apart: timing.ts timeKey). Null when nothing is to say: no
+ * such setting, no person's picture for the pass to draw towards, or no render to learn from.
+ */
+async function adviceCosts(s: Services, recipe: Recipe<any>, recipeId: string, input: Record<string, unknown>): Promise<Record<string, number> | null> {
+  const hold = recipe.traits?.holdFace;
+  const refine = recipe.traits?.faceRefine;
+  if (!hold || !refine) return null;
+  const [on, off] = await Promise.all([true, false].map((v) => s.queue.forecast(recipeId, { ...input, [refine]: v }).catch(() => null)));
+  const ms = on && off ? on.forecast.ms - off.forecast.ms : 0;
+  return ms > 0 ? { [hold]: ms } : null;
 }
 
 /**

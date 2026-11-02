@@ -112,6 +112,7 @@ from .face_refine import AfflatusH3AudioLock  # noqa: E402
 from .colour_follow import AfflatusColorFollow, AfflatusMatchPicture  # noqa: E402
 from .room_tone import AfflatusRoomTone  # noqa: E402
 from .text_encoder import AfflatusFreeTextEncoder  # noqa: E402
+from .face_pass import AfflatusFaceDetailKeep, AfflatusFaceMaskStride, AfflatusH3InjectRegion, AfflatusH3ReferenceLatents, AfflatusH3ReferencePrompt  # noqa: E402
 
 
 def _version() -> str:
@@ -166,6 +167,13 @@ class AfflatusExtension(ComfyExtension):
             AfflatusRoomTone,
             # H3's text encoder let go once its prompt is encoded, before the sampler (the RAM it held on 32 GB, card #202)
             AfflatusFreeTextEncoder,
+            # Face refine's pass cheaper and the skin kept (pack 0.49.0, card #225): its prompt encoded with the clip's, SAM's
+            # outline on a stride, the sampled grain laid back, and the kept latent re-encoded over the face alone
+            AfflatusH3ReferencePrompt,
+            AfflatusH3ReferenceLatents,
+            AfflatusFaceMaskStride,
+            AfflatusFaceDetailKeep,
+            AfflatusH3InjectRegion,
             # a face's likeness to some photos, for the pictures a Motion transfer is made from, and a person's picture cut to
             # their face (LTX 2.5's references): only with insightface installed
             *([AfflatusFaceMatch, AfflatusFaceAt, AfflatusFaceCrop, AfflatusFaceFrame, AfflatusFaceBackdrop] if face_available() else []),

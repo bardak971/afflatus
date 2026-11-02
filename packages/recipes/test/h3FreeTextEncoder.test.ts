@@ -19,6 +19,9 @@ const uploads = { "references.0": "person.png", start: "s.png" };
 const person = [{ asset: "r1", role: "person" }];
 // a pack before 0.43.0: every node but the free one
 const olderPack = (n: string) => n !== FREE_TEXT_ENCODER;
+// a pack from 0.43.0 to 0.48: the free node, without Face refine's split encode (card #225)
+const SPLIT = ["AfflatusH3ReferencePrompt", "AfflatusH3ReferenceLatents", "AfflatusFaceMaskStride", "AfflatusFaceDetailKeep", "AfflatusH3InjectRegion"];
+const freeOnly = (n: string) => !SPLIT.includes(n);
 
 function build(values: Record<string, unknown>, ctx: Partial<BuildContext> = {}) {
   return h3Video.build(parseInput(h3Video, { description: "a", ...values }), dryContext({ seed: 7, slots, uploads, media: { start: { width: 576, height: 1024 } }, ...ctx })).graph as Graph;
@@ -66,8 +69,18 @@ describe("MiniMax H3 · the text encoder let go before sampling (card #202)", ()
     expect(of(warm, "CLIPLoader")).toHaveLength(1);
   });
 
-  it("lets it go again after Face refine's encode, before the pass samples", () => {
+  it("encodes Face refine's prompt with the clip's, so that it is let go once, before the clip samples (card #225)", () => {
     const graph = build({ faceRefine: true, references: person });
+    const frees = of(graph, FREE_TEXT_ENCODER);
+    expect(frees).toHaveLength(1);
+    const [freeId, free] = frees[0]!;
+    expect(graph[(free.inputs.more as [string, number])[0]]!.class_type).toBe("AfflatusH3ReferencePrompt");
+    const pass = guiders(graph).find((g) => graph[(g.inputs.conditioning as [string, number])[0]]!.class_type === "AfflatusH3ReferenceLatents")!;
+    expect(graph[(pass.inputs.conditioning as [string, number])[0]]!.inputs.text).toEqual([freeId, 2]);
+  });
+
+  it("lets it go again after Face refine's encode, before the pass samples, on a pack before 0.49", () => {
+    const graph = build({ faceRefine: true, references: person }, { has: freeOnly });
     const frees = of(graph, FREE_TEXT_ENCODER);
     expect(frees).toHaveLength(2);
     const encodes = idOf(graph, "MiniMaxH3ReferenceToVideo");
@@ -77,8 +90,8 @@ describe("MiniMax H3 · the text encoder let go before sampling (card #202)", ()
 
   it("leaves the graph as it was on an older pack", () => {
     for (const values of [{ references: person }, { faceRefine: true, references: person }, { start: "s1", upscale: UPSCALE.latent }]) {
-      const now = build(values);
-      const before = build(values, { has: olderPack });
+      const now = build(values, { has: freeOnly });
+      const before = build(values, { has: (n) => olderPack(n) && freeOnly(n) });
       expect(of(before, FREE_TEXT_ENCODER)).toHaveLength(0);
       expect(Object.keys(before).length).toBe(Object.keys(now).length - of(now, FREE_TEXT_ENCODER).length);
       // the samplers guided by the encodes themselves

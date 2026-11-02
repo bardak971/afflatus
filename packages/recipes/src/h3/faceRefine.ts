@@ -24,6 +24,30 @@ export const FACE_REFINE_MASK = ["SAMLoader", "H3FaceMaskSAM"];
 export const FACE_REFINE_PACK_NEEDED = "Not face-refined: Face refine's node pack (comfyui-h3-facerefine) is not on this ComfyUI.";
 /** The clip's sound held while the crops are redrawn (afflatus-nodes). */
 export const AUDIO_LOCK = "AfflatusH3AudioLock";
+/**
+ * The pass made cheaper and the skin kept (afflatus-nodes 0.49.0, card #225), each done without on an older pack: its prompt
+ * encoded while the clip's own text encoder is loaded, and its picture's and sound's latents put on it after; SAM's outline on
+ * every few crops; the sampled grain laid back on the pasted face; the kept latent encoded again over the face alone.
+ */
+export const FACE_PROMPT = "AfflatusH3ReferencePrompt";
+export const FACE_PROMPT_LATENTS = "AfflatusH3ReferenceLatents";
+export const FACE_MASK_STRIDE = "AfflatusFaceMaskStride";
+export const FACE_DETAIL_KEEP = "AfflatusFaceDetailKeep";
+export const INJECT_REGION = "AfflatusH3InjectRegion";
+/**
+ * SAM on every 4th crop, blended between: it took 22.6 s of a 141-frame continuation's pass on the owner's PC (0.16 s a crop).
+ * The crops are face-stabilised, so the outline moves little from one frame to the next, and it is averaged over five anyway.
+ */
+const MASK_STRIDE = 4;
+/**
+ * The pasted face's own detail finer than 0.8 px brought back to the strength the sampled face had there, twice as strong at
+ * most: the pass left the face ~20 % softer than sampled (Timeline 17, face-crop Laplacian 5.36 to 4.3), plain at the join
+ * after a clip sampled with the person's picture. On the pod test (card #225) 0.887 of the sampled face's sharpness became
+ * 0.933, the likeness kept; laying the sample's own detail on it instead cost 0.05 of likeness.
+ */
+const DETAIL_KEEP = { sigma: 0.8, most: 2, strength: 1 };
+/** The size the pass's picture is cut to for the text encoder, ahead of the face track that sizes the crops: the canvas's least. */
+const PROMPT_CANVAS = 512;
 
 /**
  * Face refine's steps on a full model (not a turbo): provisional, to be measured (card #159, the owner's 8 to 12). The pass
@@ -31,6 +55,12 @@ export const AUDIO_LOCK = "AfflatusH3AudioLock";
  */
 export const FACE_REFINE_FULL_STEPS = 10;
 const TURBO_STEPS = 4;
+/**
+ * The pass a continuation that carries the face on is given (holdsFace), on a turbo: 3 steps. On the pod test (card #225, the
+ * DaSiWa hybrid turbo) they held the face as well as 4 (0.554 and 0.533) and as sharp (0.870 and 0.868 of the sampled face's
+ * sharpness), ~8 s less a continuation. Elsewhere (Face refine asked for) the 4 it was tested at.
+ */
+const CARRIED_TURBO_STEPS = 3;
 
 export const FACE_REFINE_INPUTS: InputSpec[] = [
   {
@@ -58,7 +88,7 @@ export const FACE_REFINE_INPUTS: InputSpec[] = [
   {
     // 0 since card #159: by the model, as its sampling needs (a value typed stays the form's)
     id: "faceRefineSteps", type: "number", label: "Face refine steps", min: 2, max: 16, step: 1, default: 0, auto: "by model", showWhen: "faceRefine", advanced: true, section: "out",
-    note: `by model (the left end): 4 on a fused or distilled turbo, as it was tested (8 kept less of the likeness), ${FACE_REFINE_FULL_STEPS} on a full model; the job says which ran`,
+    note: `by model (the left end): 4 on a fused or distilled turbo, as it was tested (8 kept less of the likeness), 3 on a continuation that holds the face, ${FACE_REFINE_FULL_STEPS} on a full model; the job says which ran`,
   },
   // a finish of a kept take (Finish › Face refine): its own latent loaded, nothing sampled, only the faces redrawn
   { id: "faceRefineOnly", type: "toggle", label: "Face refine only", default: false, internal: true },
@@ -104,8 +134,16 @@ export const FACE_REFINE_H3 = ["MiniMaxH3ReferenceToVideo", "MiniMaxH3SigmaShift
  * the face as well as the fused turbo on clips 2 and 3 and better on clip 4 (0.41 and 0.54 against 0.08 and 0.43, two seeds).
  * Its denoise and steps are the form's.
  */
-export const withFacePass = <T extends Pick<H3Video, "faceRefine" | "previous" | "faceCarried" | "references"> & Partial<Pick<H3Video, "faceRefineModel">>>(input: T): T =>
-  carriesFace(input) ? { ...input, faceRefine: true, faceRefineModel: OWN_MODEL } : input;
+export const withFacePass = <T extends Pick<H3Video, "faceRefine" | "previous" | "faceCarried" | "references"> & Partial<Pick<H3Video, "faceRefineModel" | "holdFace">>>(input: T): T =>
+  holdsFace(input) ? { ...input, faceRefine: true, faceRefineModel: OWN_MODEL } : input;
+
+/**
+ * Whether the pass is forced on a clip (withFacePass): one that carries the face on, with Hold the face on continuations on
+ * (card #225). Off, it is sampled without the person's pictures all the same, the plain continuation, and refined only if
+ * Face refine itself is on.
+ */
+export const holdsFace = (input: Pick<H3Video, "previous" | "faceCarried" | "references"> & Partial<Pick<H3Video, "holdFace">>): boolean =>
+  carriesFace(input) && input.holdFace !== false;
 
 /** What Face refine reads of a form: its own settings, and the person's words and pictures. */
 export type FaceRefineValues = Pick<H3Video, "faceRefine" | "faceRefineDenoise" | "faceRefineSteps" | "references" | "subject" | "quick"> & Partial<Pick<H3Video, "faceRefineModel">>;
@@ -190,7 +228,7 @@ export function clipModelOf(input: H3Video, slots: Record<string, string> = {}, 
  * unless it follows no picture, then the fused turbo, else the reference model. Steps: the form's when typed, else 4 on a
  * turbo (its name says so, as H3's distilled files are known) and FACE_REFINE_FULL_STEPS on a full model.
  */
-export function faceModelOf(input: Partial<Pick<H3Video, "faceRefineModel" | "faceRefineSteps">>, slots: Record<string, string>, clip?: ClipModel): { file: string | undefined; loader?: Ref; lora?: string; loraWeight?: number; steps: number; said: string | null } {
+export function faceModelOf(input: Partial<Pick<H3Video, "faceRefineModel" | "faceRefineSteps">>, slots: Record<string, string>, clip?: ClipModel, turboSteps = TURBO_STEPS): { file: string | undefined; loader?: Ref; lora?: string; loraWeight?: number; steps: number; said: string | null } {
   const asked = input.faceRefineModel;
   const turbo = slots.faceRefineUnet;
   let file = asked && asked !== OWN_MODEL ? asked : turbo;
@@ -211,7 +249,7 @@ export function faceModelOf(input: Partial<Pick<H3Video, "faceRefineModel" | "fa
   const lora = theClips ? clip?.turbo : undefined;
   const typed = (input.faceRefineSteps ?? 0) > 0 ? input.faceRefineSteps! : 0;
   const fast = Boolean(lora) || namedFor.turbo.test(fileName(file));
-  return { file, ...(loader ? { loader } : {}), ...(lora ? { lora, loraWeight: clip?.turboWeight ?? 1 } : {}), steps: typed || (fast ? TURBO_STEPS : FACE_REFINE_FULL_STEPS), said };
+  return { file, ...(loader ? { loader } : {}), ...(lora ? { lora, loraWeight: clip?.turboWeight ?? 1 } : {}), steps: typed || (fast ? turboSteps : FACE_REFINE_FULL_STEPS), said };
 }
 
 /**
@@ -265,7 +303,7 @@ const onH3Grid = (frames: number) => (frames < 5 ? 5 : frames + ((17 - ((frames 
  */
 export function faceRefined(
   g: GraphBuilder, ctx: BuildContext, input: FaceRefineValues, images: Ref,
-  at: { audio?: Ref; vae?: Ref; audioVae?: Ref; clip?: Ref; picture?: string; frames?: number; only?: boolean; model?: ClipModel },
+  at: { audio?: Ref; vae?: Ref; audioVae?: Ref; clip?: Ref; picture?: string; frames?: number; only?: boolean; model?: ClipModel; free?: string | null; carried?: boolean },
 ): FaceRefined {
   const as: FaceRefined = { images, pass: null, loads: [], said: null };
   const own = !at.clip;
@@ -296,19 +334,16 @@ export function faceRefined(
   });
   // the fused reference turbo as the pass was tested, or the model picked: the clip's own is the clip's loader, one model in
   // memory, with a fresh chain on it (none of the clip's LoRAs: the swap's and the turbo's are made for its own sampling)
-  const picked = faceModelOf(input, slots, at.model);
+  const picked = faceModelOf(input, slots, at.model, at.carried ? CARRIED_TURBO_STEPS : TURBO_STEPS);
   let model = picked.loader ?? loadUnet(g, ctx, picked.file);
   if (input.quick) model = g.out("ModelAttentionBackend", { model, attention: "comfy kitchen attention" });
   // (at the weight of Turbo's row, as the clip had it)
   if (picked.lora) model = g.out("LoraLoaderModelOnly", { model, lora_name: picked.lora, strength_model: picked.loraWeight ?? 1 });
   model = g.out("MiniMaxH3SigmaShift", { model, shift_video: 12, shift_audio: 3 });
   const subject = input.subject?.trim() ? `, ${input.subject.trim().replace(/[.\s]+$/, "")}` : "";
-  const r2v = g.add("MiniMaxH3ReferenceToVideo", {
-    clip, prompt: `Close-up of the face of the person in <Picture 1>${subject}. Sharp focus, clear details.`,
-    width: [track, 4], height: [track, 5], length: [track, 6], ref_image_size: "match", vae, audio_vae: audioVae,
-    "ref_images.ref_image_0": picture, ...(at.audio ? { "ref_audios.ref_audio_0": at.audio } : {}),
-  });
-  const started = g.out("H3InjectVideoLatent", { av_latent: [r2v, 1], images: [track, 0], vae });
+  const prompt = `Close-up of the face of the person in <Picture 1>${subject}. Sharp focus, clear details.`;
+  const { conditioning, latent } = facePrompt(g, ctx, { clip, prompt, picture, track, vae, audioVae, audio: at.audio, free: at.free });
+  const started = g.out("H3InjectVideoLatent", { av_latent: latent, images: [track, 0], vae });
   // without a sound, H3 makes one beside the redrawn faces, and it is left out
   const held = at.audio ? g.out(AUDIO_LOCK, { av_latent: started, audio_vae: audioVae, audio: at.audio }) : started;
   // the denoise by face size: whole on a face of 30 px and under, a third from 120 px, eased over 9 frames
@@ -316,11 +351,9 @@ export function faceRefined(
     model, av_latent: held, transform: [track, 1], denoise_multiplier_small_face: 1, denoise_multiplier_large_face: 0.35,
     scale_mode: "absolute_px", face_px_small: 30, face_px_large: 120, gamma: 1, smooth_frames: 9,
   });
-  // its prompt is encoded once the clip is sampled (its size is the face track's): the text encoder loads again for it, and
-  // is let go again before the pass samples
   const sampler = g.add("SamplerCustomAdvanced", {
     noise: g.out("RandomNoise", { noise_seed: ctx.seed }),
-    guider: g.out("BasicGuider", { model: [scaled, 2], conditioning: freeTextEncoder(g, ctx, clip, [r2v, 0])[0] }),
+    guider: g.out("BasicGuider", { model: [scaled, 2], conditioning }),
     sampler: g.out("KSamplerSelect", { sampler_name: "er_sde" }),
     sigmas: g.out("BasicScheduler", { model: [scaled, 2], scheduler: "simple", steps: picked.steps, denoise: input.faceRefineDenoise }),
     latent_image: [scaled, 0],
@@ -329,19 +362,49 @@ export function faceRefined(
   // pasted over the face's own outline (SAM) when SAM is there, else over the face's box; faded out where no face is found
   const boxed = faceBoxSaid(ctx);
   const sam = !boxed;
-  const masked = sam
-    ? { masks: g.out("H3FaceMaskSAM", { crops: [track, 0], sam_model: g.out("SAMLoader", { model_name: slots.faceSam, device_mode: "AUTO" }), transform: [track, 1], threshold: 0.93, dilation: 0, temporal_smooth: 5 }) }
-    : {};
-  const stitched = g.out("H3FaceStitch", {
+  // (on every few crops where the pack has it: the same outline within a pixel or two, in a quarter of the time. It runs
+  // H3 Face Mask (SAM) itself, from ComfyUI-H3-FaceRefine, the pack H3 Face Stitch comes with)
+  const outline = { crops: [track, 0], sam_model: sam ? g.out("SAMLoader", { model_name: slots.faceSam, device_mode: "AUTO" }) : null, transform: [track, 1], threshold: 0.93, dilation: 0, temporal_smooth: 5 };
+  const masked = !sam ? {} : { masks: ctx.has(FACE_MASK_STRIDE) && ctx.has("H3FaceMaskSAM") ? g.out(FACE_MASK_STRIDE, { ...outline, stride: MASK_STRIDE }) : g.out("H3FaceMaskSAM", outline) };
+  const pasted = g.out("H3FaceStitch", {
     base_images: base, refined_crops: redrawn, transform: [track, 1], paste_region: "face_only", mask_dilation: 16, feather: 6,
     colour_match: 1, blend: 1, undetected_frames: "fade_out", feather_scales_with_crop: false, ...masked,
   });
+  // the likeness from the pass, as sharp as the sample (an older pack: the face as pasted, softer than sampled)
+  const stitched: Ref = ctx.has(FACE_DETAIL_KEEP) ? g.out(FACE_DETAIL_KEEP, { base_images: base, images: pasted, ...DETAIL_KEEP }) : pasted;
   const loads = [
     ...(picked.loader ? [] : [`diffusion_models/${picked.file}`, ...(picked.lora ? [`loras/${picked.lora}`] : [])]), `ultralytics/${slots.faceDetector}`, ...(slots.faceSeg ? [`ultralytics/${slots.faceSeg}`] : []), ...(sam ? [`sams/${slots.faceSam}`] : []),
     ...(own ? [`text_encoders/${slots.faceClip}`, `vae/${slots.faceVideoVae}`, `vae/${slots.faceAudioVae}`] : []),
   ];
   const out: Ref = pad ? g.out("ImageFromBatch", { image: stitched, batch_index: 0, length: at.frames! }) : stitched;
   return { images: out, pass: { node: sampler, steps: picked.steps }, loads, said: [picked.said, boxed].filter(Boolean).join(" ") || null };
+}
+
+/**
+ * The pass's conditioning and the latent it samples. On an H3 clip with the pack's split encode (`free`: the node that lets
+ * the clip's text encoder go once its prompts are encoded), the pass's prompt is encoded there, with the clip's: it was
+ * encoded once the clip was sampled, its size being the face track's, and the ~15 GB encoder loaded again for it (~7 s of a
+ * continuation on the owner's PC). Its picture's and sound's latents are put on it once the track and the sound are there.
+ * Otherwise Reference to Video once the clip is sampled, the encoder let go again before the pass samples.
+ */
+function facePrompt(g: GraphBuilder, ctx: BuildContext, at: { clip: Ref; prompt: string; picture: Ref; track: string; vae: Ref; audioVae: Ref; audio?: Ref; free?: string | null }): { conditioning: Ref; latent: Ref } {
+  const { clip, prompt, picture, track, vae, audioVae, audio, free } = at;
+  const size = { width: [track, 4], height: [track, 5], length: [track, 6] };
+  const freer = free ? g.graph[free] : undefined;
+  if (free && freer && !("more" in freer.inputs) && ctx.has(FACE_PROMPT) && ctx.has(FACE_PROMPT_LATENTS)) {
+    const text = g.add(FACE_PROMPT, { clip, prompt, ref_image: picture, width: PROMPT_CANVAS, height: PROMPT_CANVAS, sound: Boolean(audio) });
+    // (run where the clip's prompt is: before the clip samples)
+    g.phases[text] = g.phases[free] ?? g.at;
+    freer.inputs.more = [text, 0];
+    const put = g.add(FACE_PROMPT_LATENTS, { text: [free, 2], vae, ref_image: picture, ...size, audio_vae: audioVae, ...(audio ? { ref_audio: audio } : {}) });
+    return { conditioning: [put, 0], latent: [put, 1] };
+  }
+  const r2v = g.add("MiniMaxH3ReferenceToVideo", {
+    clip, prompt, ...size, ref_image_size: "match", vae, audio_vae: audioVae,
+    "ref_images.ref_image_0": picture, ...(audio ? { "ref_audios.ref_audio_0": audio } : {}),
+  });
+  // encoded once the clip is sampled: the text encoder loads again for it, and is let go again before the pass samples
+  return { conditioning: freeTextEncoder(g, ctx, clip, [r2v, 0])[0], latent: [r2v, 1] };
 }
 
 /** Face refine's files, for the forms' sample builds (the graph checker's variants). */
@@ -351,4 +414,4 @@ export const FACE_REFINE_OWN_SLOTS = { faceClip: "qwen3vl_minimax_h3.safetensors
 
 /** The nodes a clip with Face refine on is built with, beside the clip's own (none required: it is done without when missing). */
 // (its reference model's conditioning is the clip's own: a clip with a person's picture is made by the reference route)
-export const FACE_REFINE_OPTIONAL = [...FACE_REFINE_NODES, ...FACE_REFINE_MASK, AUDIO_LOCK, "ImageScaleToTotalPixels", FREE_TEXT_ENCODER];
+export const FACE_REFINE_OPTIONAL = [...FACE_REFINE_NODES, ...FACE_REFINE_MASK, AUDIO_LOCK, "ImageScaleToTotalPixels", FREE_TEXT_ENCODER, FACE_PROMPT, FACE_PROMPT_LATENTS, FACE_MASK_STRIDE, FACE_DETAIL_KEEP, INJECT_REGION];

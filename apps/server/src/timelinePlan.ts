@@ -340,8 +340,10 @@ export class TimelinePlan {
     const carried = recipe.traits?.faceCarried;
     if (!carried || !before || !sameFace(recipe, raw, this.core.registry.recipe(before.recipe), before.inputs)) return;
     plan.input[carried] = true;
+    // (with Hold the face on continuations off, card #225: the plain continuation, its Face refine as the form has it)
     const refine = recipe.traits?.faceRefine;
-    if (refine) plan.input[refine] = true;
+    const hold = recipe.traits?.holdFace;
+    if (refine && (!hold || raw[hold] !== false)) plan.input[refine] = true;
   }
 
   /**

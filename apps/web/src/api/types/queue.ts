@@ -328,6 +328,8 @@ export interface Advice {
   loadOn?: Record<string, number> | null;
   /** With several machines, the ones Auto may give it to now (open, taking it, with its files): a batch is shared between them. */
   auto?: string[] | null;
+  /** What a setting adds to each render where it acts, by input id (Hold the face on continuations: the pass on a continuation). */
+  costs?: Record<string, number>;
 }
 export type TimesPeriod = "day" | "week" | "month" | "all";
 /** A window of time to look at, ms since the epoch. */

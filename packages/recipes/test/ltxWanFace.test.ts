@@ -70,7 +70,9 @@ describe("LTX 2.5 · Face refine", () => {
     const { built, graph } = build(ltx25Video, { prompt: "a", references: [{ asset: "r1", role: "person" }], faceRefine: true, smooth: true, smoothWith: "RIFE (pixels)" }, {
       slots: { ...ltx25Parts, ...face }, uploads: { "references.0": "r1.png" },
     });
-    const stitch = of(graph, "H3FaceStitch")[0]!;
+    // the pasted face with the sampled grain kept (card #225): what everything after reads
+    const stitch = of(graph, "AfflatusFaceDetailKeep")[0]!;
+    expect(node(graph, stitch.inputs.images).class_type).toBe("H3FaceStitch");
     // 5 s at 24 are 121 frames (8n + 1): made up with 3 to H3's 124 (17k + 5), cut back to 121
     expect(of(graph, "RepeatImageBatch")[0]!.inputs.amount).toBe(3);
     const cut = of(graph, "ImageFromBatch").find((n) => node(graph, n.inputs.image) === stitch)!;

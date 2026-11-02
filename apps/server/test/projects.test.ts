@@ -68,6 +68,21 @@ describe("projects", () => {
     expect(counts.inbox).toMatchObject({ drafts: 1, timelines: 1 });
   });
 
+  it("names a new timeline after the highest number there, so that a number never comes back after a deletion", async () => {
+    // card #225: numbered from how many there were, a project with Timeline 1 to 17 less one got a second "Timeline 17"
+    const p = await call("POST", "/api/projects", { name: "P" });
+    const made = async () => (await call("POST", "/api/timelines", { project: p.id })) as { id: string; name: string };
+    const [one, two, three] = [await made(), await made(), await made()];
+    expect([one.name, two.name, three.name]).toEqual(["Timeline 1", "Timeline 2", "Timeline 3"]);
+    await call("DELETE", `/api/timelines/${two.id}`);
+    expect((await made()).name).toBe("Timeline 4");
+    // a renamed one leaves its number free, and a project whose names say no number goes on from its count
+    await call("PATCH", `/api/timelines/${three.id}`, { name: "Beach" });
+    expect((await made()).name).toBe("Timeline 5");
+    // another project (and the Inbox) counts its own
+    expect((await call("POST", "/api/timelines", {})).name).toBe("Timeline 1");
+  });
+
   it("takes a folder to another project with the folders inside it, or out of every project", async () => {
     const p = await call("POST", "/api/projects", { name: "From" });
     const q = await call("POST", "/api/projects", { name: "To" });

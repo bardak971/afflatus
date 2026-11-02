@@ -23,7 +23,7 @@ import { usePinnedFields } from "./recipeForm/pinned";
 import { PinnedPart, type PinnedRow } from "./recipeForm/PinnedPart";
 import { useFormSearch } from "./recipeForm/useFormSearch";
 import { scrollInside } from "./scrollInside";
-import { plural } from "./format";
+import { est, plural } from "./format";
 import { isFamilyFile, withOfficial } from "./officialFiles";
 import { isOffered } from "./filePlaces";
 
@@ -345,6 +345,12 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
       </FieldNameNote.Provider>
       {i.type === "model" && isMissingModel(i.id) && <Suspense fallback={null}><MissingModel folder={i.folder} file={String(values[i.id])} /></Suspense>}
       <PackNotes of={packNotes} input={i.id} />
+      {advice.data?.estimate?.costs?.[i.id] !== undefined && (
+        // what it adds where it acts (Hold the face on continuations: the pass on each continuation that carries the face on)
+        <span className="text-xs text-ink-2" data-setting-cost={i.id} data-tip="Learned from your own renders with this model on this machine: the render with Face refine, less the render without it.">
+          +{est(advice.data.estimate.costs[i.id])} a continuation
+        </span>
+      )}
       {i.type === "loras" && <SetNotes of={setNotes} input={i.id} recipe={recipe} family={family} />}
     </div>
     );

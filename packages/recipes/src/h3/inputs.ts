@@ -26,6 +26,8 @@ export interface H3Video extends ColourMatch {
   previous?: ClipValue;
   /** Set by a timeline (traits.faceCarried, card #223): the clip carries on with the person pictures of the take before it. */
   faceCarried?: boolean;
+  /** Whether such a clip's face is drawn towards those pictures by Face refine (card #225); off, it is a plain continuation. */
+  holdFace: boolean;
   /** Whether a frozen tail of the clip before is cut off, so this one carries on from its last lively moment (read by the server, not the graph). */
   handover: boolean;
   /** Frames of the clip before pinned at the start, as a string from H3_LANDINGS (read by the server, which trims the clip to them). */
@@ -240,6 +242,12 @@ export const h3Inputs: InputSpec[] = [
   },
   ...upscaleInputs({ latent: true }),
   ...COLOUR_MATCH_INPUTS,
+  // the owner, 2026-11-02 (card #225): the pass costs time on every continuation; off, the chain is sampled as before fix I's
+  // pass, the person's pictures still left out (the colour kept), and the face drifts from them clip after clip
+  {
+    id: "holdFace", type: "toggle", label: "Hold the face on continuations", default: true, section: "out",
+    note: "on a timeline, a clip that carries on with the same person pictures as the clip before is sampled without them, which keeps the chain's colour, and Face refine then draws the face towards them on the clip's own model, whatever Face refine says. Off: a plain continuation, nothing redrawn after it, faster; the face may drift from the pictures clip after clip. Its time is from your own renders with Face refine",
+  },
   ...FACE_REFINE_INPUTS,
   {
     id: "upscaleNoise", type: "number", label: "Re-sample denoise", min: 0.05, max: 0.95, step: 0.01, default: 0.35, showWhen: { input: "upscale", in: [UPSCALE.latent] }, advanced: true,
