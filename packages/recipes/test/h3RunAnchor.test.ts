@@ -84,6 +84,18 @@ describe("MiniMax H3 · a continuation held to its run's first clip (card #215)"
     expect(of(graph, "AfflatusNormalizeH3Latent")[0]![1].inputs).toEqual({ samples: [own, 0] });
   });
 
+  it("is not there for a clip that lands on the clip after: its end is that clip's own frames, held as they are", () => {
+    const landed = { ...continued, next: "b.mp4", "next.latent": "b.safetensors [temp]" };
+    // landed on in the latent, from the clip after's first frame or where one of its chunks begins, or by its frames
+    for (const latentAt of [0, 34, 22]) {
+      const { built, graph } = build({ next: { asset: "c2" } }, { media: { previous: joined, next: { ...joined, latentAt } } }, landed);
+      expect(of(graph, H3_RUN_ANCHOR)).toHaveLength(0);
+      const [match] = idOf(graph, H3_RUNUP_MATCH);
+      expect(of(graph, "AfflatusH3SeamLatent")[0]![1].inputs.sampled_window).toEqual([match, 0]);
+      expect(checkGraph(built, catalog)).toEqual([]);
+    }
+  });
+
   it("a finish by Face refine alone keeps the draft's look through the re-encode", () => {
     const { graph } = build({ faceRefine: true, faceRefineOnly: true, references: [{ asset: "r1", role: "person" }] }, {}, { ...continued, "references.0": "person.png", "self.latent": "own.safetensors" });
     const own = of(graph, "AfflatusLoadH3Latent").find(([, x]) => x.inputs.latent === "own.safetensors")![0];
