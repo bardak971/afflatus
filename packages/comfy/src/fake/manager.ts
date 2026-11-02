@@ -84,7 +84,7 @@ export function fakeManager(fake: FakeState, init: FakeInit): (r: FakeRequest) =
       if (/^(application\/x-www-form-urlencoded|multipart\/form-data|text\/plain)/.test(headers["content-type"] ?? "")) return plain(400, "simple form posts are refused");
       fake.reboots++;
       if (fake.packs.length) Object.assign(fake.catalog, init.afterReboot ?? {});
-      return plain(200);
+      return plain(fake.rebootAnswer ?? 200);
     }
     if (path === "/v2/manager/queue/task") {
       const task = JSON.parse(raw.toString("utf-8")) as Task;
