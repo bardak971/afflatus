@@ -355,14 +355,21 @@ export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   // got sharper and more contrasty clip after clip (×2 sharpness over five). Matched from the run-up alone, the run-up stays
   // the clip before's tail and the join seamless. Everything after reads it: the seam, the re-sample, the kept latent, the
   // model's own frames. Not for a finish (own), which re-samples a draft's kept latent as it was approved
-  const matched: Ref = previous && !own && ctx.has(H3_RUNUP_MATCH) ? g.out(H3_RUNUP_MATCH, { previous_av_latent: previous, sampled_window: [sampled, 0], overlap_frames: join.head }) : [sampled, 0];
+  // A window that ends on frames of its own (landed on the clip after's tokens, or an End frame picture) has the correction
+  // faded out over them (pack 0.49.3): divided there too, a landing's end came out 2 to 3 % softer than the clip after's first
+  // frames, as sampled (card #234). An older pack's node takes no such input, and corrects the whole window as before
+  const pinnedEnd = join.tail || (how.end ? join.head : 0);
+  const fades = pinnedEnd > 0 && Boolean(ctx.inputs?.(H3_RUNUP_MATCH)?.includes("end_frames"));
+  const matched: Ref = previous && !own && ctx.has(H3_RUNUP_MATCH) ? g.out(H3_RUNUP_MATCH, { previous_av_latent: previous, sampled_window: [sampled, 0], overlap_frames: join.head, ...(fades ? { end_frames: pinnedEnd } : {}) }) : [sampled, 0];
   // then held to the run's first clip (card #215): matched to the clip before alone, the small drift each continuation adds
   // (the channel means one way, the fine detail up) still built up, and a six-clip chain still came out ×1.4 sharper and off
   // colour. The run's look rides in the kept latents (the clip before's, else read on it: a clip that continues none starts
   // a run); a window far from it (a new look asked for, a cut the model made) is left as sampled and starts a new run. Not
   // for a clip that lands on the clip after: the anchor holds a window's end, and there the end is the clip after's own
-  // frames (pinned), which no clip continues from; moved, the landing would no longer be seamless
-  const sampledWindow: Ref = previous && !own && !join.tail && ctx.has(H3_RUN_ANCHOR) ? g.out(H3_RUN_ANCHOR, { previous_av_latent: previous, sampled_window: matched, overlap_frames: join.head }) : matched;
+  // frames (pinned), which no clip continues from; moved, the landing would no longer be seamless. Nor for a clip that ends on
+  // its End frame picture: the anchor moved that pinned last frame away from the picture (card #234). Such a window's kept
+  // latent carries the run's look on all the same, from the clip before (Run-up Match, pack 0.49.3)
+  const sampledWindow: Ref = previous && !own && !join.tail && !how.end && ctx.has(H3_RUN_ANCHOR) ? g.out(H3_RUN_ANCHOR, { previous_av_latent: previous, sampled_window: matched, overlap_frames: join.head }) : matched;
   // decoded as one piece with the clip before (its own last tokens, then the new ones), so that the join is the whole chain's
   // decoded at once and plays as a plain cut. The latent saved for the clips after stays the (matched) sampled window
   const resample = input.upscale === UPSCALE.latent;
@@ -400,7 +407,11 @@ export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}):
       }
     : undefined;
   const frames = extra.frames ? (images: Ref) => extra.frames!(g, images, { width, height, frames: join.frames }) : undefined;
-  const made = finish(g, ctx, extra.faceLook === undefined ? input : { ...input, subject: extra.faceLook }, { finished, sampledWindow, fine, vae, audioVae, clip, free, model: clipModel, width, height, head: join.head, sound, frames });
+  // a Finish › Face refine's pass has its prompt encoded on its own: the free node there is fed by the clip's start (its prompt
+  // alone, or on the reference route the clip's own encode), which nothing else of a finish reads. Read by the pass, it made
+  // ComfyUI run that start again, a Qwen3-VL encode with every reference picture and their VAE encodes (the 0.9.0 B8 fix
+  // undone on pack 0.49, card #234). The latent re-sample reads it anyway, and the pass's prompt is encoded there too
+  const made = finish(g, ctx, extra.faceLook === undefined ? input : { ...input, subject: extra.faceLook }, { finished, sampledWindow, fine, vae, audioVae, clip, free: modelless ? null : free, model: clipModel, width, height, head: join.head, sound, frames });
 
   const { head, tail, latentJoin } = join;
   const ms = (n: number) => Math.round((n / H3_FPS) * 1000);
