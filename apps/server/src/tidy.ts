@@ -77,6 +77,8 @@ export async function optimizeSearch(db: Db): Promise<void> {
 }
 
 const DAY_MS = 24 * 60 * 60_000;
+/** How long an MCP token's finished jobs are kept whatever the job history says: a month's spend is counted from them. */
+const TOKEN_JOB_DAYS = 32;
 /**
  * How many old jobs are read at once when finished jobs are deleted, and how many are deleted per statement: a delete is
  * slow per row (its pages and indexes rewritten, up to 100 ms for 100 rows on a year of jobs), a read of the kept ones is
@@ -111,7 +113,9 @@ function unnamed(eb: ExpressionBuilder<Tables, "jobs">) {
  * - a failed or stopped render with no render row, while the Render times still count it (rendersRead.ts notRendered,
  *   over `renderDays`, 0 for good): the Queue and the charts then count the same failures;
  * - a job that ended while a rented pod still runs: the pod's last work (rentedFollow busySince) and the batch's cost
- *   (notify.ts, from the job before it) are read from those jobs' ends.
+ *   (notify.ts, from the job before it) are read from those jobs' ends;
+ * - an MCP token's job of the last 32 days (any month's start): its spend cap counts the month's work from them
+ *   (mcpTokens.ts spentThisMonth), whose render rows the fold may have taken already.
  * The old jobs are gone through a page at a time by their end (jobs_by_finish): those of a page that may go are read,
  * then deleted a few at a time by statements that check every rule again, giving the event loop back between them.
  * Returns how many were deleted.
@@ -123,11 +127,13 @@ export async function pruneJobs(db: Db, days: number, renderDays: number, at = D
   if (open?.from && open.from < before) before = open.from;
   // the day the Render times count failures from, a whole day earlier to be safe of its rounding to midnight; null: from always
   const countedFrom = renderDays > 0 ? new Date(at - (renderDays + 1) * DAY_MS).toISOString() : null;
+  const tokensFrom = new Date(at - TOKEN_JOB_DAYS * DAY_MS).toISOString();
   // the same rules for the read and for the delete: a job named in between (queued after, its item restored) stays
   const mayGo = (eb: ExpressionBuilder<Tables, "jobs">) => eb.and([
     eb("status", "in", ["done", "failed", "cancelled"]),
     eb("finished_at", "<", before),
     countedFrom === null ? eb.or([eb("status", "=", "done"), eb("warm", "=", 1)]) : eb.or([eb("status", "=", "done"), eb("warm", "=", 1), eb("finished_at", "<", countedFrom)]),
+    eb.or([eb("mcp_token_id", "is", null), eb("finished_at", "<", tokensFrom)]),
     unnamed(eb),
   ]);
   let after = { finished: "", id: "" };

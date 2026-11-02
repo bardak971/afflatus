@@ -30,8 +30,9 @@ import { machinesNow, saveSettings, setupOf } from "./setup-api";
  * set to "never" from here, and a pod set to never is not started from here. A pod's idle rule and watchdog need Spend,
  * and so does what steers work onto a pod that is up (what a machine takes, its families, removing a machine of the
  * user's own). Stop and Terminate need Spend (the rented GPUs are its scope), and a pod running a render this token did
- * not send is not stopped from here. A token's checks and its starts go one call at a time, with its renders
- * (`mcp-render:<token>`).
+ * not send is not stopped from here. Only a pod this token deployed, its run still the token's, is terminated (or set to
+ * terminate when idle) from here: starting the user's stopped pod makes its run the token's spend, not the pod the
+ * token's to delete. A token's checks and its starts go one call at a time, with its renders (`mcp-render:<token>`).
  */
 
 /** Whether this token has Spend: what starts a rented GPU, lengthens its run or stops it needs it. */
@@ -89,7 +90,7 @@ const editMachine = tool({
   name: "edit_machine",
   scope: "manage",
   title: "Change a machine",
-  description: "Change a machine as its card in Settings › ComfyUI does: its name, what it takes, its families switched on or off on it alone; a pod's idle minutes, what it does then (stop: its disk billed on; terminate: deleted on RunPod), its watchdog and Make room. A pod's idle rule and watchdog need Spend, and are never set to 0 (never) from here; on a pod this token did not start they are only shortened (fewer minutes) and its idle action is never changed (stop keeps its disk and the models fetched there, terminate deletes them: the user's choice); what it takes and its families, while a rented pod takes work, are refused unless that pod is one this token started (and then need Spend): work would move onto it with no cap counting it. A machine's address, adding a machine, node packs installed without asking, open ports and its folder on this computer are the user's, in Afflatus itself.",
+  description: "Change a machine as its card in Settings › ComfyUI does: its name, what it takes, its families switched on or off on it alone; a pod's idle minutes, what it does then (stop: its disk billed on; terminate: deleted on RunPod), its watchdog and Make room. A pod's idle rule and watchdog need Spend, and are never set to 0 (never) from here; on a pod this token did not start they are only shortened (fewer minutes) and its idle action is never changed (stop keeps its disk and the models fetched there, terminate deletes them: the user's choice), nor on one this token started but did not deploy; what it takes and its families, while a rented pod takes work, are refused unless that pod is one this token started (and then need Spend): work would move onto it with no cap counting it. A machine's address, adding a machine, node packs installed without asking, open ports and its folder on this computer are the user's, in Afflatus itself.",
   input: {
     machine: z.string().min(1).describe("A machine's id or name (list_machines)."),
     name: z.string().trim().max(40).optional(),
@@ -124,6 +125,9 @@ const editMachine = tool({
       ].filter(Boolean);
       if (longer.length) throw refusal(`${quoted(machineName(m))} is ${whose}: its bill is not counted against this token's cap, so from here it is only made to bill less (${longer.join(", ")} refused). The user lengthens it in Afflatus.`);
     }
+    // on a pod this token started but did not deploy (the user's, stopped, started by start_pod), its run is the token's
+    // but the pod is not: its idle action stays the user's, or a terminate would delete it at its next idle (M5)
+    if (a.idleDo !== undefined && a.idleDo !== m.rented!.idleDo && !ownsPod(m, ctx.token)) throw refusal(`${quoted(machineName(m))} is ${whosePod(m, ctx.token)}: its idle action stays ${m.rented!.idleDo}, as set in Afflatus (stop keeps its disk and the models fetched there, terminate deletes them).`);
     // what a machine takes, and its families, steer the queue's work: onto a pod that is up, that is spending
     if (a.takes !== undefined || a.families !== undefined) mustNotSteerOntoPods(ctx, await podsTaking(s, settings.machines), `changing what ${machineName(m)} takes`);
     const families = a.families ? Object.fromEntries(Object.entries({ ...m.families, ...a.families }).filter((e): e is [string, boolean] => e[1] !== null)) : m.families;
@@ -292,6 +296,15 @@ const deployPod = tool({
 });
 
 /** A rented machine by id or name: refused for a ComfyUI of the user's own. */
+/** Whether this token deployed this pod and its run is still the token's: then its fate (terminate) is the token's too. */
+const ownsPod = (m: Machine, token: McpToken) => m.rented?.deployedBy === token.id && m.rented.mcpToken === token.id;
+
+/** Whose a pod is, as a refusal says it, for one this token does not own (ownsPod). */
+function whosePod(m: Machine, token: McpToken): string {
+  if (m.rented?.deployedBy === token.id) return "a pod this token deployed whose run is now the user's";
+  return m.rented?.deployedBy ? "a pod another token deployed" : "the user's pod";
+}
+
 async function podOf(s: Services, asked: string): Promise<Machine> {
   const m = machineOf(await seen(s), asked);
   if (!m.rented) throw httpError(`${machineName(m)} is not a rented pod.`, 404);
@@ -326,7 +339,7 @@ const stopPod = tool({
   name: "stop_pod",
   scope: "spend",
   title: "Stop or terminate a pod",
-  description: "Stop a pod (its GPU stops billing; its disk goes on billing and it can be started again) or terminate it (deleted on RunPod with its container disk, nothing billed after, and gone from Afflatus; a network volume keeps what it holds). Refused while it renders something this token did not send: that render is the user's (or another token's) to stop.",
+  description: "Stop a pod (its GPU stops billing; its disk goes on billing and it can be started again) or terminate it (deleted on RunPod with its container disk, nothing billed after, and gone from Afflatus; a network volume keeps what it holds). Refused while it renders something this token did not send: that render is the user's (or another token's) to stop. Terminate only a pod this token deployed and whose run is still its own: the user's pod (one this token only started included) is stopped from here, never terminated.",
   input: {
     machine: z.string().min(1).describe("The pod's machine id or name (pods)."),
     how: z.enum(["stop", "terminate"]),
@@ -339,6 +352,10 @@ const stopPod = tool({
       const row = await s.db.selectFrom("jobs").select("mcp_token_id").where("id", "=", running.id).executeTakeFirst();
       if (row?.mcp_token_id !== token.id) throw refusal(`${machineName(m)} is rendering “${running.label}”, which this token did not send: the user stops it in Afflatus, or it stops at its idle time once that render ends.`);
     }
+    // terminating deletes the pod, its container disk and the models fetched there: only one this token deployed, and whose
+    // run it still is. The user's pod (or one this token merely started) is stopped, never terminated (the 2026-11-02
+    // review, M5)
+    if (how === "terminate" && !ownsPod(m, token)) throw refusal(`${quoted(machineName(m))} is ${whosePod(m, token)}: stop it here (its disk and the models fetched there are kept); terminating it is the user's, in Afflatus.`);
     await s.rented.stopBy(m.id, how);
     ctx.said(`${how === "terminate" ? "Terminated" : "Stopped"} ${quoted(machineName(m))}`);
     return how === "terminate"

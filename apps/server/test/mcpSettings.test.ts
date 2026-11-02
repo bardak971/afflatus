@@ -158,6 +158,27 @@ describe("change_setting", () => {
     await c.close();
   });
 
+  // the 2026-11-02 review (M4): binDays off "until emptied" made the hourly sweep erase the bin for good; (M3) a shorter
+  // render history folded away the rows a token's spend cap was counted from
+  it("only lengthens how long the bin, unkept renders, render times and finished jobs are kept", async () => {
+    await updateSettings(t.db, () => ({ binDays: 0, unkeptDays: 0, renderHistoryDays: 90, jobHistoryDays: 30 }));
+    const c = await connect(ALL);
+    expect(await refused(c, "change_setting", { key: "binDays", value: 7 })).toMatch(/^binDays is only lengthened from here \(for good → 7 refused\): the bin would erase what it holds sooner, files and all\. The user shortens it in Settings › Storage/);
+    expect(await refused(c, "change_setting", { key: "unkeptDays", value: 1 })).toMatch(/unkeptDays is only lengthened from here \(for good → 1 refused\)/);
+    expect(await refused(c, "change_setting", { key: "renderHistoryDays", value: 1 })).toMatch(/renderHistoryDays is only lengthened from here \(90 → 1 refused\)/);
+    expect(await refused(c, "change_setting", { key: "jobHistoryDays", value: 7 })).toMatch(/jobHistoryDays is only lengthened from here \(30 → 7 refused\)/);
+    expect(await readSettings(t.db)).toMatchObject({ binDays: 0, unkeptDays: 0, renderHistoryDays: 90, jobHistoryDays: 30 });
+    // longer, or for good, is fine
+    await ok(c, "change_setting", { key: "renderHistoryDays", value: 365 });
+    await ok(c, "change_setting", { key: "jobHistoryDays", value: 0 });
+    await updateSettings(t.db, () => ({ binDays: 7 }));
+    await ok(c, "change_setting", { key: "binDays", value: 30 });
+    expect(await refused(c, "change_setting", { key: "binDays", value: 7 })).toMatch(/30 → 7 refused/);
+    await ok(c, "change_setting", { key: "binDays", value: 0 });
+    expect(await readSettings(t.db)).toMatchObject({ binDays: 0, renderHistoryDays: 365, jobHistoryDays: 0 });
+    await c.close();
+  });
+
   it("needs Manage", async () => {
     const c = await connect(["look", "make", "spend"]);
     expect(await refused(c, "change_setting", { key: "unkeptDays", value: 3 })).toMatch(/needs Manage/);

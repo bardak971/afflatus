@@ -1,6 +1,7 @@
 import { SETTING_HELP, settingHelp } from "@afflatus/core";
 import { z } from "zod";
 import { httpError } from "./errors";
+import { mustNotSteerOntoPods, podsTaking } from "./mcpRender";
 import { quoted, tool, type ToolCtx } from "./mcpTool";
 import { refusal } from "./mcpTokens";
 import { onThisMachine } from "./modelDownload";
@@ -189,11 +190,36 @@ function mayRaiseCaps(ctx: ToolCtx, was: Settings["rentCaps"], sent: unknown): v
   }
 }
 
+/**
+ * The settings that say how long something is kept, 0 for good, each with what a shorter one erases. From here they are
+ * only lengthened (as caps are only lowered): the bin's days erase what is in it for good once they are shorter or off
+ * "until emptied", which an agent never reaches (the bin is as far as it goes); the unkept days send renders to the bin on
+ * their own; the render times are what the estimates and the caps are worked out from (the never-list's "forgetting the
+ * render times"), and the job history the Queue's own record. A token's spend no longer hangs on either (mcpTokens.ts
+ * spentThisMonth counts its jobs, kept a month). The user shortens them in Afflatus.
+ */
+const KEPT_FOR: Record<string, string> = {
+  binDays: "the bin would erase what it holds sooner, files and all",
+  unkeptDays: "renders nobody kept would go to the bin sooner",
+  renderHistoryDays: "render times would be folded sooner, and the estimates and caps are worked out from them",
+  jobHistoryDays: "finished jobs would be deleted sooner",
+};
+
+/** Refused when a keeping setting would be shortened, or taken off "for good" (0). */
+function mustNotShorten(top: string, was: unknown, now: unknown): void {
+  if (!(top in KEPT_FOR) || typeof was !== "number" || typeof now !== "number") return;
+  const shorter = now > 0 && (was === 0 || now < was);
+  if (shorter) throw refusal(`${top} is only lengthened from here (${was === 0 ? "for good" : was} → ${now} refused): ${KEPT_FOR[top]}. The user shortens it in Settings › Storage, in Afflatus.`);
+}
+
+/** The settings that decide which machine takes which work (machineScans.ts): changed while a rented pod is up, they steer work onto it. */
+const STEERS = new Set(["families", "allFamilies", "slotFiles"]);
+
 const changeSetting = tool({
   name: "change_setting",
   scope: "manage",
   title: "Change a setting",
-  description: "Change one setting of Afflatus as Settings does, with the same checks and the same save: a dotted path reaches inside one (\"rentCaps.month\", \"finish.route\", \"families.flux\"; null on a family's or a file's key takes it out). read_settings says which may be changed here, each with its \"?\" text and range. Secrets, the Sign-in settings, where notices and reset codes go and Afflatus's updates are refused. Raising or taking off the app's rented-GPU caps (rentCaps) needs Spend too; lowering them is Manage's. Answers the value it had and the one it has now.",
+  description: "Change one setting of Afflatus as Settings does, with the same checks and the same save: a dotted path reaches inside one (\"rentCaps.month\", \"finish.route\", \"families.flux\"; null on a family's or a file's key takes it out). read_settings says which may be changed here, each with its \"?\" text and range. Secrets, the Sign-in settings, where notices and reset codes go and Afflatus's updates are refused. Raising or taking off the app's rented-GPU caps (rentCaps) needs Spend too; lowering them is Manage's. How long the bin, unkept renders, render times and finished jobs are kept is only lengthened here. The families, allFamilies and slotFiles, while a rented pod takes work, are refused unless that pod is one this token started (and then need Spend). Answers the value it had and the one it has now.",
   input: {
     key: z.string().min(1).max(200).describe("The setting, or a dotted path inside it."),
     value: z.unknown().describe("Its new value, as read_settings shows values (its schema with key)."),
@@ -214,6 +240,9 @@ const changeSetting = tool({
     const was = path.reduce<unknown>((at, part) => (at && typeof at === "object" ? (at as Record<string, unknown>)[part] : undefined), settings);
     const sent = top === "notify" ? setAt({}, path.slice(1), value) : setAt((settings as Record<string, unknown>)[top], path.slice(1), value);
     if (top === "rentCaps") mayRaiseCaps(ctx, settings.rentCaps, sent);
+    mustNotShorten(top, (settings as Record<string, unknown>)[top], sent);
+    // as edit_machine refuses the same change of a machine's families: work would go onto a pod with no cap counting it
+    if (STEERS.has(top)) mustNotSteerOntoPods(ctx, await podsTaking(s, settings.machines), `changing ${top}`);
     await saveSettings(s, { [top]: sent }, { session: null, password: undefined, ip: ctx.ip });
     const now = path.reduce<unknown>((at, part) => (at && typeof at === "object" ? (at as Record<string, unknown>)[part] : undefined), await readSettings(s.db));
     ctx.said(`Changed the setting ${quoted(key)}: ${JSON.stringify(was) ?? "none"} → ${JSON.stringify(now) ?? "none"}`.slice(0, 300));

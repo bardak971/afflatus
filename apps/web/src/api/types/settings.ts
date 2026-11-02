@@ -198,6 +198,8 @@ export interface RentedMachine {
   makeRoom: boolean;
   /** The MCP token whose deploy_pod or start_pod started its current run, by id; empty: the user's or the GPU hunt's. */
   mcpToken: string;
+  /** The MCP token whose deploy_pod deployed it, by id (a start does not change it); empty: the user's. */
+  deployedBy: string;
 }
 
 /** What a GPU is deployed with: the Deploy dialog's choices, kept as the next deploy's (Settings.lastDeploy). */
