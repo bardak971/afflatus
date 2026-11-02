@@ -249,3 +249,78 @@ print(json.dumps({"cut_same": cut["samples"].tensors[0] is other, "cut_width": c
     assert first["means"] < 1e-5
     assert first["own"] > 0.005
     assert second["cut_same"] is True and second["cut_width"] == pytest.approx(1.0, abs=0.2)
+
+
+def test_a_window_that_ends_on_frames_of_its_own_has_the_match_faded_out_over_them_with_the_real_torch():
+    # card #234: on a landing, the landed tokens (the clip after's own, pinned) came out 2 to 3 % softer than that clip's
+    out = with_torch(
+        r"""
+import json
+
+nested = types.ModuleType("comfy.nested_tensor")
+
+
+class NestedTensor:
+    def __init__(self, tensors):
+        self.tensors = list(tensors)
+
+
+nested.NestedTensor = NestedTensor
+sys.modules.update({"comfy": types.ModuleType("comfy"), "comfy.nested_tensor": nested})
+for name in ("comfy.utils", "folder_paths", "node_helpers", "safetensors", "safetensors.torch"):
+    sys.modules.setdefault(name, types.ModuleType(name))
+pack = types.ModuleType("pack")
+pack.__path__ = [sys.argv[1]]
+sys.modules["pack"] = pack
+for name in ("continuation_nodes", "latent_io"):
+    spec = importlib.util.spec_from_file_location("pack." + name, os.path.join(sys.argv[1], name + ".py"))
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["pack." + name] = module
+    spec.loader.exec_module(module)
+latent_io = sys.modules["pack.latent_io"]
+torch.manual_seed(0)
+smooth = torch.nn.functional.interpolate(torch.randn(24, 22, 4, 3), size=(16, 12), mode="bilinear", align_corners=False)
+prev_video = (smooth + torch.randn(24, 22, 16, 12) * 0.5).unsqueeze(0)
+
+
+def grown(x):
+    d, b = latent_io.detail_and_broad(x[0].double().numpy())
+    return (torch.from_numpy((b + d * 1.03) * 1.02).float() + torch.linspace(-0.05, 0.05, 24).view(24, 1, 1, 1)).unsqueeze(0)
+
+
+# the run-up (7 tokens) the clip before's last 7, then 15 of its own, the last 7 of them landed (22 frames)
+video = torch.cat([grown(prev_video[:, :, -7:] + torch.randn(1, 24, 7, 16, 12) * 0.01), grown(torch.randn(1, 24, 15, 16, 12))], dim=2)
+audio = torch.randn(1, 32, 2, 120)
+look = latent_io.run_look(prev_video[0, :, -7:].double().numpy())
+prev = {"samples": NestedTensor((prev_video, audio)), latent_io.RUN_KEY: look}
+whole = latent_io.AfflatusH3RunUpMatch.execute(prev, {"samples": NestedTensor((video, audio))}, 22)
+none = latent_io.AfflatusH3RunUpMatch.execute(prev, {"samples": NestedTensor((video, audio))}, 22, 0)
+landed = latent_io.AfflatusH3RunUpMatch.execute(prev, {"samples": NestedTensor((video, audio))}, 22, 22)
+w, n, l = (x["samples"].tensors[0] for x in (whole, none, landed))
+# how far each token is from as sampled, as a share of how far the whole match moved it
+moved = [float((l[:, :, i] - video[:, :, i]).abs().mean() / (w[:, :, i] - video[:, :, i]).abs().mean()) for i in range(22)]
+# a cut: no run carried across it
+other = torch.randn(1, 24, 22, 16, 12)
+cut = latent_io.AfflatusH3RunUpMatch.execute(prev, {"samples": NestedTensor((other, audio))}, 22, 22)
+plain = latent_io.AfflatusH3RunUpMatch.execute({"samples": NestedTensor((prev_video, audio))}, {"samples": NestedTensor((video, audio))}, 22)
+print(json.dumps({
+    "same_without": bool(torch.equal(w, n)), "moved": moved, "last_same": float((l[:, :, -1] - video[:, :, -1]).abs().max()),
+    "look": whole[latent_io.RUN_KEY] == look and landed[latent_io.RUN_KEY] == look,
+    "cut_look": latent_io.RUN_KEY in cut, "plain_look": latent_io.RUN_KEY in plain,
+}))
+""",
+        needs=("torch", "numpy"),
+    )
+    got = json.loads(next(line for line in out.splitlines() if line.startswith("{")))
+    assert "faded out over the last 7 tokens" in out
+    # end_frames 0 is the node as before
+    assert got["same_without"] is True
+    moved = got["moved"]
+    # the whole correction up to the landed tokens, then less and less, none at the last
+    assert all(m == pytest.approx(1.0, abs=1e-4) for m in moved[:15])
+    assert all(a >= b - 1e-6 for a, b in zip(moved[15:], moved[16:]))
+    # (as sampled but for the float rounding of its blur taken off and put back)
+    assert moved[-1] < 1e-5 and got["last_same"] < 1e-5
+    # the run's look carried on for a window no Run Anchor follows; not across a cut, nor when the clip before has none
+    assert got["look"] is True
+    assert got["cut_look"] is False and got["plain_look"] is False
