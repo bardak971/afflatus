@@ -125,9 +125,84 @@ export interface FetchTo {
   backoffMs?: number;
   /** The free bytes of a directory's disk (a stand-in in the tests). */
   free?: (dir: string) => Promise<number>;
+  /** A big file over several connections at once, when the site serves parts of it (inParts); one connection without. */
+  parts?: Parts;
+  /** The file's size as its source lists it (Civitai), when known: a file too small for parts is not asked one byte first. */
+  size?: number;
+  /** The file's SHA-256 as its source lists it (Civitai): checked before the file is named, as Hugging Face's is. */
+  sha256?: string;
 }
 
-const sleep = (ms: number, signal: AbortSignal) =>
+/**
+ * How many connections Afflatus's own downloads use in all. Civitai serves each connection at 17–33 MB/s and no more: on the
+ * owner's line (2026-11-02, a signed link read 35 s each way) 1 connection came at 18 MB/s, 4 at 56 and 8 at 68, the line's
+ * own limit; on pods 8 came at 233–256 MB/s (card #199). A 20 GB file: ~19 min over one, ~5 min over eight.
+ */
+export const CONNECTIONS = 8;
+/** From this size on, a file is fetched in parts; a smaller one over one connection. */
+const PARTS_FROM = 256 * 2 ** 20;
+/**
+ * The size of a piece: a connection asks for one at a time, so that two downloads at once share the connections piece by
+ * piece, and the last pieces of a file are not left to one connection for long.
+ */
+const PIECE_MIN = 32 * 2 ** 20;
+const PIECE_MAX = 256 * 2 ** 20;
+
+/**
+ * Connections several downloads share: each request takes one for as long as it reads, and waits its turn when none is
+ * free. A stop ends the wait.
+ */
+export class Slots {
+  private free: number;
+  private readonly waiting: Array<() => void> = [];
+
+  constructor(size: number) {
+    this.free = size;
+  }
+
+  /** One connection, waited for as long as it takes: the function given back lets it go, once. */
+  async take(signal: AbortSignal): Promise<() => void> {
+    if (signal.aborted) throw signal.reason ?? new Error("stopped");
+    if (this.free > 0) this.free--;
+    else
+      await new Promise<void>((resolve, reject) => {
+        const go = () => {
+          signal.removeEventListener("abort", stop);
+          resolve();
+        };
+        const stop = () => {
+          this.waiting.splice(this.waiting.indexOf(go), 1);
+          reject(signal.reason ?? new Error("stopped"));
+        };
+        this.waiting.push(go);
+        signal.addEventListener("abort", stop, { once: true });
+      });
+    let given = false;
+    return () => {
+      if (given) return;
+      given = true;
+      // handed straight to the first that waits, else free again
+      const next = this.waiting.shift();
+      if (next) next();
+      else this.free++;
+    };
+  }
+}
+
+/** The connections every download of this Afflatus shares: two files at once share the eight. */
+const SLOTS = new Slots(CONNECTIONS);
+
+export interface Parts {
+  /** How many connections one file may use at once (1: never in parts). */
+  connections: number;
+  /** The connections it shares with the other downloads (SLOTS). */
+  slots?: Slots;
+  /** From what size on, and pieces of what size (the tests' small files). */
+  from?: number;
+  piece?: number;
+}
+
+const sleep =(ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve) => {
     const timer = setTimeout(done, ms);
     signal.addEventListener("abort", done, { once: true });
@@ -149,7 +224,8 @@ async function hashOf(path: string, upTo: number) {
  * Download `source` into `dest`: written as it comes to `<dest>.part`, picked up with a Range request where it
  * stopped when the connection is cut (from the start again when the site ignores Range), tried again with a
  * growing wait on a cut or a 5xx, and renamed to `dest` only once all of it is there and checked. A stop (the
- * signal) or a failure removes the .part. Refused is thrown for what trying again would not change.
+ * signal) or a failure removes the .part. Refused is thrown for what trying again would not change. A big file the
+ * site serves in parts comes over several connections first (`parts`, inParts), and over one from where they left it.
  */
 export async function fetchToFile(o: FetchTo): Promise<{ bytes: number; sha256: string }> {
   const part = `${o.dest}.part`;
@@ -161,22 +237,35 @@ export async function fetchToFile(o: FetchTo): Promise<{ bytes: number; sha256: 
   // what Hugging Face says of the file on its first answer, before it sends on to where the bytes are
   let expectSize = 0;
   let expectSha = "";
+  // what the source lists (Civitai) is the one held to; Hugging Face's own, read on the way, otherwise
+  const listed = o.sha256 && /^[0-9a-f]{64}$/i.test(o.sha256) ? o.sha256.toLowerCase() : "";
   let roomChecked = false;
   let fails = 0;
   const removePart = () => rm(part, { force: true }).catch(() => {});
+  const seen = (res: Response) => {
+    const size = Number(res.headers.get("x-linked-size"));
+    if (size > 0) expectSize = size;
+    const etag = /^(?:W\/)?"?([0-9a-f]{64})"?$/i.exec(res.headers.get("x-linked-etag") ?? "")?.[1];
+    if (etag) expectSha = etag.toLowerCase();
+  };
+  const parts = o.parts && o.parts.connections > 1 && !(o.size && o.size < (o.parts.from ?? PARTS_FROM)) ? { ...o.parts, slots: o.parts.slots ?? SLOTS } : null;
   await removePart();
   try {
-    for (;;) {
+    if (parts) {
+      const got = await inParts(o, parts, part, seen);
+      if (got) {
+        ({ have, total, hash } = got);
+        roomChecked = true;
+      }
+    }
+    while (!total || have < total) {
       if (o.signal.aborted) throw o.signal.reason ?? new Error("stopped");
       const before = have;
       let file: Awaited<ReturnType<typeof open>> | null = null;
+      // over several connections, one request takes one of those all downloads share, for as long as it reads
+      let release: (() => void) | null = null;
       try {
-        const seen = (res: Response) => {
-          const size = Number(res.headers.get("x-linked-size"));
-          if (size > 0) expectSize = size;
-          const etag = /^(?:W\/)?"?([0-9a-f]{64})"?$/i.exec(res.headers.get("x-linked-etag") ?? "")?.[1];
-          if (etag) expectSha = etag.toLowerCase();
-        };
+        if (parts) release = await parts.slots.take(o.signal);
         const res = await fetchPublic(o.source, { headers: { "User-Agent": "afflatus", Accept: "*/*", ...o.headers, ...(have ? { Range: `bytes=${have}-` } : {}) }, signal: o.signal }, o.allow, 5, seen);
         const type = res.headers.get("content-type") ?? "";
         if (res.status === 416 && have && have === (total || expectSize)) {
@@ -236,6 +325,7 @@ export async function fetchToFile(o: FetchTo): Promise<{ bytes: number; sha256: 
         if (total && have > total) throw new Refused(`The site sent more than the ${total} bytes it said.`);
         break;
       } catch (err) {
+        release?.();
         await file?.close().catch(() => {});
         if (o.signal.aborted) throw err;
         if (err instanceof Refused) throw err;
@@ -263,11 +353,13 @@ export async function fetchToFile(o: FetchTo): Promise<{ bytes: number; sha256: 
         if (fails >= attempts) throw new Refused(`The download failed ${attempts} times in a row (${why}). Press Download again to start over.`);
         o.onRetry?.(`${why[0]!.toUpperCase()}${why.slice(1)}: trying again${have ? ` from ${sizeText(have)}` : ""} (${fails + 1} of ${attempts}).`);
         await sleep(backoff * 2 ** (fails - 1), o.signal);
+      } finally {
+        release?.();
       }
     }
     if (expectSize && have !== expectSize) throw new Refused(`The file came incomplete: ${have} of ${expectSize} bytes. Press Download again.`);
     const sha256 = hash.digest("hex");
-    if (expectSha && sha256 !== expectSha) throw new Refused("The file came damaged: its SHA-256 is not the one Hugging Face lists. Press Download again.");
+    if ((listed || expectSha) && sha256 !== (listed || expectSha)) throw new Refused(`The file came damaged: its SHA-256 is not the one ${listed ? "the site" : "Hugging Face"} lists. Press Download again.`);
     if (SAFETENSORS.test(o.dest) && !(await looksLikeSafetensors(part, have))) throw new Refused("What came is not a safetensors file (the site sent something else under that name). Check the address.");
     // never over a file that is there: ComfyUI may have it in use, and it was asked for as missing
     if (await stat(o.dest).then(() => true, () => false)) throw new Refused("A file of that name is in the folder already.");
@@ -277,6 +369,237 @@ export async function fetchToFile(o: FetchTo): Promise<{ bytes: number; sha256: 
     await removePart();
     throw err;
   }
+}
+
+/** The site no longer answers parts of the file (a 200 to a Range, a 429, its link refused again and again): the rest over one connection. */
+class NoParts extends Error {}
+
+/** A piece's request answered with another status than a part. */
+class Answered extends Error {
+  constructor(readonly status: number) {
+    super(`the site answered ${status}`);
+  }
+}
+
+/** A piece of the file: from `start` up to `end` (not included), `done` of it on disk. */
+interface Piece {
+  start: number;
+  end: number;
+  done: number;
+}
+
+/** What undici says of a cut connection ("terminated", "other side closed"), said plainly. */
+const cutWords = (err: unknown) => {
+  const said = (err as Error).message.replace(/\.$/, "");
+  return /terminated|other side closed|ECONNRESET|socket|fetch failed|EPIPE/i.test(said) ? "the connection was cut" : said;
+};
+
+/**
+ * A big file over several connections at once, as the node pack fetches one on a pod (downloads.py _in_parts, card #199):
+ * the source is asked for one byte first, with the key, and a 206 saying the file's size, from the link it sends on to (the
+ * file server's signed link: the key never goes there), splits the file into pieces, each asked for with its own Range by
+ * `connections` at once and written at its place in the .part. Each request takes one of the connections every download
+ * shares. The SHA-256 is read as the bytes become whole from the first on, so the check costs no wait at the end. A link
+ * refused (it expired: Civitai's last 24 h) is asked for again at the source, by one connection while the others wait.
+ *
+ * Null when the site does not answer a part (one connection says what is wrong then). However it ends, the .part is cut back
+ * to its bytes whole from the first on; a stop or a failure throws (fetchToFile removes it), a site that stops answering parts
+ * gives back those bytes, for one connection to carry on from.
+ */
+async function inParts(o: FetchTo, p: Required<Pick<Parts, "connections" | "slots">> & Parts, part: string, seen: (res: Response) => void): Promise<{ have: number; total: number; hash: ReturnType<typeof createHash> } | null> {
+  const attempts = o.attempts ?? 5;
+  const backoff = o.backoffMs ?? 2000;
+  // whatever ends one connection ends them all: a stop, a refusal, the site no longer answering parts
+  const quit = new AbortController();
+  const stop = () => quit.abort(o.signal.reason);
+  if (o.signal.aborted) stop();
+  o.signal.addEventListener("abort", stop, { once: true });
+  const firstHost = new URL(o.source).host;
+
+  /** One byte asked at the source: its file server's link, and the file's size. A refusal said when `refused` (a link renewed). */
+  const ask = async (refused: boolean): Promise<{ link: string; total: number } | null> => {
+    const release = await p.slots.take(quit.signal);
+    try {
+      const res = await fetchPublic(o.source, { headers: { "User-Agent": "afflatus", Accept: "*/*", ...o.headers, Range: "bytes=0-0" }, signal: quit.signal }, o.allow, 5, seen);
+      const size = /^bytes 0-0\/(\d+)$/.exec(res.headers.get("content-range") ?? "")?.[1];
+      if (refused && (res.status === 401 || res.status === 403)) throw new Refused(await refusalOf(res, o.source, o.headers));
+      await res.body?.cancel().catch(() => {});
+      return res.status === 206 && size ? { link: res.url || o.source, total: Number(size) } : null;
+    } finally {
+      release();
+    }
+  };
+
+  let first: Awaited<ReturnType<typeof ask>>;
+  try {
+    first = await ask(false);
+  } catch (err) {
+    o.signal.removeEventListener("abort", stop);
+    if (o.signal.aborted) throw err;
+    // what kept it from answering is said by one connection, which asks the same
+    return null;
+  }
+  const total = first?.total ?? 0;
+  if (!first || total < (p.from ?? PARTS_FROM)) {
+    o.signal.removeEventListener("abort", stop);
+    return null;
+  }
+  let link = first.link;
+  await mkdirFor(o.dest);
+  await assertRoom(dirOf(o.dest), total, o.free);
+
+  const size = p.piece ?? Math.min(PIECE_MAX, Math.max(PIECE_MIN, Math.floor(total / (p.connections * 4))));
+  const pieces: Piece[] = [];
+  for (let at = 0; at < total; at += size) pieces.push({ start: at, end: Math.min(total, at + size), done: 0 });
+  const todo = [...pieces];
+  const left = (piece: Piece) => piece.end - piece.start - piece.done;
+  // the bytes whole from the first on: up to the first piece not all there, and what of it came
+  const whole = () => {
+    for (const piece of pieces) if (left(piece)) return piece.start + piece.done;
+    return total;
+  };
+  let counted = 0;
+  let ended: unknown = null;
+  const end = (err: unknown) => {
+    ended ??= err;
+    quit.abort();
+  };
+
+  // a link refused, asked for again at the source by the first connection to meet it; another that met it waits for that
+  let renewing: Promise<void> | null = null;
+  let renewals = 0;
+  const renew = (stale: string) => {
+    if (link !== stale) return Promise.resolve();
+    renewing ??= (async () => {
+      // refused again and again, the site may not want this many connections: the rest over one
+      if (++renewals > 2) throw new NoParts(`the site refused its link ${renewals} times`);
+      // a blip on the way is not the site's answer: one connection asks it again, with its own tries
+      const fresh = await ask(true).catch((err: unknown) => {
+        if (err instanceof Refused || quit.signal.aborted) throw err;
+        throw new NoParts(`the link could not be asked for again (${cutWords(err)})`);
+      });
+      if (!fresh) throw new NoParts("the site no longer answers parts of the file");
+      if (fresh.total !== total) throw new Refused(`The site says the file is ${fresh.total} bytes now, and said ${total}. Press Download again.`);
+      link = fresh.link;
+    })().finally(() => (renewing = null));
+    return renewing;
+  };
+
+  const file = await open(part, "w");
+  const readPiece = async (piece: Piece, url: string) => {
+    const at = piece.start + piece.done;
+    // the key to the site's own host alone: a file server's link holds what it needs
+    const headers = { "User-Agent": "afflatus", Accept: "*/*", ...(new URL(url).host === firstHost ? o.headers : {}), Range: `bytes=${at}-${piece.end - 1}` };
+    const res = await fetchPublic(url, { headers, signal: quit.signal }, o.allow);
+    if (res.status !== 206 || !res.body) {
+      await res.body?.cancel().catch(() => {});
+      throw res.status === 200 ? new NoParts("the site sent the whole file to a request for part of it") : new Answered(res.status);
+    }
+    const got = /^bytes (\d+)-(\d+)\/(\d+|\*)$/.exec(res.headers.get("content-range") ?? "");
+    if (!got || Number(got[1]) !== at || Number(got[2]) !== piece.end - 1 || (got[3] !== "*" && Number(got[3]) !== total)) {
+      await res.body.cancel().catch(() => {});
+      throw new Refused(`The site sent bytes ${got ? `${got[1]}-${got[2]}/${got[3]}` : "with no range"} for ${at}-${piece.end - 1}/${total}.`);
+    }
+    // each block written at its place before it is counted: what was counted is what the .part holds
+    const reader = res.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value.length > left(piece)) throw new Refused("The site sent more than the part asked for.");
+      await file.write(value, 0, value.length, piece.start + piece.done);
+      piece.done += value.length;
+      counted += value.length;
+      o.onBytes(counted, total);
+    }
+    if (left(piece)) throw new Error(`the connection was cut ${sizeText(left(piece))} before the end of a part`);
+  };
+
+  const connection = async () => {
+    let fails = 0;
+    while (!ended && todo.length) {
+      const piece = todo.shift()!;
+      try {
+        while (left(piece) && !ended) {
+          const before = piece.done;
+          const url = link;
+          let why: string;
+          try {
+            const release = await p.slots.take(quit.signal);
+            try {
+              await readPiece(piece, url);
+            } finally {
+              release();
+            }
+            fails = 0;
+            continue;
+          } catch (err) {
+            if (ended || quit.signal.aborted) return;
+            if (err instanceof Refused || err instanceof NoParts) throw err;
+            // a redirect refused on the way (into the network, down to http): the same again next time
+            if (typeof (err as { statusCode?: unknown }).statusCode === "number") throw new Refused((err as Error).message);
+            if (err instanceof Answered) {
+              // the signed link refused: it expired
+              if (err.status === 401 || err.status === 403 || err.status === 410) {
+                await renew(url);
+                continue;
+              }
+              if (err.status === 429) throw new NoParts("the site answered 429 to several connections at once");
+              if (err.status < 500) throw new Refused(`The site answered ${err.status}.`);
+            }
+            why = cutWords(err);
+          }
+          fails = piece.done > before ? 1 : fails + 1;
+          if (fails >= attempts) throw new Refused(`The download failed ${attempts} times in a row (${why}). Press Download again to start over.`);
+          o.onRetry?.(`${why[0]!.toUpperCase()}${why.slice(1)}: trying that part again (${fails + 1} of ${attempts}).`);
+          await sleep(backoff * 2 ** (fails - 1), quit.signal);
+        }
+      } finally {
+        if (left(piece)) todo.unshift(piece);
+      }
+    }
+  };
+
+  // the SHA-256 read as the bytes become whole from the first on (the pages just written, still in memory)
+  const hash = createHash("sha256");
+  let hashed = 0;
+  let over = false;
+  const follow = async () => {
+    const reader = await open(part, "r");
+    const block = Buffer.allocUnsafe(8 * 2 ** 20);
+    try {
+      for (;;) {
+        const edge = whole();
+        while (hashed < edge) {
+          const { bytesRead } = await reader.read(block, 0, Math.min(block.length, edge - hashed), hashed);
+          if (!bytesRead) throw new Error("the .part is shorter than what was written to it");
+          hash.update(block.subarray(0, bytesRead));
+          hashed += bytesRead;
+        }
+        if (hashed >= total || (over && hashed >= whole())) return;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    } finally {
+      await reader.close();
+    }
+  };
+
+  let have = 0;
+  try {
+    o.onBytes(0, total);
+    const following = follow().catch(() => {});
+    await Promise.all(Array.from({ length: Math.min(p.connections, pieces.length) }, () => connection().catch(end)));
+    over = true;
+    await following;
+  } finally {
+    o.signal.removeEventListener("abort", stop);
+    have = whole();
+    await file.truncate(have).finally(() => file.close());
+  }
+  if (o.signal.aborted) throw o.signal.reason ?? new Error("stopped");
+  if (ended && !(ended instanceof NoParts)) throw ended;
+  if (ended) o.onRetry?.(`${(ended as Error).message[0]!.toUpperCase()}${(ended as Error).message.slice(1)}: the rest over one connection, from ${sizeText(have)}.`);
+  // the follower stopped short (a read that failed): what is whole is read again
+  return { have, total, hash: hashed === have ? hash : await hashOf(part, have) };
 }
 
 const SAFETENSORS = /\.(safetensors|sft)$/i;

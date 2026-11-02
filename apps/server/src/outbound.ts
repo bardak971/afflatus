@@ -148,8 +148,12 @@ function insideOf(err: unknown): InsideNetwork | null {
   return null;
 }
 
-/** The headers that may go on to another host than the one first asked: none that carries a key. */
-const PLAIN = new Set(["user-agent", "accept"]);
+/**
+ * The headers that may go on to another host than the one first asked: none that carries a key. A Range goes on: Civitai and
+ * Hugging Face send a download on to their file servers, and a resume whose Range stopped at the first host was answered
+ * there with the whole file, a 20 GB download cut at 19 GB starting over from its first byte.
+ */
+const PLAIN = new Set(["user-agent", "accept", "range"]);
 
 /**
  * fetch() for an address already judged by assertPublicUrl: redirects are followed here, at most `hops`

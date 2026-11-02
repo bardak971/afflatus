@@ -10,7 +10,7 @@ import { civitaiSites } from "./civitai";
 import type { Comfy } from "./comfy";
 import { httpError } from "./errors";
 import { fileName } from "./media";
-import { assertRoom, BAD_NAME, comfyBase, comfyFolderPaths, fetchToFile, freeBytes, modelRoot, NOT_MODELS, type OtherRoute, placeIn, Refused, refusalOf, shownPlace } from "./modelDownload";
+import { assertRoom, BAD_NAME, comfyBase, comfyFolderPaths, CONNECTIONS, fetchToFile, freeBytes, modelRoot, NOT_MODELS, type OtherRoute, type Parts, placeIn, Refused, refusalOf, shownPlace } from "./modelDownload";
 import { olderThan } from "./version";
 import { assertPublicUrl, cannotReach, fetchFailure, fetchPublic } from "./outbound";
 import { renameOver } from "./storage";
@@ -143,7 +143,10 @@ interface Download extends DownloadView {
   sample?: { bytes: number; at: number };
   /** The node pack's: the place chosen for its folder, asked of the pack (PACK_PLACE). */
   place?: string;
-  /** The node pack's: the file's sha256 as its source lists it (Civitai), checked by a pack from 0.44.0 on, passed over by an older one. */
+  /**
+   * The file's sha256 as its source lists it (Civitai): checked before it is named, by Afflatus (its own downloads) or by a pack
+   * from 0.44.0 on (an older one passes it over).
+   */
   sha256?: string;
   /** ComfyUI's own folder as it says it: where `shown` is worked out from. */
   base?: string;
@@ -343,6 +346,8 @@ export class Downloads {
   backoffMs = 2000;
   /** The free bytes of a directory's disk (a stand-in in the tests). */
   free: (dir: string) => Promise<number> = freeBytes;
+  /** Afflatus's own downloads: a big file over several connections, all of them sharing CONNECTIONS (smaller in tests). */
+  parts: Parts = { connections: CONNECTIONS };
 
   constructor(private readonly events: EventEmitter, private readonly stateFile?: string) {
     this.restored = this.restore();
@@ -635,7 +640,7 @@ export class Downloads {
     noSelf?: boolean;
     /** The place chosen for its folder (settings.ts downloadPlaces): one of the paths ComfyUI lists for it. */
     place?: string;
-    /** The file's sha256 as its source lists it: the node pack checks the file against it before naming it. */
+    /** The file's sha256 as its source lists it: Afflatus or the node pack checks the file against it before naming it. */
     sha256?: string;
     /** What it was asked with through the page (fetchFile.ts), kept to ask it again: a restart while it waits, a Try again. */
     ask?: unknown;
@@ -680,7 +685,7 @@ export class Downloads {
       ...(want.machine ? { machine: want.machine } : {}),
       ...(want.ask !== undefined ? { ask: want.ask, from: self } : {}),
       ...(want.place && route.via === "pack" ? { place: want.place } : {}),
-      ...(want.sha256 && /^[0-9a-f]{64}$/i.test(want.sha256) && route.via === "pack" ? { sha256: want.sha256.toLowerCase() } : {}),
+      ...(want.sha256 && /^[0-9a-f]{64}$/i.test(want.sha256) && route.via !== "manager" ? { sha256: want.sha256.toLowerCase() } : {}),
       ...(base ? { base } : {}),
       ...(want.directOnly ? { directOnly: true } : {}),
       ...(want.noSelf ? { noSelf: true } : {}),
@@ -891,7 +896,8 @@ export class Downloads {
     try {
       await fetchToFile({
         source: d.source, headers: d.headers, allow: civitaiSites(), dest: d.dest!, signal: d.abort.signal,
-        attempts: this.attempts, backoffMs: this.backoffMs, free: this.free,
+        attempts: this.attempts, backoffMs: this.backoffMs, free: this.free, parts: this.parts,
+        ...(d.total ? { size: d.total } : {}), ...(d.sha256 ? { sha256: d.sha256 } : {}),
         onBytes: (bytes, total) => {
           d.bytes = bytes;
           if (total) d.total = total;

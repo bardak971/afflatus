@@ -104,6 +104,11 @@ beforeEach(async () => {
       return res.end(FILE);
     }
     if (req.url === "/files/cut.safetensors") {
+      // Afflatus asks one byte first, to know whether the file comes in parts: a small one does not
+      if (req.headers.range === "bytes=0-0") {
+        res.writeHead(206, { "content-type": "application/octet-stream", "content-length": 1, "content-range": `bytes 0-0/${FILE.length}` });
+        return res.end(FILE.subarray(0, 1));
+      }
       // cut a little way in the first time; asked again from a byte, sends the rest
       const from = Number(/^bytes=(\d+)-$/.exec(req.headers.range ?? "")?.[1] ?? 0);
       const body = FILE.subarray(from);
@@ -493,8 +498,9 @@ describe("who downloads", () => {
     expect(await item(d.id)).toMatchObject({ status: "done", bytes: FILE.length, total: FILE.length });
     expect(readFileSync(join(disk, "loras", "wan", "cut.safetensors")).equals(FILE)).toBe(true);
     expect(readdirSync(join(disk, "loras", "wan"))).toEqual(["cut.safetensors"]);
-    // asked again from the byte it had (a little before the cut: fetch lets the last piece it held go)
-    expect(asked.filter((a) => a.url === "/files/cut.safetensors").map((a) => a.range)).toEqual([undefined, expect.stringMatching(/^bytes=\d+-$/)]);
+    // one byte asked first (too small for parts), then asked again from the byte it had (a little before the cut: fetch
+    // lets the last piece it held go)
+    expect(asked.filter((a) => a.url === "/files/cut.safetensors").map((a) => a.range)).toEqual(["bytes=0-0", undefined, expect.stringMatching(/^bytes=\d+-$/)]);
     expect(fake.installAsked).toEqual([]);
   });
 
