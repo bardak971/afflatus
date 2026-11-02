@@ -281,6 +281,8 @@ export interface Tables {
    * People, places, styles and presets: one JSON document each (entities.ts says what each kind holds).
    */
   entities: { id: string; owner_id: string; kind: "person" | "place" | "style" | "preset" | "snippet"; name: string; def: string; created_at: string; updated_at: string };
+  /** What the node pack read of the face in a Prompt kit person's picture (faceFacts.ts, 0105): by the picture's id, the route's version, its answer as JSON. */
+  face_facts: { asset_id: string; version: number; facts: string; read_at: string };
   /** What a timeline looked like before each change, newest last: what Undo goes back to. */
   timeline_history: { id: string; timeline_id: string; /** Counts up within a timeline: the order of the changes. */ seq: number; label: string; snapshot: string; created_at: string };
   /** What Undo took back, to be done again: the same shape; emptied by the next change. */

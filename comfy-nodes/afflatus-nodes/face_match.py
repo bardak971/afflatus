@@ -12,9 +12,11 @@ person put in fills the frame of a Motion transfer; a crowd behind them is not w
 face, 12.6 s for a crowded set before (2026-10-15).
 """
 
+import gc
 import hashlib
 import importlib.util
 import os
+import threading
 from collections import OrderedDict
 
 import folder_paths
@@ -23,6 +25,10 @@ from comfy_api.latest import io
 from . import face_models
 
 _app = None
+# Whether InsightFace was loaded for the face facts route (face_facts.py) and no node used it since: that one is let go after a
+# minute without a picture; one a node uses stays loaded, as it always did.
+_app_for_route = False
+_loading = threading.Lock()
 
 # The detection size for the photos (as InsightFace is prepared) and for the frames of the picture made, in pixels.
 PHOTO_DET = 640
@@ -46,21 +52,47 @@ def available() -> bool:
     return importlib.util.find_spec("insightface") is not None and importlib.util.find_spec("onnxruntime") is not None
 
 
-def _face_app():
-    global _app
-    if _app is None:
-        from insightface.app import FaceAnalysis
+def _face_app(for_route: bool = False):
+    global _app, _app_for_route
+    with _loading:
+        if _app is not None:
+            # a node's use keeps it loaded from now on
+            _app_for_route = _app_for_route and for_route
+            return _app
+        _app = _loaded()
+        _app_for_route = for_route
+        return _app
 
-        # ComfyUI's own models folder (where InstantID, PuLID and the like keep these): fetched whole there the first time,
-        # a folder left half-extracted replaced (face_models.py), before InsightFace, which takes any folder as complete
-        root = os.path.join(folder_paths.models_dir, "insightface")
-        face_models.fetch(root)
-        options = _session_options()
-        app = FaceAnalysis(name=face_models.NAME, root=root, allowed_modules=["detection", "recognition"], providers=["CPUExecutionProvider"], sess_options=options)
-        _capped(app, options)
-        app.prepare(ctx_id=-1, det_size=(PHOTO_DET, PHOTO_DET))
-        _app = app
-    return _app
+
+def app_for_route():
+    """InsightFace for the face facts route: loaded if it is not, let go by release_route_app unless a node uses it meanwhile."""
+    return _face_app(for_route=True)
+
+
+def release_route_app() -> None:
+    """InsightFace let go when only the face facts route used it (its minute without a picture is up)."""
+    global _app, _app_for_route
+    with _loading:
+        if _app is None or not _app_for_route:
+            return
+        _app = None
+        _app_for_route = False
+    gc.collect()
+
+
+def _loaded():
+    """InsightFace's detector and ArcFace, on the CPU at THREADS threads, its files fetched the first time."""
+    from insightface.app import FaceAnalysis
+
+    # ComfyUI's own models folder (where InstantID, PuLID and the like keep these): fetched whole there the first time,
+    # a folder left half-extracted replaced (face_models.py), before InsightFace, which takes any folder as complete
+    root = os.path.join(folder_paths.models_dir, "insightface")
+    face_models.fetch(root)
+    options = _session_options()
+    app = FaceAnalysis(name=face_models.NAME, root=root, allowed_modules=["detection", "recognition"], providers=["CPUExecutionProvider"], sess_options=options)
+    _capped(app, options)
+    app.prepare(ctx_id=-1, det_size=(PHOTO_DET, PHOTO_DET))
+    return app
 
 
 def _session_options():

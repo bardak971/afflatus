@@ -198,7 +198,7 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
             </button>
           )}
           {people.map((p) => p && p.kind === "person" && p.def.pictures.length > 0 && (
-            <Button key={p.id} size="sm" onClick={() => change(keyId, { people: p.def.pictures.slice(0, 3) })} data-tip={`${p.name}'s images, from the cast, in place of these: one person goes in`}>
+            <Button key={p.id} size="sm" onClick={() => change(keyId, { people: (p.faces?.order ?? p.def.pictures).slice(0, 3) })} data-tip={`${p.name}'s images, from the cast, clearest face first, in place of these: one person goes in`}>
               + {p.name}
             </Button>
           ))}

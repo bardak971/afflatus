@@ -1,13 +1,13 @@
 import { useState, type MouseEvent } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ExternalLink, MapPin, Plus, Sparkles, User, X } from "lucide-react";
+import { ChevronDown, ExternalLink, Image as ImageIcon, MapPin, Plus, Sparkles, User, X } from "lucide-react";
 import { LIMITS } from "@afflatus/core";
-import { api, lookAdds, thumbUrl, type Entity, type Look, type RecipeInfo } from "./api";
+import { api, lookAdds, sentPicture, thumbUrl, type Entity, type Look, type RecipeInfo } from "./api";
 import { useEntities } from "./data";
 import { fileLabel } from "./format";
 import { useSettled } from "./hooks";
-import { ContextMenu, groups, headLine, type MenuItem } from "./ContextMenu";
+import { ContextMenu, fold, groups, headLine, type MenuItem } from "./ContextMenu";
 import { kitHref } from "./screens/kit/link";
 import { outfitsOf } from "./screens/kit/shared";
 import { Select } from "./Select";
@@ -56,7 +56,10 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between">
-        <span className="text-xs font-semibold">{title}</span>
+        <span className="flex items-center gap-1.5 text-xs font-semibold">
+          {title}
+          {now.cast.some((c) => all.find((e) => e.id === c.id)?.kind === "person") && <Help title="The picture on a person's chip" text="The one sent first to a model that takes reference images, and the only one to a model that takes one (Krea 2's person reference, Klein): the person's clearest face, as the Afflatus node pack read their pictures (the largest, most frontal and sharpest face, most like their other pictures; one with no face found goes last). Pick another in the chip's menu, under Picture sent first; until their pictures are read, the first of the Prompt kit." />}
+        </span>
         <Link href={kitHref("person")} className="text-xs text-ink-2 underline hover:text-ink">{all.some((e) => e.kind !== "preset") ? "Edit in the Prompt kit" : "Add people, places and styles"}</Link>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
@@ -64,7 +67,7 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
           const e = all.find((x) => x.id === member.id);
           if (!e || (e.kind !== "person" && e.kind !== "place")) return null;
           const worn = e.kind === "person" ? e.def.outfits.find((o) => o.id === member.outfit) : undefined;
-          const face = e.def.pictures[0];
+          const face = sentPicture(e, member.picture);
           const opens = (ev: MouseEvent<HTMLButtonElement>, below: boolean) => {
             ev.preventDefault();
             const r = ev.currentTarget.getBoundingClientRect();
@@ -82,7 +85,7 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
               onContextMenu={(ev) => opens(ev, false)}
               className={cx("flex h-9 items-center gap-1.5 rounded-full border border-accent bg-accent-wash pr-2 pl-1 hover:bg-hover", menu?.id === e.id && "bg-hover")}
             >
-              {face ? <img src={thumbUrl(face)} alt="" className="h-7 w-7 rounded-full object-cover" /> : <span className="flex h-7 w-7 items-center justify-center rounded-full bg-raised text-ink-2">{e.kind === "person" ? <User size={13} /> : <MapPin size={13} />}</span>}
+              {face ? <img src={thumbUrl(face)} alt="" data-tip={e.kind === "person" ? (member.picture === face ? "Sent first: picked here" : e.faces?.order[0] === face ? "Sent first: the clearest face" : "Sent first: the first of the Prompt kit (not read for faces yet)") : undefined} className="h-7 w-7 rounded-full object-cover" /> : <span className="flex h-7 w-7 items-center justify-center rounded-full bg-raised text-ink-2">{e.kind === "person" ? <User size={13} /> : <MapPin size={13} />}</span>}
               <span className="font-semibold">{e.name}</span>
               {worn && <span className="text-xs text-ink-2">· {worn.name}</span>}
               <ChevronDown size={13} className="shrink-0 text-ink-2" />
@@ -94,6 +97,23 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
           if (!e || (e.kind !== "person" && e.kind !== "place")) return null;
           const member = now.cast.find((c) => c.id === e.id);
           const wear = (outfit: string | null) => onChange({ ...now, cast: now.cast.map((c) => (c.id === e.id ? { ...c, outfit } : c)) });
+          const send = (picture: string | null) => onChange({ ...now, cast: now.cast.map((c) => (c.id === e.id ? { ...c, picture } : c)) });
+          // which of their pictures goes first: their clearest face, or one picked here (a model that takes one takes that one)
+          const picked = e.kind === "person" && member?.picture && e.def.pictures.includes(member.picture) ? member.picture : null;
+          const order = e.kind === "person" ? (e.faces?.order ?? e.def.pictures) : [];
+          const pictures: MenuItem[] = e.kind === "person" && e.def.pictures.length > 1
+            ? fold("Picture sent first", <ImageIcon size={14} />, [
+              { label: "The clearest face", note: e.faces && e.faces.unread.length < e.def.pictures.length ? undefined : "not read yet: the first", checked: !picked, run: () => send(null) },
+              ...order.map((id, i): MenuItem => ({
+                // numbered as they are sent, as the Prompt kit shows them
+                label: `Picture ${i + 1}`,
+                icon: <img src={thumbUrl(id)} alt="" className="h-4 w-4 rounded-sm object-cover" />,
+                note: e.faces?.none.includes(id) ? "no face found" : i === 0 && e.faces && !e.faces.unread.includes(id) ? "clearest face" : undefined,
+                checked: picked === id ? true : undefined,
+                run: () => send(id),
+              })),
+            ], 1)
+            : [];
           const outfits: MenuItem[] = e.kind === "person"
             ? [
               { label: "As in the references", checked: !member?.outfit, run: () => wear(null) },
@@ -102,10 +122,11 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
             : [];
           const items = groups(
             outfits,
+            pictures,
             [{ label: `Open ${e.name} in the kit`, icon: <ExternalLink size={14} />, run: () => go(kitHref(e.kind, e.id)) }],
             [{ label: "Remove from the cast", icon: <X size={14} />, danger: true, run: () => onChange({ ...now, cast: now.cast.filter((c) => c.id !== e.id) }) }],
           );
-          return <ContextMenu at={menu.at} label={`${e.name} in the cast`} head={{ title: e.name, sub: headLine(e.kind === "person" ? "Person" : "Place", "in the cast"), thumb: e.def.pictures[0] }} items={items} onClose={() => setMenu(null)} />;
+          return <ContextMenu at={menu.at} label={`${e.name} in the cast`} head={{ title: e.name, sub: headLine(e.kind === "person" ? "Person" : "Place", "in the cast"), thumb: sentPicture(e, member?.picture) }} items={items} onClose={() => setMenu(null)} />;
         })()}
         {/* as many as a look holds: the server refuses more, and every save of the draft would fail */}
         {castable.length > 0 && now.cast.length < LIMITS.cast && (

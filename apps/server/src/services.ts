@@ -8,6 +8,7 @@ import type { Db, DbKind } from "./db";
 import type { LibraryChange } from "./events";
 import { Downloads } from "./downloads";
 import { ModelHashes } from "./modelHashes";
+import { FaceReader } from "./faceFacts";
 import { fillCivitai, settleAway, settlePending } from "./modelLibrary";
 import { backfillUses } from "./modelUses";
 import { PodFiles } from "./podFiles";
@@ -91,6 +92,8 @@ export interface Services {
   officialSizes: OfficialSizes;
   /** Every model file of this computer hashed once, and which site has it (modelHashes.ts). */
   hashes: ModelHashes;
+  /** The faces of the kit's people's pictures read in the background, for the clearest to be sent first (faceFacts.ts). */
+  faces: FaceReader | null;
   /** The first sweep done, which runs in the background from the start (the tests wait for it, so that it does not sweep what they set up). */
   started: Promise<void>;
   /** What the timeline editor reads of its clips, measured in the background once stored (null: off, as in most tests). */
@@ -354,6 +357,7 @@ export async function createServices(
     officialSizes: new OfficialSizes(db, () => registry.families(), async () => (await readSettings(db)).civitaiLookups),
     updates: null as unknown as Updates,
     hashes: null as unknown as ModelHashes,
+    faces: null,
     hunt: null as unknown as Hunt,
     started: swept.then(() => undefined),
     precompute,
@@ -362,6 +366,7 @@ export async function createServices(
       clearInterval(sweeper);
       if (firstSweep) clearTimeout(firstSweep);
       clearInterval(podFilesTimer);
+      services.faces?.stop();
       rented.stop();
       notify.stop();
       access.stop();
@@ -393,6 +398,9 @@ export async function createServices(
   services.hashes.runningOn = (id) => queue.busyOn(id);
   const firstHashes = setTimeout(() => void services.hashes.run(), 60_000);
   firstHashes.unref();
+  // the kit's people's pictures read for their faces (the clearest is sent first), on a machine that renders nothing then
+  services.faces = new FaceReader({ db, storage, machines, busyOn: (id) => queue.busyOn(id), podDown: (id) => rented.podDown(id), read: () => queue.events.emit("entities") });
+  services.faces.start();
   // Settings › Model files: the uses of the renders from before 0.8.2 read once (backfillUses), and what Civitai says of
   // the versions the files were matched to (their names and pictures), a while after the start and every hour after
   const library = () => {

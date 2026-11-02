@@ -54,6 +54,11 @@ export interface FakeComfy {
    * without NVML or nvidia-smi. Undefined: the route is not there (404), as with an older pack.
    */
   watts?: number | null;
+  /**
+   * What the pretend node pack answers on POST /afflatus/face-facts (0.48.1 and newer) for a picture's bytes: its facts, or
+   * "unreadable" (422). Undefined: the route is not there (404), as with an older pack or a ComfyUI without insightface.
+   */
+  faceFacts?: (picture: Uint8Array) => unknown;
   /** Client ids of the websockets that connected, in order. */
   sockets: string[];
   /** What the pretend ComfyUI-Manager downloaded: where it put it and how large it was. */

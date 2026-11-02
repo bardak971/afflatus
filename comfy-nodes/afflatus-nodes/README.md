@@ -94,6 +94,7 @@ With the pack loaded, ComfyUI answers:
 - `GET /afflatus/power` (0.18.0): the GPU's power draw in watts (NVML through `nvidia-ml-py`, else `nvidia-smi`), for this PC's electricity; null where neither reads it.
 - `GET /afflatus/disk` and `POST /afflatus/models/remove` (0.19.0): the disk the model folders are on (bytes free and in all), and a model file taken off it to make room on a rented pod.
 - `GET /afflatus/models/list` (0.21.0): every model file of the models folder with its size and date, each once; on a pod with a network volume, what the volume holds (Afflatus's volume Files).
+- `POST /afflatus/face-facts` (0.48.1): what a person's picture holds of a face, the picture's bytes sent as `application/octet-stream`: how many faces, and of the largest its box, five points, the detector's score, its sharpness and its ArcFace embedding. Afflatus asks it once per picture of a Prompt kit person, while the machine renders nothing, to send a model that takes one picture their clearest face. InsightFace on the CPU (4 threads), off ComfyUI's event loop, one picture at a time, let go after a minute without a picture; never in ComfyUI's queue. 501 without insightface.
 
 ## Install
 
