@@ -11,7 +11,7 @@ import { olderThan } from "./version";
  * came first in the kit; a purple-lit selfie first cost 0.06 to 0.09 of likeness against the person's best picture (the
  * #219 pod test). Nothing of a picture is cut or changed: only the order they are sent in.
  *
- * The faces are read by the Afflatus node pack (0.47.0, POST /afflatus/face-facts: InsightFace on the CPU of the machine's
+ * The faces are read by the Afflatus node pack (0.48.1, POST /afflatus/face-facts: InsightFace on the CPU of the machine's
  * ComfyUI, never in its queue), once per picture, kept in face_facts by the picture's id. A pass in the background asks
  * for the pictures not read yet, a few at a time, on a machine that renders nothing then (its ComfyUI's queue empty, no
  * job of Afflatus's on it), never a pod that is not up; it stops at the next picture once that machine is at work. With no
@@ -23,7 +23,7 @@ import { olderThan } from "./version";
  */
 
 /** The node pack that answers the route. */
-export const FACE_FACTS_PACK = "0.47.0";
+export const FACE_FACTS_PACK = "0.48.1";
 /** The version of the pack's answer kept: a picture read by another one is read again. */
 const FACTS_VERSION = 1;
 /** The picture is sent at this many pixels a side at most: a model sees about that much of it, and every face is read alike. */

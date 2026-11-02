@@ -152,7 +152,7 @@ describe("the faces read in the background", () => {
   let asked: number;
   beforeEach(async () => {
     fake = await startFakeComfy();
-    fake.packVersion = "0.47.0";
+    fake.packVersion = "0.48.1";
     asked = 0;
     // the pretend pack: a face in every picture but the third one asked
     fake.faceFacts = () => (++asked === 3 ? noFace : fact());
@@ -191,9 +191,9 @@ describe("the faces read in the background", () => {
   it("asks nothing of a machine whose pack is older or has no route, and keeps the kit's order there", async () => {
     const pics = [await picture("a.png"), await picture("b.png")];
     const who = await person("zz-test A", pics);
-    fake.packVersion = "0.46.1";
+    fake.packVersion = "0.48.0";
     expect(await t!.services.faces!.run()).toBe(0);
-    fake.packVersion = "0.47.0";
+    fake.packVersion = "0.48.1";
     fake.faceFacts = undefined;
     expect(await t!.services.faces!.run()).toBe(0);
     expect(asked).toBe(0);

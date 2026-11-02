@@ -505,6 +505,11 @@ export class PodFiles {
     }
   }
 
+  /** The pod whose ComfyUI restarts now for node packs this job asked for (podPacks.ts restartsFor); null: none. */
+  restartsFor(job: string): string | null {
+    return this.packs.restartsFor(job);
+  }
+
   /** Why these node packs cannot come to that pod; null when they can. */
   failedPacks(machine: string, names: string[]): string | null {
     return this.packs.failed(machine, names);

@@ -1,6 +1,6 @@
 import { defineRecipe, GraphBuilder, roundTo, type ReferenceValue, type Ref, type SizeValue } from "@afflatus/core";
 import {
-  boxOf, FACE_INPUTS, FACTOR_INPUT, MASK_INPUTS, MASK_NODES, maskParts, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_PREFER,
+  boxOf, FACE_INPUTS, FACTOR_INPUT, MASK_INPUTS, NO_FACE, MASK_NODES, maskParts, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_PREFER,
   type FaceSettings, type MaskSettings, type RefineColourMatch, type UpscaleSettings,
 } from "../sdxl/common";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
@@ -505,7 +505,8 @@ export const kleinFixFace = defineRecipe<KleinFixFace>({
         const one = g.out("ImpactSEGSOrderedFilter", { segs: two, target: "x1", order: false, take_start: i, take_count: 1 });
         const done = g.add("DetailerForEach", { image, segs: one, ...detail(k, input, kleinCond(g, k, SAME_FACE, faces), ctx.seed + i) });
         image = [done, 0];
-        return { node: done, steps: input.steps };
+        // the second person's pass has no face of its own when only one was found
+        return { node: done, steps: input.steps, unsampled: i ? "No second face found: the second person's face was not redrawn." : NO_FACE };
       });
       const out = g.add("PreviewImage", { images: image });
       return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: input.steps * 2, passes, loads: k.loads };
@@ -521,7 +522,7 @@ export const kleinFixFace = defineRecipe<KleinFixFace>({
       drop_size: 10,
     });
     const out = g.add("PreviewImage", { images: [fixed, 0] });
-    return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: input.steps, passes: [{ node: fixed, steps: input.steps }], loads: k.loads };
+    return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: input.steps, passes: [{ node: fixed, steps: input.steps, unsampled: NO_FACE }], loads: k.loads };
   },
   variants: [
     { name: "from the picture itself", input: { source: "p", detector: "bbox/face.pt" }, slots: files, uploads: { source: "s.png" }, media: { source: photo } },

@@ -8,8 +8,8 @@ export interface Tracking {
   totalSteps: number;
   /** Node id → the phase shown while it runs. */
   phases: Record<string, Phase>;
-  /** The sampling passes in the order they run (see BuiltGraph.passes). */
-  passes?: Array<{ node: string; steps: number }>;
+  /** The sampling passes in the order they run (see BuiltGraph.passes); `unsampled`, what is said of one that ran no step. */
+  passes?: Array<{ node: string; steps: number; unsampled?: string }>;
   /**
    * The client id the prompt was queued with, when that was another process (this one started while
    * the prompt was already running). ComfyUI sends a prompt's progress only to the client that queued it.
@@ -101,6 +101,9 @@ interface Tracked extends Tracking {
   /** The node executing now and since when, and the time of each node that ran, by node id. */
   nodeAt: { node: string; at: number } | null;
   nodeMs: Record<string, number>;
+  /** The nodes heard executing, and those that reported a step of their own: a pass in the first and not the second sampled nothing. */
+  ran: Set<string>;
+  sampled: Set<string>;
 }
 
 /** The messages that say a prompt is over: ComfyUI's history has it (or is about to), however it ended. */
@@ -251,7 +254,7 @@ export class Monitor {
     this.tracked.set(t.promptId, {
       ...t, totalSteps, done: 0, node: null, value: 0, max: 0, phase: "waiting",
       executing: null, samplingAt: null, stepsAtStart: 0, resumed: Math.min(totalSteps, Math.max(0, Math.floor(t.stepsDone ?? 0))), preview: { seq: 0 }, stages: [],
-      clock: { phase: "waiting", at: this.now() }, spent: {}, firstPass: null, vramPeak: null, heatPeak: null, ramPeak: null, ramTotal: null, nodeAt: null, nodeMs: {},
+      clock: { phase: "waiting", at: this.now() }, spent: {}, firstPass: null, vramPeak: null, heatPeak: null, ramPeak: null, ramTotal: null, nodeAt: null, nodeMs: {}, ran: new Set(), sampled: new Set(),
     });
     if (t.clientId && t.clientId !== this.client.clientId) this.listenAs(t.clientId, t.promptId);
   }
@@ -300,10 +303,35 @@ export class Monitor {
     }
   }
 
-  /** A render joined midway: the passes that run before this node are done. */
+  /** A render joined midway: the passes that run before this node are done (one that may sample nothing is not counted: see shown). */
   private catchUp(r: Tracked, node: string): void {
     const at = r.passes?.findIndex((p) => p.node === node) ?? -1;
-    if (at > 0 && r.done === 0 && !r.node) r.done = r.passes!.slice(0, at).reduce((sum, p) => sum + p.steps, 0);
+    if (at > 0 && r.done === 0 && !r.node) r.done = r.passes!.slice(0, at).filter((p) => Monitor.counts(r, p)).reduce((sum, p) => sum + p.steps, 0);
+  }
+
+  /** Whether a pass's steps are counted: always, unless it may sample nothing (a face detailer) and has not sampled yet. */
+  private static counts(r: Tracked, p: { node: string; unsampled?: string }): boolean {
+    return !p.unsampled || r.sampled.has(p.node);
+  }
+
+  /**
+   * The steps shown as the whole: the graph's, without those of a pass that may sample nothing until it samples. A graph
+   * that is only such passes (a Fix face tool) shows its steps as they are: there is nothing else to show.
+   */
+  private static shown(r: Tracked): number {
+    const pending = (r.passes ?? []).filter((p) => !Monitor.counts(r, p)).reduce((sum, p) => sum + p.steps, 0);
+    return pending < r.totalSteps ? r.totalSteps - pending : r.totalSteps;
+  }
+
+  /**
+   * What is said of the passes that ran and sampled nothing (a face detailer that found no face it redraws): ComfyUI says
+   * nothing of it, and the picture comes out as it went in. Only a pass heard executing: one cached, or run before this
+   * process followed the prompt, is not known. Read it before the prompt is untracked.
+   */
+  unsampled(promptId: string): string[] {
+    const r = this.tracked.get(promptId);
+    if (!r) return [];
+    return (r.passes ?? []).filter((p) => p.unsampled && r.ran.has(p.node) && !r.sampled.has(p.node)).map((p) => p.unsampled!);
   }
 
   /** The phase a prompt is in, as it is shown. ComfyUI loads the weights inside the first sampler: until it reports a step, that sampler is still "loading". */
@@ -323,6 +351,7 @@ export class Monitor {
     if (!r) return { progress: 0, eta: 0, phase: "waiting", step: 0, steps: 0 };
     // picked up again: the saved count shows from the start, before the first step is heard
     const steps = Math.max(r.done + r.value, r.resumed);
+    const total = Monitor.shown(r);
     // the time left comes from the sampling rate alone: a cold model load would inflate it wildly
     let eta = 0;
     if (r.samplingAt && steps > r.stepsAtStart) {
@@ -331,11 +360,11 @@ export class Monitor {
       const first = r.passes?.[0];
       // a second pass does not go at the pace of the first: what it usually takes is known from past renders
       if (first && r.passes!.length > 1 && r.expect?.laterMs !== undefined && steps < first.steps) eta = (first.steps - steps) * perStep + r.expect.laterMs / 1000 + finish;
-      else eta = Math.max(0, (r.totalSteps - steps) * perStep + finish);
+      else eta = Math.max(0, (total - steps) * perStep + finish);
     }
     return {
-      progress: Math.min(0.99, steps / r.totalSteps), eta, phase: Monitor.phaseOf(r) as Progress["phase"],
-      step: Math.min(r.totalSteps, steps), steps: r.totalSteps,
+      progress: Math.min(0.99, steps / total), eta, phase: Monitor.phaseOf(r) as Progress["phase"],
+      step: Math.min(total, steps), steps: total,
     };
   }
 
@@ -487,7 +516,7 @@ export class Monitor {
     } else if (msg.type === "execution_cached" && Array.isArray(d.nodes)) {
       // the passes ComfyUI still had from the prompt before (the same seed, the same settings) do not run: their steps are done
       const cached = new Set(d.nodes.map(String));
-      if (!r.node) r.done += (r.passes ?? []).filter((p) => cached.has(p.node)).reduce((sum, p) => sum + p.steps, 0);
+      if (!r.node) r.done += (r.passes ?? []).filter((p) => cached.has(p.node) && Monitor.counts(r, p)).reduce((sum, p) => sum + p.steps, 0);
     } else if (msg.type === "executed" && typeof d.node === "string") {
       // a node that puts pictures out: a preview on the way, or a save. Kept in order, for the strip under the live preview
       const out = (d.output ?? {}) as { images?: unknown; gifs?: unknown };
@@ -501,6 +530,7 @@ export class Monitor {
     } else if (msg.type === "executing" && typeof d.node === "string") {
       this.nodeDone(r);
       r.nodeAt = { node: d.node, at: this.now() };
+      r.ran.add(d.node);
       this.catchUp(r, d.node);
       r.executing = d.node;
       r.phase = r.phases[d.node] ?? r.phase;
@@ -521,6 +551,7 @@ export class Monitor {
         return;
       }
       this.catchUp(r, node);
+      r.sampled.add(node);
       const value = Number(d.value ?? 0);
       // the first step heard after a pick-up: the count goes on from the saved one (the pace is timed from here, over
       // the steps seen from here), unless which pass runs already says more

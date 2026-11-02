@@ -165,6 +165,8 @@ export interface FaceSettings {
   faceMax: number;
   faceFeather: number;
 }
+/** What a face detailer's job says when it found no face: ComfyUI says nothing, and the picture comes out as it went in. */
+export const NO_FACE = "No face found: the picture is as it was (a lower Detection threshold finds more).";
 export const FACE_INPUTS: InputSpec[] = [
   { id: "faceThreshold", type: "number", label: "Detection threshold", note: "how sure the detector must be that it is a face. Lower finds more: small or turned faces, and more mistakes", min: 0.1, max: 0.95, step: 0.05, default: 0.5, advanced: true },
   { id: "faceCrop", type: "number", label: "Face crop factor", note: "how much around the face is redrawn with it, in face sizes: 3 takes in the hair and the neck", min: 1, max: 6, step: 0.5, default: 3, unit: "×", advanced: true },

@@ -226,6 +226,61 @@ describe("Monitor", () => {
     expect(monitor.progress("p1")).toMatchObject({ step: 20, steps: 20, phase: "refining", progress: 0.99 });
   });
 
+  // Krea 2 with a person's picture and Face refine (card #219): 8 steps, then Klein's 20 on a face only when it is a small one
+  const faced = { promptId: "p1", totalSteps: 28, phases: { "11": "sampling", "27": "detailing", "28": "decoding" } as const, passes: [{ node: "11", steps: 8 }, { node: "27", steps: 20, unsampled: "Face left as drawn." }] };
+
+  it("counts a pass that may sample nothing only once it samples, and says it when it ran none", async () => {
+    const clock = { now: 1_000 };
+    const timed = new Monitor(new ComfyClient(fake.url), { now: () => clock.now });
+    await timed.ready();
+    try {
+      timed.track(faced);
+      fake.send("execution_start", { prompt_id: "p1" });
+      fake.send("executing", { prompt_id: "p1", node: "11" });
+      fake.send("progress", { prompt_id: "p1", node: "11", value: 1, max: 8 });
+      await until(() => timed.progress("p1").step === 1);
+      clock.now += 3_000;
+      fake.send("progress", { prompt_id: "p1", node: "11", value: 4, max: 8 });
+      await until(() => timed.progress("p1").step === 4);
+      // 4 of 8, the time left the 4 steps to go at 1 s each and the finishing: not 24 steps
+      expect(timed.progress("p1")).toMatchObject({ step: 4, steps: 8 });
+      expect(timed.progress("p1").eta).toBeCloseTo(4 + 2);
+      fake.send("progress", { prompt_id: "p1", node: "11", value: 8, max: 8 });
+      // the face is a large one: the detailer runs and reports no step
+      fake.send("executing", { prompt_id: "p1", node: "27" });
+      fake.send("executing", { prompt_id: "p1", node: "28" });
+      await until(() => timed.progress("p1").phase === "decoding");
+      expect(timed.progress("p1")).toMatchObject({ step: 8, steps: 8 });
+      expect(timed.unsampled("p1")).toEqual(["Face left as drawn."]);
+    } finally {
+      timed.close();
+    }
+  });
+
+  it("adds a pass's steps when it samples, and says nothing of it then", async () => {
+    monitor.track(faced);
+    fake.send("execution_start", { prompt_id: "p1" });
+    fake.send("executing", { prompt_id: "p1", node: "11" });
+    fake.send("progress", { prompt_id: "p1", node: "11", value: 8, max: 8 });
+    fake.send("executing", { prompt_id: "p1", node: "27" });
+    fake.send("progress", { prompt_id: "p1", node: "27", value: 5, max: 20 });
+    await until(() => monitor.progress("p1").step === 13);
+    expect(monitor.progress("p1")).toMatchObject({ step: 13, steps: 28, phase: "detailing" });
+    expect(monitor.unsampled("p1")).toEqual([]);
+  });
+
+  it("says nothing of a pass it did not hear run: cached, or before it followed the prompt", async () => {
+    monitor.track(faced);
+    fake.send("execution_start", { prompt_id: "p1" });
+    fake.send("execution_cached", { nodes: ["11", "27"], prompt_id: "p1" });
+    fake.send("executing", { prompt_id: "p1", node: "28" });
+    await until(() => monitor.progress("p1").phase === "decoding");
+    // the first pass's steps are done, the face pass's are not counted: 8 of 8
+    expect(monitor.progress("p1")).toMatchObject({ step: 8, steps: 8 });
+    expect(monitor.unsampled("p1")).toEqual([]);
+    expect(monitor.unsampled("unknown")).toEqual([]);
+  });
+
   it("goes on from the step count saved on a prompt picked up again, when one node samples chunk after chunk", async () => {
     // a finish's refine run per chunk: 9 chunks of 10 steps on one node, joined after the third
     const clock = { now: 1_000 };

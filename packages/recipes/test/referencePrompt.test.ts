@@ -64,8 +64,9 @@ describe("H3's reference prompt carrying on: one take with the clip before, in p
 
   it("names no negation: no not, never, no, without, do not", () => {
     expect(p).not.toMatch(/\b(not|never|no|without|don't)\b/i);
-    expect(p).toContain("<Picture 1> gives who and what appears: identity and look only.");
-    expect(p).toContain("only the identity and look are taken from <Picture 1>.");
+    // the identity alone: the clip before gives the look, in the take's light (card #222)
+    expect(p).toContain("<Picture 1> gives only the identity of <Subject 1>: the face, hair and build.");
+    expect(p).toContain("only the identity is taken from <Picture 1>: the face, hair and build, in the light of the given opening frames.");
   });
 
   it("a clip that does not carry on keeps its wording: the pictures are not the scene", () => {

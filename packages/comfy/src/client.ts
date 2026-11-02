@@ -446,7 +446,7 @@ export class ComfyClient {
   }
 
   /**
-   * What a picture holds of a face, as the Afflatus node pack reads it (0.47.0 on, POST /afflatus/face-facts): its answer as
+   * What a picture holds of a face, as the Afflatus node pack reads it (0.48.1 on, POST /afflatus/face-facts): its answer as
    * it comes (faceFacts.ts checks it), "unreadable" when the pack could not read the picture, "absent" when the route is not
    * there (no pack, an older one, or a ComfyUI without insightface), null when ComfyUI did not answer. A long time limit:
    * the first picture fetches InsightFace's files into ComfyUI's models folder.

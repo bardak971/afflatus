@@ -30,4 +30,14 @@ describe("Generate waits for the inputs a recipe cannot do without", () => {
     expect(inputMissing(recipe([{ id: "prompt", type: "prompt", label: "Prompt", default: "a cat" }]), { prompt: "" })).toBeNull();
     expect(inputMissing(recipe([{ id: "prompt", type: "prompt", label: "Prompt", default: "a cat", example: true }]), { prompt: "" })).toBe("Write prompt first.");
   });
+
+  it("a mix of inputs the recipe refuses holds it, in the recipe's words, as the server refuses the job (card #219)", () => {
+    const krea = { ...recipe([{ id: "prompt", type: "prompt", label: "Prompt" }, { id: "person", type: "references", label: "Person" }, { id: "references", type: "references", label: "Style" }]),
+      refuses: [{ when: { all: [{ input: "person", filled: true }, { input: "references", filled: true }] }, why: "Not both." }] } as RecipeInfo;
+    const pic = [{ asset: "a1", role: "person" }];
+    expect(inputMissing(krea, { prompt: "a cat", person: pic, references: pic })).toBe("Not both.");
+    expect(inputMissing(krea, { prompt: "a cat", person: pic, references: [] })).toBeNull();
+    // an input still missing is said first
+    expect(inputMissing(krea, { prompt: "", person: pic, references: pic })).toBe("Write prompt first.");
+  });
 });
