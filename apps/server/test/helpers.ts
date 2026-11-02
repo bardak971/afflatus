@@ -20,6 +20,8 @@ export const FAST: QueueOptions = {
   wait: { timeoutMs: 5000, pollMs: 2, offlineMs: 100, queueCheckEvery: 1 },
   // every new step count saved on its job at once
   stepsSaveMs: 0,
+  // a pod's folders read again at once when its pack has a file they did not list (queueSubmit.ts podHeld)
+  relistMs: 20,
 };
 
 export const CHECKPOINT = "illustrious.safetensors";

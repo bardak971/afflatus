@@ -5,6 +5,7 @@ import type { Comfy } from "./comfy";
 import type { Db, Tables } from "./db";
 import type { FamilyReads, Rate, StatRows } from "./forecast";
 import type { PackFacts } from "./jobPacks";
+import type { PodFileState } from "./podFiles";
 import type { Registry } from "./registry";
 import type { Machine } from "./settings";
 import type { Storage } from "./storage";
@@ -158,6 +159,11 @@ export interface QueueOptions {
    * can take more than the poll's 5 s to answer and render on (the owner's Swap, 2026-10-30).
    */
   goneAfterMs?: number;
+  /**
+   * How long a job's submit waits before reading a pod's folders again, when its pack has a family file whole that they did
+   * not list (queueSubmit.ts podHeld); 3 s when left out.
+   */
+  relistMs?: number;
 }
 export const DEFAULT_QUEUE_OPTIONS: QueueOptions = {
   offlineRetryMs: 15_000,
@@ -210,6 +216,16 @@ export interface QueueCore {
   runTool(row: JobRow, work: (run: Running) => Promise<void>): Promise<void>;
   /** What node packs can come to this machine (jobPacks.ts): its card, its Manager, the packs that failed there. Left out: anything may. */
   packFacts?(): Promise<PackFacts>;
+  /** The model files this machine is getting, when it is a rented pod (podFiles.ts), as a job's submit asks of them; null (or left out): no pod. */
+  podFiles?(): PodFilesOf | null;
+}
+
+/** A rented pod's files as a job's submit reads them (queueSubmit.ts podHeld). */
+export interface PodFilesOf {
+  /** A file as the pod is getting it: there whole ("ready"), in its line or under way, failed there (with why); null when never asked for there. */
+  state(f: { file: string; folder: string }): { state: PodFileState; error?: string } | null;
+  /** Have the pod fetch these first, for this job; why they are not coming (podFiles.ts stalled), null while they come. */
+  need(files: Array<{ file: string; folder: string; url?: string }>, job: string): string | null;
 }
 
 /** A machine's lane: its ComfyUI, the job it runs, what it was last asked to load, whether it is paused by hand. */

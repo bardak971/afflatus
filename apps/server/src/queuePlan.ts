@@ -4,7 +4,7 @@ import { paceOf } from "./forecast";
 import type { Scan } from "@afflatus/comfy";
 import { roomFor, type Loaded } from "./jobFiles";
 import { filesAsked, lackOn, toolLackOn, toolSlots, type Lack } from "./machineScans";
-import type { PodFiles } from "./podFiles";
+import type { PodFiles, PodFileState } from "./podFiles";
 import { PACKS_MS } from "./podPacks";
 
 
@@ -71,6 +71,8 @@ export type Able = {
  * still go there, once they came. Set by services.ts; null: no machine is ever sent a file.
  */
 export interface PodFetch {
+  /** A file as that pod is getting it: there whole ("ready"), in its line or under way, failed there (with why); null when never asked for there. */
+  fileState(machine: string, file: { file: string; folder: string }): { state: PodFileState; error?: string } | null;
   /** Why these files (or node packs) cannot come to that machine: one of them failed there already. Null: they can. */
   failed(machine: string, files: Lack["files"], packs?: string[]): string | null;
   /** Why these files do not fit on that pod's disk, beside what it could delete when it makes room; null: they fit, or it is not known. */
@@ -98,8 +100,9 @@ export interface PodFetch {
 }
 
 /** A rented pod's files as the queue reads them, from podFiles.ts. */
-export function podFetchOf(files: Pick<PodFiles, "failed" | "failedPacks" | "failingPacks" | "short" | "untilThere" | "want" | "wantPacks" | "jobState" | "holding" | "moving" | "stalled" | "dropUnsought" | "holdsFor" | "restartsFor">): PodFetch {
+export function podFetchOf(files: Pick<PodFiles, "fileState" | "failed" | "failedPacks" | "failingPacks" | "short" | "untilThere" | "want" | "wantPacks" | "jobState" | "holding" | "moving" | "stalled" | "dropUnsought" | "holdsFor" | "restartsFor">): PodFetch {
   return {
+    fileState: (machine, f) => files.fileState(machine, f.folder, f.file),
     short: (machine, list) => files.short(machine, list),
     failed: (machine, list, packs = []) => list.map((f) => files.failed(machine, f.folder, f.file)).find((why) => why !== null) ?? files.failedPacks(machine, packs),
     untilThere: (machine, list, packs) => files.untilThere(machine, list, packs),
