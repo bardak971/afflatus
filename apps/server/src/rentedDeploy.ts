@@ -294,7 +294,9 @@ export class RentedDeploy extends RentedFollow {
     if (fill) this.filling.add(id);
     console.log(`[rented] deployed ${offer.name} in ${made.dataCenter ?? "a data center"} (${ask.template}, ${volume ? `volume ${volume.name}` : "no volume"})`);
     this.events.emit("setup");
-    void this.poll();
+    // caught as the timer's reads are: a read that fails here was an unhandled rejection, which ends the server, and with it
+    // the following of every billed pod
+    void this.poll().catch((err: Error) => console.warn(`[rented] ${err.message}`));
     return { id, dataCenter: made.dataCenter };
   }
 

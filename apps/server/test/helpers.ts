@@ -129,13 +129,17 @@ export function sentView(body: any): any {
 export const job = (over: Record<string, unknown> = {}) => ({ recipe: "sdxl.text-to-picture", input: { prompt: "a cat", checkpoint: CHECKPOINT, ...over } });
 
 /**
- * A rented session that cost $2 today, ended now: from ten minutes ago, or from just after midnight when the day began
- * less than that ago (its rate raised to make up). Ten minutes back from 00:03 is yesterday, and a spending cap of today
- * was not reached: the cap tests failed every night in the first minutes after midnight.
+ * A rented session that cost $2 today, and still does the next ten minutes: from ten minutes ago (or from just after
+ * midnight when the day began less than that ago) to ten minutes on, its ten minutes after `now` costing $2 alone. Ten
+ * minutes back from 00:03 is yesterday, and a spending cap of today was not reached: the cap tests failed every night in the
+ * first minutes after midnight. And a session that ended at `now` was yesterday's once midnight came between the insert
+ * and the read that should find the cap: under a full suite's load that took seconds, and the test waited for a cap that
+ * the new day never reached (card #216, the 2026-11-01 run across midnight).
  */
 export function costToday(id: string, now = Date.now()) {
   const midnight = new Date(now).setHours(0, 0, 0, 0);
   const from = Math.max(midnight + 1, now - 10 * 60_000);
-  const rate = 2 / (Math.max(1000, now - from) / 3_600_000);
-  return { id, machine_id: "rp-x", pod: "x", rate, started_at: new Date(from).toISOString(), ended_at: new Date(now).toISOString(), seen_at: null };
+  const to = now + 10 * 60_000;
+  const rate = 2 / ((to - now) / 3_600_000);
+  return { id, machine_id: "rp-x", pod: "x", rate, started_at: new Date(from).toISOString(), ended_at: new Date(to).toISOString(), seen_at: null };
 }

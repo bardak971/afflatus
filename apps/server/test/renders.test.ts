@@ -306,7 +306,14 @@ describe("what the tab shows", () => {
     expect(next.more).toBe(false);
     expect((await list(t.db, t.services.registry, { trouble: true })).items.map((i) => i.status)).toEqual(["failed"]);
     expect((await get(t.app, "/api/renders?only=trouble")).json().total).toBe(1);
-    expect((await get(t.app, "/api/renders/summary?period=month")).json().tiles.done).toBe(6);
+    // the route reads the month back from the clock: held at NOW, the rows' own time, or from 2026-11-02 the 30 days
+    // back from the real clock no longer reached them (card #218)
+    vi.useFakeTimers({ toFake: ["Date"], now: NOW });
+    try {
+      expect((await get(t.app, "/api/renders/summary?period=month")).json().tiles.done).toBe(6);
+    } finally {
+      vi.useRealTimers();
+    }
     expect((await get(t.app, "/api/renders/size")).json()).toMatchObject({ renders: 7, days: 0 });
     expect((await t.app.inject({ method: "DELETE", url: "/api/renders" })).statusCode).toBe(200);
     expect((await get(t.app, "/api/renders")).json().total).toBe(0);
@@ -523,7 +530,10 @@ describe("the next render's time is forecast from the record", () => {
   it("what waits says what it will take, with the load when its model is not the one before it", async () => {
     const recipe = t.services.registry.recipe("sdxl.text-to-picture")!;
     const key = timeKey(recipe.inputs, { prompt: "a", checkpoint: CHECKPOINT });
-    await put([row({ time_key: key, total_ms: 20_000 }), row({ time_key: key, total_ms: 50_000, load_ms: 31_000, cold: 1 }), row({ time_key: key, model: "other", model_file: "other", total_ms: 60_000, load_ms: 41_000, cold: 1 })]);
+    // Put at the real clock, not at NOW: the fresh app below folds the record at its start, from the real clock, and rows
+    // at NOW were past the kept days from 2026-12-31 on, folded away before the queue read them (card #218).
+    const at = new Date().toISOString();
+    await put([row({ time_key: key, total_ms: 20_000, created_at: at }), row({ time_key: key, total_ms: 50_000, load_ms: 31_000, cold: 1, created_at: at }), row({ time_key: key, model: "other", model_file: "other", total_ms: 60_000, load_ms: 41_000, cold: 1, created_at: at })]);
     await rendered();
     await post(t.app, "/api/queue/pause");
     await post(t.app, "/api/jobs", job({ prompt: "one" }));
