@@ -1,5 +1,5 @@
 import { defineRecipe, GraphBuilder, type Recipe } from "@afflatus/core";
-import { FACE_INPUTS, type FaceSettings } from "../sdxl/common";
+import { FACE_INPUTS, NO_FACE, type FaceSettings } from "../sdxl/common";
 import { A_FACE, photo, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
 import { DETECTOR_INPUT } from "../shared/detector";
 
@@ -46,7 +46,7 @@ export function flowFixFace(spec: FlowSpec, kit: FlowKit): Recipe<FlowFixFace> {
         drop_size: 10, wildcard: "", cycle: 1,
       });
       const out = g.add("PreviewImage", { images: [fixed, 0] });
-      return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: k.steps, passes: [{ node: fixed, steps: k.steps }], loads: k.loads };
+      return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: k.steps, passes: [{ node: fixed, steps: k.steps, unsampled: NO_FACE }], loads: k.loads };
     },
     variants: [
       { name: "plain", input: { source: "p", detector: "bbox/face.pt" } as Partial<FlowFixFace>, slots: files, uploads: { source: "s.png" }, media: { source: photo } },

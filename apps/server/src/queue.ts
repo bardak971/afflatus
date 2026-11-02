@@ -2078,6 +2078,8 @@ export class Queue {
       const ram = setInterval(() => void comfy.client.status().then((st) => comfy.monitor.peaks({ ...systemLoadFromStatus(st), gpus: [] }), () => {}), RAM_EVERY_MS);
       ram.unref?.();
       let outputs;
+      // the passes that ran and sampled nothing (a face detailer that found no face it redraws), said on the job once it is done
+      let unsampled: string[] = [];
       try {
         // a ComfyUI silent past the wait's offlineMs whose process still runs is swamped (a PC paging): followed on, not lost
         const machine = lane.machine;
@@ -2094,6 +2096,7 @@ export class Queue {
         clearInterval(ram);
         this.notBusy(lane);
         measured = comfy.monitor.measured(resume.promptId);
+        unsampled = comfy.monitor.unsampled(resume.promptId);
         comfy.monitor.untrack(resume.promptId);
         // a save under way lands before the job is closed or queued again, never over what that writes
         await saving.settled();
@@ -2110,7 +2113,7 @@ export class Queue {
       const filing = { at: performance.now(), parts: {} };
       const filed = await gathering(filing.parts, () => storing.store(core, comfy, recipe, resume!.input ?? input, resume!, outputs, row));
       observeAdded(lane.id, "filing", performance.now() - filing.at, filing.parts);
-      const notes = storing.notesOf(resume!, outputs);
+      const notes = [...storing.notesOf(resume!, outputs), ...unsampled];
       if (notes.length) await this.warn(row.id, notes.join(" "));
       const generationId = filed.id;
       made = generationId;

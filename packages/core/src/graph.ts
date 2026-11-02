@@ -54,6 +54,12 @@ export interface BuiltGraph {
      * work recorded of a render is its first pass's, the one its measured step is the pace of.
      */
     pixels?: number;
+    /**
+     * What the job says when this pass ran without sampling a step: a face detailer that found no face, or none it redraws
+     * (Krea 2's Face refine takes small faces only). Its steps are counted in the progress only once it samples: a pass
+     * that ran none had the bar at 8 of 28 and the time left counting 20 steps that never came, the job saying nothing.
+     */
+    unsampled?: string;
   }>;
   /**
    * The canvas the graph samples, in pixels, when none of its nodes says a size: a tool that works on a picture at the
