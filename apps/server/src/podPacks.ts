@@ -1,4 +1,4 @@
-import { nodesOfPack, repoOfPack } from "@afflatus/core";
+import { nodesOfPack, packVersion, repoOfPack } from "@afflatus/core";
 import type { Comfy } from "./comfy";
 
 /**
@@ -428,9 +428,11 @@ export class PodPacks {
     const asked: Entry[] = [];
     for (const e of next) {
       const task = `afflatus-pack-${++this.seq}-${Date.now()}`;
+      // the Registry's latest, or the repository's head for a pack the forms need a newer version of (Krea2Edit 2.0)
+      const version = packVersion(e.name);
       const res = await comfy.client.raw("/v2/manager/queue/task", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(15_000),
-        body: JSON.stringify({ ui_id: task, client_id: CLIENT, kind: "install", params: { id: e.name, version: "latest", selected_version: "latest", mode: "cache", channel: "default" } }),
+        body: JSON.stringify({ ui_id: task, client_id: CLIENT, kind: "install", params: { id: e.name, version, selected_version: version, mode: "cache", channel: "default" } }),
       }).catch(() => null);
       // no answer is not a refusal (ComfyUI busy, or restarting): asked again in a moment, as many times as a pack not found yet
       if (!res && (e.tries ?? 0) + 1 < TRIES) Object.assign(e, { tries: (e.tries ?? 0) + 1, notBefore: Date.now() + this.retryMs });

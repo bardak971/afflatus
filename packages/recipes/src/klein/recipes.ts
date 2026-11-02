@@ -10,6 +10,7 @@ import {
   type KleinBase,
 } from "./common";
 import { DETECTOR_INPUT } from "../shared/detector";
+import { SAME_FACE } from "./facePass";
 
 const files = { unet: "flux-2-klein-base-4b.safetensors", clip: "qwen_3_4b.safetensors", vae: "flux2-vae.safetensors" };
 const photo = { width: 1536, height: 2048 };
@@ -442,8 +443,6 @@ interface KleinFixFace extends KleinBase, FaceSettings {
   detector: string;
   strength: number;
 }
-
-const SAME_FACE = "the same person's face, identical to the reference photos: same features, eyes, nose, mouth, beard and hair; natural skin, sharp, photorealistic";
 
 /** What a face is redrawn with, whichever node does it. */
 const detail = (k: ReturnType<typeof loadKlein>, input: KleinFixFace, cond: { positive: unknown; negative: unknown }, seed: number) => ({

@@ -1,4 +1,4 @@
-import { defineRecipe, GraphBuilder, roundTo, type ReferenceValue, type Ref, type SizeValue } from "@afflatus/core";
+import { beyondPack, defineRecipe, GraphBuilder, roundTo, type ReferenceValue, type Ref, type SizeValue } from "@afflatus/core";
 import { HIRES_PASS_INPUTS, hiresPass, UPSCALER_PREFER, type HiresPass } from "../sdxl/common";
 import type { FlowBase } from "../flow/kit";
 import { flowFixFace } from "../flow/fix-face";
@@ -10,17 +10,27 @@ import { redrawInTiles, tileInputs, tileNodes, tilePass, inTiles, type TileSetti
 import { krea2Kit, krea2Spec } from "./common";
 import { addedLora, putAdded } from "../shared/model";
 import { addedInputs, withRow, type AddedSpec } from "../shared/addedRows";
+import { FACE_PASS_INPUTS, FACE_PASS_NODES, FACE_PASS_OPTIONAL, FACE_PASS_SLOTS, facePass, type FacePassValues } from "../klein/facePass";
 
 const files = krea2Spec.files;
 const withStyle = { ...files, styleRef: "krea2_style_reference.safetensors" };
+const withPerson = { ...files, identityEdit: "krea2_identity_edit_v2_r128.safetensors" };
+const withFaceRefine = { ...withPerson, kleinUnet: "flux-2-klein-base-4b.safetensors", kleinClip: "qwen_3_4b.safetensors", kleinVae: "flux2-vae.safetensors", faceDetector: "bbox/face_yolov8m.pt" };
 /** About the area Krea 2 draws at, and the size a hires pass enlarges to. */
 const KREA2_AREA = 1.1 * 1024 * 1024;
 const krea2Large = (input: { size: SizeValue; hiresScale: number }) => ({ width: roundTo(roundTo(input.size.width, 16) * input.hiresScale, 16), height: roundTo(roundTo(input.size.height, 16) * input.hiresScale, 16) });
 
 // ---------------------------------------------------------------- txt2img
 
-interface Krea2Picture extends FlowBase, HiresPass, DetailSettings, TileSettings {
+interface Krea2Picture extends FlowBase, HiresPass, DetailSettings, TileSettings, FacePassValues {
   prompt: string;
+  /** The person's picture (a cast person's first, or one of the user's): who is in the picture. */
+  person: ReferenceValue[];
+  /** Krea2Edit's ref_boost: how hard the picture pulls toward the person's. */
+  refBoost: number;
+  /** The Identity Edit LoRA picked in its row of the LoRA list (empty: the slot's), and its weight. */
+  identityLora?: string;
+  identityStrength: number;
   references: ReferenceValue[];
   referenceStrength: number;
   /** The style-reference LoRA picked in its row of the LoRA list (empty: the slot's). */
@@ -47,24 +57,56 @@ const STYLE_ROW: AddedSpec = {
 };
 
 /**
+ * The person reference (card #219), as the pod test made it (card #217): conradlocke's Identity Edit V2 LoRA on Turbo and its
+ * node pack's patch, the person's picture read beside the canvas (not pinned onto its layout: they can be put anywhere in
+ * it), the prompt read with the picture at 1024 px, the reference pulled at twice its weight. Likeness 0.66 against a real
+ * photo's 0.81 (ArcFace, photos of the person not sent), 0.70 on mid shots, 0.50 full body. The picture is used as it is:
+ * no crop to the face (on mid shots a crop changed nothing; a raw photo lost two close-ups of three, where the photo's
+ * hands and phone near the face were the trouble, which is the user's choice of photo).
+ */
+const PERSON_ROW: AddedSpec = {
+  label: "Needed by this model",
+  note: "Krea 2's Identity Edit V2 LoRA (conradlocke's): with a person reference, it is what keeps the person of the picture. At 0 it is not loaded. Its file is the one of Settings › Models unless another is picked",
+  file: { id: "identityLora", label: "Identity Edit LoRA", slot: "identityEdit", match: ["krea.?2.?identity.?edit"], note: "the Identity Edit V2 LoRA. Left as it is, the one of Settings › Models" },
+  weight: { id: "identityStrength", label: "Identity strength", note: "the weight of the Identity Edit LoRA. At 0 it is not loaded", default: 1 },
+  showWhen: "person",
+  when: { input: "person", filled: true },
+};
+/** Where the person's picture sits for Krea2Edit (2.0 on): beside the canvas; the first of two pictures (a scene) as trained. */
+const BESIDE = "beside (right of target)";
+const ALIGNED = "aligned (trained)";
+/** The longest side of the person's picture as the text encoder reads it with the prompt: 1024 for people, as tested. */
+const GROUNDING_PX = 1024;
+/** Why Krea 2 refuses a person reference with style reference images. */
+const NOT_BOTH = "Krea 2 takes a person reference or style reference images, not both (the two LoRAs and the two ways of reading pictures were not made to work together): remove one of them.";
+
+/**
  * A picture from a prompt, the way ComfyUI's own Krea 2 Turbo template makes it. With reference images
  * it follows their style: the images are read next to the prompt and the style-reference LoRA is put
- * on the model (ComfyUI's "image style reference" template). Hires fix is the usual upscale and second
- * pass, at the model's own shift (see krea2Spec).
+ * on the model (ComfyUI's "image style reference" template). With a person's picture it keeps that person
+ * (PERSON_ROW), and Face refine redraws their face when it is a small one. Hires fix is the usual upscale and
+ * second pass, at the model's own shift (see krea2Spec).
  */
 export const krea2Picture = defineRecipe<Krea2Picture>({
   id: "krea2.text-to-picture",
   family: "krea2",
   version: 1,
   title: "txt2img",
-  summary: "Text to image, from a natural-language prompt, with optional hires fix. With reference images, it follows their style.",
+  summary: "Text to image, from a natural-language prompt, with optional hires fix. With reference images, it follows their style; with a person's picture, it keeps that person.",
   output: "image",
-  inputs: withRow([
+  inputs: withRow(withRow([
     krea2Spec.model,
     { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: krea2Spec.placeholder },
     {
+      // the first of the form's references: a cast person's pictures go there (the server's compose fills the first), their first one
+      id: "person", type: "references", label: "Reference image of the person", max: 1, roles: ["person"],
+      note: "who is in the picture, kept from their photo (a cast person's first picture). Needs the Identity Edit V2 LoRA and the comfyui-krea2edit node pack 2.0 on. Not with style reference images",
+    },
+    { id: "refBoost", type: "number", label: "Reference boost", note: "Krea2Edit's ref_boost: how hard the picture pulls toward the person's photo. 1 is off; 2 is what Afflatus's test measured", min: 1, max: 4, step: 0.1, default: 2, showWhen: "person", advanced: true },
+    ...FACE_PASS_INPUTS,
+    {
       id: "references", type: "references", label: "Style reference images", max: STYLE_IMAGES, roles: ["style"],
-      note: "the look to follow (a drawing style, a colour mood, a kind of photo), not who is in it. Needs the style-reference LoRA.",
+      note: "the look to follow (a drawing style, a colour mood, a kind of photo), not who is in it. Needs the style-reference LoRA. Not with a person reference",
     },
     // (drawn as the weight of the style-reference LoRA's row in the LoRA list, card #160)
     { id: "referenceStrength", type: "number", label: "Style strength", note: "the weight of the style-reference LoRA. At 0 it is not loaded", min: 0, max: 1.5, step: 0.05, default: 1, showWhen: "references", advanced: true, inList: "loras" },
@@ -82,53 +124,88 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
     ...HIRES_PASS_INPUTS,
     ...tileInputs("hires"),
     ...addedInputs(STYLE_ROW),
+    ...addedInputs(PERSON_ROW),
     krea2Kit.inputs.at(-1)!,
-  ], STYLE_ROW),
+  ], STYLE_ROW), PERSON_ROW),
   presets: krea2Spec.presets!,
-  optionalNodes: DETAIL_OPTIONAL,
+  optionalNodes: [...DETAIL_OPTIONAL, ...FACE_PASS_OPTIONAL],
+  // a person reference asks for its LoRA (unless one is picked in its row) and, with Face refine on, Klein's files and the
+  // face detector: a pod is sent them; a machine of the user's own makes the picture without the pass rather than wait
+  needsWith(input, slots, where) {
+    if (!input.person?.length) return [];
+    const face = input.faceRefine ? FACE_PASS_SLOTS.filter((id) => !where?.own || slots?.[id]) : [];
+    return [...(input.identityLora ? [] : ["identityEdit"]), ...face];
+  },
   nodes: (input) => [
     ...detailNodes(input),
     ...fullPassNodes(input, input.steps), ...(input.hires ? ["KSampler"] : []),
     ...tileNodes(input.hires && inTiles(input, krea2Large(input), KREA2_AREA)),
-    ...krea2Kit.loadNodes(input).filter((n) => n !== "KSampler" && (n !== "CLIPTextEncode" || !input.references.length || input.negative.trim())), "EmptyLatentImage",
+    ...krea2Kit.loadNodes(input).filter((n) => n !== "KSampler" && (n !== "CLIPTextEncode" || !(input.references.length || input.person.length) || input.negative.trim())), "EmptyLatentImage",
     ...(input.references.length ? ["LoadImage", "TextEncodeQwenImageEditPlus", "FluxKontextMultiReferenceLatentMethod", "LoraLoaderModelOnly", ...(input.shift > 0 ? [] : ["ModelSamplingFlux"])] : []),
+    ...(input.person.length ? ["LoadImage", "VAEEncode", "LoraLoaderModelOnly", "Krea2EditModelPatch", "Krea2EditGroundedEncode"] : []),
+    // a hires fix in tiles redraws them from the prompt alone (see build)
+    ...(input.person.length && input.hires && inTiles(input, krea2Large(input), KREA2_AREA) ? ["CLIPTextEncode"] : []),
+    ...(input.person.length && input.faceRefine ? FACE_PASS_NODES : []),
     ...(input.hires ? ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode"] : []),
   ],
   build(input, ctx) {
-    const { load, shifted, condFrom, sample } = krea2Kit;
+    const { load, shifted, condFrom, cond: condOf, sample } = krea2Kit;
     const g = new GraphBuilder();
     const styled = input.references.length > 0;
-    // the style-reference LoRA's row: its file and weight, the same file by hand put on once, after the user's (card #160)
-    const style = styled ? addedLora(ctx.slots.styleRef, input.styleLora, input.referenceStrength, input.loras) : { lora: null, put: false, loras: input.loras };
-    const k = load(g, { ...input, loras: style.loras }, ctx);
+    const person = input.person.length > 0;
+    if (styled && person) throw new Error(NOT_BOTH);
+    // the LoRA a reference needs, as its row of the LoRA list has it: its file and weight, the same file by hand put on once,
+    // after the user's (card #160)
+    const added = styled ? addedLora(ctx.slots.styleRef, input.styleLora, input.referenceStrength, input.loras)
+      : person ? addedLora(ctx.slots.identityEdit, input.identityLora, input.identityStrength, input.loras)
+      : { lora: null, put: false, loras: input.loras };
+    const k = load(g, { ...input, loras: added.loras }, ctx);
     const W = roundTo(input.size.width, 16);
     const H = roundTo(input.size.height, 16);
-    if (styled && !style.lora) {
+    if (styled && !added.lora) {
       throw new Error("Style reference images need Krea 2's style-reference LoRA: put krea2_style_reference.safetensors in ComfyUI's models/loras folder (it can be downloaded from Settings).");
     }
-    let model = k.model;
-    model = putAdded(g, model, style);
+    if (person && !added.lora) {
+      throw new Error("A person reference needs Krea 2's Identity Edit V2 LoRA: put krea2_identity_edit_v2_r128.safetensors in ComfyUI's models/loras folder (it can be downloaded from Settings).");
+    }
+    // Krea2Edit before 2.0 has the patch but no say in where the picture sits: sent ref_position, it ignores it and pins the
+    // person onto the layout, which is not what was measured. Installing it again would not help: it is updated by hand
+    const takes = person ? ctx.inputs?.("Krea2EditModelPatch") : null;
+    if (takes && !takes.includes("ref_position")) {
+      throw beyondPack("This ComfyUI's comfyui-krea2edit is older than 2.0, which the person reference is made for: update it to its repository's latest (ComfyUI-Manager: Switch Ver, nightly; or git pull in its folder under custom_nodes; the Comfy Registry has 1.2.3 only), then restart ComfyUI.");
+    }
+    const plain = k.model;
+    let model = putAdded(g, plain, added);
     // the shift typed in, else the model's own; with reference images, the one that follows the size, as ComfyUI's
     // style-reference template sets it
     const styledAt = (m: Ref, width: number, height: number) =>
       input.shift > 0 ? shifted(g, m, input, { width, height }) : g.out("ModelSamplingFlux", { model: m, max_shift: 1.15, base_shift: 0.5, width, height });
+    const empty = g.out("EmptyLatentImage", { width: W, height: H, batch_size: 1 });
     let positive: Ref;
     if (styled) {
       const images = Object.fromEntries(input.references.slice(0, STYLE_IMAGES).map((_, i) => [`image${i + 1}`, g.out("LoadImage", { image: ctx.uploads[`references.${i}`] })]));
       const read = g.out("TextEncodeQwenImageEditPlus", { clip: k.clip, vae: k.vae, prompt: input.prompt, ...images });
       positive = g.out("FluxKontextMultiReferenceLatentMethod", { conditioning: read, reference_latents_method: "index_timestep_zero" });
+    } else if (person) {
+      // the patch reads the picture in pixels and fits it to the canvas it samples (each pass's own size, a hires fix's too);
+      // given the canvas's latent, it encodes it before sampling rather than in the middle of it
+      const picture = g.out("LoadImage", { image: ctx.uploads["person.0"] });
+      model = g.out("Krea2EditModelPatch", {
+        model, source_latent: g.out("VAEEncode", { pixels: picture, vae: k.vae }), ref_boost: input.refBoost, ref_boost_a: 1, fit_mode: "fit",
+        vae: k.vae, source_image: picture, target_latent: empty, ref_position: BESIDE, ref_position_a: ALIGNED,
+      });
+      positive = g.out("Krea2EditGroundedEncode", { clip: k.clip, prompt: input.prompt, image: picture, grounding_px: GROUNDING_PX, system_prompt: "" });
     } else {
       positive = g.out("CLIPTextEncode", { text: input.prompt, clip: k.clip });
     }
     const cond = condFrom(g, k, input, positive);
-    const empty = g.out("EmptyLatentImage", { width: W, height: H, batch_size: 1 });
 
     g.phase("sampling");
     const detail = { input, ctx };
     const first = sample(g, k, input, styled ? styledAt(model, W, H) : shifted(g, model, input, { width: W, height: H }), cond, empty, ctx.seed, {}, detail);
     let latent = first.latent;
-    const passes: Array<typeof first.pass & { pixels?: number }> = [first.pass];
-    const loads = [...k.loads, ...(style.put ? [`loras/${style.lora!.file}`] : [])];
+    const passes: Array<{ node: string; steps: number; pixels?: number }> = [first.pass];
+    const loads = [...k.loads, ...(added.put ? [`loras/${added.lora!.file}`] : [])];
 
     let image: Ref | null = null;
     if (input.hires) {
@@ -141,8 +218,12 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
       g.phase("refining");
       const pass = { steps: input.hiresSteps, denoise: input.hiresDenoise, ...hiresPass(input) };
       if (inTiles(input, { width: W2, height: H2 }, KREA2_AREA)) {
+        // the patch fits the person's picture to each tile it samples, and a tile of a wall would be pulled toward them: the
+        // tiles are redrawn by the model and the prompt alone (a light pass over a person already there)
+        const tileModel = person ? plain : model;
+        const tileCond = person ? condOf(g, k, input, input.prompt) : cond;
         image = redrawInTiles(g, ctx, scaled, k.vae, { width: W2, height: H2 }, input, (l, _tiles, tile) => {
-          const second = sample(g, k, input, shifted(g, model, input, { width: tile, height: tile }), cond, l, ctx.seed, pass, detail);
+          const second = sample(g, k, input, shifted(g, tileModel, input, { width: tile, height: tile }), tileCond, l, ctx.seed, pass, detail);
           passes.push(tilePass(second.pass, { width: W2, height: H2 }, input));
           return second.latent;
         });
@@ -157,8 +238,19 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
     }
 
     g.phase("decoding");
-    const out = g.add("PreviewImage", { images: image ?? g.out("VAEDecode", { samples: latent, vae: k.vae }) });
-    return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: passes.reduce((n, p) => n + p.steps, 0), passes, loads };
+    let result = image ?? g.out("VAEDecode", { samples: latent, vae: k.vae });
+    // Face refine: the person's face redrawn from their picture when it is a small one, read at the size it was drawn at
+    const face = person ? facePass(g, ctx, input, result, { pictures: [ctx.uploads["person.0"]!], scale: input.hires ? input.hiresScale : 1 }) : null;
+    if (face?.pass) {
+      result = face.image;
+      passes.push(face.pass);
+      loads.push(...face.loads);
+    }
+    const out = g.add("PreviewImage", { images: result });
+    return {
+      graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: passes.reduce((n, p) => n + p.steps, 0), passes, loads,
+      ...(face?.said ? { warnings: [face.said] } : {}),
+    };
   },
   variants: [
     { name: "from words, as ComfyUI's template", input: { prompt: "a" }, slots: files },
@@ -178,6 +270,16 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
       name: "a style reference with a negative prompt, a shift and hires fix",
       input: { prompt: "a", references: [{ asset: "a", role: "style" }], negative: "blurry", cfg: 2, shift: 3, hires: true, hiresUpscaler: "u.pth", referenceStrength: 0.8 },
       slots: withStyle, uploads: { "references.0": "a.png" },
+    },
+    {
+      name: "a person reference, Face refine on its small face",
+      input: { prompt: "a", person: [{ asset: "p", role: "person" }] },
+      slots: withFaceRefine, uploads: { "person.0": "p.png" },
+    },
+    {
+      name: "a person reference with hires fix in tiles, a LoRA, Face refine off",
+      input: { prompt: "a", person: [{ asset: "p", role: "person" }], faceRefine: false, hires: true, hiresScale: 3, hiresUpscaler: "u.pth", loras: [{ file: "l.safetensors", weight: 0.8 }] },
+      slots: withPerson, uploads: { "person.0": "p.png" },
     },
   ],
 });

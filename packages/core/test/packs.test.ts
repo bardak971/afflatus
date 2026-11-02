@@ -80,6 +80,7 @@ describe("a known pack's name", () => {
     H3FaceTrackCrop: "comfyui-h3-facerefine",
     DWPreprocessor: "comfyui_controlnet_aux",
     MMH3UltimateUpscale: "Comfyui-MMH3-UltimateUpscale",
+    Krea2EditModelPatch: "comfyui-krea2edit",
   };
   it("is the Comfy Registry's id as written, the case included", () => {
     for (const [node, id] of Object.entries(REGISTRY_IDS)) expect(packOfNode(node)?.name, node).toBe(id);

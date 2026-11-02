@@ -1,20 +1,36 @@
-import { defineFamily, type PromptLine, QUALITY_WORDS, WEIGHT_SYNTAX, wordCount } from "@afflatus/core";
+import { defineFamily, type Family, type PromptLine, QUALITY_WORDS, WEIGHT_SYNTAX, wordCount } from "@afflatus/core";
+import { klein } from "../klein/family";
+import { FACE_DETECTOR_SLOT } from "../shared/detector";
 
 const HF = "https://huggingface.co/Comfy-Org/Krea-2/resolve/main";
+
+/** The txt2img form, the only one that takes a person reference and Face refine: their files are offered while it is. */
+const PERSON_FORMS = ["krea2.text-to-picture"];
+
+/**
+ * Face refine's files (klein/facePass.ts): FLUX.2 Klein's own, found the same way under ids of their own, beside Krea 2's.
+ * The 4B only: its text encoder is the one offered here, and the 9B reads with another (kleinClipSlot). Not named "face…":
+ * a slot so named is taken for H3's Face refine by a finish of a video take (the server's toolSlots), which then sent Klein's
+ * download for H3's model.
+ */
+const kleinSlot = (id: string, as: { id: string; label: string; detect?: string[] }): Family["slots"][number] =>
+  ({ ...klein.slots.find((s) => s.id === id)!, ...as, optional: true, onlyFor: PERSON_FORMS });
 
 /**
  * Krea 2: pictures from plain sentences. The model that is published is Turbo (distilled: 8 steps, no
  * negative prompt), and fine-tunes are made from it. It is built here the way ComfyUI's own Krea 2
- * templates build it; the style of reference images is followed with a LoRA made for that.
+ * templates build it; the style of reference images is followed with a LoRA made for that, and a person's
+ * picture with conradlocke's Identity Edit LoRA and its node pack (card #219).
  */
 export const krea2 = defineFamily({
   id: "krea2",
   name: "Krea 2",
-  summary: "txt2img from natural-language prompts, in 8 steps. Follows the style of reference images with its style-reference LoRA.",
+  summary: "txt2img from natural-language prompts, in 8 steps. Follows the style of reference images with its style-reference LoRA, and a person's picture with the Identity Edit LoRA.",
   help: {
-    what: "Pictures from sentences in 8 steps, in the style of your own reference pictures.",
-    best: "a consistent style taken from your pictures, quickly",
-    weak: "references give a style only, not people or objects",
+    // measured on a pod (card #217): a person's likeness 0.66 against a real photo's 0.81, the full body weaker (0.50)
+    what: "Pictures from sentences in 8 steps, in the style of your own reference pictures, or with a person from their picture.",
+    best: "a consistent style taken from your pictures, quickly; a person kept from one photo on mid shots",
+    weak: "a person's face on full-body shots (Face refine helps there); a person and a style reference not together",
   },
   promptStyle: "sentences",
   slots: [
@@ -40,6 +56,17 @@ export const krea2 = defineFamily({
       hint: "Without it, images cannot follow the style of reference images. Put krea2_style_reference.safetensors in ComfyUI's models/loras folder.",
       get: { file: "krea2_style_reference.safetensors", url: `${HF}/loras/krea2_style_reference.safetensors` },
     },
+    {
+      // V2 only: V1.x is set up otherwise (the person aligned, boost 4, grounding 768), and the General Edit is another task.
+      // The rank-128 file, as tested (card #217); its licence is V2's own, a shipped preset's (krea2-person)
+      id: "identityEdit", label: "Identity Edit V2 LoRA (person reference)", folder: "loras", detect: ["krea.?2.?identity.?edit.?v2"], optional: true, onlyFor: PERSON_FORMS,
+      hint: "Without it, txt2img takes no person reference. Put krea2_identity_edit_v2_r128.safetensors (conradlocke's, 0.9 GB) in ComfyUI's models/loras folder; it needs the comfyui-krea2edit node pack 2.0 or newer.",
+      get: { file: "krea2_identity_edit_v2_r128.safetensors", url: "https://huggingface.co/conradlocke/krea2-identity-edit/resolve/main/krea2_identity_edit_v2_r128.safetensors" },
+    },
+    kleinSlot("unet", { id: "kleinUnet", label: "FLUX.2 Klein 4B (Face refine)", detect: ["^(?!.*(minimax|h3|9b)).*flux-?2.*klein.*base", "^(?!.*(minimax|h3|9b)).*(klein|f2k)"] }),
+    kleinSlot("clip", { id: "kleinClip", label: "FLUX.2 Klein text encoder (Face refine)" }),
+    kleinSlot("vae", { id: "kleinVae", label: "FLUX.2 Klein VAE (Face refine)" }),
+    { ...FACE_DETECTOR_SLOT, onlyFor: PERSON_FORMS },
   ],
   loraMatch: ["krea.?2", "(^|[^a-z0-9])k2([^a-z0-9]|$)"],
   guide: `Krea 2 reads plain sentences through a vision-language encoder: grammar, possessives, counts and spatial relations are understood; quality confetti ("masterpiece, 8k") is ignored. One flowing description, 30 to 150 words, as to a skilled visual artist.
