@@ -348,8 +348,10 @@ export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   // then held to the run's first clip (card #215): matched to the clip before alone, the small drift each continuation adds
   // (the channel means one way, the fine detail up) still built up, and a six-clip chain still came out ×1.4 sharper and off
   // colour. The run's look rides in the kept latents (the clip before's, else read on it: a clip that continues none starts
-  // a run); a window far from it (a new look asked for, a cut the model made) is left as sampled and starts a new run
-  const sampledWindow: Ref = previous && !own && ctx.has(H3_RUN_ANCHOR) ? g.out(H3_RUN_ANCHOR, { previous_av_latent: previous, sampled_window: matched, overlap_frames: join.head }) : matched;
+  // a run); a window far from it (a new look asked for, a cut the model made) is left as sampled and starts a new run. Not
+  // for a clip that lands on the clip after: the anchor holds a window's end, and there the end is the clip after's own
+  // frames (pinned), which no clip continues from; moved, the landing would no longer be seamless
+  const sampledWindow: Ref = previous && !own && !join.tail && ctx.has(H3_RUN_ANCHOR) ? g.out(H3_RUN_ANCHOR, { previous_av_latent: previous, sampled_window: matched, overlap_frames: join.head }) : matched;
   // decoded as one piece with the clip before (its own last tokens, then the new ones), so that the join is the whole chain's
   // decoded at once and plays as a plain cut. The latent saved for the clips after stays the (matched) sampled window
   const resample = input.upscale === UPSCALE.latent;
