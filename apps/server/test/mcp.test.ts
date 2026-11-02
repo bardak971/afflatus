@@ -8,6 +8,8 @@ import { clientOf, serverFor, tasksOf } from "../src/mcp";
 import { isNever, quoted, tool, type Tool } from "../src/mcpTool";
 import { McpTokens, type McpToken } from "../src/mcpTokens";
 import { TOOLS } from "../src/mcpTools";
+import { fold } from "../src/renders";
+import { pruneJobs } from "../src/tidy";
 import { unwrittenOf } from "../src/unwrittenDrafts";
 import { pageOf } from "../src/whatsOpen";
 import { makeApp, type TestApp } from "./helpers";
@@ -368,6 +370,39 @@ describe("the limits", () => {
     // a 2-minute model load after them, then nothing: its time and the 10 idle minutes after it
     await t.db.insertInto("jobs").values(job("w1", view.id, now - 20 * 60_000, { warm: 1, machine_id: "rp-b", started_at: iso(now - 20 * 60_000), finished_at: iso(now - 18 * 60_000) }) as never).execute();
     expect(await tokens.spentThisMonth(view.id)).toBeCloseTo((held + 12 / 60) * 2, 6);
+  });
+
+  // the 2026-11-02 review (M3): a render history of 1 day folded away the rows a token's month was counted from, and it
+  // rendered on the user's pod again past its cap; a job history of 1 day deleted its model loads alike
+  it("keeps counting a token's month once its render rows are folded and the job history is short", async () => {
+    // the 20th of this month, whatever today is: the work two days before is in the same month
+    const today = new Date();
+    const now = new Date(today.getFullYear(), today.getMonth(), 20, 12).getTime();
+    const tokens = new McpTokens(t.db, { now: () => now });
+    const { view } = await tokens.make({ name: "x", scopes: ["look", "make", "spend"] });
+    // the user's $2/h pod, up for three days, its idle stop never (no idle time counted after the work)
+    await t.db.insertInto("rent_sessions").values({ id: "s3", machine_id: "rp-c", pod: "c", rate: 2, started_at: iso(now - 3 * 86_400_000), ended_at: iso(now - 60_000), seen_at: null, gpu: "NVIDIA H100", up_at: null, idle_minutes: 0 } as never).execute();
+    // two days ago, an hour's render and a 30-minute model load on it
+    const end = now - 2 * 86_400_000;
+    await t.db.insertInto("jobs").values([
+      job("old-render", view.id, end - 3_600_000, { machine_id: "rp-c", started_at: iso(end - 3_600_000), finished_at: iso(end) }),
+      job("old-load", view.id, end, { warm: 1, machine_id: "rp-c", started_at: iso(end), finished_at: iso(end + 30 * 60_000) }),
+    ] as never).execute();
+    await t.db.insertInto("render_stats").values({
+      id: "old-render", owner_id: "local", recipe_id: "sdxl.text-to-picture", family: "sdxl", model: "m", model_file: "m.safetensors", time_key: "", kind: "image", width: 1, height: 1, duration_ms: null, steps: 1, status: "done",
+      whole: 1, cold: 0, waited_ms: 0, total_ms: 3_600_000, load_ms: 0, sample_ms: 3_600_000, refine_ms: 0, finish_ms: 0, step_ms: null, expected_ms: null, vram_peak: null, heat_peak: null, asset_id: null,
+      created_at: iso(end), started_at: iso(end - 3_600_000), work: null, machine_id: "rp-c", gpu: null,
+    } as never).execute();
+    expect(await tokens.spentThisMonth(view.id)).toBeCloseTo(3, 6);
+    // the hourly fold and tidy at 1 day each: the render row is folded, the jobs stay (a token's month is counted from them)
+    expect(await fold(t.db, 1, now)).toBe(1);
+    expect(await t.db.selectFrom("render_stats").select("id").where("id", "=", "old-render").executeTakeFirst()).toBeUndefined();
+    await pruneJobs(t.db, 1, 1, now);
+    expect((await t.db.selectFrom("jobs").select("id").where("mcp_token_id", "=", view.id).execute()).map((r) => r.id).sort()).toEqual(["old-load", "old-render"]);
+    expect(await tokens.spentThisMonth(view.id)).toBeCloseTo(3, 6);
+    // the user's own jobs as old go as before
+    await t.db.insertInto("jobs").values(job("users-old", null as never, end, { machine_id: "rp-c", started_at: iso(end - 60_000), finished_at: iso(end) }) as never).execute();
+    expect(await pruneJobs(t.db, 1, 1, now)).toBe(1);
   });
 });
 

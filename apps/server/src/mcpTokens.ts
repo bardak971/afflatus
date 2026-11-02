@@ -290,12 +290,17 @@ export class McpTokens {
       const end = Math.min(r.ended_at ? Date.parse(r.ended_at) : now, now);
       if (end > start) out.set(r.mcp_token_id!, (out.get(r.mcp_token_id!) ?? 0) + ((end - start) / HOUR) * r.rate);
     }
-    // its work on machines: its renders as Costs counts them, and its model loads (load_model), which hold a pod as long
+    // its work on machines: its renders as Costs counts them, and its model loads (load_model), which hold a pod as long.
+    // A job whose render row is gone (the hourly fold keeps renderHistoryDays of them one by one, which may be fewer than
+    // the month's) is counted by its own start and end: a token's jobs of the month are kept (tidy.ts pruneJobs), so its
+    // spend is never forgotten by a shorter history, whoever set it (the 2026-11-02 review, M3)
     const renders = await this.db.selectFrom("render_stats").innerJoin("jobs", "jobs.id", "render_stats.id")
       .select(["jobs.id", "jobs.mcp_token_id", "render_stats.total_ms", "render_stats.machine_id", "render_stats.created_at", "render_stats.started_at"])
       .where("jobs.mcp_token_id", "in", ids).where("render_stats.created_at", ">=", from).execute();
     const loads = await this.db.selectFrom("jobs").select(["id", "mcp_token_id", "machine_id", "started_at", "finished_at"])
-      .where("mcp_token_id", "in", ids).where("warm", "=", 1).where("machine_id", "is not", null).where("started_at", "is not", null).where("finished_at", ">=", from).execute();
+      .where("mcp_token_id", "in", ids).where("machine_id", "is not", null).where("started_at", "is not", null).where("finished_at", ">=", from)
+      .where((eb) => eb.or([eb("warm", "=", 1), eb.not(eb.exists(eb.selectFrom("render_stats").select("render_stats.id").whereRef("render_stats.id", "=", "jobs.id")))]))
+      .execute();
     const work = [
       ...renders.map((r) => {
         const start = r.started_at ? Date.parse(r.started_at) : Date.parse(r.created_at) - r.total_ms;
