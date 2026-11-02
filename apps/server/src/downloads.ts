@@ -11,6 +11,7 @@ import type { Comfy } from "./comfy";
 import { httpError } from "./errors";
 import { fileName } from "./media";
 import { assertRoom, BAD_NAME, comfyBase, comfyFolderPaths, CONNECTIONS, fetchToFile, freeBytes, modelRoot, NOT_MODELS, type OtherRoute, type Parts, placeIn, Refused, refusalOf, shownPlace } from "./modelDownload";
+import { noPackRoute } from "./podUpload";
 import { olderThan } from "./version";
 import { assertPublicUrl, cannotReach, fetchFailure, fetchPublic } from "./outbound";
 import { renameOver } from "./storage";
@@ -968,9 +969,11 @@ export class Downloads {
         res = await ask();
       }
       delete d.waiting;
+      // an empty 404 only is the pod's proxy (PROXY_404, asked again); ComfyUI's own, with its body, says the pack's route is not
+      // there (its import broke on a pod that came back without it): failed at once, never four tries holding the pod's idle stop
       if (res.status === 404) {
-        await res.body?.cancel().catch(() => {});
-        throw new Error(PROXY_404);
+        const said = (await res.text().catch(() => "")).trim();
+        throw new Error(said ? noPackRoute("download", said) : PROXY_404);
       }
       if (!res.ok) throw new Error(`The Afflatus node pack refused the download (${res.status}: ${(await res.text()).slice(0, 200)})`);
       const got = (await res.json()) as { id: string; path?: string; root?: string };

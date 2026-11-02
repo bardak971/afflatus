@@ -19,6 +19,8 @@ describe("a node pack that is busy, or forgot a download", () => {
   /** RunPod's proxy in the pack's place once the download is asked for: an empty 404 for it, and no version either. */
   let proxyAfter = false;
   let proxy = false;
+  /** The download's start answered 404: empty (the pod's proxy), or ComfyUI's own (its pack not loaded). */
+  let startNotFound: "" | "404: Not Found" | null = null;
   const deleted: string[] = [];
   const was = process.env.CIVITAI_URL;
   beforeEach(async () => {
@@ -28,6 +30,7 @@ describe("a node pack that is busy, or forgot a download", () => {
     slow = false;
     proxyAfter = false;
     proxy = false;
+    startNotFound = null;
     deleted.length = 0;
     comfy = createServer((req, res) => {
       if (req.method === "DELETE") {
@@ -38,6 +41,10 @@ describe("a node pack that is busy, or forgot a download", () => {
       if (req.method === "POST" && req.url === "/afflatus/download") {
         asked++;
         if (proxyAfter) proxy = true;
+        if (startNotFound !== null) {
+          res.writeHead(404, { "content-type": "text/plain" });
+          return res.end(startNotFound);
+        }
         if (busy > 0) {
           busy--;
           res.writeHead(429, { "content-type": "text/plain" });
@@ -173,6 +180,26 @@ describe("a node pack that is busy, or forgot a download", () => {
       expect(said.list().find((x) => x.id === b.id)).toMatchObject({ status: "error" });
     } finally {
       log.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  // card #235: any 404 to the start was taken for the proxy, and a pod whose ComfyUI came back without the Afflatus pack had
+  // each file tried 4 times, its idle stop held through them (3–4 billed minutes) before it failed
+  it("takes only an empty 404 to the download's start for the pod's proxy; ComfyUI's own, its pack not loaded, fails at once", async () => {
+    const downloads = make();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      startNotFound = "";
+      const a = await downloads.start(stub(), "http://127.0.0.1:2", want);
+      await until(() => downloads.get(a.id)!.status === "error");
+      expect(PASSING.test(downloads.get(a.id)!.error!)).toBe(true);
+      startNotFound = "404: Not Found";
+      const b = await downloads.start(stub(), "http://127.0.0.1:2", { ...want, file: "b.safetensors" });
+      await until(() => downloads.get(b.id)!.status === "error");
+      expect(downloads.get(b.id)!.error).toMatch(/has no Afflatus node pack download route \(404: 404: Not Found\)/);
+      expect(PASSING.test(downloads.get(b.id)!.error!)).toBe(false);
+    } finally {
       warn.mockRestore();
     }
   });

@@ -1,12 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { openAsBlob } from "node:fs";
 import { baseModels, checkGraph, choicesOf, graphFiles, clockFits, FRAME_SLACK_MS, isChunkStart, latentClockOf, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, onGrid, packOfNode, parseInput, pickChoice, pickedFiles, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue, type SetFinding } from "@afflatus/core";
-import { catalogKey, ComfyCancelled, ComfyError, ComfyUnreachable } from "@afflatus/comfy";
+import { catalogKey, ComfyCancelled, ComfyError, ComfyUnreachable, filesIn } from "@afflatus/comfy";
 import { chunksOf, forecast, fromRates, sizedFrom, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
 import { cutFrames, frameAt, inTemp, exactPart, onDisk, partOf, rangeKeep, referenceClip, soundPart, type Media } from "./cut";
 import type { Db, Tables } from "./db";
-import { extOf } from "./media";
+import { extOf, fileName } from "./media";
 import { usualParts } from "./renders";
 import { sourceOf, type Storage } from "./storage";
 import { addPart, timedPart } from "./serverMetrics";
@@ -948,18 +948,23 @@ async function podHeld(
     // one that cannot be had there is refused with why; one asked for by the input only is done without, as before
     const failed = files.find((f) => f.gap && f.on?.state === "failed");
     if (failed) throw new Error(`${got.gaps[failed.id]} It could not be had on its pod: ${failed.on!.error ?? "its fetch failed"}.`);
-    const coming = files.filter((f) => f.on === null || f.on.state === "next" || f.on.state === "fetching");
+    // one never asked for there: its folder read again first. A network volume holds files from an earlier session that the
+    // pod's files know nothing of, and a listing blip read one as missing: 16 GB asked for again, Make room deleting for it,
+    // or failed "its volume is full" for good (card #235). Listed, or not known (the folder did not answer): waited for as
+    // one had whole, never asked for; only a folder that answers without it asks for it
+    const listed = new Map(await Promise.all(files.filter((f) => f.on === null).map(async (f) => [f.id, await filesIn(comfy.client, f.folder).then((l) => l.some((x) => fileName(x) === fileName(f.file)), () => null)] as const)));
+    const coming = files.filter((f) => (f.on === null && listed.get(f.id) === false) || f.on?.state === "next" || f.on?.state === "fetching");
     if (coming.length) {
       const why = pod.need(coming.map(({ file, folder, url }) => ({ file, folder, url })), row.id);
       if (!why) throw new SlotComing(`waits for ${coming.map((f) => f.file).join(", ")}, still coming to its pod`, false);
       const gap = coming.find((f) => f.gap);
       if (gap) throw new Error(`${got.gaps[gap.id]} Its pod is not getting it: ${why}.`);
     }
-    const whole = files.filter((f) => f.on?.state === "ready");
+    const whole = files.filter((f) => f.on?.state === "ready" || (f.on === null && listed.get(f.id) !== false));
     if (!whole.length) return got;
     if (tries >= RELIST_TRIES) {
       const gap = whole.find((f) => f.gap);
-      if (gap) throw new SlotComing(`${got.gaps[gap.id]} (${gap.file} came to its pod, and its ComfyUI did not list it)`, true);
+      if (gap) throw new SlotComing(`${got.gaps[gap.id]} (${gap.on ? `${gap.file} came to its pod, and its ComfyUI did not list it` : listed.get(gap.id) ? `its pod's ComfyUI lists ${gap.file} in its folder, not among its models` : `its pod's ComfyUI did not list its ${gap.folder} folder`})`, true);
       return got;
     }
     await new Promise((go) => setTimeout(go, core.opts.relistMs ?? RELIST_MS));

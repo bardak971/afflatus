@@ -1013,9 +1013,11 @@ describe("a rented pod's node packs", () => {
 describe("a rented pod's disk", () => {
   const GB2 = 2 * 2 ** 30;
   /** The pod's files, with its pack saying its disk (0.19.0) and Make room as given. */
+  /** The pod's ComfyUI the last withDisk asks. */
+  let diskComfy: Comfy;
   function withDisk(makesRoom: boolean, onVolume = false, volumeBytes?: number) {
     pod.packVersion = "0.19.0";
-    const comfy = new Comfy(pod.url, t.services.registry);
+    const comfy = (diskComfy = new Comfy(pod.url, t.services.registry));
     const made = new PodFiles({
       db: t.services.db, downloads: t.services.downloads,
       comfyOf: async () => comfy, cloudOf: async () => "SECURE", alive: () => true, busy: () => false,
@@ -1085,6 +1087,51 @@ describe("a rented pod's disk", () => {
     await settleOn(on, "a.safetensors");
     expect(pod.removed).toEqual([]);
     expect(on.view("pod").find((f) => f.file === "a.safetensors")?.error).toMatch(/nothing it fetched can be deleted/);
+  });
+
+  // card #235: a file a network volume held from an earlier session has no entry, and a listing blip at a submit asked for
+  // it as missing. Its pod's own list is read before anything is deleted or failed for it
+  it("deletes nothing, and fails nothing, for a file asked for that the pod's folder lists already: it is there", async () => {
+    const on = withDisk(true, true);
+    on.want("pod", [{ file: "old.safetensors", folder: "loras", url: `${siteUrl}/files/old.safetensors` }], { tier: "need", job: "gone-job" });
+    await settleOn(on, "old.safetensors");
+    writeFileSync(join(disk, "loras", "a.safetensors"), FILE);
+    pod.diskFree = GB2 + 100_000;
+    on.want("pod", [{ file: "a.safetensors", folder: "loras", url: `${siteUrl}/files/a.safetensors`, size: FILE.length }], { tier: "need", job: "j2" });
+    await settleOn(on, "a.safetensors");
+    expect(pod.removed).toEqual([]);
+    expect(on.view("pod").map((f) => [f.file, f.state])).toEqual([["old.safetensors", "ready"], ["a.safetensors", "ready"]]);
+    expect(pod.packFetched.filter((f) => f.includes("a.safetensors"))).toEqual([]);
+    // Make room off: not failed "its volume is full"
+    const off = withDisk(false, true);
+    off.want("pod", [{ file: "a.safetensors", folder: "loras", url: `${siteUrl}/files/a.safetensors`, size: FILE.length }], { tier: "need", job: "j3" });
+    await settleOn(off, "a.safetensors");
+    expect(off.view("pod")[0]).toMatchObject({ state: "ready" });
+  });
+
+  it("deletes nothing, and fails nothing, for a file with no room while its folder does not answer: asked again, there once it does", async () => {
+    const on = withDisk(true, true);
+    on.retryMs = 10;
+    on.want("pod", [{ file: "old.safetensors", folder: "loras", url: `${siteUrl}/files/old.safetensors` }], { tier: "need", job: "gone-job" });
+    await settleOn(on, "old.safetensors");
+    writeFileSync(join(disk, "loras", "a.safetensors"), FILE);
+    pod.diskFree = GB2 + 100_000;
+    const real = diskComfy.client.models.bind(diskComfy.client);
+    let fails = 2;
+    diskComfy.client.models = async (folder) => {
+      if (folder === "loras" && fails > 0) {
+        fails--;
+        throw new Error("fetch failed");
+      }
+      return real(folder);
+    };
+    on.want("pod", [{ file: "a.safetensors", folder: "loras", url: `${siteUrl}/files/a.safetensors`, size: FILE.length }], { tier: "need", job: "j2" });
+    await until(async () => (await on.tick(), fails === 0));
+    expect(on.view("pod").find((f) => f.file === "a.safetensors")?.state).toBe("next");
+    expect(on.moving("pod")).toBe(true);
+    await settleOn(on, "a.safetensors");
+    expect(pod.removed).toEqual([]);
+    expect(on.view("pod").find((f) => f.file === "a.safetensors")?.state).toBe("ready");
   });
 
   it("fails a file its older pack refuses for want of room, never asked again as a passing failure", async () => {
