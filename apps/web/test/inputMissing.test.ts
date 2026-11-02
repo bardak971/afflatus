@@ -40,4 +40,14 @@ describe("Generate waits for the inputs a recipe cannot do without", () => {
     // an input still missing is said first
     expect(inputMissing(krea, { prompt: "", person: pic, references: pic })).toBe("Write prompt first.");
   });
+
+  it("counts the cast's pictures in the input compose puts them in: a cast person beside style images is refused too (card #237)", () => {
+    const krea = { ...recipe([{ id: "prompt", type: "prompt", label: "Prompt" }, { id: "person", type: "references", label: "Person" }, { id: "references", type: "references", label: "Style" }]),
+      refuses: [{ when: { all: [{ input: "person", filled: true }, { input: "references", filled: true }] }, why: "Not both." }] } as RecipeInfo;
+    const style = [{ asset: "s1", role: "style" as const }];
+    const cast = [{ asset: "p1", role: "person" as const }];
+    expect(inputMissing(krea, { prompt: "a cat", person: [], references: style }, cast)).toBe("Not both.");
+    expect(inputMissing(krea, { prompt: "a cat", person: [], references: [] }, cast)).toBeNull();
+    expect(inputMissing(krea, { prompt: "a cat", person: [], references: style })).toBeNull();
+  });
 });

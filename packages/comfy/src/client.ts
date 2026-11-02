@@ -448,12 +448,13 @@ export class ComfyClient {
   /**
    * What a picture holds of a face, as the Afflatus node pack reads it (0.48.1 on, POST /afflatus/face-facts): its answer as
    * it comes (faceFacts.ts checks it), "unreadable" when the pack could not read the picture, "absent" when the route is not
-   * there (no pack, an older one, or a ComfyUI without insightface), null when ComfyUI did not answer. A long time limit:
+   * there (no pack, an older one, or a ComfyUI without insightface) or cannot read now (503, 0.49.2 on: InsightFace could not
+   * be loaded or its files fetched, which says nothing of the picture), null when ComfyUI did not answer. A long time limit:
    * the first picture fetches InsightFace's files into ComfyUI's models folder.
    */
   async faceFacts(picture: Uint8Array): Promise<unknown | "unreadable" | "absent" | null> {
     const res = await this.fetcher(`${this.baseUrl}/afflatus/face-facts`, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: new Uint8Array(picture), signal: AbortSignal.timeout(FACE_FACTS_TIMEOUT) }).catch(() => null);
-    if (res && [404, 405, 501].includes(res.status)) {
+    if (res && [404, 405, 501, 503].includes(res.status)) {
       await res.body?.cancel().catch(() => {});
       return "absent";
     }

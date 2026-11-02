@@ -145,6 +145,21 @@ export const withFacePass = <T extends Pick<H3Video, "faceRefine" | "previous" |
 export const holdsFace = (input: Pick<H3Video, "previous" | "faceCarried" | "references"> & Partial<Pick<H3Video, "holdFace">>): boolean =>
   carriesFace(input) && input.holdFace !== false;
 
+/**
+ * Why a continuation that holds the face on (holdsFace) cannot have its pass where it is built, or null when the pass runs (or
+ * nothing is held): the person's pictures are left out of its sampling only for the pass to bring the face back. Without the
+ * face detector, the model, or the pack (missing with Run without, or not to be had), the pass was skipped and the clip had
+ * neither the pictures nor the pass (card #231): it is sampled with them then, as a first clip is. The same checks as
+ * faceRefined, in the same order (`wanted` is asked the same way, so a Run without is said once on the job).
+ */
+export function faceHoldLacks(input: H3Video, ctx: BuildContext, clip: ClipModel): string | null {
+  if (!holdsFace(input)) return null;
+  const forced = withFacePass(input);
+  const skipped = faceRefineSkipped(forced, ctx, { audio: true, clip });
+  if (skipped) return skipped;
+  return wanted(ctx, { input: "faceRefine", nodes: [FACE_STITCH], without: "Face refine" }) ? null : FACE_REFINE_PACK_NEEDED;
+}
+
 /** What Face refine reads of a form: its own settings, and the person's words and pictures. */
 export type FaceRefineValues = Pick<H3Video, "faceRefine" | "faceRefineDenoise" | "faceRefineSteps" | "references" | "subject" | "quick"> & Partial<Pick<H3Video, "faceRefineModel">>;
 

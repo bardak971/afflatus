@@ -6,7 +6,7 @@ import { Button, Help } from "../../ui";
 
 /** Why a continuation with the same person pictures is face-refined rather than sampled with them: the "?" of the line. */
 const WHY =
-  "Sampled with a person's picture, a continuation takes on the picture's colour and light, more with each clip (a beach chain went yellow and brighter by its fourth clip). So a continuation with the same person pictures as the clip before is sampled without them, carrying on from that clip's frames, and Face refine then draws the face towards them: the colour stays the scene's. A clip whose person pictures changed is sampled with them, a new look being asked for there, and the clips after it carry that face on.";
+  "Sampled with a person's picture, a continuation takes on the picture's colour and light, more with each clip (a beach chain went yellow and brighter by its fourth clip). So a continuation with the same person as the clip before (the same cast person and picture picked on their chip, or the same pictures) is sampled without their pictures, carrying on from that clip's frames, and Face refine then draws the face towards them: the colour stays the scene's. The clip before is read as its take was rendered. A clip whose person changed is sampled with their pictures, a new look being asked for there, and the clips after it carry that face on. On a ComfyUI where Face refine cannot run (no face detector, its node pack missing), a continuation is sampled with the pictures after all, and its job says so.";
 
 /** What each H3 clip of a timeline does with its person's picture, by clip id (card #223); read again with the timeline. */
 export function useFaceRoutes(timeline: string): Record<string, FaceRoute> {
@@ -31,8 +31,8 @@ export function FaceLine({ timeline, clip, route }: { timeline: string; clip: st
   if (!route) return null;
   const said =
     route.route === "carried" && route.held === false ? `A plain continuation of clip ${route.before}, sampled without the person's picture and not face-refined (Hold the face on continuations is off): the face may drift from it.`
-    : route.route === "carried" ? `On this continuation the face comes from Face refine towards the person's picture, carried on from clip ${route.before}.`
-    : route.why === "changed" ? `This clip starts a new look: sampled with the person's picture, which differs from clip ${route.before}'s.`
+    : route.route === "carried" ? `On this continuation the face comes from Face refine towards the person's picture, carried on from clip ${route.before} (where Face refine cannot run, it is sampled with the picture).`
+    : route.why === "changed" ? `This clip starts a new look: sampled with the person's picture, another person or picture than clip ${route.before}'s.`
     : "Sampled with the person's picture: the clips that carry on from this one keep its face by Face refine.";
   return (
     <div className="flex flex-col gap-1.5 rounded-lg bg-raised px-2.5 py-2 text-xs text-ink-2" data-face-route={route.route}>

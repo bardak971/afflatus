@@ -104,9 +104,9 @@ export interface H3Video extends ColourMatch {
 export function withFaceCarried(inputs: InputSpec[]): InputSpec[] {
   return inputs.map((spec) =>
     spec.id === "references" && spec.type === "references" && !spec.media
-      ? { ...spec, note: `${spec.note}. On a timeline, a continuation with the same person pictures as the clip before is sampled without them, then Face refine draws the face towards them: sampled with a person's picture, a continuation takes on the picture's colour and light. A clip whose person pictures changed is sampled with them` }
+      ? { ...spec, note: `${spec.note}. On a timeline, a continuation with the same person as the clip before (the same cast person and picked picture, or the same pictures) is sampled without their pictures, then Face refine draws the face towards them: sampled with a person's picture, a continuation takes on the picture's colour and light. A clip whose person pictures changed is sampled with them` }
       : spec.id === "faceRefine" && spec.type === "toggle"
-        ? { ...spec, note: `${spec.note}. On a timeline it runs on a continuation with the same person pictures as the clip before whatever this says, on the clip's own model: the face comes from it there` }
+        ? { ...spec, note: `${spec.note}. On a timeline, with Hold the face on continuations on, it runs on a continuation with the same person as the clip before whatever this says, on the clip's own model: the face comes from it there. Where it cannot run (no face detector, its node pack missing), that continuation is sampled with the person's pictures instead, and its job says so` }
         : spec);
 }
 
@@ -246,7 +246,7 @@ export const h3Inputs: InputSpec[] = [
   // pass, the person's pictures still left out (the colour kept), and the face drifts from them clip after clip
   {
     id: "holdFace", type: "toggle", label: "Hold the face on continuations", default: true, section: "out",
-    note: "on a timeline, a clip that carries on with the same person pictures as the clip before is sampled without them, which keeps the chain's colour, and Face refine then draws the face towards them on the clip's own model, whatever Face refine says. Off: a plain continuation, nothing redrawn after it, faster; the face may drift from the pictures clip after clip. Its time is from your own renders with Face refine",
+    note: "on a timeline, a clip that carries on with the same person as the clip before is sampled without their pictures, which keeps the chain's colour, and Face refine then draws the face towards them on the clip's own model, whatever Face refine says. Off: a plain continuation, nothing redrawn after it, faster; the face may drift from the pictures clip after clip. Its time is from your own renders with Face refine",
   },
   ...FACE_REFINE_INPUTS,
   {

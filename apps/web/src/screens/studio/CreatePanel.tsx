@@ -12,7 +12,7 @@ import { formDefaults, matchFiles, ownValues } from "../../form";
 import { takePreset } from "../../handoff";
 import { formsCanQueue, notReady } from "../../format";
 import { LookBar, lookWords } from "../../LookBar";
-import { CastPictures } from "../../castPictures";
+import { CastPictures, useCastAdded } from "../../castPictures";
 import { CardPrompt, PartHead } from "../../recipeForm/Part";
 import { appendTo } from "../../promptText";
 import { useBanners, usePanelWidth } from "../../store";
@@ -107,7 +107,9 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
   const whole = useMemo(() => (recipe && draft ? { ...defaults, ...ownValues(recipe, formValues) } : {}), [recipe, draft, defaults, formValues]);
   // a required input still empty (an img2img with no picture, an Inpaint with no mask) waits like a model that is not
   // ready: Ctrl+Enter and the command bar too
-  const missing = inputMissing(recipe, whole);
+  // (with the pictures the cast adds: a cast person in Krea 2's person reference beside style images is refused)
+  const cast = useCastAdded(recipe, whole, draft?.look).added?.refs;
+  const missing = inputMissing(recipe, whole, cast);
   const send = useGenerate({ recipe, draft, defaults, folder: folder?.id, d, blocked: blocked ?? missing });
   // Generate from elsewhere (the command bar), refused as the button is
   const makeNow = useRef((_machine?: string) => {});
@@ -219,7 +221,7 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
         )}
       </ScrollColumn>
 
-      <GenerateBar recipe={recipe} draft={draft} whole={whole} folder={folder ? { name: folder.name, path: folder.path } : null} blocked={blocked} waits={waitsOn(whole)} send={send} onCount={d.setCount} />
+      <GenerateBar recipe={recipe} draft={draft} whole={whole} folder={folder ? { name: folder.name, path: folder.path } : null} blocked={blocked} missing={missing} waits={waitsOn(whole)} send={send} onCount={d.setCount} />
 
       {designing && recipe && draft && (
         <Suspense fallback={null}>

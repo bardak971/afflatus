@@ -13,7 +13,7 @@ describe("H3's Reference images, as their \"?\" says them", () => {
     // (Video with audio and Lip sync say what a timeline does with them on a continuation, card #223; Motion transfer does not do it)
     expect(notes[0]).toBe(notes[1]);
     expect(notes[0]!.startsWith(notes[2]!)).toBe(true);
-    expect(notes[0]).toContain("On a timeline, a continuation with the same person pictures as the clip before is sampled without them");
+    expect(notes[0]).toContain("On a timeline, a continuation with the same person as the clip before (the same cast person and picked picture, or the same pictures) is sampled without their pictures");
     expect(notes[2]).not.toContain("On a timeline");
   });
 });

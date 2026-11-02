@@ -108,6 +108,18 @@ export function sentPicture(e: Entity, picked?: string | null): string | undefin
   if (picked && e.def.pictures.includes(picked)) return picked;
   return (e.kind === "person" ? e.faces?.order[0] : undefined) ?? e.def.pictures[0];
 }
+/**
+ * Why `face` is the picture sent first of a cast person (their chip's tip): picked on the chip, their clearest face (a picture
+ * read with a face found), else their first in the Prompt kit, their pictures not read for faces yet, or none with a face.
+ * Not "the clearest face" for a picture nothing was read of: the kit's first goes first then (card #233).
+ */
+export function sentFirstSaid(e: Entity, face: string, picked?: string | null): string {
+  if (picked === face) return "Sent first: picked here";
+  const faces = e.kind === "person" ? e.faces : undefined;
+  if (faces && !faces.unread.includes(face) && !faces.none.includes(face)) return "Sent first: the clearest face";
+  if (faces?.none.includes(face)) return "Sent first: the first of the Prompt kit (no face found in their pictures)";
+  return "Sent first: the first of the Prompt kit (not read for faces yet)";
+}
 /** Whether a look adds anything to a form. */
 export const lookAdds = (look: Look | null | undefined): look is Look => Boolean(look && (look.cast.length || look.style || look.snippets?.length));
 export interface Outfit {

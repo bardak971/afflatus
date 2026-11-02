@@ -122,7 +122,7 @@ export function fakeRoutes(fake: FakeState, hooks: { queued(promptId: string, cl
       if (!fake.faceFacts) return json(404, {});
       if (!/^application\/octet-stream\b/.test(String(headers["content-type"] ?? ""))) return json(415, { error: "the picture's bytes are expected" });
       const facts = fake.faceFacts(new Uint8Array(raw));
-      return facts === "unreadable" ? plain(422, "the picture could not be read") : json(200, facts);
+      return facts === "unreadable" ? plain(422, "the picture could not be read") : facts === "not loaded" ? plain(503, "InsightFace could not be loaded") : json(200, facts);
     }
     if (path === "/afflatus/clean-input") {
       // as the pack does: only a JSON body, which a page of another site cannot send without asking first

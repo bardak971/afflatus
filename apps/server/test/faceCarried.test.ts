@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { newId, now, OWNER } from "../src/db";
-import { personPictures, sameFace } from "../src/faceCarried";
+import { faceOf, sameFace } from "../src/faceCarried";
 import { newAssetRow } from "../src/media";
 import type { ClipRow } from "../src/timelineModel";
 import { makeApp, type TestApp } from "./helpers";
@@ -31,10 +31,11 @@ async function clip(timeline: string, position: number, over: Partial<ClipRow> =
   return id;
 }
 
-/** A take of `clipId` rendered from `inputs` (the cast worked in), by `recipe`. */
-async function take(clipId: string, inputs: Record<string, unknown>, recipe = "h3.video"): Promise<string> {
+/** A take of `clipId` rendered from `inputs` (the cast worked in), by `recipe`; with `look`, the job it was sent by. */
+async function take(clipId: string, inputs: Record<string, unknown>, recipe = "h3.video", look?: unknown): Promise<string> {
   const generation = newId();
   await t.db.insertInto("generations").values({ id: generation, owner_id: OWNER, recipe_id: recipe, recipe_version: 1, family: "h3", inputs: JSON.stringify(inputs), resolved: "{}", gen_ms: 1, draft_id: null, created_at: now() }).execute();
+  if (look) await t.db.insertInto("jobs").values({ id: newId(), owner_id: OWNER, recipe_id: recipe, label: "zz-test", inputs: JSON.stringify(inputs), look: JSON.stringify(look), clip_id: clipId, generation_id: generation, status: "done", priority: 0, created_at: now(), updated_at: now() } as never).execute();
   const id = newId();
   const row = newAssetRow({
     id, kind: "video", origin: "generated", name: "v.mp4", file_key: `assets/${id.slice(0, 2)}/${id}.mp4`, thumb_key: null, mime: "video/mp4", bytes: 1000,
@@ -59,11 +60,14 @@ describe("an H3 continuation with the person pictures of the take before it", ()
     const first = await planned(ids[0]!, { references: person("p1"), faceCarried: true });
     expect(first.faceCarried).toBe(false);
     expect(first.faceRefine).toBe(undefined);
-    expect(await planned(ids[1]!, { references: person("p1") })).toMatchObject({ faceCarried: true, faceRefine: true });
+    // Face refine is forced by the build (withFacePass), never written into the form kept with the take (card #231)
+    const carried = await planned(ids[1]!, { references: person("p1") });
+    expect(carried.faceCarried).toBe(true);
+    expect(carried.faceRefine).toBeUndefined();
     // its form says p2 where the take before was made with p1: a new look, sampled with it
     const changed = await planned(ids[2]!, { references: person("p2"), faceRefine: false });
     expect(changed).toMatchObject({ faceCarried: false, faceRefine: false });
-    expect(await planned(ids[3]!, { references: person("p2") })).toMatchObject({ faceCarried: true, faceRefine: true });
+    expect(await planned(ids[3]!, { references: person("p2") })).toMatchObject({ faceCarried: true });
   });
 
   it("is a plain continuation with Hold the face on continuations off: sampled without the pictures, Face refine as the form has it", async () => {
@@ -75,8 +79,7 @@ describe("an H3 continuation with the person pictures of the take before it", ()
     expect(off).toMatchObject({ faceCarried: true, holdFace: false });
     expect(off.faceRefine).toBeUndefined();
     expect(await planned(b, { references: person("p1"), holdFace: false, faceRefine: true })).toMatchObject({ faceCarried: true, faceRefine: true });
-    // a form saved before the toggle holds it
-    expect(await planned(b, { references: person("p1") })).toMatchObject({ faceCarried: true, faceRefine: true });
+    expect((await planned(b, { references: person("p1") })).faceRefine).toBeUndefined();
   });
 
   it("is not carried after a hard cut, a take rendered nowhere here, or with no person picture", async () => {
@@ -95,7 +98,7 @@ describe("an H3 continuation with the person pictures of the take before it", ()
     const a = await clip(tl, 0, { joined: "cut" });
     const b = await clip(tl, 1);
     await t.db.insertInto("jobs").values({ id: newId(), owner_id: OWNER, recipe_id: "h3.video", label: "zz-test", inputs: JSON.stringify({ description: "a", references: person("p1") }), clip_id: a, status: "queued", priority: 0, created_at: now(), updated_at: now() } as never).execute();
-    expect(await planned(b, { references: person("p1") })).toMatchObject({ faceCarried: true, faceRefine: true });
+    expect(await planned(b, { references: person("p1") })).toMatchObject({ faceCarried: true });
     // a finish re-samples its draft as it was made: the draft's word kept, whatever the clip before is now
     expect((await planned(b, { references: person("p9"), faceCarried: true }, "draft-take")).faceCarried).toBe(true);
   });
@@ -103,10 +106,31 @@ describe("an H3 continuation with the person pictures of the take before it", ()
   it("compares the person pictures alone, in any order, across forms", () => {
     const video = t.services.registry.recipe("h3.video")!;
     const lip = t.services.registry.recipe("h3.lipsync")!;
-    expect(personPictures(video, { references: [...person("b", "a", "a"), { asset: "c", role: "clothing" }] })).toEqual(["a", "b"]);
-    expect(sameFace(lip, { references: person("a", "b") }, video, { references: [...person("b", "a"), { asset: "pl", role: "place" }] })).toBe(true);
-    expect(sameFace(video, { references: person("a") }, video, { references: person("a", "b") })).toBe(false);
-    expect(sameFace(video, { references: [] }, video, { references: [] })).toBe(false);
+    const none = new Map<string, string>();
+    const face = (r: typeof video, refs: Array<{ asset: string; role: string }>) => faceOf(r, { references: refs }, null, none);
+    expect(face(video, [...person("b", "a", "a"), { asset: "c", role: "clothing" }])).toEqual(["a", "b"]);
+    expect(sameFace(face(lip, person("a", "b")), face(video, [...person("b", "a"), { asset: "pl", role: "place" }]))).toBe(true);
+    expect(sameFace(face(video, person("a")), face(video, person("a", "b")))).toBe(false);
+    expect(sameFace(face(video, []), face(video, []))).toBe(false);
+  });
+
+  it("compares a cast person by who they are and the picture picked on them, not the pictures sent (card #231)", async () => {
+    // P has five pictures; clip 1 was sent p1–p3, then the faces were read and p4 now goes first: clip 2 is composed with p4,
+    // p1, p2. Nothing the user did changed, and it carries the face on
+    const pics = ["p1", "p2", "p3", "p4", "p5"];
+    const who = newId();
+    await t.db.insertInto("entities").values({ id: who, owner_id: OWNER, kind: "person", name: "zz-test Mara", def: JSON.stringify({ pictures: pics, sentence: "zz-test" }), created_at: now(), updated_at: now() }).execute();
+    const tl = (await t.services.timelines.create("zz-test face by person")).id;
+    const cast = (picture?: string) => ({ cast: [{ id: who, ...(picture ? { picture } : {}) }], style: null, snippets: [] });
+    const [a, b] = [await clip(tl, 0, { joined: "cut" }), await clip(tl, 1)];
+    await take(a, { references: person("p1", "p2", "p3") }, "h3.video", cast());
+    await t.db.updateTable("timelines").set({ look: JSON.stringify(cast()) }).where("id", "=", tl).execute();
+    expect((await planned(b, { references: person("p4", "p1", "p2") })).faceCarried).toBe(true);
+    // a picture picked on the chip is a new look asked for, and so is another person
+    await t.db.updateTable("clips").set({ look: JSON.stringify(cast("p4")) }).where("id", "=", b).execute();
+    expect((await planned(b, { references: person("p4", "p1", "p2") })).faceCarried).toBe(false);
+    await t.db.updateTable("clips").set({ look: null }).where("id", "=", b).execute();
+    expect((await planned(b, { references: person("q1") })).faceCarried).toBe(false);
   });
 });
 
@@ -144,12 +168,65 @@ describe("what each H3 clip does with its person's picture, as the editor says i
     expect(after[ids[4]!]).toEqual({ route: "carried", before: 4 });
     const rows = await t.db.selectFrom("clips").select(["id", "inputs", "look"]).where("id", "in", [ids[3]!, ids[4]!]).execute();
     const four = rows.find((r) => r.id === ids[3])!;
-    // its own other pictures kept, the person's replaced, the cast of the clip it was given from
-    expect(JSON.parse(four.inputs).references).toEqual([{ asset: "pl", role: "place" }, ...person("p2")]);
-    expect(four.look).toBe(look);
+    // its own other pictures kept after the new person's, its own look (the timeline's) kept: no cast person to swap (card #232)
+    expect(JSON.parse(four.inputs).references).toEqual([...person("p2"), { asset: "pl", role: "place" }]);
+    expect(four.look).toBeNull();
     // one step for Undo puts them back
     await t.services.timelines.history.undo(tl);
     expect((await t.services.timelines.face.routes(tl))[ids[2]!]?.keepOld).toEqual({ from: 4, to: 5 });
     await expect(t.services.timelines.face.spread(ids[1]!)).rejects.toThrow(/No clip after this one/);
+  });
+
+  it("reads the clip before's take as its render will, and a Swap character clip before as one with pictures (card #231)", async () => {
+    const tl = (await t.services.timelines.create("zz-test face routes take")).id;
+    const form = (refs: Array<{ asset: string; role: string }>) => JSON.stringify({ description: "zz-test", references: refs });
+    const [a, b] = [await clip(tl, 0, { joined: "cut", inputs: form(person("p2")) }), await clip(tl, 1, { inputs: form(person("p1")) })];
+    // clip 1's form now says p2, but the take that plays was made with p1: rendered now, clip 2 carries p1 on
+    await take(a, { references: person("p1") });
+    expect((await t.services.timelines.face.routes(tl))[b]).toEqual({ route: "carried", before: 1 });
+    expect((await planned(b, { references: person("p1") })).faceCarried).toBe(true);
+    // a Swap character clip before with the same person: the render carries the face on, and the editor says so
+    const tl2 = (await t.services.timelines.create("zz-test face routes swap")).id;
+    const [s1, s2] = [await clip(tl2, 0, { joined: "cut", recipe_id: "h3.swap", inputs: JSON.stringify({ who: "zz-test", references: person("p1") }) }), await clip(tl2, 1, { inputs: form(person("p1")) })];
+    await take(s1, { references: person("p1") }, "h3.swap");
+    expect((await planned(s2, { references: person("p1") })).faceCarried).toBe(true);
+    expect((await t.services.timelines.face.routes(tl2))[s2]).toEqual({ route: "carried", before: 1 });
+  });
+
+  it("offers Use this one on them too only on clips that have the person changed from (card #232)", async () => {
+    const tl = (await t.services.timelines.create("zz-test face routes no person")).id;
+    const form = (refs: Array<{ asset: string; role: string }>) => JSON.stringify({ description: "zz-test", references: refs });
+    // clip 1 has no person, clip 2 adds one, clips 3 and 4 have none either: they hold no picture of clip 1's
+    const ids = [await clip(tl, 0, { joined: "cut", inputs: form([]) }), await clip(tl, 1, { inputs: form(person("p1")) }), await clip(tl, 2, { inputs: form([]) }), await clip(tl, 3, { inputs: form([]) })];
+    expect((await t.services.timelines.face.routes(tl))[ids[1]!]).toEqual({ route: "sampled", why: "changed", before: 1 });
+  });
+
+  it("gives the later clips this clip's person and picture, their own look and pictures kept, none of the people cut (card #232)", async () => {
+    const pics = async (name: string) => {
+      const ids = ["a", "b", "c"].map((x) => `${name}-${x}`);
+      const who = newId();
+      await t.db.insertInto("entities").values({ id: who, owner_id: OWNER, kind: name === "beach" ? "place" : "person", name: `zz-test ${name}`, def: JSON.stringify({ pictures: ids, sentence: "zz-test" }), created_at: now(), updated_at: now() }).execute();
+      return who;
+    };
+    const [p, q, beach] = [await pics("p"), await pics("q"), await pics("beach")];
+    const tl = (await t.services.timelines.create("zz-test face spread look")).id;
+    const own = { cast: [{ id: p, outfit: "o2" }, { id: beach }], style: "film", snippets: ["golden"] };
+    const form = (refs: Array<{ asset: string; role: string }>) => JSON.stringify({ description: "zz-test", references: refs });
+    const many = ["s1", "s2", "s3", "s4", "s5"].map((asset) => ({ asset, role: "style" }));
+    const ids = [
+      await clip(tl, 0, { joined: "cut", inputs: form(person("h1")), look: JSON.stringify({ cast: [{ id: p }], style: null, snippets: [] }) }),
+      // clip 2 changes the person to Q, picked on its chip, and two pictures of them given by hand
+      await clip(tl, 1, { inputs: form(person("h2", "h3")), look: JSON.stringify({ cast: [{ id: q, picture: "q-c" }], style: null, snippets: [] }) }),
+      // clip 3 keeps P in their own look, with five style pictures beside the person's (the input takes six)
+      await clip(tl, 2, { inputs: form([...many, ...person("h1")]), look: JSON.stringify(own) }),
+    ];
+    expect((await t.services.timelines.face.routes(tl))[ids[1]!]).toMatchObject({ why: "changed", keepOld: { from: 3, to: 3 } });
+    await t.services.timelines.face.spread(ids[1]!);
+    const three = await t.db.selectFrom("clips").select(["inputs", "look"]).where("id", "=", ids[2]!).executeTakeFirstOrThrow();
+    // Q in P's place with the picked picture; the place, the style and the snippet are its own still
+    expect(JSON.parse(three.look!)).toEqual({ cast: [{ id: q, picture: "q-c" }, { id: beach }], style: "film", snippets: ["golden"] });
+    // the new person picture first: none of it cut by the input's six, a style picture left out instead
+    expect(JSON.parse(three.inputs).references).toEqual([...person("h2", "h3"), ...many.slice(0, 4)]);
+    expect((await t.services.timelines.face.routes(tl))[ids[2]!]).toEqual({ route: "carried", before: 2 });
   });
 });

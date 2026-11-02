@@ -11,17 +11,18 @@ import { useQueue } from "../../data";
 import { aboutMs } from "../../format";
 import { severalMachines } from "../../machines";
 import { GenerateOn, shortName, usePickedMachine } from "../../GenerateOn";
-import { inputMissing } from "./missing";
 import type { useGenerate } from "./useGenerate";
 
 /** The foot of the Create panel: what stops the form, where its results go, the batch count, and Render with what it will take. */
-export function GenerateBar({ recipe, draft, whole, folder, blocked, waits, send, onCount }: {
+export function GenerateBar({ recipe, draft, whole, folder, blocked, missing, waits, send, onCount }: {
   recipe: RecipeInfo | undefined;
   draft: Draft | null;
   /** The whole form as it stands. */
   whole: Record<string, unknown>;
   folder: { name: string; path: string | null } | null;
   blocked: string | null;
+  /** Why Render waits for the form (inputMissing, the cast's pictures counted in), or null. */
+  missing: string | null;
   /** What the job will wait for, said on the button in place of its time: "waits for a GPU", "waits for the download". */
   waits?: string | null;
   send: ReturnType<typeof useGenerate>;
@@ -38,7 +39,6 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, waits, send
   const totalOn = (m: MachineState | null): number | null => batchMs(estimate, count, m);
   const total = totalOn(picked ?? null);
   const about = picked && total !== null ? aboutMs(total) : batchAbout(estimate, count);
-  const missing = inputMissing(recipe, whole);
   return (
     <div className="flex shrink-0 flex-col gap-2 border-t border-line p-3">
       {send.isError && <Failed what="Not rendered" error={send.error} />}
