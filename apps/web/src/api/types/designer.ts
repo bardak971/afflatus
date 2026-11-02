@@ -93,10 +93,20 @@ export interface SnippetDef {
 }
 /** Who is in it and how it looks: people and places (a person with the outfit picked), and one style. */
 export interface Look {
-  cast: Array<{ id: string; outfit?: string | null }>;
+  /** `picture`: the person's picture picked in the form to be sent first, in place of their clearest face. */
+  cast: Array<{ id: string; outfit?: string | null; picture?: string | null }>;
   style?: string | null;
   /** Snippets that are ticked: their text is added after what is written. */
   snippets?: string[];
+}
+/**
+ * The picture a person of the cast is shown by and sent first to a model that takes one: the one picked in the form
+ * (`picked`, while it is still theirs), else their clearest face (the server's order), else their first; a place's first.
+ */
+export function sentPicture(e: Entity, picked?: string | null): string | undefined {
+  if (e.kind !== "person" && e.kind !== "place") return undefined;
+  if (picked && e.def.pictures.includes(picked)) return picked;
+  return (e.kind === "person" ? e.faces?.order[0] : undefined) ?? e.def.pictures[0];
 }
 /** Whether a look adds anything to a form. */
 export const lookAdds = (look: Look | null | undefined): look is Look => Boolean(look && (look.cast.length || look.style || look.snippets?.length));
@@ -142,8 +152,14 @@ export interface PresetDef {
   links?: Array<{ label: string; url: string }>;
   licence?: { name: string; url?: string; note?: string };
 }
+/** A person's pictures in the order they are sent (the clearest face first), and those with no face found or not read yet (server faceFacts.ts). */
+export interface PictureFaces {
+  order: string[];
+  none: string[];
+  unread: string[];
+}
 export type Entity =
-  | { id: string; kind: "person"; name: string; def: PersonDef; updatedAt: string }
+  | { id: string; kind: "person"; name: string; def: PersonDef; updatedAt: string; faces?: PictureFaces }
   | { id: string; kind: "place"; name: string; def: PlaceDef; updatedAt: string }
   | { id: string; kind: "style"; name: string; def: StyleDef; updatedAt: string }
   | { id: string; kind: "preset"; name: string; def: PresetDef; updatedAt: string; source?: "shipped" }

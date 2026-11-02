@@ -325,6 +325,10 @@ try:
     from .power import register as _register_power
 
     _register_power(PromptServer.instance.routes, web)
+
+    from .face_facts import register as _register_face_facts
+
+    _register_face_facts(PromptServer.instance.routes, web)
 except ImportError:
     # outside ComfyUI's server (a bare import, a test): the nodes still load, the routes are simply not there
     pass

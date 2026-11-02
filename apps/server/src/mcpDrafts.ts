@@ -2,6 +2,7 @@ import { matchFiles, ownValues, pickedFile, plural, schemaFor, type InputSpec, t
 import { z } from "zod";
 import { createBody, createDraft, deleteDraft, draftsList, draftView, findDraft, saveDraft, type DraftView, type saveBody } from "./drafts";
 import { emptyLook, lookSchema, type Look } from "./entities";
+import { facesOf, factsOf, sentOrder } from "./faceFacts";
 import { httpError } from "./errors";
 import { formOf, kitPresets, seen, shownInputs, statusOf, wholeOf, type Seen } from "./mcpForms";
 import { tool, type ToolCtx } from "./mcpTool";
@@ -197,13 +198,20 @@ export async function agentSave(s: Services, ctx: ToolCtx, id: string, change: (
 /** A draft as read_draft gives it: its form's values as held, the whole form as it would render, its cast by name. */
 async function draftSaid(s: Services, at: Seen, d: DraftView) {
   const recipe = s.registry.recipe(d.recipe);
-  const people = d.look?.cast.length ? await s.db.selectFrom("entities").select(["id", "name"]).where("id", "in", d.look.cast.map((c) => c.id)).execute() : [];
+  const people = d.look?.cast.length ? await s.db.selectFrom("entities").select(["id", "name", "kind", "def"]).where("id", "in", d.look.cast.map((c) => c.id)).execute() : [];
+  // the picture each person is sent by first: picked in the form, else their clearest face (faceFacts.ts)
+  const picturesOf = (def: string) => ((JSON.parse(def) as { pictures?: string[] }).pictures ?? []);
+  const known = await factsOf(s.db, people.flatMap((p) => (p.kind === "person" ? picturesOf(p.def) : [])));
+  const first = (c: Look["cast"][number]) => {
+    const p = people.find((x) => x.id === c.id);
+    return p?.kind === "person" ? sentOrder(facesOf(picturesOf(p.def), known).order, c.picture)[0] : undefined;
+  };
   const own = recipe ? ownValues(recipe, d.forms[recipe.id]) : d.forms[d.recipe] ?? {};
   return {
     id: d.id, name: d.name, title: d.title, form: d.recipe, formTitle: recipe?.title ?? null, takes: d.count, project: d.projectId, updatedAt: d.updatedAt,
     values: own,
     whole: recipe ? await wholeOf(s, at, recipe, own) : null,
-    cast: d.look ? { people: d.look.cast.map((c) => ({ id: c.id, name: people.find((p) => p.id === c.id)?.name ?? null, ...(c.outfit ? { outfit: c.outfit } : {}) })), style: d.look.style ?? null, snippets: d.look.snippets } : null,
+    cast: d.look ? { people: d.look.cast.map((c) => ({ id: c.id, name: people.find((p) => p.id === c.id)?.name ?? null, ...(c.outfit ? { outfit: c.outfit } : {}), ...(first(c) ? { pictureSent: first(c), ...(c.picture === first(c) ? { picked: true } : {}) } : {}) })), style: d.look.style ?? null, snippets: d.look.snippets } : null,
     otherForms: Object.keys(d.forms).filter((f) => f !== d.recipe && Object.keys(d.forms[f] ?? {}).length),
   };
 }
@@ -225,7 +233,7 @@ const readDraft = tool({
   name: "read_draft",
   scope: "look",
   title: "Read a draft",
-  description: "One draft: its form, the values it holds (`values`, what the user or an agent set) and the whole form as it would render (`whole`, with the form's starts filled in), its batch, its cast (Prompt kit people by name, style, snippets).",
+  description: "One draft: its form, the values it holds (`values`, what the user or an agent set) and the whole form as it would render (`whole`, with the form's starts filled in), its batch, its cast (Prompt kit people by name, each with the picture sent first, `picked` when the user chose it over their clearest face; style, snippets).",
   input: { draft: z.string().min(1) },
   async run({ draft }, ctx) {
     const d = await draftOf(ctx.s, draft);
