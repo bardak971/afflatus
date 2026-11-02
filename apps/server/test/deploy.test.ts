@@ -615,9 +615,20 @@ describe("RunPod in the demo and the tests (AFFLATUS_PRETEND_SITES)", () => {
 
 describe("what the rented GPUs cost: RunPod's bill as the truth", () => {
   const spending = async () => (await get(t.app, "/api/rented/spending")).json().spending as { today: number; month: number; billed: boolean; runwayMs: number | null; spendPerHr: number | null };
-  const hourAgo = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
+  // Today and this month are the local day and month of the app's clock: put a few hours back from the real clock, a run
+  // fell in the month before in the first hours of a month (card #213). `midMonth` holds the app's clock to the middle of
+  // a month, whatever the zone, moving on with the real one from there; `clock(ahead)` is that clock some time later.
+  const MID_MONTH = new Date(2026, 9, 15, 12).getTime();
+  let shift = 0;
+  const clock = (ahead = 0) => () => Date.now() + shift + ahead;
+  const midMonth = () => {
+    shift = MID_MONTH - Date.now();
+    t.services.rented.now = clock();
+  };
+  const hourAgo = (h: number) => new Date(t.services.rented.now() - h * 3_600_000).toISOString();
 
   it("a pod RunPod has billed in full costs what RunPod billed, higher or lower than Afflatus's count", async () => {
+    midMonth();
     // a run of another pod that ended 7 hours ago: Afflatus counted $0.50, RunPod billed $0.62
     await t.db.insertInto("rent_sessions").values({ id: "old", machine_id: "rp-old", pod: "old", rate: 0.5, started_at: hourAgo(8), ended_at: hourAgo(7), seen_at: null }).execute();
     runpod.bill = [{ podId: "old", startTime: hourAgo(8), endTime: hourAgo(7), totalAmount: 0.62 }];
@@ -629,18 +640,19 @@ describe("what the rented GPUs cost: RunPod's bill as the truth", () => {
   });
 
   it("a pod that runs counts the higher of RunPod's bill so far and Afflatus's count, from its deploy", async () => {
+    midMonth();
     const id = (await deploy()).json().id as string;
     const pod = runpod.pods[0]!;
     await until(() => pod.status === "RUNNING");
     await t.services.rented.poll();
     expect((await readSettings(t.db)).machines.find((m) => m.id === id)?.rented?.deployed).toBe(true);
     // RunPod has billed more than Afflatus has counted so far: its figure
-    runpod.bill = [{ podId: pod.id, startTime: hourAgo(1), endTime: new Date().toISOString(), totalAmount: 0.3 }];
-    t.services.rented.now = (() => { const real = Date.now; return () => real() + 6 * 60_000; })();
+    runpod.bill = [{ podId: pod.id, startTime: hourAgo(1), endTime: hourAgo(0), totalAmount: 0.3 }];
+    t.services.rented.now = clock(6 * 60_000);
     expect((await spending()).month).toBeGreaterThanOrEqual(0.3);
     // RunPod's bill not readable now: the one last read this month is kept, a cap is never let go for a refused read (M1)
     runpod.bill = null;
-    t.services.rented.now = (() => { const real = Date.now; return () => real() + 12 * 60_000; })();
+    t.services.rented.now = clock(12 * 60_000);
     const s = await spending();
     expect(s.billed).toBe(true);
     expect(s.month).toBeGreaterThanOrEqual(0.3);
