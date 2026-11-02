@@ -127,7 +127,8 @@ describe("MiniMax H3 · Motion transfer after a swap (H3 · Swap motion retired,
   it("gives a window that carries on the clip before's last frame as a second picture of the person, its prompt H3's own layout without typed tags", () => {
     const { graph } = carryOn({ description: "The man with short brown hair in <Picture 1> dances." });
     const ref = of(graph, "MiniMaxH3ReferenceToVideo")[0]!;
-    expect(node(graph, ref.inputs["ref_images.ref_image_0"]).class_type).toBe("LoadImage");
+    // the cast's picture in the light of that frame (card #222)
+    expect(node(graph, ref.inputs["ref_images.ref_image_0"]).class_type).toBe("AfflatusMatchPicture");
     const frame = node(graph, ref.inputs["ref_images.ref_image_1"]);
     expect(frame.class_type).toBe("ImageFromBatch");
     expect(frame.inputs.batch_index).toBe(-1);

@@ -75,6 +75,8 @@ interface H3References {
   voice: boolean;
   /** The clip carries on from another one: its first frames are given. */
   continues: boolean;
+  /** Which pictures are a frame of the clip before (a motion window's run-up end, given for how the person looks in this take), by their order. */
+  takeFrames?: boolean[];
   /** How long its run-up and its own part are, when it carries on: said, as the frame-and-words route says them (card #161). */
   run?: H3Run;
   /** The clip opens on a picture, given as one more picture after the references. */
@@ -105,6 +107,14 @@ export function h3ReferencePrompt(f: H3Fields & { subject?: string }, ref: H3Ref
   const soundtracks = vids.filter((v) => v.audio);
   const people = [...pics.filter((_p, i) => ref.roles[i] === "person"), ...vids.filter((v) => v.role === "person").map((v) => v.tag)];
   const hasPerson = people.length > 0;
+  // carrying on, a person's own picture or video gives who they are, and the clip before how they look in the take: said to
+  // give "identity and look", a picture taken in other light went with continuations that grew yellow and brighter inside
+  // each clip, where the same chain without it stayed as it was (card #222; the picture is also brought to the run-up's
+  // light, H3_MATCH_PICTURE). A frame of the clip before given as a picture is the take's own look
+  const ofTake = (tag: string) => ref.continues && Boolean(ref.takeFrames?.[pics.indexOf(tag)]);
+  const whoOnly = people.filter((t) => !ofTake(t));
+  const takeLook = people.filter(ofTake);
+  const gives = (a: string[]) => (a.length > 1 ? "give" : "gives");
   const who1 = hasPerson ? "<Subject 1>" : "the character";
   const voiceTag = ref.voice ? `<Audio ${audios + 1}>` : "";
   // the opening picture is the last picture too: its place, outfit and pose are references
@@ -130,9 +140,14 @@ export function h3ReferencePrompt(f: H3Fields & { subject?: string }, ref: H3Ref
   // (a place picture is the setting itself: its own line says so)
   const scene = ref.voiceOnly || !notPlace.length ? "" : ref.continues ? "the given opening frames" : hasPlace ? "" : opening ? opening : "the description of [Shot 1]";
   // (carrying on, the opening frames are the scene, and the pictures are said by what they give alone)
+  const others = notPlace.filter((t) => !people.includes(t));
   const onlyRefs = !ref.voiceOnly && notPlace.length
     ? ref.continues
-      ? ` ${list(notPlace)} ${notPlace.length > 1 ? "give" : "gives"} who and what appears: identity and look only.`
+      ? [
+        whoOnly.length ? ` ${list(whoOnly)} ${gives(whoOnly)} only the identity of <Subject 1>: the face, hair and build.` : "",
+        takeLook.length ? ` ${list(takeLook)} ${takeLook.length > 1 ? "are frames" : "is a frame"} of the given opening frames: how <Subject 1> looks in this take.` : "",
+        others.length ? ` ${list(others)} ${gives(others)} what appears: identity and look only.` : "",
+      ].join("")
       : ` ${list(notPlace)} ${notPlace.length > 1 ? "are references" : "is a reference"} for who and what appears, not for the scene: ${notPlace.length > 1 ? "their" : "its"} background, framing and pose are not reused, and ${notPlace.length > 1 ? "none of them is" : "it is not"} a frame of the video.`
     : "";
   const kinds = [opening ? "keyframe completion" : "", "reference generation", vids.length ? "video reference" : "", ref.continues ? "video continuation" : "", voiceTag || soundtracks.length ? "audio reference" : ""].filter(Boolean);
@@ -142,12 +157,15 @@ export function h3ReferencePrompt(f: H3Fields & { subject?: string }, ref: H3Ref
   let subject = 0;
   if (hasPerson) {
     subject = 1;
+    // (carrying on: the identity from their own pictures, in the take's light; the look from a frame of the take)
+    const carried = (whoOnly.length ? `; only the identity is taken from ${list(whoOnly)}: the face, hair and build, in the light of the given opening frames` : "") +
+      (takeLook.length ? `; the look is taken from ${list(takeLook)}, a frame of this take` : "");
     defs.push(`<Subject 1> is the character in ${list(people)}${who}.`);
     uses.push(`<Subject 1> from ${list(people)}`);
     keeps.push(
       `<Subject 1> (appears in [Shot 1]): fully_preserved - identity and look stay consistent${
         ref.voiceOnly ? ", setting too" : opening ? `; the opening matches ${opening}, then expression and pose follow the description` : "; expression, pose and framing follow the description"
-      }${ref.voiceOnly ? "" : `; only the identity and look are taken from ${list(people)}${ref.continues ? "" : `, not ${people.length > 1 ? "their" : "its"} background`}`}.`,
+      }${ref.voiceOnly ? "" : ref.continues ? carried : `; only the identity and look are taken from ${list(people)}, not ${people.length > 1 ? "their" : "its"} background`}.`,
     );
   }
   // every picture, then every video, that is not a person is a subject of its own; a video adds how it moves
