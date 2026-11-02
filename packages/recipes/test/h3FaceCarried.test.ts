@@ -91,6 +91,27 @@ describe("MiniMax H3 · a continuation with the same person pictures gets its fa
     expect(checkGraph(built, catalog)).toEqual([]);
   });
 
+  it("samples it with the person's pictures where its pass cannot run, and says why (card #231)", () => {
+    // no face detector; Face refine's pack missing; its pack missing with Run without (the queue's wants): the pictures were
+    // left out all the same, and the clip had neither them nor the pass
+    const { faceDetector: _, ...noDetector } = slots;
+    const lacking: Array<Partial<BuildContext>> = [
+      { slots: noDetector },
+      { has: (n: string) => n !== "H3FaceStitch" },
+      { wants: (w) => (w.input === "faceRefine" ? null : w.nodes[0]!) },
+    ];
+    for (const ctx of lacking) {
+      const { built, graph } = build({ faceCarried: true, faceRefine: false }, ctx);
+      expect(sampledFiles(graph)).toEqual(["r1.png"]);
+      expect(of(graph, "H3FaceStitch")).toEqual([]);
+      expect(built.warnings?.filter((w) => w.startsWith("Sampled with the person's pictures, not carried on by Face refine: "))).toHaveLength(1);
+      expect(built.warnings?.some((w) => w.startsWith("Not face-refined"))).toBe(false);
+    }
+    expect(build({ faceCarried: true, faceRefine: false }, { slots: noDetector }).built.warnings).toContain("Sampled with the person's pictures, not carried on by Face refine: no face detector on this ComfyUI (face_yolov8m.pt in models/ultralytics/bbox; Settings › Models has it).");
+    // with Hold the face on continuations off, the plain continuation the form asks for: no pass is waited on
+    expect(sampledFiles(build({ faceCarried: true, holdFace: false }, { slots: noDetector }).graph)).toEqual([]);
+  });
+
   it("samples a first clip with its pictures whatever the flag says (nothing to carry the face on from)", () => {
     const { graph } = build({ previous: undefined, faceCarried: true }, { media: {} }, { "references.0": "r1.png" });
     expect(sampledFiles(graph)).toEqual(["r1.png"]);

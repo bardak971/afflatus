@@ -150,12 +150,31 @@ def test_the_route_answers_the_facts_of_the_bytes_sent(monkeypatch):
 
 def test_the_route_says_a_picture_it_cannot_read(monkeypatch):
     monkeypatch.setattr(face_match, "available", lambda: True)
-
-    def broken(body):
-        raise OSError("cannot identify image file")
-
-    res = _route(monkeypatch, types.SimpleNamespace(read=broken))(_Request(b"not a picture"))
+    monkeypatch.setattr(face_match, "_loaded", lambda: App([]))
+    monkeypatch.setattr(face_match, "_app", None)
+    monkeypatch.setattr(face_match, "_app_for_route", False)
+    facts = face_facts.Facts()
+    monkeypatch.setattr(facts, "_watch", lambda: None)
+    res = _route(monkeypatch, facts)(_Request(b"not a picture"))
     assert res.status == 422 and "cannot identify" in res.text
+
+
+def test_insightface_that_cannot_load_is_no_word_on_the_picture(monkeypatch):
+    # its files not fetched (offline, a download that failed) or onnxruntime not loading: answered 422, Afflatus filed every
+    # picture "no face" for good (card #233); 503, it asks again later
+    monkeypatch.setattr(face_match, "available", lambda: True)
+    monkeypatch.setattr(face_match, "_app", None)
+    monkeypatch.setattr(face_match, "_app_for_route", False)
+
+    def offline():
+        raise OSError("could not fetch buffalo_l")
+
+    monkeypatch.setattr(face_match, "_loaded", offline)
+    monkeypatch.setattr(face_facts, "_decode", lambda body: checks(32, 32, 4))
+    facts = face_facts.Facts()
+    monkeypatch.setattr(facts, "_watch", lambda: None)
+    res = _route(monkeypatch, facts)(_Request(b"picture"))
+    assert res.status == 503 and "buffalo_l" in res.text
 
 
 def test_without_insightface_the_route_says_so(monkeypatch):

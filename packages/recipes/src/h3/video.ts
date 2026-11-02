@@ -8,7 +8,7 @@ import { COLOUR_MATCH_NODES, rifeNeeds, rifeSkippedSaid } from "../shared/finish
 import { conditionFor, FREE_TEXT_ENCODER, type MorePicture } from "./condition";
 import { cueMixNodes, cueNodes, cueOwnSoundSaid, cuesFor, guideCues, layCues, laysCues } from "./cue";
 import { finish, H3_SAVE_LATENT } from "./finish";
-import { FACE_REFINE_OPTIONAL, FACE_REFINE_PACK_NEEDED, FACE_REFINE_SLOTS, clipModelOf, faceRefineNeeds, faceRefineSkipped, openingPicture, withFacePass, type ClipModel } from "./faceRefine";
+import { FACE_REFINE_OPTIONAL, FACE_REFINE_PACK_NEEDED, FACE_REFINE_SLOTS, clipModelOf, faceHoldLacks, faceRefineNeeds, faceRefineSkipped, openingPicture, withFacePass, type ClipModel } from "./faceRefine";
 import { H3_SOUND_CHAPTER, h3Inputs, withFaceCarried, type H3Video } from "./inputs";
 import { recordingInputs, recordingNodes, recordingOnClip, type Recording } from "../shared/recording";
 import { isH3Layout } from "./prompt";
@@ -298,7 +298,7 @@ export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   // the shot's words open what happens (card #27), every H3 form alike; a recipe that writes its own prompt from parts says
   // them there, and leaves a typed one as it is (its clip's shot "Any")
   // (a continuation that carries the face on is face-refined whatever the toggle says: withFacePass)
-  const input = withShot(withFacePass(asked));
+  let input = withShot(withFacePass(asked));
   const { slots, media } = ctx;
   const g = new GraphBuilder();
   const more = extra.pictures ? extra.pictures(g) : [];
@@ -326,6 +326,10 @@ export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   // (and its turbo LoRA, the one the clip ran with, which Face refine keeps on it)
   const asPicked = clipModelOf(input, slots, how, extra.turbo);
   const clipModel: ClipModel = loader ? { follows: asPicked.follows, file: unet, loader, ...(lora ? { turbo: lora, turboWeight: loraWeight } : {}) } : asPicked;
+  // a continuation holding the face on whose pass cannot run here is sampled with the person's pictures after all, its Face
+  // refine as the form has it: left out for a pass that is skipped, the clip had neither (card #231)
+  const lacks = faceHoldLacks(input, ctx, clipModel);
+  if (lacks) input = withShot({ ...asked, faceCarried: false });
   const { positive, latent, previous, plain, clip, free } = conditionFor(g, ctx, input, how, join, { width, height, vae, audioVae }, extra.prompt, more, !own);
 
   // a finish samples nothing: the patch (and the pose it reads) is left out of it
@@ -409,7 +413,9 @@ export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   const skipped = faceRefineSkipped(input, ctx, { audio: true, picture: openingPicture(input, ctx), clip: clipModel });
   // a Finish › Face refine that refines nothing would be the take made again, named a face pass: it fails, with why
   if (modelless && input.faceRefine && !made.refine) throw new Error(skipped ?? FACE_REFINE_PACK_NEEDED);
-  const said = [join.sizeSaid, cueSaid, fine ? plainResizeSaid(input, ctx) : null, rifeSkippedSaid(input.smooth, ctx), skipped, made.said, vedaSaid].filter((x): x is string => Boolean(x));
+  // (why the pass cannot run is said once: in the line saying the pictures were sampled after all)
+  const unheld = lacks ? `Sampled with the person's pictures, not carried on by Face refine: ${lacks.replace(/^Not face-refined: /, "").replace(/\.$/, "")}.` : null;
+  const said = [join.sizeSaid, cueSaid, fine ? plainResizeSaid(input, ctx) : null, rifeSkippedSaid(input.smooth, ctx), unheld, lacks ? null : skipped, made.said, vedaSaid].filter((x): x is string => Boolean(x));
   const refining = made.refine ? [made.refine] : [];
   return {
     graph: g.graph,

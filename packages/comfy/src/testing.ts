@@ -55,8 +55,9 @@ export interface FakeComfy {
    */
   watts?: number | null;
   /**
-   * What the pretend node pack answers on POST /afflatus/face-facts (0.48.1 and newer) for a picture's bytes: its facts, or
-   * "unreadable" (422). Undefined: the route is not there (404), as with an older pack or a ComfyUI without insightface.
+   * What the pretend node pack answers on POST /afflatus/face-facts (0.48.1 and newer) for a picture's bytes: its facts,
+   * "unreadable" (422), or "not loaded" (503: InsightFace could not be loaded, 0.49.2 on). Undefined: the route is not there
+   * (404), as with an older pack or a ComfyUI without insightface.
    */
   faceFacts?: (picture: Uint8Array) => unknown;
   /** Client ids of the websockets that connected, in order. */

@@ -10,7 +10,10 @@ picture is only read: nothing is cut, changed or kept.
 pixels a side). Never in ComfyUI's queue: no prompt, no GPU (InsightFace on the CPU, 4 threads), off the server's event
 loop and one picture at a time, so that ComfyUI's API and websocket keep answering. InsightFace is loaded the first time
 and let go after a minute without a picture, unless a node (Face Match) used it meanwhile: a render that needs it keeps
-it as before. 501 without insightface (Afflatus keeps its order then).
+it as before. 501 without insightface (Afflatus keeps its order then); 422 for a picture that cannot be read (Afflatus files it
+with no face); 503 when InsightFace cannot be loaded or its files fetched (offline, a download that failed, onnxruntime that
+does not load): nothing is said of the picture then, and Afflatus asks again later. Answered 422, every picture of a library
+was filed "no face" for good while the models could not be fetched (card #233, 0.49.2).
 """
 
 import asyncio
@@ -104,6 +107,10 @@ def _decode(body: bytes):
         return np.asarray(rgb)[:, :, ::-1].copy()
 
 
+class Unreadable(Exception):
+    """The picture itself cannot be read: not decoded, or InsightFace failed on it once loaded."""
+
+
 class Facts:
     """The route's work: one picture at a time, InsightFace let go after IDLE_S without a picture."""
 
@@ -114,9 +121,19 @@ class Facts:
         self._watching = False
 
     def read(self, body: bytes) -> dict:
+        """The picture's facts. Unreadable when the picture is at fault; any other error is InsightFace not loading."""
         with self._lock:
             try:
-                return facts_of(_decode(body), face_match.app_for_route())
+                try:
+                    bgr = _decode(body)
+                except Exception as err:  # noqa: BLE001 — whatever PIL says of bytes that are no picture
+                    raise Unreadable(str(err)) from err
+                # (loaded, or its files fetched, the first time: a failure there says nothing of the picture)
+                app = face_match.app_for_route()
+                try:
+                    return facts_of(bgr, app)
+                except Exception as err:  # noqa: BLE001 — the detector or ArcFace failing on this picture
+                    raise Unreadable(str(err)) from err
             finally:
                 self._last = self._now()
                 self._watch()
@@ -160,7 +177,9 @@ def register(routes, web, facts=None):
         try:
             # off ComfyUI's event loop: InsightFace takes a second or so on the CPU, its API and websocket keep answering
             return web.json_response(await asyncio.to_thread(facts.read, body))
-        except Exception as err:  # noqa: BLE001 — a picture PIL or InsightFace cannot read is said, never a dead route
+        except Unreadable as err:
             return web.Response(status=422, text=f"the picture could not be read: {str(err)[:200]}")
+        except Exception as err:  # noqa: BLE001 — InsightFace not loading is said as a route not ready, never a dead one
+            return web.Response(status=503, text=f"InsightFace could not be loaded: {str(err)[:200]}")
 
     return facts

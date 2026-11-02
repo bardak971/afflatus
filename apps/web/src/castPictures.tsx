@@ -19,21 +19,30 @@ export const useCastPictures = (input: string): CastPicture[] => useContext(Ctx)
 export const useCastVoice = (input: string): CastVoice | undefined => useContext(Ctx).voices[input];
 
 /**
+ * What the form's cast adds when it is sent (the server's compose): the reference input its pictures go to (the recipe's
+ * first), the voice input, and what compose adds. Asked with the references only, so that typing in the prompt asks nothing;
+ * the fields (CastPictures) and the form's Render (inputMissing) share the one answer.
+ */
+export function useCastAdded(recipe: RecipeInfo | undefined, input: Record<string, unknown>, look: Look | null | undefined) {
+  const spec = recipe?.inputs.find((i) => i.type === "references" && !("media" in i && i.media));
+  const voiceSpec = recipe?.inputs.find((i) => i.type === "audio" && i.role === "voice");
+  const own = (spec ? (input[spec.id] as ReferenceValue[] | undefined) : undefined) ?? [];
+  const asked = Boolean(recipe && (spec || voiceSpec) && look?.cast.length && lookAdds(look));
+  const composed = useQuery({
+    queryKey: queryKeys.compose.pictures(recipe?.id ?? "", look?.cast, own),
+    queryFn: () => api.compose(recipe!.id, spec ? { [spec.id]: own } : {}, { cast: look!.cast }),
+    enabled: asked,
+  });
+  return { spec, voiceSpec, added: asked ? composed.data?.added : undefined };
+}
+
+/**
  * The reference pictures and the voice sample the form's cast adds when it is sent (the server's compose, which does the same
  * at send time), for the reference and voice fields to show beside the user's own. Asked with the references only, so that
  * typing in the prompt asks nothing.
  */
 export function CastPictures({ recipe, input, look, children }: { recipe: RecipeInfo; input: Record<string, unknown>; look: Look | null | undefined; children: ReactNode }) {
-  const spec = recipe.inputs.find((i) => i.type === "references" && !("media" in i && i.media));
-  const voiceSpec = recipe.inputs.find((i) => i.type === "audio" && i.role === "voice");
-  const own = (spec ? (input[spec.id] as ReferenceValue[] | undefined) : undefined) ?? [];
-  const asked = Boolean((spec || voiceSpec) && look?.cast.length && lookAdds(look));
-  const composed = useQuery({
-    queryKey: queryKeys.compose.pictures(recipe.id, look?.cast, own),
-    queryFn: () => api.compose(recipe.id, spec ? { [spec.id]: own } : {}, { cast: look!.cast }),
-    enabled: asked,
-  });
-  const added = asked ? composed.data?.added : undefined;
+  const { spec, voiceSpec, added } = useCastAdded(recipe, input, look);
   const value = useMemo(() => ({
     pictures: spec && added?.refs ? { [spec.id]: added.refs } : {},
     // asked without the form's own sample: the field shows it only while the form has none, as the send then uses it

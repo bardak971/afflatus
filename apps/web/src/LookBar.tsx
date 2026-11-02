@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ExternalLink, Image as ImageIcon, MapPin, Plus, Sparkles, User, X } from "lucide-react";
 import { LIMITS } from "@afflatus/core";
-import { api, lookAdds, sentPicture, thumbUrl, type Entity, type Look, type RecipeInfo } from "./api";
+import { api, lookAdds, sentFirstSaid, sentPicture, thumbUrl, type Entity, type Look, type RecipeInfo } from "./api";
 import { useEntities } from "./data";
 import { fileLabel } from "./format";
 import { useSettled } from "./hooks";
@@ -85,7 +85,7 @@ export function LookBar({ look, onChange, recipe, input, title = "Characters and
               onContextMenu={(ev) => opens(ev, false)}
               className={cx("flex h-9 items-center gap-1.5 rounded-full border border-accent bg-accent-wash pr-2 pl-1 hover:bg-hover", menu?.id === e.id && "bg-hover")}
             >
-              {face ? <img src={thumbUrl(face)} alt="" data-tip={e.kind === "person" ? (member.picture === face ? "Sent first: picked here" : e.faces?.order[0] === face ? "Sent first: the clearest face" : "Sent first: the first of the Prompt kit (not read for faces yet)") : undefined} className="h-7 w-7 rounded-full object-cover" /> : <span className="flex h-7 w-7 items-center justify-center rounded-full bg-raised text-ink-2">{e.kind === "person" ? <User size={13} /> : <MapPin size={13} />}</span>}
+              {face ? <img src={thumbUrl(face)} alt="" data-tip={e.kind === "person" ? sentFirstSaid(e, face, member.picture) : undefined} className="h-7 w-7 rounded-full object-cover" /> : <span className="flex h-7 w-7 items-center justify-center rounded-full bg-raised text-ink-2">{e.kind === "person" ? <User size={13} /> : <MapPin size={13} />}</span>}
               <span className="font-semibold">{e.name}</span>
               {worn && <span className="text-xs text-ink-2">· {worn.name}</span>}
               <ChevronDown size={13} className="shrink-0 text-ink-2" />

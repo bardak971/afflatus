@@ -7,6 +7,7 @@ import { newId, now, OWNER } from "../src/db";
 import { compose, kitList } from "../src/entities";
 import { bestFirst, frontalOf, qualityOf, sentOrder, type FaceFacts } from "../src/faceFacts";
 import { newAssetRow } from "../src/media";
+import migration from "../src/migrations/0106-face-facts-unread";
 import { makeApp, type TestApp } from "./helpers";
 
 /**
@@ -152,7 +153,7 @@ describe("the faces read in the background", () => {
   let asked: number;
   beforeEach(async () => {
     fake = await startFakeComfy();
-    fake.packVersion = "0.48.1";
+    fake.packVersion = "0.49.2";
     asked = 0;
     // the pretend pack: a face in every picture but the third one asked
     fake.faceFacts = () => (++asked === 3 ? noFace : fact());
@@ -191,13 +192,46 @@ describe("the faces read in the background", () => {
   it("asks nothing of a machine whose pack is older or has no route, and keeps the kit's order there", async () => {
     const pics = [await picture("a.png"), await picture("b.png")];
     const who = await person("zz-test A", pics);
-    fake.packVersion = "0.48.0";
+    // (0.48.1 to 0.49.1 answered InsightFace not loading as a picture it could not read: card #233)
+    fake.packVersion = "0.49.1";
     expect(await t!.services.faces!.run()).toBe(0);
-    fake.packVersion = "0.48.1";
+    fake.packVersion = "0.49.2";
     fake.faceFacts = undefined;
     expect(await t!.services.faces!.run()).toBe(0);
     expect(asked).toBe(0);
     const { input } = await compose(t!.db, recipeById("krea2.text-to-picture")!, { prompt: "zz-test" }, { cast: [{ id: who }], snippets: [] });
     expect(input.person).toEqual([{ asset: pics[0], role: "person" }]);
+  });
+
+  it("files nothing while InsightFace cannot load, and asks again later (card #233)", async () => {
+    const pics = [await picture("a.png"), await picture("b.png")];
+    await person("zz-test A", pics);
+    fake.faceFacts = () => (++asked, "not loaded");
+    expect(await t!.services.faces!.run()).toBe(0);
+    // one asked, then the machine is let be: nothing filed "no face"
+    expect(asked).toBe(1);
+    expect(await t!.db.selectFrom("face_facts").select("asset_id").execute()).toEqual([]);
+    expect(await t!.services.faces!.run()).toBe(0);
+    expect(asked).toBe(1);
+  });
+
+  it("reads past pictures whose files are lost, without filing them (card #233)", async () => {
+    const lost = await Promise.all(["a", "b", "c", "d"].map((n) => picture(`${n}.png`)));
+    const found = await picture("e.png");
+    await person("zz-test A", [...lost, found]);
+    for (const id of lost) {
+      const row = await t!.db.selectFrom("assets").select("file_key").where("id", "=", id).executeTakeFirstOrThrow();
+      await t!.services.storage.delete(row.file_key);
+    }
+    expect(await t!.services.faces!.run()).toBe(1);
+    expect((await t!.db.selectFrom("face_facts").select("asset_id").execute()).map((r) => r.asset_id)).toEqual([found]);
+  });
+
+  it("reads again the pictures an older pack's load failure filed faceless (migration 0106)", async () => {
+    const [marked, faceless] = [await picture("a.png"), await picture("b.png")];
+    await read(marked, { version: 1, width: 1, height: 1, faces: 0, face: null });
+    await read(faceless, { version: 1, width: 64, height: 96, faces: 0, face: null });
+    await migration.up(t!.db as never);
+    expect((await t!.db.selectFrom("face_facts").select("asset_id").execute()).map((r) => r.asset_id)).toEqual([faceless]);
   });
 });

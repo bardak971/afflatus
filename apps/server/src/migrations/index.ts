@@ -104,6 +104,7 @@ import m0102 from "./0102-model-hash-places";
 import m0103 from "./0103-civitai-closed";
 import m0104 from "./0104-removed-mtime";
 import m0105 from "./0105-face-facts";
+import m0106 from "./0106-face-facts-unread";
 
 /**
  * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
@@ -216,4 +217,5 @@ export const migrations: Record<string, Migration> = {
   "0103_civitai_closed": m0103,
   "0104_removed_mtime": m0104,
   "0105_face_facts": m0105,
+  "0106_face_facts_unread": m0106,
 };
