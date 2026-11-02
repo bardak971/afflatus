@@ -1,9 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { ComfyClient, scan, type InfoLookup, type Scan } from "@afflatus/comfy";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
-import { missingSlotFile, type ModelInfo } from "@afflatus/core";
+import { missingSlotFile, podSlotFiles, type ModelInfo } from "@afflatus/core";
 import { ltx, ltx25, ltx25Video, ltxVideo } from "@afflatus/recipes";
-import { podSlotFiles } from "../src/jobFiles";
 import { referenceCatalog } from "./helpers";
 
 /**

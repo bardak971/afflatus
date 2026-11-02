@@ -990,6 +990,9 @@ export function ltxRecipe(spec: LtxSpec): Recipe<LtxVideo> {
         ...rifeNeeds(input.smooth && !temporal),
         ...(input.smooth && input.smoothWith === SMOOTH_LTX && !input.latentAfter ? ["temporal"] : []),
         ...upscaleNeeds(input),
+        // the latent upscaler for two passes, which the build does without in one pass at full size, slower and softer: a pod
+        // is sent it (it never was, card #226), a machine of the user's own renders in one pass rather than wait for it
+        ...(input.twoPass && !input.end && (where.own !== true || slots.upscaler) ? ["upscaler"] : []),
         // the distilled LoRA for a model that is not distilled: a pod is sent it, a machine of the user's own renders without it
         // (said on the job). Asked as the build loads it: the form's model, else the family's found on that machine
         ...(where.own !== true && !modelOf(spec, input, slots).distilled ? ["turbo"] : []),

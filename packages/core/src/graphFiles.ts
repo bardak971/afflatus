@@ -1,6 +1,7 @@
 import { folderOfFileInput } from "./models";
 import { isModelFile } from "./modelFiles";
-import { dryContext, parseInput, type Recipe } from "./recipe";
+import { pickedFiles, type InputSpec } from "./inputs";
+import { dryContext, parseInput, type Family, type Recipe } from "./recipe";
 
 /**
  * The model files a built graph loads, read from its nodes: what a machine must have for that one job, and what a rented
@@ -117,3 +118,49 @@ export function slotsRead(recipe: Recipe<any>, slots: readonly string[]): Set<st
   return read;
 }
 const readKept = new WeakMap<Recipe<any>, Map<string, Set<string>>>();
+
+type ModelSlot = Pick<Family["slots"][number], "id" | "folder" | "optional" | "get">;
+/** A slot's file as a machine's scan found it (null: none). */
+type SlotFound = { id: string; file?: string | null };
+
+/**
+ * The family's files a job is built with on a machine, one name per slot: the machine's own file, else the family's
+ * download, else this PC's (sent up from here); a required one with none of those is named by missingSlotFile, and only a
+ * graph that reads it says so. An optional slot is there only as the machine has it, unless the recipe or this input asks
+ * for it (`needs`, `needsWith`: Turbo's LoRAs, SAM with the Mask on), when it comes as a required one does. The Deploy
+ * dialog and the pod's own check both name the slots so, so a slot is never fetched under two names. `own`: a machine of the
+ * user's own, never asked a file its build does without there (Recipe.needsWith's `own`).
+ */
+export function podSlotFiles(
+  recipe: Pick<Recipe<any>, "needs" | "needsWith" | "unneeded"> & { inputs?: readonly InputSpec[] }, input: Record<string, unknown>, slots: readonly ModelSlot[],
+  there: readonly SlotFound[] | null, here: readonly SlotFound[] | null, own = false,
+): Record<string, string> {
+  const at = (list: readonly SlotFound[] | null, id: string) => list?.find((x) => x.id === id)?.file ?? null;
+  const fill = (s: ModelSlot) => at(there, s.id) ?? s.get?.file ?? at(here, s.id) ?? missingSlotFile(s.id);
+  const needs = neededSlots(recipe, input);
+  const out: Record<string, string> = {};
+  for (const s of slots) {
+    if (!s.optional || needs.includes(s.id)) out[s.id] = fill(s);
+    else if (at(there, s.id)) out[s.id] = at(there, s.id)!;
+  }
+  // what this input asks for, read against the files it is built with (a model made for few steps asks no turbo LoRA)
+  for (const id of recipe.needsWith?.(input, out, { own }) ?? []) {
+    const s = slots.find((x) => x.id === id);
+    if (s && !out[id]) out[id] = fill(s);
+  }
+  return out;
+}
+
+/**
+ * The slots a recipe cannot run without (Recipe.needs) that this input asks for: less the ones it does without
+ * (Recipe.unneeded), and the ones a model input of its form picks another file for (InputSpec.slot: the pick is loaded in
+ * the slot's place). Asked as needs, a fine-tune picked on Edit had a pod sent FLUX.1 Kontext beside it, and a swap's
+ * Show the mask waited for the swap's model and LoRA, neither of which it loads (card #226).
+ */
+export function neededSlots(recipe: Pick<Recipe<any>, "needs" | "unneeded"> & { inputs?: readonly InputSpec[] }, input: Record<string, unknown>): string[] {
+  if (!recipe.needs?.length) return [];
+  const inputs = recipe.inputs ?? [];
+  const picked = new Set(pickedFiles(inputs, input).map((m) => m.input));
+  const without = new Set(recipe.unneeded?.(input as never) ?? []);
+  return recipe.needs.filter((id) => !without.has(id) && !inputs.some((i) => i.type === "model" && i.slot === id && picked.has(i.id)));
+}

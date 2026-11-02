@@ -345,10 +345,19 @@ const turboNeeds = (input: WanVideo, slots: Record<string, string> = {}): string
   return uses(input).words ? ["t2vTurboHigh", "t2vTurboLow"] : ["i2vTurboHigh", "i2vTurboLow"];
 };
 
+/** The t2v models a clip from words alone loads, each not picked on the form (modelsOf: a model made for words, or that does not say). */
+const wordsNeeds = (input: WanVideo): string[] => {
+  if (!uses(input).words) return [];
+  const picked = modelsOf(input, {});
+  return [...(picked.high ? [] : ["t2vHigh"]), ...(picked.low ? [] : ["t2vLow"])];
+};
+
 export const wanVideo = defineRecipe<WanVideo>({
   id: "wan.video",
-  // the lightx2v LoRAs with Turbo, SVI 2.0 Pro's for a clip that carries on, RIFE with "RIFE ×2" on
-  needsWith: (input, slots) => [...turboNeeds(input, slots), ...(input.previous && !input.end ? ["sviHigh", "sviLow"] : []), ...upscaleNeeds(input), ...rifeNeeds(input.smooth)],
+  // the lightx2v LoRAs with Turbo, SVI 2.0 Pro's for a clip that carries on, RIFE with "RIFE ×2" on; and a clip from words
+  // alone, the two t2v models (each unless a model made for words is picked in its place), which the build refuses it
+  // without: a pod was never sent them, and the clip was refused there once its boot was paid (card #226)
+  needsWith: (input, slots) => [...turboNeeds(input, slots), ...wordsNeeds(input), ...(input.previous && !input.end ? ["sviHigh", "sviLow"] : []), ...upscaleNeeds(input), ...rifeNeeds(input.smooth)],
   family: "wan",
   version: 1,
   title: "Video",

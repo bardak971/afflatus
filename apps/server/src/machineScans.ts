@@ -1,5 +1,5 @@
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
-import { folderOfFileInput, pickedFiles, sameFile, isMissingSlotFile, isShown, packOfNode, SOFT_SLOTS, TOOLS_FAMILY, type Family, type GraphFile, type LoraValue, type Recipe } from "@afflatus/core";
+import { folderOfFileInput, pickedFiles, sameFile, isMissingSlotFile, isShown, neededSlots, packOfNode, SOFT_SLOTS, TOOLS_FAMILY, type Family, type GraphFile, type LoraValue, type Recipe } from "@afflatus/core";
 import type { Loaded } from "./jobFiles";
 import type { Machine, Settings } from "./settings";
 
@@ -104,7 +104,7 @@ function withUrl(recipe: Pick<Recipe<any>, "files">, slots: ReadonlyArray<{ id: 
  * one VAE fetched under two names (2026-10-18).
  */
 export function filesUsed(
-  recipe: Pick<Recipe<any>, "family" | "inputs" | "needs" | "needsWith"> & Partial<Pick<Recipe<any>, "files">>, input: Record<string, unknown>, scan: Scan | null,
+  recipe: Pick<Recipe<any>, "family" | "inputs" | "needs" | "needsWith"> & Partial<Pick<Recipe<any>, "files" | "unneeded">>, input: Record<string, unknown>, scan: Scan | null,
   slots: Array<{ id: string; folder: string; optional?: boolean; get?: { file: string; url: string } }>, loaded?: Pick<Loaded, "files"> | null,
 ): Array<{ file: string; folder: string; url?: string }> {
   // a file nobody has (missingSlotFile) is not one to list: the job cannot be sent it
@@ -112,9 +112,10 @@ export function filesUsed(
   const out: Array<{ file: string; folder: string; url?: string }> = filesAsked(recipe, input).map(({ file, folder }) => ({ file, folder }));
   const found = scan?.families.find((f) => f.id === recipe.family)?.slots ?? [];
   const asks = recipe.needsWith?.(input, slotFilesOf(found)) ?? [];
+  const needs = neededSlots(recipe, input);
   for (const slot of slots) {
     // a slot the job's own pick fills is that file, asked above
-    if ((slot.optional && !recipe.needs?.includes(slot.id) && !asks.includes(slot.id)) || pickedFor(recipe, input, slot, slots)) continue;
+    if ((slot.optional && !needs.includes(slot.id) && !asks.includes(slot.id)) || pickedFor(recipe, input, slot, slots)) continue;
     const file = slot.get?.file ?? found.find((x) => x.id === slot.id)?.file;
     if (file) out.push({ file, folder: slot.folder, ...(slot.get && slot.get.file === file ? { url: slot.get.url } : {}) });
   }

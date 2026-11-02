@@ -1,6 +1,6 @@
 import { defineRecipe, GraphBuilder, type Recipe } from "@afflatus/core";
 import { boxOf, MASK_INPUTS, MASK_NODES, maskParts, type MaskSettings } from "../sdxl/common";
-import { INPAINT_PATCH_NODES, inpaintPatched, photo, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
+import { INPAINT_PATCH_NODES, inpaintPatched, inpaintPatchNeeds, photo, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
 
 export interface FlowPaintOver extends FlowBase, MaskSettings { source: string; mask: string; prompt: string; strength: number }
 
@@ -31,6 +31,7 @@ export function flowPaintOver(spec: FlowSpec, kit: FlowKit): Recipe<FlowPaintOve
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),
     nodes: (input) => [...loadNodes(input), "LoadImage", "VAEEncode", ...(spec.hardInpaint ? [] : ["DifferentialDiffusion"]), ...MASK_NODES],
+    ...(spec.inpaintPatch ? { needsWith: inpaintPatchNeeds(spec) } : {}),
     ...(SOMETIMES.length || spec.inpaintPatch ? { optionalNodes: [...SOMETIMES, ...(spec.inpaintPatch ? INPAINT_PATCH_NODES : [])] } : {}),
     build(input, ctx) {
       const g = new GraphBuilder();

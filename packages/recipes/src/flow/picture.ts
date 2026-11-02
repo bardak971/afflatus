@@ -38,6 +38,8 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
     title: "txt2img",
     summary: "Text to image, from a natural-language prompt, with optional hires fix.",
     output: "image",
+    // the look of a picture asks for Redux and its vision model, which the build refuses it without (card #226)
+    ...(spec.look ? { needsWith: (input: FlowPicture) => (input.look ? ["redux", "vision"] : []) } : {}),
     inputs: [
       spec.model,
       { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: spec.placeholder },

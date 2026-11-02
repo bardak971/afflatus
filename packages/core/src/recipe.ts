@@ -303,6 +303,12 @@ export interface Recipe<In = Record<string, unknown>> {
    */
   needs?: string[];
   /**
+   * Of `needs`, the ones this input does without (a swap's Show the mask, or a take's Face refine alone, samples nothing: no
+   * LoRA, no model): a machine is not held for them, nor a pod sent them. A need its form picks another file for is left
+   * out as well, without saying (neededSlots).
+   */
+  unneeded?(input: In): string[];
+  /**
    * Slots of its family this particular input cannot do what it asks without (Wan's Turbo: the lightx2v LoRAs, unless the
    * model is made for a few steps). A machine without their files does not take the job, and a rented pod is sent them:
    * the recipe left alone would render without them, the full steps where Turbo was asked. `slots`: the family's files

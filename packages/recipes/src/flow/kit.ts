@@ -112,6 +112,14 @@ export function inpaintPatched(g: GraphBuilder, ctx: BuildContext, spec: FlowSpe
   return { model: g.out("ZImageFunControlnet", { model, model_patch: patch, vae, strength: 1, inpaint_image: picture, mask }), loads: [`model_patches/${file}`] };
 }
 
+/**
+ * The family's inpaint patch for an inpaint or an outpaint (Recipe.needsWith), which the build puts on only where its file
+ * is there (inpaintPatched): a pod is sent it (it never was, and drew without it, card #226), a machine of the user's own
+ * draws without it rather than wait for it.
+ */
+export const inpaintPatchNeeds = (spec: FlowSpec) => (_input: unknown, slots: Record<string, string> = {}, where: { own?: boolean } = {}): string[] =>
+  spec.inpaintPatch && (where.own !== true || slots[spec.inpaintPatch.slot]) ? [spec.inpaintPatch.slot] : [];
+
 /** Turbo's LoRA as a row of the LoRA list (card #160), when the family has one: on a model not made for a few steps as it is. */
 export const flowTurboRow = (spec: FlowSpec): AddedSpec | null => spec.turbo ? {
   label: "Turbo", toggle: "fast",

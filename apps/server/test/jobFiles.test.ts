@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
-import { dryContext, graphFiles, missingSlotFile, missingSlotIn, nodesOfPack, packOfNode, parseInput, type GraphFile } from "@afflatus/core";
+import { dryContext, graphFiles, missingSlotFile, missingSlotIn, nodesOfPack, packOfNode, parseInput, podSlotFiles, type GraphFile } from "@afflatus/core";
 import { h3, h3Video, ltx, ltxVideo, recipeById, UPSCALE, wan, wanVideo } from "@afflatus/recipes";
 import { newId, now, OWNER } from "../src/db";
-import { loadedOn, offeredOn, podSlotFiles } from "../src/jobFiles";
+import { loadedOn, offeredOn } from "../src/jobFiles";
 import { packsLacked } from "../src/jobPacks";
 import type { QueueCore } from "../src/queueModel";
 import { Comfy } from "../src/comfy";
@@ -274,14 +274,15 @@ describe("LTX 2.3's one checkpoint picked as the Model, on a pod (card #103)", (
 
   it("is sent the checkpoint and Gemma alone, and once they are there it lacks nothing its graph loads (it was given UNETLoader and the split files, its audio VAE never fetched)", async () => {
     const core = (t.services.queue as unknown as { core: QueueCore }).core;
-    // the files a fresh pod is sent: the checkpoint into checkpoints, Gemma, none of the split files
+    // the files a fresh pod is sent: the checkpoint into checkpoints, Gemma, none of the split files; and the latent upscaler
+    // its two passes take (card #226: never sent, the pod rendered in one pass at full size, slower and softer)
     const fresh = await loadedOn(core, job("ltx.video"), null);
-    expect(fresh?.files.map((f) => `${f.folder}/${f.file}`).sort()).toEqual([`checkpoints/${ltxGet("checkpoint")}`, `text_encoders/${ltxGet("clip")}`]);
+    expect(fresh?.files.map((f) => `${f.folder}/${f.file}`).sort()).toEqual([`checkpoints/${ltxGet("checkpoint")}`, `latent_upscale_models/${ltxGet("upscaler")}`, `text_encoders/${ltxGet("clip")}`]);
     // the pod once they landed, as #100's re-check pod had them (with the projection and the video VAE it was sent too)
     // (its checkpoint loader offering the checkpoint it holds, as a real ComfyUI's does: a file a loader does not offer is not there, card #107)
     const catalog = referenceCatalog();
     catalog.CheckpointLoaderSimple!.input.required!.ckpt_name = [[ltxGet("checkpoint")]];
-    const other = await startFakeComfy({ catalog, models: { checkpoints: [ltxGet("checkpoint")], text_encoders: [ltxGet("clip"), ltxGet("projection")], vae: [ltxGet("videoVae")], diffusion_models: [] } });
+    const other = await startFakeComfy({ catalog, models: { checkpoints: [ltxGet("checkpoint")], text_encoders: [ltxGet("clip"), ltxGet("projection")], vae: [ltxGet("videoVae")], latent_upscale_models: [ltxGet("upscaler")], diffusion_models: [] } });
     try {
       const comfy = new Comfy(other.url, t.services.registry);
       const on = { id: "pod", comfy, scan: await comfy.scan() };

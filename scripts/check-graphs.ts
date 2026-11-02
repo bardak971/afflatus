@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { baseModels, checkGraph, dryContext, parseInput, plural, warmGraph, type NodeCatalog } from "@afflatus/core";
 import { recipes } from "@afflatus/recipes";
+import { fileGaps } from "./fileGaps";
 
 const saved = fileURLToPath(new URL("../reference/comfy-object-info.json", import.meta.url));
 const arg = process.argv[2] ?? saved;
@@ -40,8 +41,10 @@ for (const recipe of recipes) {
     const label = `${recipe.id} · ${v.name}`;
     try {
       const input = parseInput(recipe, v.input);
-      const built = recipe.build(input, dryContext({ slots: v.slots ?? {}, uploads: v.uploads ?? {}, media: v.media ?? {}, canvas: v.canvas, ...(v.has ? { has: v.has } : {}) }));
+      const ctx = (slots: Record<string, string>) => dryContext({ slots, uploads: v.uploads ?? {}, media: v.media ?? {}, canvas: v.canvas, ...(v.has ? { has: v.has } : {}) });
+      const built = recipe.build(input, ctx(v.slots ?? {}));
       const problems = checkGraph(built, catalog);
+      problems.push(...fileGaps(recipe, v, input as Record<string, unknown>, ctx));
       problems.push(...offGrid(built.graph));
       // a file the build loads without its name: a slot the variant's machine has no file for (Klein 9B read with the 4B's encoder)
       for (const l of built.loads ?? []) if (/\/(undefined|null)?$/.test(l)) problems.push(`loads ${l}: no file`);

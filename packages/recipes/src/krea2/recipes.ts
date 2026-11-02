@@ -132,8 +132,11 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
   refuses: [{ when: { all: [{ input: "person", filled: true }, { input: "references", filled: true }] }, why: NOT_BOTH }],
   optionalNodes: [...DETAIL_OPTIONAL, ...FACE_PASS_OPTIONAL],
   // a person reference asks for its LoRA (unless one is picked in its row) and, with Face refine on, Klein's files and the
-  // face detector: a pod is sent them; a machine of the user's own makes the picture without the pass rather than wait
+  // face detector: a pod is sent them; a machine of the user's own makes the picture without the pass rather than wait.
+  // Style reference images ask for theirs the same way, which the build refuses them without: a pod was never sent it, and
+  // the job was refused there once its boot was paid (card #226)
   needsWith(input, slots, where) {
+    if (input.references?.length && !input.person?.length) return input.styleLora ? [] : ["styleRef"];
     if (!input.person?.length) return [];
     const face = input.faceRefine ? FACE_PASS_SLOTS.filter((id) => !where?.own || slots?.[id]) : [];
     return [...(input.identityLora ? [] : ["identityEdit"]), ...face];

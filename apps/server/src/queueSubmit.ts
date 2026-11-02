@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { openAsBlob } from "node:fs";
-import { baseModels, checkGraph, choicesOf, graphFiles, clockFits, FRAME_SLACK_MS, isChunkStart, latentClockOf, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, onGrid, packOfNode, parseInput, pickChoice, pickedFiles, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue, type SetFinding } from "@afflatus/core";
+import { baseModels, checkGraph, choicesOf, graphFiles, clockFits, FRAME_SLACK_MS, isChunkStart, latentClockOf, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, neededSlots, onGrid, packOfNode, parseInput, pickChoice, pickedFiles, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue, type SetFinding } from "@afflatus/core";
 import { catalogKey, ComfyCancelled, ComfyError, ComfyUnreachable, filesIn } from "@afflatus/comfy";
 import { chunksOf, forecast, fromRates, sizedFrom, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
@@ -931,7 +931,7 @@ async function podHeld(
   // what this input asks for, read as the plan reads it (podSlotFiles): each gap under its download's name
   const asked = (files: Record<string, string>) => {
     const named = { ...files, ...Object.fromEntries(Object.keys(got.gaps).flatMap((id) => { const g = family.slots.find((x) => x.id === id)?.get; return g ? [[id, g.file]] : []; })) };
-    return [...(recipe.needs ?? []), ...(recipe.needsWith?.(input, named, { own: false }) ?? [])];
+    return [...neededSlots(recipe, input), ...(recipe.needsWith?.(input, named, { own: false }) ?? [])];
   };
   for (let tries = 0; ; tries++) {
     const wanted = asked(got.files).filter((id) => !got.files[id] && !got.gaps[id]);

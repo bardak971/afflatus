@@ -1,6 +1,6 @@
 import { defineRecipe, GraphBuilder, type Recipe, type Ref } from "@afflatus/core";
 import { OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, PASTE_BACK_NODES, pasteBack, stretchedFill, type OutpaintSettings } from "../sdxl/common";
-import { INPAINT_PATCH_NODES, inpaintPatched, photo, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
+import { INPAINT_PATCH_NODES, inpaintPatched, inpaintPatchNeeds, photo, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
 
 export interface FlowOutpaint extends FlowBase, OutpaintSettings { source: string; prompt: string }
 
@@ -35,6 +35,7 @@ export function flowOutpaint(spec: FlowSpec, kit: FlowKit): Recipe<FlowOutpaint>
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),
     nodes: (input) => [...loadNodes(input).filter((n) => n !== "VAEDecode" && n !== "PreviewImage"), ...OUTPAINT_NODES, ...PASTE_BACK_NODES, "GrowMask", "VAEEncode", "SetLatentNoiseMask", "DifferentialDiffusion"],
+    ...(spec.inpaintPatch ? { needsWith: inpaintPatchNeeds(spec) } : {}),
     ...(SOMETIMES.length || spec.inpaintPatch ? { optionalNodes: [...SOMETIMES, ...(spec.inpaintPatch ? INPAINT_PATCH_NODES : [])] } : {}),
     build(input, ctx) {
       if (input.padLeft + input.padRight + input.padTop + input.padBottom === 0) throw new Error("Nothing to extend: set how far the picture grows on at least one side.");
