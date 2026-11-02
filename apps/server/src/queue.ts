@@ -1990,6 +1990,13 @@ export class Queue {
       await this.finish(row.id, "failed", { error: removedSaid(row.recipe_id) ?? `the recipe ${row.recipe_id} no longer exists` });
       return;
     }
+    // a workflow an agent changed after this job was queued waits for the user's approval again (registry.ts save): the job
+    // would run the new mapping, which nobody approved (an input bound to a node's file path, the 2026-11-02 review, M2).
+    // Queuing refuses it (renderJob); one queued before is refused here, as it would start
+    if (this.registry.pending(row.recipe_id)) {
+      await this.finish(row.id, "failed", { error: `“${recipe.title}” was changed by an agent after this job was queued, and waits for the user's approval: Studio › Workflows › Approve, in Afflatus, then Again.` });
+      return;
+    }
     let resume = readJson<Resume | null>(row.resume, null);
     // saved just before its prompt was sent, by a process that did not hear back (it stopped, ComfyUI did not answer): ComfyUI is
     // asked whether it took that prompt, which is then followed; one it never had is sent again. Kept for a requeue until then

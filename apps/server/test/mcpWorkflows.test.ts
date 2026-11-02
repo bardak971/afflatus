@@ -195,6 +195,28 @@ describe("workflows from outside", () => {
     await c.close();
   });
 
+  // the 2026-11-02 review (M2): a job queued before an agent changed the mapping ran with the new mapping, unapproved
+  it("fails a job queued before an agent changed its workflow, which waits for approval again: nothing is sent", async () => {
+    const { token, id } = await made("make");
+    const c = await connect(token);
+    const { form } = await ok(c, "import_workflow", { json: JSON.stringify(wan), title: "zz-test wan" });
+    await post(t.app, `/api/workflows/${form}/approve`, {});
+    // queued while the queue does not run yet (a machine paused), then the mapping changed
+    const queued = (await ok(c, "run_workflow", { workflow: form, values: { prompt: "zz-test she waves", seconds: 3 } })).jobs as string[];
+    expect((await ok(c, "edit_workflow", { workflow: form, bindings: { negative: null } })).waitsForApproval).toMatch(/Approve/);
+    await t.services.queue.start();
+    await until(async () => (await t.db.selectFrom("jobs").select("status").where("id", "=", queued[0]!).executeTakeFirstOrThrow()).status === "failed");
+    const row = await t.db.selectFrom("jobs").select(["error", "mcp_token_id"]).where("id", "=", queued[0]!).executeTakeFirstOrThrow();
+    expect(row).toMatchObject({ mcp_token_id: id });
+    expect(row.error).toMatch(/“zz-test wan” was changed by an agent after this job was queued, and waits for the user's approval: Studio › Workflows › Approve, in Afflatus, then Again/);
+    expect(fake.prompts.size).toBe(0);
+    // once approved, the same work runs again
+    await post(t.app, `/api/workflows/${form}/approve`, {});
+    expect((await ok(c, "run_workflow", { workflow: form, values: { prompt: "zz-test she waves", seconds: 3 } })).jobs).toHaveLength(1);
+    await until(() => fake.prompts.size === 1);
+    await c.close();
+  });
+
   it("names what a waiting workflow reads, writes or fetches: VideoHelperSuite's path loaders, path inputs, addresses typed in", async () => {
     const c = await connect((await made("make")).token);
     const reaching = {

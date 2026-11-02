@@ -209,7 +209,7 @@ describe("a pod a token deployed", () => {
     expect(d).toMatchObject({ gpu: "A40", idleMinutes: 2, idleDo: "terminate" });
     expect(d.usdPerHour).toBeCloseTo(0.456, 2);
     const machine = d.machine as string;
-    expect((await readSettings(t.db)).machines.find((m) => m.id === machine)!.rented).toMatchObject({ mcpToken: id, idleMinutes: 2, idleDo: "terminate" });
+    expect((await readSettings(t.db)).machines.find((m) => m.id === machine)!.rented).toMatchObject({ mcpToken: id, deployedBy: id, idleMinutes: 2, idleDo: "terminate" });
     // its run opened as the token's at the first read of it running
     await until(async () => (await t.services.rented.poll(), runpod.pods[0]?.status === "RUNNING"));
     await t.services.rented.poll();
@@ -364,6 +364,27 @@ describe("the machines", () => {
     await all.close();
     await manage.close();
   });
+
+  // the 2026-11-02 review (L6): the switch of every machine steered work onto the user's pod, which edit_machine refuses
+  it("change_setting refuses the families, allFamilies and slotFiles while a pod another token or the user started is up", async () => {
+    const own = await connect((await made("all", { spendCapUsd: 5 })).token);
+    const manage = await connect((await made("look", { scopes: ["look", "make", "manage"] })).token);
+    const all = await connect((await made("all", { spendCapUsd: 5 })).token);
+    const before = await readSettings(t.db);
+    // nothing up yet: the switches are Manage's
+    expect((await ok(manage, "change_setting", { key: "families.sdxl", value: false })).now).toBe(false);
+    await ok(own, "deploy_pod", DEPLOY);
+    await refusedWith(manage, "change_setting", { key: "allFamilies", value: !before.allFamilies }, /cannot spend on rented GPUs, and changing allFamilies while .* is up would send work onto it/);
+    await refusedWith(manage, "change_setting", { key: "families.sdxl", value: null }, /cannot spend on rented GPUs, and changing families while/);
+    await refusedWith(all, "change_setting", { key: "slotFiles", value: { sdxl: { checkpoint: "zz-test.safetensors" } } }, /Changing slotFiles while .* is up would send the user's work onto it, a pod another token started/);
+    const after = await readSettings(t.db);
+    expect({ allFamilies: after.allFamilies, families: after.families, slotFiles: after.slotFiles }).toEqual({ allFamilies: before.allFamilies, families: { sdxl: false }, slotFiles: before.slotFiles });
+    // the token that started the pod pays for what goes there: its own switches go through
+    expect((await ok(own, "change_setting", { key: "families.sdxl", value: null })).now).toBeNull();
+    await own.close();
+    await all.close();
+    await manage.close();
+  });
 });
 
 describe("what it costs", () => {
@@ -449,6 +470,36 @@ describe("a pod a token did not start (card #182, #183)", () => {
     expect((await readSettings(t.db)).machines.find((m) => m.id === machine)!.rented).toMatchObject({ idleMinutes: 10, idleDo: "stop" });
     // the same action said again changes nothing, and is not refused
     expect((await ok(c, "edit_machine", { machine, idleDo: "stop", idleMinutes: 5 })).pod).toMatchObject({ idleMinutes: 5 });
+    await c.close();
+  });
+
+  // the 2026-11-02 review (M5): stop_pod terminated the user's pod, its container disk and the models fetched there
+  it("stop_pod stops the user's pod but never terminates it", async () => {
+    const machine = await usersPod();
+    const c = await connect((await made("spend", { spendCapUsd: 5 })).token);
+    await refusedWith(c, "stop_pod", { machine, how: "terminate" }, /is the user's pod: stop it here \(its disk and the models fetched there are kept\); terminating it is the user's/);
+    expect(runpod.calls.some((x) => x.startsWith("DELETE") || x.endsWith("terminate"))).toBe(false);
+    expect((await readSettings(t.db)).machines.some((m) => m.id === machine)).toBe(true);
+    expect((await ok(c, "stop_pod", { machine, how: "stop" })).stopped).toBe(machine);
+    await c.close();
+  });
+
+  // M5's second way: start_pod made the run the token's, after which its idle action and a terminate were the token's
+  it("start_pod on the user's stopped pod makes its run the token's, not the pod: no terminate, no idle action changed", async () => {
+    const machine = await usersPod();
+    await updateSettings(t.db, (x) => ({ machines: x.machines.map((m) => (m.id === machine && m.rented ? { ...m, rented: { ...m.rented, idleDo: "stop" as const } } : m)) }));
+    const { token, id } = await made("all", { spendCapUsd: 5 });
+    const c = await connect(token);
+    await ok(c, "stop_pod", { machine, how: "stop" });
+    await until(async () => (await t.services.rented.poll(), runpod.pods[0]?.status === "EXITED"));
+    await ok(c, "start_pod", { machine });
+    expect((await readSettings(t.db)).machines.find((m) => m.id === machine)!.rented).toMatchObject({ mcpToken: id, deployedBy: "", idleDo: "stop" });
+    await refusedWith(c, "edit_machine", { machine, idleDo: "terminate" }, /is the user's pod: its idle action stays stop, as set in Afflatus/);
+    await refusedWith(c, "stop_pod", { machine, how: "terminate" }, /is the user's pod: stop it here/);
+    expect((await readSettings(t.db)).machines.find((m) => m.id === machine)!.rented).toMatchObject({ idleDo: "stop" });
+    expect(runpod.calls.some((x) => x.startsWith("DELETE") || x.endsWith("terminate"))).toBe(false);
+    // its run is the token's all the same: its idle minutes are its own to lengthen, counted against its cap
+    expect((await ok(c, "edit_machine", { machine, idleMinutes: 20 })).pod).toMatchObject({ idleMinutes: 20 });
     await c.close();
   });
 

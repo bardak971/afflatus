@@ -92,8 +92,8 @@ def test_the_correction_is_phased_in_from_the_join_to_the_tail():
     # none at the join, all of it on the tail the clip after copies, rising smoothly in between
     assert ramp[0] == 0 and np.all(ramp[-7:] == 1)
     assert np.all(np.diff(ramp) >= 0) and np.abs(np.diff(ramp)).max() < 0.06
-    # a new part no longer than the tail: all of it at its last token only
-    assert run_ramp(5, 7)[0] == 0 and run_ramp(5, 7)[-1] == 1 and run_ramp(1, 7).tolist() == [0.0]
+    # a new part no longer than the tail: all of it at its last token only (a single token too: it is its last, card #234)
+    assert run_ramp(5, 7)[0] == 0 and run_ramp(5, 7)[-1] == 1 and run_ramp(1, 7).tolist() == [1.0]
 
 
 def test_the_join_stays_as_sampled_and_the_tail_is_held_to_the_runs_first_clips():

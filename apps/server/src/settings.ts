@@ -153,6 +153,13 @@ export const rentedSchema = z.object({
    * server's alone: what the page sends of it is not taken (writeSettings keeps only the idle choices of a rented machine).
    */
   mcpToken: z.string().max(80).default(""),
+  /**
+   * The MCP token whose deploy_pod (or start_hunt) deployed it, by id; empty: the user's (deployed in Afflatus, or before
+   * this was kept). A start does not change it, unlike `mcpToken`: a token that started the user's stopped pod spends on
+   * that run, but the pod, its disk and the models fetched there stay the user's, never terminated from MCP (the
+   * 2026-11-02 review, M5). The server's alone, as `mcpToken`.
+   */
+  deployedBy: z.string().max(80).default(""),
 });
 
 /** What a GPU is deployed with (Settings › Rented GPUs › Deploy a GPU): the dialog's choices. */
