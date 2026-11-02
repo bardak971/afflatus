@@ -55,10 +55,11 @@ describe("MiniMax H3 · a continuation with the same person pictures gets its fa
     expect(of(graph, "UNETLoader").map(([, n]) => n.inputs.unet_name)).toContain(slots.refUnet);
     expect(promptOf(graph)).toContain("This clip carries on the previous shot as one continuous take.");
     expect(promptOf(graph)).not.toMatch(/<Picture|<Subject/);
-    // then Face refine towards that picture, on the fused turbo, Face refine model left out
+    // then Face refine towards that picture, on the clip's own model: one model loaded, whatever Face refine model says
     expect(refinedTowards(graph)).toBe("r1.png");
     expect(of(graph, "H3FaceStitch")).toHaveLength(1);
-    expect(built.loads).toContain(`diffusion_models/${slots.faceRefineUnet}`);
+    expect(of(graph, "UNETLoader")).toHaveLength(1);
+    expect(built.loads).not.toContain(`diffusion_models/${slots.faceRefineUnet}`);
     // #222's colour match is gone
     expect(of(graph, "AfflatusMatchPicture")).toEqual([]);
     expect(checkGraph(built, catalog)).toEqual([]);
@@ -66,14 +67,16 @@ describe("MiniMax H3 · a continuation with the same person pictures gets its fa
 
   it("asks a machine for Face refine's files beside the clip's own", () => {
     const needs = h3Video.needsWith!(parseInput(h3Video, { description: "a", previous: { asset: "c1" }, references: [{ asset: "r1", role: "person" }], faceCarried: true }), {});
-    expect(needs).toEqual(expect.arrayContaining(["refUnet", "faceRefineUnet", "faceDetector"]));
+    expect(needs).toEqual(expect.arrayContaining(["refUnet", "faceDetector"]));
+    expect(needs).not.toContain("faceRefineUnet");
     const asSampled = h3Video.needsWith!(parseInput(h3Video, { description: "a", previous: { asset: "c1" }, references: [{ asset: "r1", role: "person" }] }), {});
     expect(asSampled).toContain("refUnet");
     expect(asSampled).not.toContain("faceRefineUnet");
   });
 
-  it("keeps the form's Face refine settings for the pass", () => {
-    const { graph } = build({ faceCarried: true, faceRefine: true, faceRefineDenoise: 0.55, faceRefineSteps: 6 });
+  it("keeps the form's Face refine denoise and steps for the pass, on the clip's own model even where another is picked", () => {
+    const { graph } = build({ faceCarried: true, faceRefine: true, faceRefineDenoise: 0.55, faceRefineSteps: 6, faceRefineModel: slots.faceRefineUnet });
+    expect(of(graph, "UNETLoader").map(([, n]) => n.inputs.unet_name)).toEqual([slots.refUnet]);
     const refine = of(graph, "SamplerCustomAdvanced").find(([, n]) => node(graph, n.inputs.latent_image).class_type === "H3PerFrameDenoise")![1];
     expect(node(graph, refine.inputs.sigmas).inputs).toMatchObject({ steps: 6, denoise: 0.55 });
     expect(of(graph, "H3FaceStitch")).toHaveLength(1);

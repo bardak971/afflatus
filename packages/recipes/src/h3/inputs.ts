@@ -104,7 +104,7 @@ export function withFaceCarried(inputs: InputSpec[]): InputSpec[] {
     spec.id === "references" && spec.type === "references" && !spec.media
       ? { ...spec, note: `${spec.note}. On a timeline, a continuation with the same person pictures as the clip before is sampled without them, then Face refine draws the face towards them: sampled with a person's picture, a continuation takes on the picture's colour and light. A clip whose person pictures changed is sampled with them` }
       : spec.id === "faceRefine" && spec.type === "toggle"
-        ? { ...spec, note: `${spec.note}. On a timeline it runs on a continuation with the same person pictures as the clip before whatever this says: the face comes from it there` }
+        ? { ...spec, note: `${spec.note}. On a timeline it runs on a continuation with the same person pictures as the clip before whatever this says, on the clip's own model: the face comes from it there` }
         : spec);
 }
 
