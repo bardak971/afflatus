@@ -65,7 +65,7 @@ describe("MiniMax H3 · a continuation held at the clip before's contrast (card 
     const { graph } = build({ faceRefine: true, references: [{ asset: "r1", role: "person" }] }, {}, { ...continued, "references.0": "person.png" });
     const [match] = idOf(graph, H3_RUNUP_MATCH);
     const kept = graph[(of(graph, "AfflatusNormalizeH3Latent")[0]![1].inputs.samples as [string, number])[0]]!;
-    expect(kept.class_type).toBe("H3InjectVideoLatent");
+    expect(kept.class_type).toBe("AfflatusH3InjectRegion");
     expect(kept.inputs.av_latent).toEqual([match, 0]);
   });
 

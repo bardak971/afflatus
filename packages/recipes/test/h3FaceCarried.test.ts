@@ -237,6 +237,20 @@ describe("MiniMax H3 · Face refine's pass on a continuation, cheaper and keepin
     expect(of(graph, "H3InjectVideoLatent")).toHaveLength(1);
   });
 
+  it("samples the pass in 3 steps on a turbo, where Face refine asked for takes the 4 it was tested at", () => {
+    const steps = (graph: Graph) => {
+      const pass = of(graph, "SamplerCustomAdvanced").find(([, n]) => node(graph, n.inputs.latent_image).class_type === "H3PerFrameDenoise")![1];
+      return node(graph, pass.inputs.sigmas).inputs.steps;
+    };
+    // (the pod test's model: a distilled hybrid, its own reference model and turbo)
+    const turbo = { model: "DasiwaMinimaxH3_dasiwaHybridTurboV3_int8.safetensors" };
+    expect(steps(build({ ...turbo, faceCarried: true }).graph)).toBe(3);
+    expect(steps(build({ ...turbo, faceCarried: true, holdFace: false, faceRefine: true }).graph)).toBe(4);
+    expect(steps(build({ ...turbo, faceCarried: true, faceRefineSteps: 6 }).graph)).toBe(6);
+    // a full model keeps its 10
+    expect(steps(build({ faceCarried: true }).graph)).toBe(10);
+  });
+
   it("is built as before on a pack without these nodes", () => {
     const { built, graph } = build({ faceCarried: true }, older);
     expect(of(graph, "MiniMaxH3ReferenceToVideo")).toHaveLength(2);

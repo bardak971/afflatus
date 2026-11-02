@@ -459,7 +459,9 @@ describe("an option's files and node packs on a pod", () => {
       for (const r of [render, finish, cut]) {
         const loaded = await loadedOn(core(), r, on);
         expect(loaded?.files.map((f) => f.file), r.recipe_id).toContain(sam);
-        expect(loaded?.missingNodes, r.recipe_id).toEqual(expect.arrayContaining(SAM));
+        // (an H3 graph's outline on a stride, card #225, runs H3 Face Mask (SAM) from Face refine's own pack, which its
+        // H3 Face Stitch brings: SAM's loader is what it names)
+        expect(loaded?.missingNodes, r.recipe_id).toEqual(expect.arrayContaining(r === cut ? SAM : ["SAMLoader"]));
       }
       // a machine of the user's own is not asked for them: it pastes over the box without SAM, as before
       const own = await loadedOn(core(), render, { ...on, own: true });

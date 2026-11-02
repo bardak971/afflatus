@@ -6,7 +6,7 @@ import { facePhotos, faceScore } from "../shared/face";
 import { H3_FPS } from "./family";
 import { H3_RUN_ANCHOR } from "./join";
 import type { H3Video } from "./inputs";
-import { faceRefined, INJECT_REGION, openingPicture, type ClipModel } from "./faceRefine";
+import { faceRefined, holdsFace, INJECT_REGION, openingPicture, type ClipModel } from "./faceRefine";
 
 /** The clip's own sampled window kept beside it, its audio rounded to its frame boundary, for the clips that continue it or land on it. */
 export const H3_SAVE_LATENT = ["AfflatusNormalizeH3Latent", "AfflatusSaveH3Latent"];
@@ -33,7 +33,7 @@ export function finish(g: GraphBuilder, ctx: BuildContext, input: H3Video, made:
   // the faces redrawn at their own size, and RIFE then makes its in-between frames from the refined ones. Without a cast person,
   // towards the picture the clip opens on (a Motion transfer's Picture, a First frame), as on the LTX and SCAIL forms (R1)
   const opening = openingPicture(input, ctx);
-  const faces = made.clip ? faceRefined(g, ctx, input, decodedImages, { audio, vae, audioVae, clip: made.clip, free: made.free, model: made.model, picture: opening, only: Boolean(input.faceRefineOnly) && !upscaling }) : { images: decodedImages, pass: null, loads: [], said: null };
+  const faces = made.clip ? faceRefined(g, ctx, input, decodedImages, { audio, vae, audioVae, clip: made.clip, free: made.free, model: made.model, picture: opening, only: Boolean(input.faceRefineOnly) && !upscaling, carried: holdsFace(input) }) : { images: decodedImages, pass: null, loads: [], said: null };
   const { images } = faces;
   const refined = Boolean(faces.pass);
   // the frames as the model made them, before anything changes them: a clip that carries on from this

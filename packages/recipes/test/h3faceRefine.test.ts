@@ -44,14 +44,17 @@ describe("MiniMax H3 · Face refine", () => {
     const [stitch] = of(graph, "H3FaceStitch");
     expect(stitch).toBeDefined();
     expect(node(graph, stitch!.inputs.base_images).class_type).toBe("VAEDecode");
-    // RIFE interpolates the refined frames
-    expect(node(graph, of(graph, "FrameInterpolate")[0]!.inputs.images)).toBe(stitch);
+    // the sampled grain laid back on the pasted face (card #225), and RIFE interpolates those frames
+    const kept = of(graph, "AfflatusFaceDetailKeep")[0]!;
+    expect(node(graph, kept.inputs.images)).toBe(stitch);
+    expect(node(graph, of(graph, "FrameInterpolate")[0]!.inputs.images)).toBe(kept);
     // the cast person's picture, not the first reference (a place), followed by identity and given as <Picture 1>
     const track = of(graph, "H3FaceTrackCrop")[0]!;
     const picture = node(graph, node(graph, track.inputs.identity_reference).inputs.image);
     expect(picture.inputs.image).toBe("person.png");
     expect(track.inputs).toMatchObject({ detector: slots.faceDetector, fallback_detector: slots.faceSeg, crop_factor: 2.5, identity_threshold: 0.28 });
-    const r2v = of(graph, "MiniMaxH3ReferenceToVideo").find((n) => n.inputs["ref_images.ref_image_0"] === track.inputs.identity_reference)!;
+    // (its prompt encoded with the clip's, card #225)
+    const r2v = of(graph, "AfflatusH3ReferencePrompt").find((n) => n.inputs.ref_image === track.inputs.identity_reference)!;
     expect(r2v.inputs.prompt).toBe("Close-up of the face of the person in <Picture 1>, short dark hair, round glasses. Sharp focus, clear details.");
     // on the fused reference turbo, at 4 steps, 0.45, the clip's seed; the clip's sound held
     const samplers = of(graph, "SamplerCustomAdvanced");
@@ -63,13 +66,13 @@ describe("MiniMax H3 · Face refine", () => {
     expect(loaders).toContain(slots.faceRefineUnet);
     const lock = of(graph, "AfflatusH3AudioLock")[0]!;
     expect(node(graph, lock.inputs.audio).class_type).toBe("VAEDecodeAudio");
-    // pasted over SAM's outline of the face
-    expect(node(graph, stitch!.inputs.masks).class_type).toBe("H3FaceMaskSAM");
-    // the clip after carries on from the refined faces: the kept latent is them encoded, the sampled sound kept
-    const kept = node(graph, of(graph, "AfflatusNormalizeH3Latent")[0]!.inputs.samples);
-    expect(kept.class_type).toBe("H3InjectVideoLatent");
-    expect(node(graph, kept.inputs.images)).toBe(stitch);
-    expect(node(graph, kept.inputs.av_latent).class_type).toBe("SamplerCustomAdvanced");
+    // pasted over SAM's outline of the face, made on every 4th crop
+    expect(node(graph, stitch!.inputs.masks).class_type).toBe("AfflatusFaceMaskStride");
+    // the clip after carries on from the refined faces: the kept latent is their region encoded, the rest and the sampled sound kept
+    const latent = node(graph, of(graph, "AfflatusNormalizeH3Latent")[0]!.inputs.samples);
+    expect(latent.class_type).toBe("AfflatusH3InjectRegion");
+    expect(node(graph, latent.inputs.images)).toBe(kept);
+    expect(node(graph, latent.inputs.av_latent).class_type).toBe("SamplerCustomAdvanced");
     // a pass of the job's progress, and its files loaded
     expect(built.passes?.at(-1)).toEqual({ node: idOf(graph, refine), steps: 4 });
     expect(built.loads).toEqual(expect.arrayContaining([`diffusion_models/${slots.faceRefineUnet}`, `ultralytics/${slots.faceDetector}`, `sams/${slots.faceSam}`]));
@@ -218,7 +221,7 @@ describe("MiniMax H3 · Face refine", () => {
   });
 
   it("takes the form's own How they look into its prompt on a swap and a Motion transfer, which have one such field", () => {
-    const prompt = (graph: Graph) => of(graph, "MiniMaxH3ReferenceToVideo").map((n) => String(n.inputs.prompt)).find((p) => p.startsWith("Close-up of the face"));
+    const prompt = (graph: Graph) => [...of(graph, "MiniMaxH3ReferenceToVideo"), ...of(graph, "AfflatusH3ReferencePrompt")].map((n) => String(n.inputs.prompt)).find((p) => p.startsWith("Close-up of the face"));
     const swap = recipeById("h3.swap")!;
     const swapped = swap.build(parseInput(swap, { who: "", inSource: "the woman", look: "short grey hair.", source: { asset: "v1" }, references: [{ asset: "r1", role: "person" }], faceRefine: true }), dryContext({
       slots: { ...slots, swapLora: "swap.safetensors", swapUnet: "minimax_h3_ref2va.safetensors" }, uploads: { source: "src.mp4", "references.0": "person.png" },

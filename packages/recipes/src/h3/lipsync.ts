@@ -132,6 +132,13 @@ export const h3LipSync = defineRecipe<H3LipSync>({
         input: { description: "a", previous: { asset: "c1" }, references: [{ asset: "r1", role: "person" }], recording: "a1", speechAt: 0.5, fast: false },
         slots: all, uploads: { previous: "a.mp4", "references.0": "r1.png", recording: "rec.wav" }, media: { previous: joined, recording: { width: 0, height: 0, seconds: 4.2 } },
       },
+      // the person pictures of the take before (card #223): sampled without them, the face drawn towards them by Face refine
+      // (Hold the face on continuations, card #225)
+      {
+        name: "the cast carried on from the clip before, its face from Face refine",
+        input: { description: "a", previous: { asset: "c1" }, references: [{ asset: "r1", role: "person" }], recording: "a1", faceCarried: true },
+        slots: { ...all, ...FACE_REFINE_SLOTS }, uploads: { previous: "a.mp4", "references.0": "r1.png", recording: "rec.wav" }, media: { previous: joined, recording: { width: 0, height: 0, seconds: 4.2 } },
+      },
       {
         name: "the recording handed over with its pause after the part, no smoothing",
         input: { description: "a", references: [{ asset: "r1", role: "person" }], recording: "a1", smooth: false },

@@ -40,7 +40,8 @@ describe("SCAIL-2 at 24 fps · Face refine", () => {
 
   it("redraws SCAIL's own frames towards the Picture, before the match to the driving video, with the driving sound held", () => {
     const { built, graph } = build({ faceRefine: true });
-    const stitch = of(graph, "H3FaceStitch")[0]!;
+    // the pasted face with the sampled grain kept (card #225): what everything after reads
+    const stitch = of(graph, "AfflatusFaceDetailKeep")[0]!;
     // its base is the frames SCAIL made: 141 frames at 24 fps are two of its 81-frame chunks, joined
     expect(node(graph, stitch.inputs.base_images).class_type).toBe("ImageBatch");
     expect(of(graph, "SamplerCustom")).toHaveLength(2);
@@ -71,7 +72,7 @@ describe("SCAIL-2 at 24 fps · Face refine", () => {
     });
     // 141 frames less the 5 carried: 136, made up with 5 to 141 and cut back to 136
     expect(of(graph, "RepeatImageBatch")[0]!.inputs.amount).toBe(5);
-    const stitch = of(graph, "H3FaceStitch")[0]!;
+    const stitch = of(graph, "AfflatusFaceDetailKeep")[0]!;
     const cut = of(graph, "ImageFromBatch").find((n) => graph[(n.inputs.image as [string, number])[0]] === stitch)!;
     expect(cut.inputs).toMatchObject({ batch_index: 0, length: 136 });
     expect(of(graph, "AfflatusH3AudioLock")).toHaveLength(0);

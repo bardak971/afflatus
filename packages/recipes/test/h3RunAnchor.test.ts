@@ -62,12 +62,12 @@ describe("MiniMax H3 · a continuation held to its run's first clip (card #215)"
     expect(checkGraph(built, catalog)).toEqual([]);
   });
 
-  it("keeps the run's look through Face refine's re-encode, which hands on its samples alone", () => {
+  it("keeps the run's look through Face refine's re-encode (of the face's region, card #225), which hands on its samples alone", () => {
     const { built, graph } = build({ faceRefine: true, references: [{ asset: "r1", role: "person" }] }, {}, { ...continued, "references.0": "person.png" });
     const [anchor] = idOf(graph, H3_RUN_ANCHOR);
     const normalize = of(graph, "AfflatusNormalizeH3Latent")[0]![1];
     const kept = graph[(normalize.inputs.samples as [string, number])[0]]!;
-    expect(kept.class_type).toBe("H3InjectVideoLatent");
+    expect(kept.class_type).toBe("AfflatusH3InjectRegion");
     expect(kept.inputs.av_latent).toEqual([anchor, 0]);
     expect(normalize.inputs.figures_from).toEqual([anchor, 0]);
     expect(checkGraph(built, catalog)).toEqual([]);
@@ -100,7 +100,7 @@ describe("MiniMax H3 · a continuation held to its run's first clip (card #215)"
     const { graph } = build({ faceRefine: true, faceRefineOnly: true, references: [{ asset: "r1", role: "person" }] }, {}, { ...continued, "references.0": "person.png", "self.latent": "own.safetensors" });
     const own = of(graph, "AfflatusLoadH3Latent").find(([, x]) => x.inputs.latent === "own.safetensors")![0];
     const normalize = of(graph, "AfflatusNormalizeH3Latent")[0]![1];
-    expect(graph[(normalize.inputs.samples as [string, number])[0]]!.class_type).toBe("H3InjectVideoLatent");
+    expect(graph[(normalize.inputs.samples as [string, number])[0]]!.class_type).toBe("AfflatusH3InjectRegion");
     expect(normalize.inputs.figures_from).toEqual([own, 0]);
   });
 

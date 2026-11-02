@@ -11,8 +11,9 @@ the pass's prompt ~7 s, the crops sampled 27 s, decoded and pasted 14 s. And the
   the encoder sees and the one the model is given may be cut at two sizes.
 - SAM's outline on every few frames, blended in between (Face Mask Stride): the crops are face-stabilised, so the outline
   moves little from frame to frame, and the pack's own temporal smoothing already averages five of them.
-- The sampled face's own fine detail laid back on the pasted one where the redraw kept its shape (Face Detail Keep): the
-  likeness from the pass, the skin's grain from the sample.
+- The pasted face's own fine detail brought back to the strength the sampled face had there (Face Detail Keep): the likeness
+  from the pass, as sharp as the sample. The sample's own detail laid on it instead (a frequency split) cost 0.05 of likeness
+  on the pod test (0.533 to 0.487): at that scale, the sample's eyes and brows came back with its grain.
 - The kept latent takes the refined face's region alone (H3 Inject Region): the rest of the frame is the sampled latent as it
   was, not decoded and encoded again. H3's video encoder is a causal 3D CNN, tiled over 256 px with blended overlaps, so a
   region encoded with a margin around it gives the same tokens inside it as the whole frame does, to within the tiling's own.
@@ -223,20 +224,21 @@ def blur(x, sigma):
     return F.conv2d(F.pad(x, (0, 0, r, r), mode="reflect"), k.view(1, 1, -1, 1).expand(c, 1, -1, 1), groups=c)
 
 
-def keep_detail(base, refined, sigma=1.2, tolerance=0.05, strength=1.0):
-    """`refined` with `base`'s fine detail (finer than `sigma` px) where the two agree in their broad picture, on [N, C, H, W].
+def keep_detail(base, refined, sigma=0.8, most=2.0, strength=1.0):
+    """`refined` with its own detail finer than `sigma` px brought back to `base`'s local strength, on [N, C, H, W].
 
-    The refined picture's broad part is kept everywhere: the likeness. Its detail finer than sigma becomes the base's, weighed
-    by how close their broad parts are there (1 where they agree, down to 0 past `tolerance`), so that an eye or a mouth the
-    redraw moved keeps the redraw's own edges rather than the base's beside them. Where nothing was redrawn the two are the
-    same picture and it is left as it is.
+    Only made stronger (by `most` times at most), never weaker, and only the refined picture's own detail: none of the base's
+    is laid on it, so nothing of the face it redrew comes back (its features, its likeness). The strength is the detail's
+    energy over a few pixels around each one. Where nothing was redrawn the two are the same picture and it is left as it is.
+    On the pod test (card #225) the pasted face went from 0.887 to 0.933 of the sampled face's sharpness, its likeness kept
+    (0.533 and 0.531; 0.41 and 0.415 on the clip after).
     """
-    import torch
-
     lb, lr = blur(base, sigma), blur(refined, sigma)
-    apart = blur((lb - lr).abs().mean(dim=1, keepdim=True), 2 * sigma)
-    weight = strength * torch.exp(-((apart / tolerance) ** 2))
-    return (refined + weight * ((base - lb) - (refined - lr))).clamp(0.0, 1.0)
+    hb, hr = base - lb, refined - lr
+    eb = blur((hb * hb).mean(dim=1, keepdim=True), 3 * sigma)
+    er = blur((hr * hr).mean(dim=1, keepdim=True), 3 * sigma)
+    gain = (eb / (er + 1e-6)).sqrt().clamp(1.0, max(1.0, most))
+    return (refined + strength * (gain - 1) * hr).clamp(0.0, 1.0)
 
 
 def changed_box(base, refined, threshold=1.0 / 255):
@@ -255,7 +257,7 @@ def changed_box(base, refined, threshold=1.0 / 255):
 
 
 class AfflatusFaceDetailKeep(io.ComfyNode):
-    """The sampled frames' own fine detail laid back on the face Face refine pasted, where the redraw kept its shape."""
+    """The face Face refine pasted given back the sharpness the sampled face had, from its own detail."""
 
     @classmethod
     def define_schema(cls) -> io.Schema:
@@ -263,19 +265,19 @@ class AfflatusFaceDetailKeep(io.ComfyNode):
             node_id="AfflatusFaceDetailKeep",
             display_name="Afflatus: Face Detail Keep",
             category="Afflatus",
-            description="Gives the refined frames the sampled frames' detail finer than sigma (skin grain, pores, fine hair) wherever their broad picture agrees with the sampled one, and leaves the refined detail where the redraw moved a feature. Only the pixels the refine changed are touched.",
+            description="Brings the refined frames' own detail finer than sigma (skin grain, pores, fine hair) back to the strength the sampled frames had at each place, never weaker and at most `most` times, without laying any of the sampled frames' detail on them: the likeness stays the refine's. Only the pixels the refine changed are touched.",
             inputs=[
                 io.Image.Input("base_images", tooltip="The frames as sampled, before Face refine."),
                 io.Image.Input("images", tooltip="The same frames with the refined face pasted (H3 Face Stitch)."),
-                io.Float.Input("sigma", default=1.2, min=0.5, max=4.0, step=0.1, tooltip="Detail finer than this, in pixels, comes from the sampled frames."),
-                io.Float.Input("tolerance", default=0.05, min=0.01, max=0.5, step=0.01, tooltip="How far apart the two broad pictures may be (0 to 1) before the refined detail is kept as it is."),
+                io.Float.Input("sigma", default=0.8, min=0.5, max=4.0, step=0.1, tooltip="Detail finer than this, in pixels, is brought back to the sampled frames' strength."),
+                io.Float.Input("most", default=2.0, min=1.0, max=4.0, step=0.1, tooltip="How many times stronger it may be made at most."),
                 io.Float.Input("strength", default=1.0, min=0.0, max=1.0, step=0.05),
             ],
             outputs=[io.Image.Output(display_name="images")],
         )
 
     @classmethod
-    def execute(cls, base_images, images, sigma=1.2, tolerance=0.05, strength=1.0) -> io.NodeOutput:
+    def execute(cls, base_images, images, sigma=0.8, most=2.0, strength=1.0) -> io.NodeOutput:
         import comfy.model_management as mm
 
         if strength <= 0 or base_images.shape != images.shape:
@@ -285,8 +287,8 @@ class AfflatusFaceDetailKeep(io.ComfyNode):
         box = changed_box(base_images, images)
         if box is None:
             return io.NodeOutput(images)
-        # the box the refine changed, with room for the blur's reach: the rest is the sampled frame already
-        pad = int(math.ceil(9 * sigma))
+        # the box the refine changed, with room for the blurs' reach: the rest is the sampled frame already
+        pad = int(math.ceil(12 * sigma))
         H, W = int(images.shape[1]), int(images.shape[2])
         x0, y0, x1, y1 = max(0, box[0] - pad), max(0, box[1] - pad), min(W, box[2] + pad), min(H, box[3] + pad)
         out = images.clone()
@@ -294,8 +296,8 @@ class AfflatusFaceDetailKeep(io.ComfyNode):
         for i in range(0, int(images.shape[0]), 16):
             b = base_images[i : i + 16, y0:y1, x0:x1, :3].to(device).movedim(-1, 1)
             r = images[i : i + 16, y0:y1, x0:x1, :3].to(device).movedim(-1, 1)
-            out[i : i + 16, y0:y1, x0:x1, :3] = keep_detail(b, r, sigma, tolerance, strength).movedim(1, -1).to(out.device, out.dtype)
-        log.info("[afflatus] face detail kept: the sampled grain under %.1f px, over %dx%d px of the frame", sigma, x1 - x0, y1 - y0)
+            out[i : i + 16, y0:y1, x0:x1, :3] = keep_detail(b, r, sigma, most, strength).movedim(1, -1).to(out.device, out.dtype)
+        log.info("[afflatus] face detail kept: its grain under %.1f px back to the sample's (x%.1f at most), over %dx%d px of the frame", sigma, most, x1 - x0, y1 - y0)
         return io.NodeOutput(out)
 
 

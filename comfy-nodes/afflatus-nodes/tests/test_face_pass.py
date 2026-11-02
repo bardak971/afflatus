@@ -43,39 +43,36 @@ def test_the_blocks_are_the_picture_then_the_sound_as_the_prompt_names_them():
     assert [b["kind"] for b in reference_blocks("z", (512, 512))] == ["image"]
 
 
-def test_the_sampled_grain_comes_back_where_the_redraw_kept_the_shape_and_not_where_it_moved_a_feature():
+def test_the_pasted_face_gets_its_sharpness_back_from_its_own_detail_and_nothing_of_the_sampled_face():
     out = with_torch(r"""
 fp = load("face_pass")
 g = torch.Generator().manual_seed(0)
-# a smooth face-like picture with skin grain, and the refine: the same broad picture slightly brighter, its grain gone
 yy, xx = torch.meshgrid(torch.linspace(0, 1, 96), torch.linspace(0, 1, 96), indexing="ij")
 broad = (0.5 + 0.2 * torch.sin(xx * 3) * torch.cos(yy * 2)).expand(1, 3, 96, 96).clone()
-grain = 0.04 * torch.randn(1, 3, 96, 96, generator=g)
-base = (broad + grain).clamp(0, 1)
-soft = (broad + 0.01).clamp(0, 1)
+# the sample: its own grain; the refine: other grain (its own face), at half the strength (softened at the paste-back)
+base = (broad + 0.04 * torch.randn(1, 3, 96, 96, generator=g)).clamp(0, 1)
+own = 0.02 * torch.randn(1, 3, 96, 96, generator=g)
+soft = (broad + own).clamp(0, 1)
 kept = fp.keep_detail(base, soft)
-hp = lambda x: (x - fp.blur(x, 1.2)).pow(2).mean().sqrt().item()
+hp = lambda x: (x - fp.blur(x, 0.8)).pow(2).mean().sqrt().item()
 print("grain", round(hp(base), 4), round(hp(soft), 4), round(hp(kept), 4))
-# the likeness (the broad picture) is the refine's
-print("broad", round((fp.blur(kept, 3) - fp.blur(soft, 3)).abs().mean().item(), 4), round((fp.blur(base, 3) - fp.blur(soft, 3)).abs().mean().item(), 4))
-# a dark feature (an eye) the redraw moved by 6 px: no second, faint copy of it where it was
-eye = lambda x0: ((xx * 96 - x0).abs() < 4) & ((yy * 96 - 48).abs() < 3)
-b2 = base.clone(); b2[:, :, eye(40)] = 0.1
-r2 = soft.clone(); r2[:, :, eye(46)] = 0.1
-k2 = fp.keep_detail(b2, r2)
-old = eye(40) & ~eye(46)
-print("ghost", round((k2 - r2)[:, :, old].abs().mean().item(), 4), round((b2 - r2)[:, :, old].abs().mean().item(), 4))
-# nothing redrawn: the frame as it was
-print("same", (fp.keep_detail(base, base) - base).abs().max().item() < 1e-5)
+# what it adds is the refine's own detail made stronger, not the sample's
+added = (kept - soft).flatten()
+corr = lambda a, b: torch.corrcoef(torch.stack([a, b]))[0, 1].item()
+print("from", round(corr(added, (soft - fp.blur(soft, 0.8)).flatten()), 2), round(corr(added, (base - fp.blur(base, 0.8)).flatten()), 2))
+# never weaker: a refine sharper than the sample is left as it is; nothing redrawn, nothing changed
+print("sharper", (fp.keep_detail(soft, base) - base).abs().max().item() < 1e-6, "same", (fp.keep_detail(base, base) - base).abs().max().item() < 1e-6)
+# at most twice as strong
+flat = broad.clamp(0, 1) + 0.002 * torch.randn(1, 3, 96, 96, generator=g)
+print("most", round(hp(fp.keep_detail(base, flat)) / hp(flat), 2))
 """)
-    grain = dict(line.split(" ", 1) for line in out.strip().splitlines())
-    base, soft, kept = map(float, grain["grain"].split())
-    assert soft < base * 0.3 and kept > base * 0.85
-    broad_kept, broad_base = map(float, grain["broad"].split())
-    assert broad_kept < broad_base * 0.25
-    ghost, moved = map(float, grain["ghost"].split())
-    assert ghost < moved * 0.1
-    assert grain["same"] == "True"
+    lines = dict(line.split(" ", 1) for line in out.strip().splitlines())
+    base, soft, kept = map(float, lines["grain"].split())
+    assert soft < base * 0.6 and kept > soft * 1.6
+    own, sampled = map(float, lines["from"].split())
+    assert own > 0.9 and abs(sampled) < 0.15
+    assert lines["sharper"] == "True same True"
+    assert float(lines["most"]) <= 2.05
 
 
 def test_the_outline_between_two_key_frames_is_blended_from_them_and_smoothed_as_the_pack_does():

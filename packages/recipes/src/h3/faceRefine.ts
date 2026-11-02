@@ -40,11 +40,12 @@ export const INJECT_REGION = "AfflatusH3InjectRegion";
  */
 const MASK_STRIDE = 4;
 /**
- * The sampled face's grain finer than 1.2 px laid back on the pasted one where their broad picture is within 0.05: the pass
- * left the face ~20 % softer than sampled (Timeline 17, face-crop Laplacian 5.36 to 4.3), plain at the join after a clip
- * sampled with the person's picture. A feature the redraw moved (an eye, a mouth) keeps the redraw's own edges.
+ * The pasted face's own detail finer than 0.8 px brought back to the strength the sampled face had there, twice as strong at
+ * most: the pass left the face ~20 % softer than sampled (Timeline 17, face-crop Laplacian 5.36 to 4.3), plain at the join
+ * after a clip sampled with the person's picture. On the pod test (card #225) 0.887 of the sampled face's sharpness became
+ * 0.933, the likeness kept; laying the sample's own detail on it instead cost 0.05 of likeness.
  */
-const DETAIL_KEEP = { sigma: 1.2, tolerance: 0.05, strength: 1 };
+const DETAIL_KEEP = { sigma: 0.8, most: 2, strength: 1 };
 /** The size the pass's picture is cut to for the text encoder, ahead of the face track that sizes the crops: the canvas's least. */
 const PROMPT_CANVAS = 512;
 
@@ -54,6 +55,12 @@ const PROMPT_CANVAS = 512;
  */
 export const FACE_REFINE_FULL_STEPS = 10;
 const TURBO_STEPS = 4;
+/**
+ * The pass a continuation that carries the face on is given (holdsFace), on a turbo: 3 steps. On the pod test (card #225, the
+ * DaSiWa hybrid turbo) they held the face as well as 4 (0.554 and 0.533) and as sharp (0.870 and 0.868 of the sampled face's
+ * sharpness), ~8 s less a continuation. Elsewhere (Face refine asked for) the 4 it was tested at.
+ */
+const CARRIED_TURBO_STEPS = 3;
 
 export const FACE_REFINE_INPUTS: InputSpec[] = [
   {
@@ -81,7 +88,7 @@ export const FACE_REFINE_INPUTS: InputSpec[] = [
   {
     // 0 since card #159: by the model, as its sampling needs (a value typed stays the form's)
     id: "faceRefineSteps", type: "number", label: "Face refine steps", min: 2, max: 16, step: 1, default: 0, auto: "by model", showWhen: "faceRefine", advanced: true, section: "out",
-    note: `by model (the left end): 4 on a fused or distilled turbo, as it was tested (8 kept less of the likeness), ${FACE_REFINE_FULL_STEPS} on a full model; the job says which ran`,
+    note: `by model (the left end): 4 on a fused or distilled turbo, as it was tested (8 kept less of the likeness), 3 on a continuation that holds the face, ${FACE_REFINE_FULL_STEPS} on a full model; the job says which ran`,
   },
   // a finish of a kept take (Finish › Face refine): its own latent loaded, nothing sampled, only the faces redrawn
   { id: "faceRefineOnly", type: "toggle", label: "Face refine only", default: false, internal: true },
@@ -221,7 +228,7 @@ export function clipModelOf(input: H3Video, slots: Record<string, string> = {}, 
  * unless it follows no picture, then the fused turbo, else the reference model. Steps: the form's when typed, else 4 on a
  * turbo (its name says so, as H3's distilled files are known) and FACE_REFINE_FULL_STEPS on a full model.
  */
-export function faceModelOf(input: Partial<Pick<H3Video, "faceRefineModel" | "faceRefineSteps">>, slots: Record<string, string>, clip?: ClipModel): { file: string | undefined; loader?: Ref; lora?: string; loraWeight?: number; steps: number; said: string | null } {
+export function faceModelOf(input: Partial<Pick<H3Video, "faceRefineModel" | "faceRefineSteps">>, slots: Record<string, string>, clip?: ClipModel, turboSteps = TURBO_STEPS): { file: string | undefined; loader?: Ref; lora?: string; loraWeight?: number; steps: number; said: string | null } {
   const asked = input.faceRefineModel;
   const turbo = slots.faceRefineUnet;
   let file = asked && asked !== OWN_MODEL ? asked : turbo;
@@ -242,7 +249,7 @@ export function faceModelOf(input: Partial<Pick<H3Video, "faceRefineModel" | "fa
   const lora = theClips ? clip?.turbo : undefined;
   const typed = (input.faceRefineSteps ?? 0) > 0 ? input.faceRefineSteps! : 0;
   const fast = Boolean(lora) || namedFor.turbo.test(fileName(file));
-  return { file, ...(loader ? { loader } : {}), ...(lora ? { lora, loraWeight: clip?.turboWeight ?? 1 } : {}), steps: typed || (fast ? TURBO_STEPS : FACE_REFINE_FULL_STEPS), said };
+  return { file, ...(loader ? { loader } : {}), ...(lora ? { lora, loraWeight: clip?.turboWeight ?? 1 } : {}), steps: typed || (fast ? turboSteps : FACE_REFINE_FULL_STEPS), said };
 }
 
 /**
@@ -296,7 +303,7 @@ const onH3Grid = (frames: number) => (frames < 5 ? 5 : frames + ((17 - ((frames 
  */
 export function faceRefined(
   g: GraphBuilder, ctx: BuildContext, input: FaceRefineValues, images: Ref,
-  at: { audio?: Ref; vae?: Ref; audioVae?: Ref; clip?: Ref; picture?: string; frames?: number; only?: boolean; model?: ClipModel; free?: string | null },
+  at: { audio?: Ref; vae?: Ref; audioVae?: Ref; clip?: Ref; picture?: string; frames?: number; only?: boolean; model?: ClipModel; free?: string | null; carried?: boolean },
 ): FaceRefined {
   const as: FaceRefined = { images, pass: null, loads: [], said: null };
   const own = !at.clip;
@@ -327,7 +334,7 @@ export function faceRefined(
   });
   // the fused reference turbo as the pass was tested, or the model picked: the clip's own is the clip's loader, one model in
   // memory, with a fresh chain on it (none of the clip's LoRAs: the swap's and the turbo's are made for its own sampling)
-  const picked = faceModelOf(input, slots, at.model);
+  const picked = faceModelOf(input, slots, at.model, at.carried ? CARRIED_TURBO_STEPS : TURBO_STEPS);
   let model = picked.loader ?? loadUnet(g, ctx, picked.file);
   if (input.quick) model = g.out("ModelAttentionBackend", { model, attention: "comfy kitchen attention" });
   // (at the weight of Turbo's row, as the clip had it)
@@ -355,14 +362,15 @@ export function faceRefined(
   // pasted over the face's own outline (SAM) when SAM is there, else over the face's box; faded out where no face is found
   const boxed = faceBoxSaid(ctx);
   const sam = !boxed;
-  // (on every few crops where the pack has it: the same outline within a pixel or two, in a quarter of the time)
+  // (on every few crops where the pack has it: the same outline within a pixel or two, in a quarter of the time. It runs
+  // H3 Face Mask (SAM) itself, from ComfyUI-H3-FaceRefine, the pack H3 Face Stitch comes with)
   const outline = { crops: [track, 0], sam_model: sam ? g.out("SAMLoader", { model_name: slots.faceSam, device_mode: "AUTO" }) : null, transform: [track, 1], threshold: 0.93, dilation: 0, temporal_smooth: 5 };
-  const masked = !sam ? {} : { masks: ctx.has(FACE_MASK_STRIDE) ? g.out(FACE_MASK_STRIDE, { ...outline, stride: MASK_STRIDE }) : g.out("H3FaceMaskSAM", outline) };
+  const masked = !sam ? {} : { masks: ctx.has(FACE_MASK_STRIDE) && ctx.has("H3FaceMaskSAM") ? g.out(FACE_MASK_STRIDE, { ...outline, stride: MASK_STRIDE }) : g.out("H3FaceMaskSAM", outline) };
   const pasted = g.out("H3FaceStitch", {
     base_images: base, refined_crops: redrawn, transform: [track, 1], paste_region: "face_only", mask_dilation: 16, feather: 6,
     colour_match: 1, blend: 1, undetected_frames: "fade_out", feather_scales_with_crop: false, ...masked,
   });
-  // the likeness from the pass, the skin's grain from the sample (an older pack: the face as pasted, softer than sampled)
+  // the likeness from the pass, as sharp as the sample (an older pack: the face as pasted, softer than sampled)
   const stitched: Ref = ctx.has(FACE_DETAIL_KEEP) ? g.out(FACE_DETAIL_KEEP, { base_images: base, images: pasted, ...DETAIL_KEEP }) : pasted;
   const loads = [
     ...(picked.loader ? [] : [`diffusion_models/${picked.file}`, ...(picked.lora ? [`loras/${picked.lora}`] : [])]), `ultralytics/${slots.faceDetector}`, ...(slots.faceSeg ? [`ultralytics/${slots.faceSeg}`] : []), ...(sam ? [`sams/${slots.faceSam}`] : []),
