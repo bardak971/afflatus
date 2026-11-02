@@ -107,5 +107,7 @@ export async function beginDownload(s: Services, from: FastifyRequest | string, 
     file: saveAs, folder: b.folder, title: found.title || name,
     source: found.file.downloadUrl, headers: settings.civitaiKey ? { Authorization: `Bearer ${settings.civitaiKey}` } : undefined,
     total: Math.round((found.file.sizeKB ?? 0) * 1024), comfyDir: dir, machine, ...kept, ...via,
+    // the file's own sha256, as Civitai lists it: checked before the file is named (by Afflatus or a pack from 0.44.0 on)
+    ...(found.file.hashes?.SHA256 ? { sha256: found.file.hashes.SHA256 } : {}),
   });
 }
