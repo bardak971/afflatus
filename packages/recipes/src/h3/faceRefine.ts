@@ -4,7 +4,7 @@ import { loadUnet } from "../shared/unet";
 import { FREE_TEXT_ENCODER, freeTextEncoder } from "./condition";
 import { H3_HYBRIDS, SWAP_MODELS } from "./family";
 import type { H3Video } from "./inputs";
-import { modelOf, namedFor, uses } from "./model";
+import { carriesFace, modelOf, namedFor, uses } from "./model";
 
 /**
  * Face refine: after an H3 clip is decoded, each frame's face is found and followed (the person of the picture, by face
@@ -95,6 +95,17 @@ export const FACE_REFINE_TAKE_INPUTS: InputSpec[] = FACE_REFINE_INPUTS.filter((s
  * own node types); its pack's nodes and the audio lock stay optional, done without when missing.
  */
 export const FACE_REFINE_H3 = ["MiniMaxH3ReferenceToVideo", "MiniMaxH3SigmaShift", "ModelAttentionBackend", "SamplerCustomAdvanced", "RandomNoise", "BasicGuider"];
+
+/**
+ * The form as its clip is made: Face refine on, whatever its toggle, on a continuation that carries the face on (carriesFace,
+ * card #223), and on the clip's own model. The person's pictures are left out of its sampling there, and this pass is how the
+ * face comes to them: without it, the face had drifted from the picture by the fourth clip (0.09). On the clip's own model
+ * (such a clip keeps its reference route, so its model follows a picture), nothing more is loaded, and on a pod test it held
+ * the face as well as the fused turbo on clips 2 and 3 and better on clip 4 (0.41 and 0.54 against 0.08 and 0.43, two seeds).
+ * Its denoise and steps are the form's.
+ */
+export const withFacePass = <T extends Pick<H3Video, "faceRefine" | "previous" | "faceCarried" | "references"> & Partial<Pick<H3Video, "faceRefineModel">>>(input: T): T =>
+  carriesFace(input) ? { ...input, faceRefine: true, faceRefineModel: OWN_MODEL } : input;
 
 /** What Face refine reads of a form: its own settings, and the person's words and pictures. */
 export type FaceRefineValues = Pick<H3Video, "faceRefine" | "faceRefineDenoise" | "faceRefineSteps" | "references" | "subject" | "quick"> & Partial<Pick<H3Video, "faceRefineModel">>;

@@ -10,7 +10,11 @@ describe("H3's Reference images, as their \"?\" says them", () => {
   it("says on every H3 form taking several that each person picture is the same person, and how to have two (card #75)", () => {
     const notes = ["h3.video", "h3.lipsync", "h3.motion"].map((id) => recipeById(id)!.inputs.find((i) => i.id === "references")?.note);
     for (const note of notes) expect(note).toContain("Every \"A person\" picture is the same person, seen another way. For two people, pin a keyframe that shows both");
-    expect(new Set(notes).size).toBe(1);
+    // (Video with audio and Lip sync say what a timeline does with them on a continuation, card #223; Motion transfer does not do it)
+    expect(notes[0]).toBe(notes[1]);
+    expect(notes[0]!.startsWith(notes[2]!)).toBe(true);
+    expect(notes[0]).toContain("On a timeline, a continuation with the same person pictures as the clip before is sampled without them");
+    expect(notes[2]).not.toContain("On a timeline");
   });
 });
 

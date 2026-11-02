@@ -21,6 +21,7 @@ import { fileVersion, type ShownPatch } from "../model";
 import { inRunSaid, playsOver, recordingInput, runFrom } from "../track/RecordingBand";
 import { JOIN_WORDS, OTHER_MODELS_SAID, recordingFormOptions } from "../recordingForms";
 import type { OffHere } from "../../RecipeForm";
+import { FaceLine, useFaceRoutes } from "./faceLine";
 
 type FormProps = ComponentProps<typeof Form>;
 
@@ -60,6 +61,8 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
 }) {
   const all = useRecipes();
   const entities = useEntities();
+  // what it does with its person's picture (card #223): said at the top of its references
+  const faceRoute = useFaceRoutes(timeline.id)[clip.id];
   const edit = useInputEdits(stored, onInputs);
   // inside a run of its recording (a song cut into clips end to end), Speech starts at does not apply: greyed, why in its "?"
   const runBefore = runFrom(timeline.clips, recipes, clip, { ...clip.inputs, ...stored });
@@ -196,7 +199,7 @@ export function ClipForm({ timeline, clip, index, recipes, recipe, form, status,
         lookSummary={lookWords(clip.look ?? timeline.look, entities.data?.items ?? []) + (clip.look === null && timeline.look ? " (from the timeline)" : "")}
         lead={lead}
         off={off}
-        frameExtra={frameExtra}
+        frameExtra={faceRoute ? { ...(frameExtra ?? { summary: "" }), refs: <FaceLine timeline={timeline.id} clip={clip.id} route={faceRoute} /> } : frameExtra}
         chapterExtra={chapterExtra}
         helpers={
           <WritingHelp

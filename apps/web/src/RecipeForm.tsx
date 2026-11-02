@@ -87,6 +87,8 @@ export function Form(props: {
     summary: string;
     /** A line at the top of the chapter, whichever tab is open (a clip whose take that plays was made with other inputs). */
     head?: ReactNode;
+    /** A line at the top of the References tab (a timeline clip: what it does with its person's picture). */
+    refs?: ReactNode;
   };
   /** Show the recipe's chapters that hold nothing yet (the import screen's preview, while sections are arranged). */
   keepEmpty?: boolean;
@@ -162,6 +164,8 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
     summary: string;
     /** A line at the top of the chapter, whichever tab is open (a clip whose take that plays was made with other inputs). */
     head?: ReactNode;
+    /** A line at the top of the References tab (a timeline clip: what it does with its person's picture). */
+    refs?: ReactNode;
   };
   /** Show the recipe's chapters that hold nothing yet (the import screen's preview, while sections are arranged). */
   keepEmpty?: boolean;

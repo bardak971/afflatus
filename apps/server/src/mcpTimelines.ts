@@ -11,6 +11,7 @@ import { rootFolderOf } from "./projects";
 import type { Services } from "./services";
 import { contactSheet } from "./thumbs";
 import { exportBody, exportTimeline, finishBody, finishClips, finishPlan, maskPreview, maskPreviewOf, rangeAction, renderClips, timelineRangeBody } from "./timelines-api";
+import { faceRouteSaid, type FaceRoute } from "./timelineFace";
 import { clockOf, CUT_JOB } from "./timelineModel";
 import type { ClipPatch, TimelinePatch, Timelines } from "./timelines";
 
@@ -216,6 +217,8 @@ async function timelineSaid(s: Services, view: View) {
   const planned = await s.timelines.plannedOf(view.id);
   const names = view.look?.cast.length ? await s.db.selectFrom("entities").select(["id", "name"]).where("id", "in", view.look.cast.map((c) => c.id)).execute() : [];
   const number = (id: string | null | undefined) => (id ? view.clips.findIndex((c) => c.id === id) + 1 || null : null);
+  // what each H3 clip with a person's picture does with it (card #223)
+  const faces = await s.timelines.face.routes(view.id).catch(() => ({}) as Record<string, FaceRoute>);
   const clips = view.clips.map((c, i) => {
     const recipe = c.recipe ? s.registry.recipe(c.recipe) : undefined;
     const others = c.takes.filter((x) => x.id !== c.take?.id);
@@ -240,6 +243,7 @@ async function timelineSaid(s: Services, view: View) {
       ...(c.volume !== 100 ? { volume: c.volume } : {}),
       ...(recordingOf(s, c) ? { recording: recordingOf(s, c) } : {}),
       ...(c.look ? { ownCast: true } : {}),
+      ...(faces[c.id] ? { personPicture: faceRouteSaid(faces[c.id]!) } : {}),
       ...(c.music ? { music: c.music } : {}),
       ...(c.pinMirror.length ? { mirrored: c.pinMirror } : {}),
       ...(c.job ? { rendering: { job: c.job.id, status: c.job.status === "running" ? "running" : "waiting" } } : {}),
@@ -295,7 +299,7 @@ const readTimeline = tool({
   name: "read_timeline",
   scope: "look",
   title: "Read a timeline",
-  description: "One timeline whole: its clips in order (each one's form and values, where it starts and how long it plays or is planned to, the take that plays and the other takes, its join with the clip before: hard cut or seamless, follows on or stale, what switching it does to its take, its transition), its lanes (the recordings under Lip sync clips with the parts removed from them, the source video cut into windows, the music), what needs a look (clips to render, forms to fill, a continuation with nothing to carry on from, stale joins, failures, model set problems, clips of another shape), its planned and rendered length, what Undo and Redo would do, and its export. A clip's values are its form's, for its next render (seed -1: a new one each time); the seed a take was made with is that take's own (view_item › made with).",
+  description: "One timeline whole: its clips in order (each one's form and values, where it starts and how long it plays or is planned to, the take that plays and the other takes, its join with the clip before: hard cut or seamless, follows on or stale, what switching it does to its take, its transition; an H3 clip with a person's picture, what it does with it: a continuation with the same person pictures as the clip before is sampled without them and gets its face from Face refine towards them, any other is sampled with them), its lanes (the recordings under Lip sync clips with the parts removed from them, the source video cut into windows, the music), what needs a look (clips to render, forms to fill, a continuation with nothing to carry on from, stale joins, failures, model set problems, clips of another shape), its planned and rendered length, what Undo and Redo would do, and its export. A clip's values are its form's, for its next render (seed -1: a new one each time); the seed a take was made with is that take's own (view_item › made with).",
   input: { timeline: z.string().min(1).describe("A timeline's id (list_timelines, whats_open).") },
   async run({ timeline }, ctx) {
     const view = await viewOf(ctx.s, timeline);

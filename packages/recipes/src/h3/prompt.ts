@@ -109,8 +109,8 @@ export function h3ReferencePrompt(f: H3Fields & { subject?: string }, ref: H3Ref
   const hasPerson = people.length > 0;
   // carrying on, a person's own picture or video gives who they are, and the clip before how they look in the take: said to
   // give "identity and look", a picture taken in other light went with continuations that grew yellow and brighter inside
-  // each clip, where the same chain without it stayed as it was (card #222; the picture is also brought to the run-up's
-  // light, H3_MATCH_PICTURE). A frame of the clip before given as a picture is the take's own look
+  // each clip, where the same chain without it stayed as it was (card #222; a continuation with the person pictures of the
+  // take before it is now given none, carriesFace). A frame of the clip before given as a picture is the take's own look
   const ofTake = (tag: string) => ref.continues && Boolean(ref.takeFrames?.[pics.indexOf(tag)]);
   const whoOnly = people.filter((t) => !ofTake(t));
   const takeLook = people.filter(ofTake);

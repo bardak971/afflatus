@@ -52,6 +52,8 @@ export function InputsPart({ frames, refs, framesChosen, refsCount, chosen, summ
     summary: string;
     /** A line at the top of the chapter, whichever tab is open (a clip whose take that plays was made with other inputs). */
     head?: ReactNode;
+    /** A line at the top of the References tab (a timeline clip: what it does with its person's picture). */
+    refs?: ReactNode;
   };
   q: string;
   render(i: InputSpec): ReactNode;
@@ -112,6 +114,7 @@ export function InputsPart({ frames, refs, framesChosen, refsCount, chosen, summ
       )}
       {tabNow === "frames" && !q && frameExtra?.node}
       {(tabNow === "frames" || q) && frames.map(render)}
+      {tabNow === "references" && !q && frameExtra?.refs}
       {((tabNow === "references" && !q) || lookHit) && look}
       {(tabNow === "references" || q) && refs.map(render)}
     </Part>

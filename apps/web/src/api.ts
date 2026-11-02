@@ -5,7 +5,7 @@ import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 export type { ModelInfo };
 import type { Advice, DeployOverhead, FillPlan, FormPacks, SetFinding, GpuOffer, HuntAsk, HuntView, HistoryPage, NetworkVolume, VolumeFilesView, VolumePlan, Job, QueueAnswer, QueuePart, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RedeployOffer, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
 import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
-import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch } from "./api/types/timeline";
+import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch, FaceRoute } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView, type PresetFile } from "./api/types/designer";
 import type { DeployAsk, FfmpegGetView, Health, FinishRedo, FinishSettings, MachineProbe, McpActivity, McpScope, McpStart, McpToken, SessionState, Settings, SettingsPatch, SignedDevices } from "./api/types/settings";
 import { signedOut } from "./access/signedOut";
@@ -803,6 +803,10 @@ export const api = {
   duck: (timeline: string) => call<{ curve: { rate: number; gains: number[] } | null }>("GET", `/timelines/${timeline}/duck`),
   /** How smoothly each take of a clip meets its neighbours: ×1 = like the clip's own motion, higher = a catch; null where there is no neighbour. */
   joins: (clip: string) => call<{ items: Array<{ take: string; in: number | null; out: number | null }> }>("GET", `/clips/${clip}/joins`),
+  /** What each H3 clip with a person's picture does with it, by clip id (card #223). */
+  faceRoutes: (timeline: string) => call<{ clips: Record<string, FaceRoute> }>("GET", `/timelines/${timeline}/face`),
+  /** Use this one on them too: a clip's changed person picture given to the clips after it that still have the old one. */
+  spreadFace: (clip: string) => call<{ from: number; to: number; said: string }>("POST", `/clips/${clip}/face/spread`),
   /** The motion of several videos and sounds, and the joins of several clips, in one request each (null: not measured): the timeline editor's, through timeline/measures.ts. */
   motions: (ids: string[]) => call<{ items: Record<string, { rate: number; values: number[]; sound: number[] | null; speech: number[] | null } | null> }>("POST", "/measures/motion", { ids }),
   joinsOf: (ids: string[]) => call<{ items: Record<string, Array<{ take: string; in: number | null; out: number | null }> | null> }>("POST", "/measures/joins", { ids }),

@@ -112,6 +112,12 @@ export interface VideoTraits {
    */
   latentAfter?: string;
   /**
+   * The id of an internal toggle a timeline sets on each clip that carries on (card #223): whether the clip's person pictures
+   * are the ones the take before it was made with (the same set of library pictures, once the cast is worked in). H3 then
+   * samples such a continuation without them and draws the face towards them by Face refine. A finish keeps its draft's.
+   */
+  faceCarried?: string;
+  /**
    * A recipe that makes a long source window by window (Motion transfer on a timeline's source lane): the most and fewest
    * frames a job takes, and the frames of the clip before a window carries on from (sourceWindows.ts).
    */

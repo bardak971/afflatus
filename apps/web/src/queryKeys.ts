@@ -98,6 +98,8 @@ export const queryKeys = {
     lists: () => ["timelines", "list"] as const,
     list: (project: string) => ["timelines", "list", project] as const,
     one: (id: string | undefined) => ["timelines", id] as const,
+    /** What each H3 clip does with its person's picture (card #223): read again with its timeline. */
+    face: (id: string) => ["timelines", id, "face"] as const,
   },
   /** Each draft is ["drafts", id]; the lists, whatever project they are for, are under ["drafts", "list"]. */
   drafts: {

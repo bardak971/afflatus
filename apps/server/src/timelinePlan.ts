@@ -7,6 +7,7 @@ import { httpError, notFound } from "./errors";
 import type { Registry } from "./registry";
 import type { TimelineMedia } from "./timelineMedia";
 import type { TimelineTakes } from "./timelineTakes";
+import { sameFace, type Rendered } from "./faceCarried";
 import { FROM_PREVIOUS, landingOnGrid, lengthOnGrid, mirroredPins, plays, stillRef, type AssetRow, type ClipRow, type Placed, type Taken, type TakeRow, type TimelineCore } from "./timelineModel";
 
 /**
@@ -272,6 +273,10 @@ export class TimelinePlan {
     const i = all.findIndex((p) => p.clip.id === clipId);
     const plan: ClipPlan = { input: ownInputs(recipe, raw), sources: [], links: {}, mirror: [] };
     if (t.width && t.height) plan.canvas = { width: t.width, height: t.height };
+    // said here for every clip, never kept from its form (a form copied from a take carries the take's): whether it carries on
+    // with the person pictures of the take before it (carryOn). A finish keeps its draft's, the route its draft was made by
+    const carried = recipe.traits?.faceCarried;
+    if (carried && !finishedFrom) plan.input[carried] = false;
     if (clip.joined === "continue" && i > 0) await this.carryOn(plan, all[i - 1]!, recipe, raw, finishedFrom, quick);
     // a finish is its draft's frames and sound made again: the draft's part of the recording as it was sent (raw), never planned anew
     if (!finishedFrom) await this.recordingRun(plan, recipe, raw, all, i);
@@ -313,9 +318,30 @@ export class TimelinePlan {
     return clockFits({ family: recipe.family, fps, grid: frameGrid }, theirs);
   }
 
-  /** Whether a clip has a render waiting or running, its take to come. */
-  private async takeComing(clipId: string): Promise<boolean> {
-    return Boolean(await this.core.db.selectFrom("jobs").select("id").where("clip_id", "=", clipId).where(toRun).executeTakeFirst());
+  /** The render waiting or running for a clip, its take to come (its recipe and the form it was sent), or null. */
+  private async takeComing(clipId: string): Promise<Rendered | null> {
+    const job = await this.core.db.selectFrom("jobs").select(["recipe_id", "inputs"]).where("clip_id", "=", clipId).where(toRun).executeTakeFirst();
+    return job ? { recipe: job.recipe_id, inputs: JSON.parse(job.inputs) as Record<string, unknown> } : null;
+  }
+
+  /** What a take was rendered from (its generation's recipe and inputs), or null for a take rendered nowhere here. */
+  private async renderedWith(generation: string | null): Promise<Rendered | null> {
+    if (!generation) return null;
+    const row = await this.core.db.selectFrom("generations").select(["recipe_id", "inputs"]).where("id", "=", generation).executeTakeFirst();
+    return row ? { recipe: row.recipe_id, inputs: JSON.parse(row.inputs) as Record<string, unknown> } : null;
+  }
+
+  /**
+   * A clip that carries on with the person pictures the take before it was made with (sameFace): its recipe's faceCarried set,
+   * and its Face refine on, which on such a clip is how the face comes to those pictures (H3 samples it without them). Said
+   * on its job's form, its time is forecast with the pass, and a machine is sent the pass's files.
+   */
+  private carryFace(plan: ClipPlan, recipe: Recipe<any>, raw: Record<string, unknown>, before: Rendered | null): void {
+    const carried = recipe.traits?.faceCarried;
+    if (!carried || !before || !sameFace(recipe, raw, this.core.registry.recipe(before.recipe), before.inputs)) return;
+    plan.input[carried] = true;
+    const refine = recipe.traits?.faceRefine;
+    if (refine) plan.input[refine] = true;
   }
 
   /**
@@ -335,7 +361,12 @@ export class TimelinePlan {
       // its take still to come (its job waiting or running): a quick plan (what a pod is sent ahead, a forecast) reads this
       // clip as carrying on from a video all the same, as its submit will. Read as opening on nothing, a Wan clip queued
       // with the one before was taken for words-to-video, and a pod was never sent SVI's LoRAs for it (card #82, 2026-10-25)
-      if (quick && prevSpec && (await this.takeComing(prior.clip.id))) plan.input[prevSpec.id] = { asset: NO_MEDIA };
+      const coming = quick && prevSpec ? await this.takeComing(prior.clip.id) : null;
+      if (coming) {
+        plan.input[prevSpec!.id] = { asset: NO_MEDIA };
+        // (with the person pictures that job was sent, as its submit will read them off its take)
+        if (!finishedFrom) this.carryFace(plan, recipe, raw, coming);
+      }
       return;
     }
     let at = plays(before).end;
@@ -365,6 +396,7 @@ export class TimelinePlan {
       if (!sameBefore) at = handoverOnGrid(at, { durationMs: before.asset.duration_ms ?? 0, latentFrames: before.asset.latent_frames, clock: before.asset.latent_clock }, joinFrames(recipe, "previous", raw));
       plan.input[prevSpec.id] = { asset: before.asset.id, at };
       plan.links.prev = { take: before.take.id, at };
+      if (!finishedFrom) this.carryFace(plan, recipe, raw, await this.renderedWith(generationOfTake(before, prior.takes)));
     } else if (startSpec && recipe.traits?.continues === "frame" && !quick) {
       // a recipe that opens on a picture picks up from the last frame that plays
       plan.input[startSpec.id] = (await this.media.frame(before.asset, Math.max(0, at - FRAME_SLACK_MS), true)).id;

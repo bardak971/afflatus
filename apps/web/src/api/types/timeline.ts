@@ -41,6 +41,18 @@ export interface Take {
   /** What it was made with, as its clip's form would hold it (its draft's, for a finish); null for a take rendered nowhere here. */
   made: TakeMade | null;
 }
+/**
+ * What an H3 clip does with its person's picture (card #223, the server's timelineFace): carried, a continuation with the same
+ * person pictures as the clip before, sampled without them and its face drawn towards them by Face refine; sampled, sampled
+ * with them (the first clip of a run, or other pictures than the clip before's). Clips counted from 1.
+ */
+export interface FaceRoute {
+  route: "carried" | "sampled";
+  why?: "first" | "changed";
+  before?: number;
+  /** The clips after a changed one that still have the picture it changed from. */
+  keepOld?: { from: number; to: number };
+}
 /** A take's form as it was rendered: what "Use this take's settings" puts back into its clip's form. */
 export interface TakeMade {
   recipe: string;
