@@ -369,6 +369,43 @@ describe("the limits", () => {
     await t.db.insertInto("jobs").values(job("w1", view.id, now - 20 * 60_000, { warm: 1, machine_id: "rp-b", started_at: iso(now - 20 * 60_000), finished_at: iso(now - 18 * 60_000) }) as never).execute();
     expect(await tokens.spentThisMonth(view.id)).toBeCloseTo((held + 12 / 60) * 2, 6);
   });
+
+  // card #243: every job the owner's PC started this month was read (1,465 rows, 8 ms) at each Settings › Agents poll, each
+  // pod poll and each MCP render, though no rent applies there
+  it("reads the job starts of rented machines only, and ends a render's idle time at the next job there, whatever order they come in", async () => {
+    const now = Date.now();
+    const month = new Date(now);
+    if (now - 3 * 3_600_000 < new Date(month.getFullYear(), month.getMonth(), 1).getTime()) return;
+    const asked: Array<{ sql: string; parameters: readonly unknown[] }> = [];
+    const db = t.db.withPlugin({
+      transformQuery: (a) => (asked.push(t.db.getExecutor().compileQuery(a.node, a.queryId)), a.node),
+      transformResult: async (a) => a.result,
+    });
+    const tokens = new McpTokens(db as typeof t.db);
+    const { view } = await tokens.make({ name: "x", scopes: ["look", "make", "spend"] });
+    await t.db.insertInto("rent_sessions").values({ id: "s3", machine_id: "rp-c", pod: "c", rate: 2, started_at: iso(now - 3 * 3_600_000), ended_at: null, seen_at: null, gpu: "NVIDIA H100", up_at: null, idle_minutes: 10 } as never).execute();
+    const stat = (id: string, machine: string, end: number, ms: number) => ({
+      id, owner_id: "local", recipe_id: "sdxl.text-to-picture", family: "sdxl", model: "m", model_file: "m.safetensors", time_key: "", kind: "image", width: 1, height: 1, duration_ms: null, steps: 1, status: "done",
+      whole: 1, cold: 0, waited_ms: 0, total_ms: ms, load_ms: 0, sample_ms: ms, refine_ms: 0, finish_ms: 0, step_ms: null, expected_ms: null, vram_peak: null, heat_peak: null, asset_id: null,
+      created_at: iso(end), started_at: iso(end - ms), work: null, machine_id: machine, gpu: null,
+    });
+    // its 6 s render on the pod, the user's jobs there after it put in out of order (the first, 4 minutes after, ends its
+    // idle time), and its render on the owner's PC beside a day of the PC's jobs
+    const end = now - 60 * 60_000;
+    await t.db.insertInto("jobs").values([
+      job("p1", view.id, end - 6_000, { machine_id: "rp-c", started_at: iso(end - 6_000), finished_at: iso(end) }),
+      job("u2", "", end + 8 * 60_000, { mcp_token_id: null, machine_id: "rp-c", started_at: iso(end + 8 * 60_000) }),
+      job("u1", "", end + 4 * 60_000, { mcp_token_id: null, machine_id: "rp-c", started_at: iso(end + 4 * 60_000) }),
+      job("h1", view.id, end, { machine_id: "home", started_at: iso(end - 60_000), finished_at: iso(end) }),
+      ...Array.from({ length: 20 }, (_, i) => job(`pc${i}`, "", end - i * 60_000, { mcp_token_id: null, machine_id: "home", started_at: iso(end - i * 60_000) })),
+    ] as never).execute();
+    await t.db.insertInto("render_stats").values([stat("p1", "rp-c", end, 6_000), stat("h1", "home", end, 60_000)] as never).execute();
+    expect(await tokens.spentThisMonth(view.id)).toBeCloseTo(((6_000 + 4 * 60_000) / 3_600_000) * 2, 6);
+    const starts = asked.filter((q) => /from "jobs"/.test(q.sql) && /"started_at" >=/.test(q.sql));
+    expect(starts.length).toBe(1);
+    expect(starts[0]!.parameters).toContain("rp-c");
+    expect(starts[0]!.parameters).not.toContain("home");
+  });
 });
 
 describe("the tools, through the SDK's client over HTTP", () => {

@@ -2426,6 +2426,21 @@ export class Queue {
     return { ...got, ...(soonest ? { forecast: soonest } : {}), auto, ...(can ? { can: [...can] } : {}) };
   }
 
+  /**
+   * A form's forecast on each machine, for what it may cost on a rented pod (mcpRender.ts mayCostEach): its graph kept as
+   * the plan's are (queueForecast.ts builds), and none of forecast()'s pick of a machine, which judged a stand-in of the
+   * form on every machine (ableOf) for each waiting job of a token with Spend, at every Queue read (card #243). A machine
+   * without a forecast of its own is priced at the slowest of them: never less than it may cost.
+   */
+  async forecastToPrice(recipeId: string, rawInput: unknown) {
+    const lanes = this.machineLanes();
+    if (lanes.length < 2) return submitting.forecastOf(this.core, recipeId, rawInput, { machine: lanes[0]?.id ?? null, builds: this.forecasts.builds() });
+    const loads = (machine: string) => this.lanes.get(machine)?.lastLoads ?? null;
+    const got = await submitting.forecastOf(this.core, recipeId, rawInput, { machines: lanes.map((l) => l.id), loads, builds: this.forecasts.builds() });
+    if (!got?.on) return got;
+    return { ...got, forecast: Object.values(got.on).reduce((a, b) => (b.ms > a.ms ? b : a), got.forecast) };
+  }
+
   /** A form as a waiting job of it would be read (by the plan, the machines' checks), queued nowhere. */
   private standIn(id: string, f: { recipe: string; input: unknown; finishedFrom?: string | null; clip?: { id: string; fit: boolean } | null; after?: string | null }): JobRow {
     const r: Partial<JobRow> = {

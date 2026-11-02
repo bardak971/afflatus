@@ -57,15 +57,24 @@ export function podsUp(s: Services, machines: readonly Machine[]): Machine[] {
 /** Why a pod is not counted when its price is not known (said by a refused render, and on a held job's Queue row). */
 const unpriced = (pod: Machine) => `${machineName(pod)}'s price is not known yet, so this token's spend cap cannot be held`;
 
+/** The forecasts read for one count of a token's work, by form: a token's renders of one form are forecast once. */
+type Prices = Map<string, Promise<Awaited<ReturnType<Services["queue"]["forecastToPrice"]>> | null>>;
+const priced = (s: Services, prices: Prices, recipe: string, input: unknown) => {
+  const key = `${recipe}\u0001${JSON.stringify(input)}`;
+  let got = prices.get(key);
+  if (!got) prices.set(key, (got = s.queue.forecastToPrice(recipe, input).catch(() => null)));
+  return got;
+};
+
 /**
  * What one render of a form may cost on the rented pods it may land on (USD): its forecast there, else the queue's floor
  * for a render with no forecast (rentedBilling.ts runwayNeed), at the dearest of those pods' rates. 0 when it can land on
  * none (pinned to a machine of the user's own, or no pod). `warm`: a model load alone (load_model), its load time only.
  */
-async function mayCostEach(s: Services, recipe: string | null, input: unknown, pods: readonly Machine[], rates: ReadonlyMap<string, { rate: number | null }>, warm = false): Promise<number> {
+async function mayCostEach(s: Services, recipe: string | null, input: unknown, pods: readonly Machine[], rates: ReadonlyMap<string, { rate: number | null }>, warm = false, prices: Prices = new Map()): Promise<number> {
   if (!pods.length) return 0;
   // no form (unload_models with nothing waiting): the queue's floor
-  const got = recipe ? await s.queue.forecast(recipe, input).catch(() => null) : null;
+  const got = recipe ? await priced(s, prices, recipe, input) : null;
   let most = 0;
   for (const pod of pods) {
     const f = got?.on?.[pod.id] ?? got?.forecast;
@@ -132,10 +141,11 @@ export async function committedSpend(s: Services, machines: readonly Machine[], 
   const pods = machines.filter((m) => m.rented);
   let sum = 0;
   const landing = new Set<Machine>();
+  const prices: Prices = new Map();
   for (const j of jobs) {
     const may = podsFor(j, pods, rates);
     for (const p of may) landing.add(p);
-    sum += await mayCostEach(s, j.recipe_id, readJson(j.inputs, {}), may, rates, Boolean(j.warm));
+    sum += await mayCostEach(s, j.recipe_id, readJson(j.inputs, {}), may, rates, Boolean(j.warm), prices);
   }
   return { usd: sum + idleTail([...landing], rates, tokenId) + (hunt?.usd ?? 0), jobs: jobs.length, hunt };
 }
@@ -166,46 +176,94 @@ const capFull = (cap: number, spent: number, ahead: number, cost: number) =>
  */
 export async function capHeld(s: Services, rows: ReadonlyArray<{ id: string; mcp_token_id?: string | null }>): Promise<Map<string, string>> {
   const out = new Map<string, string>();
-  const asked = new Set(rows.map((r) => r.id));
   const tokenIds = [...new Set(rows.map((r) => r.mcp_token_id).filter((id): id is string => Boolean(id)))];
   if (!tokenIds.length) return out;
   const machines = (await readSettings(s.db)).machines;
   const pods = machines.filter((m) => m.rented);
   if (!pods.length) return out;
   const rates = podsOf(s, machines);
+  const asked = new Set(rows.map((r) => r.id));
   for (const id of tokenIds) {
     const token = await s.mcp.tokens.get(id);
     if (!token) continue;
-    const cap = token.spendCapCents / 100;
-    const spent = await s.mcp.tokens.spentThisMonth(id);
-    // the pod its hunt is deploying, billed from its first second: counted before its jobs, as committedSpend counts it
-    let total = spent + (s.hunt?.deployingFor(id)?.usd ?? 0);
-    // the idle time its work leaves on a pod it did not start, counted once, with its first job there
-    let tail = 0;
-    const tailMore = (may: readonly Machine[]) => Math.max(0, idleTail(may, rates, id) - tail);
-    for (const j of await activeJobs(s, id)) {
-      const may = podsFor(j, pods, rates);
-      if (!may.length) continue;
-      if (j.status === "running") {
-        const more = tailMore(may);
-        total += (await mayCostEach(s, j.recipe_id, readJson(j.inputs, {}), may, rates, Boolean(j.warm)).catch(() => 0)) + more;
-        tail += more;
-        continue;
-      }
-      const unknown = may.find((p) => rates.get(p.id)?.rate == null);
-      if (unknown) {
-        if (asked.has(j.id)) out.set(j.id, `${unpriced(unknown)} for the MCP token that sent it`);
-        continue;
-      }
+    for (const [job, why] of await tokenHeld(s, token, pods, rates)) if (asked.has(job)) out.set(job, why);
+  }
+  return out;
+}
+
+/**
+ * How long a token's verdicts (tokenHeld) are kept while nothing they rest on changes: every Queue read (once a second a
+ * tab during a render) and every pass of the planner (each pod's idle check too) priced every waiting job of the token
+ * again, a whole forecast each, and read its month's spend (card #243). That spend moves meanwhile by seconds of a pod's rate.
+ */
+const CAP_KEPT_MS = 2_000;
+const keptHeld = new WeakMap<Services, Map<string, { key: string; at: number; held: Promise<Map<string, string>> }>>();
+
+/**
+ * One token's jobs that no pod takes this pass, each with why (capHeld): kept CAP_KEPT_MS while its jobs (their states and
+ * pins), its cap and scopes, its hunt and the pods (up or not, their prices and idle rules) are the same; any of them
+ * changed, made again. One that could not be made is not kept: the next read tries again, its jobs held meanwhile
+ * (queuePlan.ts offPods).
+ */
+async function tokenHeld(s: Services, token: { id: string; spendCapCents: number; scopes: readonly string[] }, pods: readonly Machine[], rates: ReadonlyMap<string, { rate: number | null; up: boolean }>): Promise<Map<string, string>> {
+  const jobs = await activeJobs(s, token.id);
+  const hunt = s.hunt?.deployingFor(token.id)?.usd ?? 0;
+  const key = JSON.stringify([
+    token.spendCapCents, token.scopes, hunt, jobs.map((j) => [j.id, j.status, j.pin_machine, j.machine_id, j.warm]),
+    pods.map((p) => [p.id, rates.get(p.id)?.rate ?? null, rates.get(p.id)?.up ?? null, p.rented?.idleMinutes ?? null, p.rented?.mcpToken ?? null]),
+  ]);
+  let byToken = keptHeld.get(s);
+  if (!byToken) keptHeld.set(s, (byToken = new Map()));
+  const was = byToken.get(token.id);
+  if (was && was.key === key && Date.now() - was.at <= CAP_KEPT_MS) return was.held;
+  const entry = { key, at: Date.now(), held: heldOf(s, token, jobs, hunt, pods, rates) };
+  byToken.set(token.id, entry);
+  entry.held.catch(() => {
+    if (byToken.get(token.id) === entry) byToken.delete(token.id);
+  });
+  return entry.held;
+}
+
+/**
+ * A token's month so far and its running work counted first, then its waiting jobs in the queue's order: one whose cost on
+ * the pods it may land on would pass its cap is held, as is one that may go only to a pod whose price is not known yet.
+ * Each form is forecast once (`prices`): an agent's batch of one form was forecast once per take.
+ */
+async function heldOf(
+  s: Services, token: { id: string; spendCapCents: number }, jobs: Awaited<ReturnType<typeof activeJobs>>, hunt: number,
+  pods: readonly Machine[], rates: ReadonlyMap<string, { rate: number | null; up: boolean }>,
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const cap = token.spendCapCents / 100;
+  const spent = await s.mcp.tokens.spentThisMonth(token.id);
+  // the pod its hunt is deploying, billed from its first second: counted before its jobs, as committedSpend counts it
+  let total = spent + hunt;
+  // the idle time its work leaves on a pod it did not start, counted once, with its first job there
+  let tail = 0;
+  const tailMore = (may: readonly Machine[]) => Math.max(0, idleTail(may, rates, token.id) - tail);
+  const prices: Prices = new Map();
+  for (const j of jobs) {
+    const may = podsFor(j, pods, rates);
+    if (!may.length) continue;
+    if (j.status === "running") {
       const more = tailMore(may);
-      const cost = (await mayCostEach(s, j.recipe_id, readJson(j.inputs, {}), may, rates, Boolean(j.warm))) + more;
-      if (total + cost > cap) {
-        if (asked.has(j.id)) out.set(j.id, capFull(cap, spent, total - spent, cost));
-        continue;
-      }
-      total += cost;
+      total += (await mayCostEach(s, j.recipe_id, readJson(j.inputs, {}), may, rates, Boolean(j.warm), prices).catch(() => 0)) + more;
       tail += more;
+      continue;
     }
+    const unknown = may.find((p) => rates.get(p.id)?.rate == null);
+    if (unknown) {
+      out.set(j.id, `${unpriced(unknown)} for the MCP token that sent it`);
+      continue;
+    }
+    const more = tailMore(may);
+    const cost = (await mayCostEach(s, j.recipe_id, readJson(j.inputs, {}), may, rates, Boolean(j.warm), prices)) + more;
+    if (total + cost > cap) {
+      out.set(j.id, capFull(cap, spent, total - spent, cost));
+      continue;
+    }
+    total += cost;
+    tail += more;
   }
   return out;
 }
