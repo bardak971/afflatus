@@ -31,7 +31,7 @@ export const h3Video = defineRecipe<H3Video & Partial<Recording>>({
   output: "video",
   traits: {
     startFrame: true, endFrame: true, midFrames: true, continues: "clip", endAnchor: true, sound: true,
-    fps: H3_FPS, frameGrid: H3_GRID, latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM], faceRefine: "faceRefine", faceCarried: "faceCarried",
+    fps: H3_FPS, frameGrid: H3_GRID, latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM], faceRefine: "faceRefine", faceCarried: "faceCarried", holdFace: "holdFace",
   },
   // a clip under a recording it plays over (card #72): its place in the recording, set by the timeline, never drawn
   inputs: [...withFaceCarried(h3Inputs), ...recordingInputs({ shown: false })],
@@ -326,7 +326,7 @@ export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}):
   // (and its turbo LoRA, the one the clip ran with, which Face refine keeps on it)
   const asPicked = clipModelOf(input, slots, how, extra.turbo);
   const clipModel: ClipModel = loader ? { follows: asPicked.follows, file: unet, loader, ...(lora ? { turbo: lora, turboWeight: loraWeight } : {}) } : asPicked;
-  const { positive, latent, previous, plain, clip } = conditionFor(g, ctx, input, how, join, { width, height, vae, audioVae }, extra.prompt, more, !own);
+  const { positive, latent, previous, plain, clip, free } = conditionFor(g, ctx, input, how, join, { width, height, vae, audioVae }, extra.prompt, more, !own);
 
   // a finish samples nothing: the patch (and the pose it reads) is left out of it
   const patched = extra.model && !own ? extra.model(g, model, { vae, width, height, frames: join.frames }) : null;
@@ -396,7 +396,7 @@ export function buildH3(asked: H3Video, ctx: BuildContext, extra: H3Extra = {}):
       }
     : undefined;
   const frames = extra.frames ? (images: Ref) => extra.frames!(g, images, { width, height, frames: join.frames }) : undefined;
-  const made = finish(g, ctx, extra.faceLook === undefined ? input : { ...input, subject: extra.faceLook }, { finished, sampledWindow, fine, vae, audioVae, clip, model: clipModel, width, height, head: join.head, sound, frames });
+  const made = finish(g, ctx, extra.faceLook === undefined ? input : { ...input, subject: extra.faceLook }, { finished, sampledWindow, fine, vae, audioVae, clip, free, model: clipModel, width, height, head: join.head, sound, frames });
 
   const { head, tail, latentJoin } = join;
   const ms = (n: number) => Math.round((n / H3_FPS) * 1000);

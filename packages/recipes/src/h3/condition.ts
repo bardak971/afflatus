@@ -166,7 +166,7 @@ function pinNeighbours(g: GraphBuilder, ctx: BuildContext, input: H3Video, join:
  * then the neighbouring clips and the keyframe pinned at their frames) and the latent to fill (the clip's
  * own, or the window that continues the clip before).
  */
-export function conditionFor(g: GraphBuilder, ctx: BuildContext, input: H3Video, how: H3Uses, join: H3Join, frame: Frame, prompt?: (pictures: number) => string, more: MorePicture[] = [], sampled = true): { positive: Ref; latent: Ref; previous: Ref | null; plain: Ref; clip: Ref } {
+export function conditionFor(g: GraphBuilder, ctx: BuildContext, input: H3Video, how: H3Uses, join: H3Join, frame: Frame, prompt?: (pictures: number) => string, more: MorePicture[] = [], sampled = true): { positive: Ref; latent: Ref; previous: Ref | null; plain: Ref; clip: Ref; free: string | null } {
   const clip = g.out("CLIPLoader", { clip_name: ctx.slots.clip, type: "minimax", device: "default" });
   const continued = continuationWindow(g, ctx, join);
   const { window } = continued;
@@ -189,5 +189,7 @@ export function conditionFor(g: GraphBuilder, ctx: BuildContext, input: H3Video,
   positive = pinNeighbours(g, ctx, input, join, frame, own, latent, continued);
   // on the reference route the clip's own conditioning, before any frame is pinned on it: the references, the voice and the
   // words carry over to any size, the opening picture and the neighbours' frames were pinned for the sampled frame (B11)
-  return { positive, latent, previous: window ? continued.prev : null, plain: alone, clip };
+  // (and the node that lets the encoder go, for Face refine to have its own prompt encoded there too: faceRefined)
+  const free = ctx.has(FREE_TEXT_ENCODER) ? (sampled ? own : alone)[0] : null;
+  return { positive, latent, previous: window ? continued.prev : null, plain: alone, clip, free };
 }

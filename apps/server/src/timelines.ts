@@ -195,6 +195,15 @@ export interface ClipOf {
   upscaledBy: number | null;
 }
 
+/**
+ * The number a new timeline is named with among its project's `names`: after the highest "Timeline N" there, and never below
+ * how many there are (a project whose timelines were all renamed goes on from its count, as it did).
+ */
+function nextTimelineNumber(names: readonly string[]): number {
+  const numbered = names.map((n) => /^Timeline (\d+)$/.exec(n.trim())?.[1]).filter((n): n is string => n !== undefined).map(Number);
+  return Math.max(names.length, ...numbered) + 1;
+}
+
 export class Timelines {
   /** Cuts and ranges, what the videos give, the export, Undo and Redo: the model's heavier work, each in its own module. */
   readonly range: TimelineRange;
@@ -530,13 +539,14 @@ export class Timelines {
     const id = newId();
     const at = now();
     // numbered within its project (or the Inbox): each is its own workspace. Counted and written in the project's turn:
-    // two made at once were given the same number
+    // two made at once were given the same number. After the highest "Timeline N" there, not after how many there are: a
+    // number came back after a deletion (card #225, two "Timeline 17" in one project)
     await this.history.oneAtATime(`new-timeline:${project ?? ""}`, async () => {
-      const count = Number((await this.db.selectFrom("timelines").select((eb) => eb.fn.countAll().as("n")).where("project_id", project ? "=" : "is", project ?? null).executeTakeFirst())?.n ?? 0);
+      const names = (await this.db.selectFrom("timelines").select("name").where("project_id", project ? "=" : "is", project ?? null).execute()).map((r) => r.name);
       await this.db
         .insertInto("timelines")
         .values({
-          id, owner_id: OWNER, name: name?.trim() || `Timeline ${count + 1}`, width: null, height: null, project_id: project ?? null, folder_id: folder ?? null, folder_chosen: chosen ? 1 : 0,
+          id, owner_id: OWNER, name: name?.trim() || `Timeline ${nextTimelineNumber(names)}`, width: null, height: null, project_id: project ?? null, folder_id: folder ?? null, folder_chosen: chosen ? 1 : 0,
           music_asset_id: null, music_volume: 60, music_fade_in_ms: 1000, music_fade_out_ms: 3000, music_duck: 1, music_duck_db: 10, music_from_ms: 0, music_start_clip_id: null, export_asset_id: null, look: null, mood: null,
           created_at: at, updated_at: at,
         })

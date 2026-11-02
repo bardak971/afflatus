@@ -30,7 +30,8 @@ export function FaceLine({ timeline, clip, route }: { timeline: string; clip: st
   });
   if (!route) return null;
   const said =
-    route.route === "carried" ? `On this continuation the face comes from Face refine towards the person's picture, carried on from clip ${route.before}.`
+    route.route === "carried" && route.held === false ? `A plain continuation of clip ${route.before}, sampled without the person's picture and not face-refined (Hold the face on continuations is off): the face may drift from it.`
+    : route.route === "carried" ? `On this continuation the face comes from Face refine towards the person's picture, carried on from clip ${route.before}.`
     : route.why === "changed" ? `This clip starts a new look: sampled with the person's picture, which differs from clip ${route.before}'s.`
     : "Sampled with the person's picture: the clips that carry on from this one keep its face by Face refine.";
   return (

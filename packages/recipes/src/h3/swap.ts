@@ -114,7 +114,7 @@ const NOT_TAKEN = new Set([
   // the frozen tail is never skipped on a source's windows: the window after would no longer start where its part does
   "description", "soundscape", "music", "start", "end", "mid", "midAt", "handover", "next", "landing",
   // the swap is drawn from the person's picture on every window: Face refine in its place is Video with audio's (card #223)
-  "faceCarried",
+  "faceCarried", "holdFace",
   "refVideos", "voice", "voiceStart", "voiceSeconds", "voiceEven", "subject", "seconds", "shape",
   // H3's colour match pulls towards a start picture, which a swap has not
   "colourMatch", "colourStrength",

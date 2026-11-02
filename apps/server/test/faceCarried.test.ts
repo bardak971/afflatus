@@ -66,6 +66,19 @@ describe("an H3 continuation with the person pictures of the take before it", ()
     expect(await planned(ids[3]!, { references: person("p2") })).toMatchObject({ faceCarried: true, faceRefine: true });
   });
 
+  it("is a plain continuation with Hold the face on continuations off: sampled without the pictures, Face refine as the form has it", async () => {
+    // card #225: the pass costs time on every continuation; off, the timeline no longer turns Face refine on for it
+    const tl = (await t.services.timelines.create("zz-test face not held")).id;
+    const [a, b] = [await clip(tl, 0, { joined: "cut" }), await clip(tl, 1)];
+    await take(a, { references: person("p1") });
+    const off = await planned(b, { references: person("p1"), holdFace: false });
+    expect(off).toMatchObject({ faceCarried: true, holdFace: false });
+    expect(off.faceRefine).toBeUndefined();
+    expect(await planned(b, { references: person("p1"), holdFace: false, faceRefine: true })).toMatchObject({ faceCarried: true, faceRefine: true });
+    // a form saved before the toggle holds it
+    expect(await planned(b, { references: person("p1") })).toMatchObject({ faceCarried: true, faceRefine: true });
+  });
+
   it("is not carried after a hard cut, a take rendered nowhere here, or with no person picture", async () => {
     const tl = (await t.services.timelines.create("zz-test face carried cut")).id;
     const a = await clip(tl, 0, { joined: "cut" });
@@ -119,6 +132,10 @@ describe("what each H3 clip does with its person's picture, as the editor says i
     expect(routes[ids[3]!]).toEqual({ route: "sampled", why: "changed", before: 3 });
     expect(routes[ids[5]!]).toEqual({ route: "sampled", why: "first" });
     expect(routes[ids[6]!]).toBeUndefined();
+    // a carried clip whose form has Hold the face on continuations off says so (card #225)
+    await t.db.updateTable("clips").set({ inputs: JSON.stringify({ description: "zz-test", references: person("p1"), holdFace: false }) }).where("id", "=", ids[1]!).execute();
+    expect((await t.services.timelines.face.routes(tl))[ids[1]!]).toEqual({ route: "carried", before: 1, held: false });
+    await t.db.updateTable("clips").set({ inputs: form(person("p1")) }).where("id", "=", ids[1]!).execute();
 
     expect(await t.services.timelines.face.spread(ids[2]!)).toEqual({ from: 4, to: 5 });
     const after = await t.services.timelines.face.routes(tl);

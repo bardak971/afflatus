@@ -569,6 +569,31 @@ describe("the next render's time is forecast from the record", () => {
   });
 });
 
+describe("what a setting adds where it acts", () => {
+  it("says Hold the face on continuations' cost: the form's forecast with Face refine, less without it (card #225)", async () => {
+    const real = t.services.queue.forecast.bind(t.services.queue);
+    const asked: unknown[] = [];
+    const spy = vi.spyOn(t.services.queue, "forecast").mockImplementation(async (recipe, input) => {
+      asked.push((input as Record<string, unknown>).faceRefine);
+      if (recipe !== "h3.video") return real(recipe, input);
+      const ms = (input as Record<string, unknown>).faceRefine ? 230_000 : 140_000;
+      return { forecast: { ms, loadMs: 0, pace: "usual" }, shape: { pixels: 576 * 1024, frames: 141 } } as never;
+    });
+    try {
+      const advice = async (recipe: string, input: Record<string, unknown>) => (await post(t.app, "/api/advice", { recipe, input })).json().estimate as { ms: number; costs?: Record<string, number> };
+      const h3 = await advice("h3.video", { description: "zz-test", references: [{ asset: "r1", role: "person" }], faceRefine: false });
+      expect(h3.ms).toBe(140_000);
+      expect(h3.costs).toEqual({ holdFace: 90_000 });
+      expect(asked).toEqual(expect.arrayContaining([true, false]));
+      // nothing to say where the pass adds nothing (no person's picture: the same forecast either way), or on a form without it
+      spy.mockImplementation(async (recipe, input) => (recipe === "h3.video" ? ({ forecast: { ms: 140_000, loadMs: 0, pace: "usual" }, shape: { pixels: 1, frames: 1 } } as never) : real(recipe, input)));
+      expect((await advice("h3.video", { description: "zz-test" })).costs).toBeUndefined();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
 describe("the forecast reads the renders like the form", () => {
   it("prices an upscale from the model's upscales, not from its txt2img, with what surrounds its steps from the same settings", async () => {
     // txt2img: 1 MP, 28 steps of 500 ms. The sharper pass of the same model: 4 MP re-sampled in tiles, 10 steps of 4 s, no sampling of its own

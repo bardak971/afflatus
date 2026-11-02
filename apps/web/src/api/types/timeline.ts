@@ -50,6 +50,8 @@ export interface FaceRoute {
   route: "carried" | "sampled";
   why?: "first" | "changed";
   before?: number;
+  /** A carried clip with Hold the face on continuations off (card #225): a plain continuation, not face-refined. */
+  held?: false;
   /** The clips after a changed one that still have the picture it changed from. */
   keepOld?: { from: number; to: number };
 }

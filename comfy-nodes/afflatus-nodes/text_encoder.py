@@ -89,15 +89,17 @@ class AfflatusFreeTextEncoder(io.ComfyNode):
                 io.Clip.Input("clip", tooltip="The text encoder that made the conditionings."),
                 io.Conditioning.Input("conditioning", tooltip="Encoded by it: passed through as it is."),
                 io.Conditioning.Input("also", optional=True, tooltip="A second conditioning by the same encoder, so that both are encoded before it is let go."),
+                # (pack 0.49.0, card #225: Face refine's prompt, encoded with the clip's rather than by a second load after it)
+                io.Conditioning.Input("more", optional=True, tooltip="A third, encoded before it is let go too."),
             ],
-            outputs=[io.Conditioning.Output(display_name="conditioning"), io.Conditioning.Output(display_name="also")],
+            outputs=[io.Conditioning.Output(display_name="conditioning"), io.Conditioning.Output(display_name="also"), io.Conditioning.Output(display_name="more")],
         )
 
     @classmethod
-    def execute(cls, clip, conditioning, also=None) -> io.NodeOutput:
+    def execute(cls, clip, conditioning, also=None, more=None) -> io.NodeOutput:
         try:
             free_text_encoder(clip)
         except Exception as e:
             # freeing is a saving, never a reason for the render to fail
             log.warning("[afflatus] text encoder not unloaded: %s", e)
-        return io.NodeOutput(conditioning, also if also is not None else conditioning)
+        return io.NodeOutput(conditioning, also if also is not None else conditioning, more if more is not None else conditioning)

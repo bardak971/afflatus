@@ -20,6 +20,8 @@ export interface FaceRoute {
   why?: "first" | "changed";
   /** The clip it carries on from or changes from, counted from 1. */
   before?: number;
+  /** A carried clip with Hold the face on continuations off (card #225): sampled without the pictures, and no pass after it. */
+  held?: false;
   /**
    * A clip whose picture changed: the clips after it that carry on with the picture before the change, counted from 1. They
    * would be sampled with the old face again; Use this one on them too (spreadFace) gives them this clip's.
@@ -33,6 +35,8 @@ interface Faced {
   recipe: Recipe<any> | undefined;
   /** Its person pictures, its cast worked in; null for a clip that is no such H3 clip (a still, an import, another model). */
   pictures: string[] | null;
+  /** Whether its form holds the face on (Hold the face on continuations, card #225). */
+  holds: boolean;
 }
 
 const lookOf = (json: string | null): Look | null => (json ? (JSON.parse(json) as Look) : null);
@@ -45,11 +49,12 @@ async function facedClips(core: TimelineCore, timelineId: string): Promise<Faced
   const all = await core.placed(timelineId);
   return Promise.all(all.map(async ({ clip }): Promise<Faced> => {
     const recipe = clip.kind === "video" && clip.recipe_id ? core.registry.recipe(clip.recipe_id) : undefined;
-    if (!recipe?.traits?.faceCarried) return { clip, recipe, pictures: null };
+    if (!recipe?.traits?.faceCarried) return { clip, recipe, pictures: null, holds: false };
     const own = ownInputIds(recipe);
     const typed = Object.fromEntries(Object.entries(JSON.parse(clip.inputs) as Record<string, unknown>).filter(([k]) => own.has(k)));
     const composed = await compose(core.db, recipe, typed, lookOf(clip.look) ?? timelineLook).catch(() => null);
-    return { clip, recipe, pictures: personPictures(recipe, composed?.input ?? typed) };
+    const hold = recipe.traits.holdFace;
+    return { clip, recipe, pictures: personPictures(recipe, composed?.input ?? typed), holds: !hold || typed[hold] !== false };
   }));
 }
 
@@ -62,7 +67,7 @@ export async function faceRoutes(core: TimelineCore, timelineId: string): Promis
     const prior = i > 0 ? faced[i - 1] : undefined;
     const carries = f.clip.joined === "continue" && prior?.pictures !== null && prior !== undefined;
     if (!carries) return void (out[f.clip.id] = { route: "sampled", why: "first" });
-    if (same(f.pictures, prior.pictures!)) return void (out[f.clip.id] = { route: "carried", before: i });
+    if (same(f.pictures, prior.pictures!)) return void (out[f.clip.id] = { route: "carried", before: i, ...(f.holds ? {} : { held: false as const }) });
     // the clips after it that carry on, each with the clip before's pictures (the old ones): to give this clip's
     let to = i;
     while (to + 1 < faced.length && faced[to + 1]!.clip.joined === "continue" && faced[to + 1]!.pictures !== null && same(faced[to + 1]!.pictures!, prior.pictures!)) to++;
@@ -73,6 +78,7 @@ export async function faceRoutes(core: TimelineCore, timelineId: string): Promis
 
 /** How a clip's route is said in a word or two (read_timeline). */
 export function faceRouteSaid(r: FaceRoute): string {
+  if (r.route === "carried" && r.held === false) return `sampled without it, a plain continuation of clip ${r.before} (Hold the face on continuations off): the face may drift from it`;
   if (r.route === "carried") return `face refine towards it, carrying the face on from clip ${r.before}`;
   if (r.why === "changed") return `sampled with it: a new look, its person pictures differ from clip ${r.before}'s${r.keepOld ? `; clips ${r.keepOld.from}–${r.keepOld.to} still have clip ${r.before}'s` : ""}`;
   return "sampled with it: the first clip of its run";

@@ -6,7 +6,7 @@ import { facePhotos, faceScore } from "../shared/face";
 import { H3_FPS } from "./family";
 import { H3_RUN_ANCHOR } from "./join";
 import type { H3Video } from "./inputs";
-import { faceRefined, openingPicture, type ClipModel } from "./faceRefine";
+import { faceRefined, INJECT_REGION, openingPicture, type ClipModel } from "./faceRefine";
 
 /** The clip's own sampled window kept beside it, its audio rounded to its frame boundary, for the clips that continue it or land on it. */
 export const H3_SAVE_LATENT = ["AfflatusNormalizeH3Latent", "AfflatusSaveH3Latent"];
@@ -16,7 +16,7 @@ export const H3_SAVE_LATENT = ["AfflatusNormalizeH3Latent", "AfflatusSaveH3Laten
  * interpolation, the result saved (and the model's own frames beside it when they differ), and the sampled
  * latent kept for the clips that continue this one (`sampledWindow`: held at the clip before's contrast when it continues one).
  */
-export function finish(g: GraphBuilder, ctx: BuildContext, input: H3Video, made: { finished: Ref; sampledWindow: Ref; fine?: Ref | null; vae: Ref; audioVae: Ref; clip?: Ref; model?: ClipModel; width: number; height: number; head?: number; sound?: (decoded: Ref) => Ref; frames?: (images: Ref) => Ref }): { outputs: BuiltGraph["outputs"]; loads: string[]; refine: { node: string; steps: number } | null; said: string | null } {
+export function finish(g: GraphBuilder, ctx: BuildContext, input: H3Video, made: { finished: Ref; sampledWindow: Ref; fine?: Ref | null; vae: Ref; audioVae: Ref; clip?: Ref; free?: string | null; model?: ClipModel; width: number; height: number; head?: number; sound?: (decoded: Ref) => Ref; frames?: (images: Ref) => Ref }): { outputs: BuiltGraph["outputs"]; loads: string[]; refine: { node: string; steps: number } | null; said: string | null } {
   const { finished, sampledWindow, fine, vae, audioVae, width, height } = made;
   const upscaling = input.upscale === UPSCALE.latent;
   g.phase("decoding");
@@ -33,7 +33,7 @@ export function finish(g: GraphBuilder, ctx: BuildContext, input: H3Video, made:
   // the faces redrawn at their own size, and RIFE then makes its in-between frames from the refined ones. Without a cast person,
   // towards the picture the clip opens on (a Motion transfer's Picture, a First frame), as on the LTX and SCAIL forms (R1)
   const opening = openingPicture(input, ctx);
-  const faces = made.clip ? faceRefined(g, ctx, input, decodedImages, { audio, vae, audioVae, clip: made.clip, model: made.model, picture: opening, only: Boolean(input.faceRefineOnly) && !upscaling }) : { images: decodedImages, pass: null, loads: [], said: null };
+  const faces = made.clip ? faceRefined(g, ctx, input, decodedImages, { audio, vae, audioVae, clip: made.clip, free: made.free, model: made.model, picture: opening, only: Boolean(input.faceRefineOnly) && !upscaling }) : { images: decodedImages, pass: null, loads: [], said: null };
   const { images } = faces;
   const refined = Boolean(faces.pass);
   // the frames as the model made them, before anything changes them: a clip that carries on from this
@@ -49,7 +49,11 @@ export function finish(g: GraphBuilder, ctx: BuildContext, input: H3Video, made:
   // with its faces refined, the kept latent is the refined frames encoded, the sampled sound kept as it is: the clip after
   // carries on from the faces this clip shows (after the latent re-sample, the frames are larger than the sampled latent,
   // which is kept as it was)
-  const keptFrom: Ref = refined && !upscaling ? g.out("H3InjectVideoLatent", { av_latent: sampledWindow, images, vae }) : sampledWindow;
+  // (the face's region alone where the pack has it, card #225: the rest of the frame is the sampled window's own tokens, not
+  // decoded and encoded again, and the whole re-encode took ~17 s of a 720p continuation on the owner's PC)
+  const keptFrom: Ref = !refined || upscaling ? sampledWindow
+    : ctx.has(INJECT_REGION) ? g.out(INJECT_REGION, { av_latent: sampledWindow, base_images: decodedImages, images, vae, margin: 64 })
+    : g.out("H3InjectVideoLatent", { av_latent: sampledWindow, images, vae });
   // the re-encode hands on its samples alone: the run's look and the run-up width are taken from the window it was made from
   // (pack 0.46.0, which brings Run Anchor), so that the clip after is still held to the run's first clip
   const figuresFrom = keptFrom !== sampledWindow && ctx.has(H3_RUN_ANCHOR) ? { figures_from: sampledWindow } : {};
