@@ -5,7 +5,7 @@ import { UPSCALE, UPSCALE_OPTIONAL, upscaleNeeds, upscaleNodes } from "../video/
 import { unetNodes } from "../shared/unet";
 import { CORE_VIDEO_OUT, VHS } from "../shared/out";
 import { COLOUR_MATCH_NODES, rifeNeeds, rifeSkippedSaid } from "../shared/finish";
-import { conditionFor, FREE_TEXT_ENCODER, type MorePicture } from "./condition";
+import { conditionFor, FREE_TEXT_ENCODER, H3_MATCH_PICTURE, type MorePicture } from "./condition";
 import { cueMixNodes, cueNodes, cueOwnSoundSaid, cuesFor, guideCues, layCues, laysCues } from "./cue";
 import { finish, H3_SAVE_LATENT } from "./finish";
 import { FACE_REFINE_OPTIONAL, FACE_REFINE_PACK_NEEDED, FACE_REFINE_SLOTS, clipModelOf, faceRefineNeeds, faceRefineSkipped, openingPicture, type ClipModel } from "./faceRefine";
@@ -77,6 +77,8 @@ export const h3Video = defineRecipe<H3Video & Partial<Recording>>({
     H3_RUNUP_MATCH,
     // and held to its run's first clip (pack 0.46.0): an older pack holds it to the clip before only
     H3_RUN_ANCHOR,
+    // a continuation's person picture brought to the run-up's light (pack 0.48.0): an older pack gives it as it is
+    H3_MATCH_PICTURE, "ImageFromBatch",
     // the text encoder let go before sampling (pack 0.43.0): an older pack samples with it still loaded, as before
     FREE_TEXT_ENCODER,
     "MiniMaxH3Cache", "VedaSparseAttention", "ModelPatchTorchSettings", "FrameInterpolationModelLoader", "FrameInterpolate", "ModelPreviewOverrideKJ",
