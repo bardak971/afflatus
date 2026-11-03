@@ -91,6 +91,11 @@ export interface DownloadView {
    * again there changes nothing. The pod's files (podFiles.ts) take it from elsewhere then (card #206).
    */
   refused?: true;
+  /**
+   * Done without a byte fetched: the node pack found the file there and its bytes the ones its source lists (0.49.7, a
+   * file asked for with its sha256). The pod's files (podFiles.ts) take it as found there, no speed measured of it.
+   */
+  there?: true;
 }
 
 /**
@@ -245,6 +250,11 @@ const API_HOSTS = ["huggingface.co", "www.huggingface.co", "civitai.com", "www.c
 const apiPage = (url: URL) => API_HOSTS.includes(url.hostname);
 /** Past this many fresh links, a source that keeps refusing its own links from ComfyUI's machine is given up on. */
 const MAX_RENEWALS = 4;
+/**
+ * How long a stop that keeps the pack's .part waits for the pack to answer: from 0.49.7 it answers once its download let go
+ * and cut its pieces back to the .part (its LET_GO_S, 20 s at most), which ComfyUI's restart must not come before.
+ */
+const LET_GO_MS = 25_000;
 
 const hostIs = (url: URL, hosts: string[]) => hosts.some((h) => url.hostname === h || url.hostname.endsWith(`.${h}`));
 
@@ -349,6 +359,8 @@ export class Downloads {
   private readonly all = new Map<string, Download>();
   /** Downloads of an earlier run, read from the state file: finished ones still shown, interrupted ones said so. */
   private past: Kept[] = [];
+  /** The pack's answers to the stops asked of it, by download, until they come (letGo). */
+  private readonly lettingGo = new Map<string, Promise<void>>();
   /** Done once the state file was read: list() before that shows this run's only. */
   readonly restored: Promise<void>;
   /** The writes of the state file, one after the other: two at once would interleave. */
@@ -413,12 +425,12 @@ export class Downloads {
   /** What the browser is told of a download: never its source, its key or its one-time address. */
   private view(d: Download): DownloadView {
     this.measure(d);
-    const { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen, machine, quiet, shown, refused } = d;
+    const { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen, machine, quiet, shown, refused, there } = d;
     const turn = status === "starting" || status === "downloading" ? d.turn : undefined;
     const rate = status === "downloading" && d.rate ? Math.round(d.rate) : undefined;
     const again = (status === "error" || status === "stopped") && d.ask !== undefined ? (true as const) : undefined;
     const begun = status === "starting" && d.begun ? true : undefined;
-    const all: DownloadView = { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen, machine, quiet, shown, turn, rate, again, at: d.finishedAt, begun, refused };
+    const all: DownloadView = { id, file, folder, title, bytes, total, status, error, waiting, via, into, note, seen, machine, quiet, shown, turn, rate, again, at: d.finishedAt, begun, refused, there };
     for (const k of Object.keys(all) as Array<keyof DownloadView>) if (all[k] === undefined) delete all[k];
     return all;
   }
@@ -578,12 +590,27 @@ export class Downloads {
       delete d.waiting;
       delete d.note;
       d.abort.abort();
-      // the pack is told too, and removes its .part, or keeps it to carry on from
-      if (d.packId) void d.comfy.client.raw(`/afflatus/download/${encodeURIComponent(d.packId)}${keepPart ? "?keep=1" : ""}`, { method: "DELETE", signal: AbortSignal.timeout(5000) }).catch(() => {});
+      // the pack is told too, and removes its .part, or keeps it to carry on from (letGo: once it has)
+      if (d.packId) {
+        const told = d.comfy.client.raw(`/afflatus/download/${encodeURIComponent(d.packId)}${keepPart ? "?keep=1" : ""}`, { method: "DELETE", signal: AbortSignal.timeout(keepPart ? LET_GO_MS : 5000) })
+          .then((res) => res.body?.cancel(), () => undefined)
+          .then(() => undefined, () => undefined)
+          .finally(() => this.lettingGo.delete(id));
+        this.lettingGo.set(id, told);
+      }
       this.pump();
     } else this.forget(id);
     this.tell(true);
     return true;
+  }
+
+  /**
+   * Once the node pack has answered the stop of this download (stop): with `keepPart`, its .part is then cut back and kept
+   * (0.49.7), what a restart of its ComfyUI asked for after it must wait for, or the pieces it had over several connections
+   * are lost and the file comes again from its first byte (card #265). At once for one with nothing asked of the pack.
+   */
+  letGo(id: string): Promise<void> {
+    return this.lettingGo.get(id) ?? Promise.resolve();
   }
 
   /** A finished download taken off the list, with what an earlier try of it left (dropPart). */
@@ -1097,7 +1124,7 @@ export class Downloads {
         }
         // an answer that says nothing (a 5xx, a page instead of the state, a body cut short) counts as no answer: two
         // minutes of them and the download is given up, never left "downloading" for good
-        const s = asked?.ok ? ((await asked.json().catch(() => null)) as { state?: string; bytes?: number; error?: string; note?: string; expired?: boolean } | null) : null;
+        const s = asked?.ok ? ((await asked.json().catch(() => null)) as { state?: string; bytes?: number; error?: string; note?: string; expired?: boolean; there?: boolean } | null) : null;
         if (!s || typeof s !== "object") {
           await asked?.body?.cancel().catch(() => {});
           if (++silent * this.packEveryMs > this.packSilentMs) throw new Error(asked ? `The Afflatus node pack says nothing usable about the download (HTTP ${asked.status}): look at ComfyUI's own window.` : "ComfyUI is not answering.");
@@ -1128,6 +1155,7 @@ export class Downloads {
         if (s.state === "done") {
           d.bytes = s.bytes ?? d.bytes;
           d.total = s.bytes ?? d.total;
+          if (s.there) d.there = true;
           delete d.note;
           d.upstream?.abort();
           d.status = "saving";

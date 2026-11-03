@@ -5,7 +5,7 @@ The base (base/Dockerfile) installs every Python package from its lock alone, by
 picked anew at the next build, never gets in unnoticed (the 2026-11-02 review, L10). The lock is resolved here, once, by uv,
 for the image's platform (Linux x86_64, CPython 3.12), from what the base installs: ComfyUI's requirements and its
 Manager's at the commit the Dockerfile pins, the built-in packs' lists at theirs (VideoHelperSuite, KJNodes, the Impact
-Pack without sam2), torch from PyTorch's index for that CUDA, and the image's own packages below (InsightFace, ONNX
+Pack without sam2, its Subpack), torch from PyTorch's index for that CUDA, and the image's own packages below (InsightFace, ONNX
 Runtime, Ultralytics, PySceneDetect, psutil, av, nvidia-ml-py). Its first line says what it was made from:
 tests/test_image.py fails when the Dockerfile has moved on since.
 
@@ -16,6 +16,7 @@ Each package is one line, its hashes on it, so that the Dockerfile takes its lay
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -36,9 +37,10 @@ LISTS = [
     ("VHS_COMMIT", "Kosinkadink/ComfyUI-VideoHelperSuite", "requirements.txt"),
     ("KJNODES_COMMIT", "kijai/ComfyUI-KJNodes", "requirements.txt"),
     ("IMPACT_COMMIT", "ltdrdata/ComfyUI-Impact-Pack", "requirements.txt"),
+    ("SUBPACK_COMMIT", "ltdrdata/ComfyUI-Impact-Subpack", "requirements.txt"),
 ]
 # what the made-from line names, in this order
-MADE_FROM = ("COMFYUI_COMMIT", "VHS_COMMIT", "KJNODES_COMMIT", "IMPACT_COMMIT", "TORCH_VERSION", "TORCHVISION_VERSION", "TORCHAUDIO_VERSION")
+MADE_FROM = ("COMFYUI_COMMIT", "VHS_COMMIT", "KJNODES_COMMIT", "IMPACT_COMMIT", "SUBPACK_COMMIT", "TORCH_VERSION", "TORCHVISION_VERSION", "TORCHAUDIO_VERSION")
 
 
 def args_of(dockerfile_text):
@@ -118,6 +120,12 @@ def main():
             with open(os.path.join(tmp, "pyproject.toml"), "w", encoding="utf-8") as f:
                 f.write(pyproject(requirements, args, cuda))
             out = os.path.join(tmp, "lock.txt")
+            # the lock as it stands, where uv reads the versions to keep: a list added (a pack built in) brings its own
+            # packages, and moves none of the others to whatever PyPI has newest now (uv pip compile prefers the output
+            # file's pins; --upgrade would not)
+            kept = os.path.join(BASE, f"requirements-{cuda}.lock")
+            if os.path.exists(kept):
+                shutil.copyfile(kept, out)
             subprocess.run(["uv", "pip", "compile", "pyproject.toml", "--python-platform", "x86_64-manylinux_2_28", "--python-version", "3.12", "--generate-hashes", "--no-header", "--no-annotate", "-o", out], cwd=tmp, check=True)
             with open(out, encoding="utf-8") as f:
                 lines = one_line_each(f.read())

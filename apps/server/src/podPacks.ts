@@ -88,8 +88,11 @@ export interface PodPacksDeps {
   comfyOf(machine: string): Promise<Comfy | null>;
   /** Whether a job runs on the machine now: ComfyUI is not restarted under a render. */
   busy(machine: string): boolean;
-  /** ComfyUI is about to restart: what the pod was getting (in its process) is put back in line (podFiles.ts). */
-  beforeRestart?(machine: string): void;
+  /**
+   * ComfyUI is about to restart: what the pod was getting (in its process) is put back in line (podFiles.ts), the restart
+   * asked once that is done (the pack's .part files cut back, to carry on from).
+   */
+  beforeRestart?(machine: string): void | Promise<void>;
   /**
    * Whether a job still wants a pack (it waits, and did not say Run without for it); absent: every job a pack was asked for
    * does. ComfyUI is not restarted for a pack installed for jobs none of which wants it any more (queuePacks.ts).
@@ -481,7 +484,8 @@ export class PodPacks {
 
   /**
    * Every install done and some in: ComfyUI restarted to load them, never under a render. What the pod was getting is put
-   * back in line first (its downloads live in ComfyUI's process, which the restart replaces). A refusal of the restart fails
+   * back in line first, and the restart waits for it (its downloads live in ComfyUI's process, which the restart replaces:
+   * their bytes are kept for after it only once each has let go). A refusal of the restart fails
    * the packs (they would never load). One installed for jobs none of which wants it any more (cancelled, Run without) is
    * dropped instead: ComfyUI loads it at its next restart, whoever makes it.
    */
@@ -495,7 +499,7 @@ export class PodPacks {
     // moment a pack is in (holding), so no job of Afflatus's starts in between
     const queue = await comfy.client.queue().catch(() => null);
     if (!queue || queue.running.length || queue.pending.length || this.d.busy(machine)) return unwanted.length > 0;
-    this.d.beforeRestart?.(machine);
+    await this.d.beforeRestart?.(machine);
     this.restarting.set(machine, Date.now());
     // the process replaces itself as it answers: a dropped connection is the restart under way, and so is a pod's proxy
     // answering in its place as it goes down (fromProxy)

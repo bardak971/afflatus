@@ -1,6 +1,6 @@
 import { stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { baseName, nameKey, pathKey, type Family, type PresetFile } from "@afflatus/core";
+import { baseName, nameKey, officialGet, pathKey, type Family, type PresetFile } from "@afflatus/core";
 import { Kept } from "./kept";
 import { civitaiVersion } from "./civitai";
 import type { Selectable } from "kysely";
@@ -151,18 +151,47 @@ function pageSource(page: ModelPage, file: string): PodSource | null {
 }
 
 /**
+ * An address given for a family's own file (a slot's download) with the bytes that file must have: the slot's sha256, which
+ * the pod's node pack checks the file against before naming it. The address a job's file, a Deploy tick, a set or a preset
+ * carries came with none, and was taken before the family's slot was reached: the YOLO pickles went to the pod unchecked
+ * (card #265). The slot's own address, or the same Hugging Face file at another revision (an address kept from before the
+ * slot was pinned to a commit, resolve/main/), which is then fetched at the slot's commit. `sha256`: one the caller has.
+ */
+function withSlotSha(families: Family[], want: { file: string; folder: string; sha256?: string }, src: PodSource): PodSource {
+  if (src.kind !== "url" || src.sha256) return src;
+  if (want.sha256) return { ...src, sha256: want.sha256 };
+  const get = officialGet(families, { url: src.url, file: want.file }) ?? sameHfFile(families, want, src.url);
+  return get?.sha256 ? { kind: "url", url: get.url, sha256: get.sha256 } : src;
+}
+
+/** A family slot's download in `want`'s folder, of its name, that is the same Hugging Face repository's file as `url` at any revision. */
+function sameHfFile(families: Family[], want: { file: string; folder: string }, url: string): { url: string; sha256?: string } | undefined {
+  const given = HF_FILE.exec(url);
+  if (!given) return undefined;
+  const at = (m: RegExpExecArray) => `${m[1]}/${m[2]}/${decodeURIComponent(m[4]!)}`.toLowerCase();
+  for (const family of families) {
+    for (const slot of family.slots) {
+      if (slot.folder !== want.folder || !slot.get || nameKey(slot.get.file) !== nameKey(want.file)) continue;
+      const theirs = HF_FILE.exec(slot.get.url);
+      if (theirs && at(theirs) === at(given)) return slot.get;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Where the pod gets `file` (in `folder`): the first that knows it; null when none does and this computer has no copy.
  * `live`: a site may be asked (a page looked for by the name, a site's hash of its file); only a pod's actual fetch does:
  * the lists that say where a file would come from (a search, a set, the Deploy dialog) take what is known.
  */
-export async function podSource(l: SourceLookup, want: { file: string; folder: string; url?: string; civitai?: PresetFile["civitai"] }, o: { live?: boolean } = {}): Promise<PodSource | null> {
+export async function podSource(l: SourceLookup, want: { file: string; folder: string; url?: string; sha256?: string; civitai?: PresetFile["civitai"] }, o: { live?: boolean } = {}): Promise<PodSource | null> {
   const given = presetSource(want);
-  if (given) return given;
+  if (given) return withSlotSha(l.families(), want, given);
   const name = nameKey(want.file);
   for (const p of await presetsOf(l)) {
     const f = p.files.find((x) => x.folder === want.folder && nameKey(x.file) === name);
     const src = f && presetSource(f);
-    if (src) return src;
+    if (src) return withSlotSha(l.families(), { file: want.file, folder: want.folder }, src);
   }
   for (const family of l.families()) {
     const slot = family.slots.find((x) => x.folder === want.folder && x.get && nameKey(x.get.file) === name);

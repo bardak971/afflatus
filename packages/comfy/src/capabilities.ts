@@ -21,8 +21,8 @@ interface SlotStatus {
   chosen: boolean;
   optional: boolean;
   hint: string;
-  /** Where its usual file can be had, when the family says. */
-  get?: { file: string; url: string };
+  /** Where its usual file can be had, when the family says; with the bytes it must have, when it says them (every pickle). */
+  get?: { file: string; url: string; sha256?: string };
   /**
    * Only hidden recipes use it (every recipe of its `onlyFor` hidden: Swap, in a release that hides it): not shown in
    * Settings › Models, whose fold listed the swap's files to someone who had them. Kept in the scan all the same: jobs read it.

@@ -991,3 +991,103 @@ def test_a_part_that_starts_elsewhere_than_asked_is_never_written_as_the_whole_f
     assert job.state == "error" and f"bytes 1000-{SIZE - 1}/* for bytes {SIZE // 3}-" in job.error
     assert asked == [None, f"bytes={SIZE // 3}-"]
     assert not os.path.exists(job.path)
+
+
+def _until_ended(jobs):
+    for _ in range(500):
+        if all(j.state != "downloading" for j in jobs.values()):
+            return
+        threading.Event().wait(0.01)
+
+
+def test_a_file_there_asked_for_with_its_sha256_is_checked_not_answered_there_already(tmp_path, site):
+    # Impact Subpack's installer put the YOLO pickles there unchecked before Afflatus's checked fetch, which the pack then
+    # answered 409 "there already": the job used the unchecked file (card #265)
+    found, routes, web = _routes()
+    jobs = downloads.register(routes, web, _FolderPaths(str(tmp_path)))
+    start, state = found[("POST", "/afflatus/download")], found[("GET", "/afflatus/download/{id}")]
+    s = site()
+    with open(tmp_path / "loras" / "same.safetensors", "wb") as f:
+        f.write(FILE)
+    with open(tmp_path / "loras" / "other.safetensors", "wb") as f:
+        f.write(bytes(SIZE))
+    same = asyncio.run(start(_Request({"url": s.url, "folder": "loras", "filename": "same.safetensors", "total": SIZE, "sha256": SHA})))
+    other = asyncio.run(start(_Request({"url": s.url, "folder": "loras", "filename": "other.safetensors", "total": SIZE, "sha256": SHA})))
+    assert (same.status, other.status) == (200, 200)
+    _until_ended(jobs)
+    # its bytes the ones listed: done at once, nothing fetched, said as found there
+    said = asyncio.run(state(_Request(match={"id": same.body["id"]}))).body
+    assert (said["state"], said["bytes"], said.get("there")) == ("done", SIZE, True)
+    # other bytes: removed and fetched from its source, checked
+    said = asyncio.run(state(_Request(match={"id": other.body["id"]}))).body
+    assert (said["state"], said.get("there")) == ("done", None)
+    assert s.asked == [None]
+    for name in ("same.safetensors", "other.safetensors"):
+        with open(tmp_path / "loras" / name, "rb") as f:
+            assert f.read() == FILE
+    assert sorted(os.listdir(tmp_path / "loras")) == ["other.safetensors", "same.safetensors"]
+    # without a sha256 there is nothing to check it by: there already, as before
+    assert asyncio.run(start(_Request({"url": s.url, "folder": "loras", "filename": "same.safetensors", "total": SIZE}))).status == 409
+
+
+def test_a_file_there_of_another_size_is_replaced_without_reading_it(tmp_path, site):
+    s = site()
+    path = tmp_path / "loras" / "model.safetensors"
+    os.makedirs(path.parent, exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(FILE[:1000])
+    job = Job(s.url, str(path), SIZE, SHA)
+    job.there = True
+    run(job, backoff=0.01)
+    assert (job.state, job.found) == ("done", False)
+    with open(path, "rb") as f:
+        assert f.read() == FILE
+
+
+def test_a_file_there_that_cannot_be_removed_is_refused_never_left_as_the_one_listed(tmp_path, site, monkeypatch):
+    s = site()
+    path = tmp_path / "loras" / "model.safetensors"
+    os.makedirs(path.parent, exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(bytes(SIZE))
+    real = os.remove
+
+    def held(p):
+        if os.path.abspath(p) == str(path):
+            raise PermissionError(13, "in use")
+        real(p)
+
+    monkeypatch.setattr(downloads.os, "remove", held)
+    job = Job(s.url, str(path), SIZE, SHA)
+    job.there = True
+    run(job, backoff=0.01)
+    assert job.state == "error" and "other bytes than its source lists" in job.error
+    assert s.asked == []
+
+
+def test_a_stop_that_keeps_its_part_answers_once_the_pieces_are_cut_back(tmp_path, parts_site, monkeypatch):
+    # ComfyUI's restart for node packs is asked right after the stop: answered before the thread let go, the pieces over
+    # several connections were never cut back to the .part, and the file came again from its first byte (card #265)
+    monkeypatch.setattr(downloads, "PARTS_FROM", 1)
+    monkeypatch.setattr(downloads, "CONNECTIONS", 4)
+    monkeypatch.setattr(downloads, "_SLOTS", threading.BoundedSemaphore(4))
+    found, routes, web = _routes()
+    jobs = downloads.register(routes, web, _FolderPaths(str(tmp_path)))
+    s = parts_site(delay=0.2)
+    job = _direct(tmp_path, s.url)
+    jobs[job.id] = job
+    t = threading.Thread(target=_in_parts, args=(job,), kwargs={"width": 4, "slots": threading.BoundedSemaphore(4)})
+    t.start()
+    for _ in range(500):
+        if os.path.exists(job.parts) and job.bytes >= PIECE:
+            break
+        threading.Event().wait(0.01)
+    said = asyncio.run(found[("DELETE", "/afflatus/download/{id}")](_Request(match={"id": job.id}, query={"keep": "1"})))
+    # what is on the disk the moment it answers: the .part, bytes from the first on, and no .parts
+    there = sorted(os.listdir(tmp_path / "loras"))
+    assert said.body == {"ok": True, "let_go": True}
+    assert there == [os.path.basename(job.part)]
+    with open(job.part, "rb") as f:
+        kept = f.read()
+    assert kept and kept == FILE[: len(kept)]
+    t.join(10)

@@ -189,6 +189,26 @@ class Base(unittest.TestCase):
         with open(os.path.join(POD, "..", "..", "packages", "core", "src", "packs.ts"), encoding="utf-8") as f:
             self.assertIn(f'commit: "{commit}"', f.read())
 
+    def test_impact_subpack_is_built_in_at_its_commit_without_its_downloads(self):
+        # ComfyUI-Manager's install of it fetched the YOLO pickles from Hugging Face's main, unchecked, before Afflatus's
+        # checked fetch, and pip-installed its list unhashed (card #265): built in, its list locked, its install.py never
+        # run, and its downloads held back should anything run it (it reads skip_download_model beside its folder)
+        text = joined(read(BASE))
+        commit = re.search(r"(?m)^ARG SUBPACK_COMMIT=([0-9a-f]{40})$", text).group(1)
+        run = next(r for r in text.splitlines() if r.startswith("RUN ") and "ComfyUI-Impact-Subpack" in r)
+        self.assertIn('fetch -q --depth 1 origin "${SUBPACK_COMMIT}"', run)
+        self.assertIn("https://github.com/ltdrdata/ComfyUI-Impact-Subpack", run)
+        self.assertIn("echo ComfyUI-Impact-Subpack >> /opt/packs/BUILT_IN", run)
+        self.assertIn("touch /opt/packs/skip_download_model", run)
+        self.assertNotRegex(text, r"(?m)^RUN .*install\.py")
+        tool = lock_tool()
+        self.assertIn(("SUBPACK_COMMIT", "ltdrdata/ComfyUI-Impact-Subpack", "requirements.txt"), tool.LISTS)
+        self.assertIn(f"SUBPACK_COMMIT={commit}", tool.made_from(tool.args_of(read(BASE))))
+        for cuda in CUDAS:
+            names = [line.split("==")[0] for line in lock_lines(cuda)]
+            for wanted in ("matplotlib", "ultralytics", "numpy", "opencv-python-headless", "dill"):
+                self.assertIn(wanted, names, cuda)
+
     def test_it_holds_torch_for_every_later_pip(self):
         # Manager's installs on a pod too: a pack asking for another torch would swap the CUDA one
         self.assertRegex(read(BASE), r'(?m)^ENV PIP_CONSTRAINT=/constraints\.txt$')

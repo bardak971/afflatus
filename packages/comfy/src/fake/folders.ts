@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import type { FakeRequest, FakeState } from "../testing";
@@ -32,7 +32,7 @@ function filesUnder(dir: string): string[] {
   return out;
 }
 
-type Job = { id: string; state: "downloading" | "done" | "error" | "stopped"; bytes: number; total: number; error?: string; path: string; stop: AbortController; url: string; expired: boolean; folder: string; filename: string };
+type Job = { id: string; state: "downloading" | "done" | "error" | "stopped"; bytes: number; total: number; error?: string; path: string; stop: AbortController; url: string; expired: boolean; folder: string; filename: string; there?: true };
 
 /** The loader node and input that pick a model folder's file: a file come into the folder is among its choices, as ComfyUI's node list has it. */
 const LOADERS: Record<string, [string, string]> = { checkpoints: ["CheckpointLoaderSimple", "ckpt_name"], diffusion_models: ["UNETLoader", "unet_name"], loras: ["LoraLoader", "lora_name"], vae: ["VAELoader", "vae_name"], text_encoders: ["CLIPLoader", "clip_name"] };
@@ -192,7 +192,10 @@ export function fakeFolders(fake: FakeState): (r: FakeRequest) => boolean {
       mkdirSync(dirname(target), { recursive: true });
       const job: Job = { id: randomUUID(), state: "downloading", bytes: 0, total: 0, path: target, stop: new AbortController(), url: body.url, expired: false, folder: body.folder ?? "", filename: body.filename };
       jobs.set(job.id, job);
-      void run(job);
+      // 0.49.7: a file there asked for with its sha256 is read, done at once when its bytes are those (else fetched over it)
+      const there = body.sha256 && atLeast(fake.packVersion, "0.49.7") && existsSync(target) ? readFileSync(target) : null;
+      if (there && createHash("sha256").update(there).digest("hex") === body.sha256?.toLowerCase()) Object.assign(job, { state: "done", bytes: there.length, total: there.length, there: true });
+      else void run(job);
       return json(200, { id: job.id, path: target });
     }
     const renew = /^\/afflatus\/download\/([^/]+)\/url$/.exec(path);
@@ -204,7 +207,7 @@ export function fakeFolders(fake: FakeState): (r: FakeRequest) => boolean {
     }
     const job = jobs.get(decodeURIComponent(path.slice("/afflatus/download/".length)));
     if (!job) return json(404, {});
-    if (method === "GET") return json(200, { state: job.state, bytes: job.bytes, total: job.total, error: job.state === "error" ? job.error : undefined, expired: job.expired });
+    if (method === "GET") return json(200, { state: job.state, bytes: job.bytes, total: job.total, error: job.state === "error" ? job.error : undefined, expired: job.expired, ...(job.there ? { there: true } : {}) });
     if (method === "DELETE") {
       job.state = "stopped";
       job.stop.abort();

@@ -39,6 +39,11 @@ export interface FakeComfy {
   uploads: string[];
   /** How long an upload waits before it is answered: a render's Stop pressed while its files go up. */
   uploadDelayMs: number;
+  /**
+   * How long the pack's stop that keeps its .part (DELETE /afflatus/download/<id>?keep=1) waits before it answers, as the
+   * pack does until its download let go (0.49.7); "let go <id>" goes in `calls` as it answers.
+   */
+  letGoMs: number;
   /** The bytes of each uploaded file, by the name it was uploaded under. */
   uploaded: Record<string, Uint8Array>;
   /** The bodies of the node pack's cleanups asked for (POST /afflatus/clean-input): the input folder's, or with `folder: "output"` the output folder's. */
@@ -202,7 +207,7 @@ const body = async (req: IncomingMessage) => {
 
 export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
   const fake: FakeState = {
-    calls: [], prompts: new Map(), history: {}, running: [], pending: [], deaf: new Set(), files: {}, rejectWith: null, rejectNext: [], uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, rebootAnswer: null, userdata: {}, lock: null, refused: [], logins: [], packFetched: [], packAsked: [], packUploaded: [], removed: [], uploadCut: 0, managerVersion: "V4.2.1", oldPage: false, down: false, podBroken: null, podDied: null, ram: null, version: "0.0.0-fake", pytorch: null, bootLog: null, printed: [], alive: [],
+    calls: [], prompts: new Map(), history: {}, running: [], pending: [], deaf: new Set(), files: {}, rejectWith: null, rejectNext: [], uploads: [], uploadDelayMs: 0, letGoMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, rebootAnswer: null, userdata: {}, lock: null, refused: [], logins: [], packFetched: [], packAsked: [], packUploaded: [], removed: [], uploadCut: 0, managerVersion: "V4.2.1", oldPage: false, down: false, podBroken: null, podDied: null, ram: null, version: "0.0.0-fake", pytorch: null, bootLog: null, printed: [], alive: [],
     folderPaths: init.folderPaths ?? null, hideFolderPaths: init.hideFolderPaths ?? false,
     catalog: init.catalog ?? {},
     models: init.models ?? {},
@@ -248,6 +253,10 @@ export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
       return r.json(url.pathname === "/afflatus/pod" ? 200 : 503, said);
     }
     if (url.pathname === "/upload/image" && fake.uploadDelayMs) await new Promise((resolve) => setTimeout(resolve, fake.uploadDelayMs));
+    if (method === "DELETE" && url.pathname.startsWith("/afflatus/download/") && url.searchParams.get("keep") === "1") {
+      if (fake.letGoMs) await new Promise((resolve) => setTimeout(resolve, fake.letGoMs));
+      fake.calls.push(`let go ${url.pathname.slice("/afflatus/download/".length)}`);
+    }
     for (const part of parts) if (await part(r)) return;
     r.json(404, { error: `fake ComfyUI has no ${method} ${url.pathname}` });
   });
