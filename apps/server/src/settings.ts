@@ -325,6 +325,12 @@ export const settingsSchema = z.object({
   /** Tags written for an anime model are compared with danbooru's list, under the prompt and in what the designer writes. */
   tagCheck: z.boolean().default(true),
   /**
+   * A render's picture downloaded or exported carries how it was made (pngInfo.ts): A1111's "parameters" with the model's
+   * and the LoRAs' hashes, which Civitai links a posted picture by, and Afflatus's own form for an exact round trip. Its
+   * prompt leaves with the file; never a path on this computer, only file names.
+   */
+  pngInfo: z.boolean().default(true),
+  /**
    * Model families switched on or off by hand, by family id. One that is not named follows its files:
    * offered when they are found on ComfyUI, left out when they are not. Off only takes it out of the
    * lists to choose from: what was made with it, and drafts that use it, stay as they are.
@@ -940,6 +946,7 @@ export function publicSettings(s: Settings, here: (url: string) => boolean = () 
     designerInstruction: s.designerInstructions.some((i) => i.id === s.designerInstruction) ? s.designerInstruction : "",
     designerGuides: s.designerGuides,
     tagCheck: s.tagCheck,
+    pngInfo: s.pngInfo,
     families: s.families,
     allFamilies: s.allFamilies,
     firstLaunch: s.firstLaunch,

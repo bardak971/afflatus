@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api";
 import { useSettings, useStorage } from "../../data";
 import { plural, size, verb } from "../../format";
-import { Button, ButtonLink, cx, Failed, Segmented, TwoStep } from "../../ui";
+import { Button, ButtonLink, cx, Failed, Segmented, Toggle, TwoStep } from "../../ui";
 import { firstFailed } from "../../sayFailed";
 import { Block, Card, Row } from "./Rows";
 import { daysSaid, insteadOfWaiting } from "../../keepFor";
@@ -87,10 +87,26 @@ export function StorageCard() {
         </Card>
       </div>
       <div className="flex flex-col gap-4">
+        <Downloads />
         <Backup />
         <RenderRecord />
       </div>
     </div>
+  );
+}
+
+/** What a render's picture carries when it leaves Afflatus (the server's pngInfo.ts): the AI mark always, its generation parameters while this is on. */
+function Downloads() {
+  const settings = useSettings();
+  const client = useQueryClient();
+  const save = useMutation({ mutationFn: api.saveSettings, onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved) });
+  return (
+    <Card title="Downloads">
+      <Row setting="server.pngInfo" label="Generation parameters in downloads" help={SETTING_HELP.pngInfo}>
+        <Toggle bare on={settings.data?.pngInfo ?? true} onChange={(v) => save.mutate({ pngInfo: v })} label="Write the prompt, settings and model hashes into downloaded pictures" />
+      </Row>
+      {save.isError && <Block><Failed what="Not saved" error={save.error} /></Block>}
+    </Card>
   );
 }
 

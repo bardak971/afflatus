@@ -31,14 +31,24 @@ export interface FoundSettings {
   width?: number;
   height?: number;
   hires?: { scale?: number; upscaler?: string; denoise?: number; steps?: number };
+  /** An img2img's denoising strength (A1111's, with no hires fix): what a form that starts from a picture takes. */
+  denoise?: number;
   /** The checkpoint's Civitai version, when the file says. */
   checkpointCivitai?: number;
   /** What could not be carried over, in words. */
   notes: string[];
 }
 
+/** Afflatus's own form, as a download of a render carries it (pngInfo.ts ownText): the same form filled exactly. */
+export interface OwnForm {
+  recipe: string;
+  input: Record<string, unknown>;
+}
+
 export interface Embedded {
   settings: FoundSettings | null;
+  /** The form it was made with in Afflatus, when the file was downloaded from one. */
+  own?: OwnForm;
   /** A ComfyUI workflow: the editor's own form when the file has it, else the graph that ran. */
   workflow: unknown | null;
   /** Why there are no settings, when there are none. */
@@ -77,7 +87,11 @@ function pngText(buf: Buffer): Record<string, string> {
     if (nul < 0) continue;
     const key = data.toString("latin1", 0, nul);
     try {
-      if (type === "tEXt") out[key] = data.toString("utf8", nul + 1);
+      // Latin-1 by the standard (PIL, so A1111 and ComfyUI, writes a "café" so), UTF-8 by many other tools: whichever it is
+      if (type === "tEXt") {
+        const text = data.toString("utf8", nul + 1);
+        out[key] = text.includes("\uFFFD") ? data.toString("latin1", nul + 1) : text;
+      }
       else if (type === "zTXt") out[key] = inflate(data.subarray(nul + 2)).toString("utf8");
       else if (type === "iTXt") {
         const compressed = data[nul + 1] === 1;
@@ -253,7 +267,9 @@ function samplerOf(name: string | undefined, schedule: string | undefined): { sa
     if (tail) s = s.slice(0, -tail.length - 1);
   }
   const sampler = SAMPLERS[s] ?? (/^[a-z0-9_]+$/.test(s) ? s : undefined);
-  const scheduler = SCHEDULES[(schedule ?? "").trim().toLowerCase()] ?? (from ? SCHEDULES[from] : undefined) ?? tail;
+  // a schedule A1111 has no name for is written under ComfyUI's (pngInfo.ts), and taken back as it is
+  const said = (schedule ?? "").trim().toLowerCase();
+  const scheduler = SCHEDULES[said] ?? (/^[a-z0-9_]+$/.test(said) ? said : undefined) ?? (from ? SCHEDULES[from] : undefined) ?? tail;
   return { sampler, scheduler };
 }
 
@@ -324,6 +340,7 @@ export function parseA1111(infotext: string): FoundSettings {
     clipSkip: (num("Clip skip") ?? 1) > 1 ? num("Clip skip") : undefined,
     width: w || undefined, height: h || undefined,
     ...(hires ? { hires: { scale: num("Hires upscale"), upscaler: kv["Hires upscaler"], denoise: num("Denoising strength"), steps: num("Hires steps") || undefined } } : {}),
+    ...(!hires && num("Denoising strength") !== undefined ? { denoise: num("Denoising strength") } : {}),
     notes,
   };
 }
@@ -495,12 +512,20 @@ export async function readEmbeddedFile(file: string): Promise<Embedded> {
   return readEmbedded(await readFile(file));
 }
 
+/** Afflatus's own form from its text, when it is one: anything else (a stranger's "afflatus" text) is not read. */
+function ownFormOf(text: string | undefined): OwnForm | undefined {
+  const v = json(text) as { afflatus?: unknown; recipe?: unknown; input?: unknown } | null;
+  if (!v || v.afflatus !== 1 || typeof v.recipe !== "string" || !v.input || typeof v.input !== "object" || Array.isArray(v.input)) return undefined;
+  return { recipe: v.recipe.slice(0, 120), input: v.input as Record<string, unknown> };
+}
+
 /** What the texts found in a file (and a JPEG's or a WebP's comment) say: settings, a workflow, or why neither. */
 function fromTexts(texts: Record<string, string>, comment: string | null): Embedded {
   const graph = json(texts.prompt);
   const workflow = workflowOf(texts);
   const infotext = texts.parameters ?? (comment && /Steps:\s*\d+/.test(comment) ? comment : null);
-  if (infotext) return { settings: parseA1111(infotext), workflow };
+  const own = ownFormOf(texts.afflatus);
+  if (infotext) return { settings: parseA1111(infotext), workflow, ...(own ? { own } : {}) };
   if (isGraph(graph)) {
     const settings = parseComfy(graph);
     return settings ? { settings, workflow } : { settings: null, workflow, why: "Its workflow is not built around a checkpoint and a sampler, so it cannot fill the SDXL form. Import its workflow instead: it becomes something to create with." };
