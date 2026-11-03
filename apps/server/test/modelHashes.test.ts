@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forgetHuggingFace } from "../src/huggingface";
+import { families } from "@afflatus/recipes";
 import { podSource } from "../src/podSources";
 import { writeSettings } from "../src/settings";
 import { get, makeApp, post, until, type TestApp } from "./helpers";
@@ -205,5 +206,14 @@ describe("every model file hashed once", () => {
     await writeSettings(t.db, { comfyDir: "" });
     await t.services.hashes.run();
     expect((await t.services.hashes.status()).noFolder).toBe(true);
+  });
+});
+
+describe("a family's own pickle on a pod", () => {
+  it("comes from its commit with the bytes it must have, which the pod's node pack checks (the 2026-11-02 review, M7)", async () => {
+    const withFamilies = () => ({ ...lookup(), families: () => families });
+    const face = await podSource(withFamilies(), { file: "bbox/face_yolov8m.pt", folder: "ultralytics" });
+    expect(face).toEqual({ kind: "url", url: expect.stringMatching(/\/Bingsu\/adetailer\/resolve\/[0-9a-f]{40}\/face_yolov8m\.pt$/), sha256: "717923c19b3f4bbf5250b728f1fa6b2cb72a33aed1d236ea9caf0e21ad943e5f" });
+    expect(await podSource(withFamilies(), { file: "sam_vit_b_01ec64.pth", folder: "sams" })).toMatchObject({ kind: "url", sha256: "ec2df62732614e57411cdcf32a23ffdf28910380d03139ee0f4fcbe91eb8c912" });
   });
 });

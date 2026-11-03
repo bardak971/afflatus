@@ -26,8 +26,12 @@ interface ModelSlot {
    * own only so that its address is known and it is offered for download; its file stays in that input's list.
    */
   choiceOf?: string;
-  /** Where its usual file can be had, when that is known: the name to save it under and its address. */
-  get?: { file: string; url: string };
+  /**
+   * Where its usual file can be had, when that is known: the name to save it under and its address. `sha256`: the bytes it
+   * must have, checked before the file is named (by Afflatus, or the node pack on a pod); every pickle (.pt, .pth) has one,
+   * as loading one runs code, and its address pinned to a commit rather than a branch that can move.
+   */
+  get?: { file: string; url: string; sha256?: string };
   /**
    * The recipes that alone use it. While every one of them is hidden, it is not offered for download (Settings › Models
    * showed Swap's two files, the reference model twice, for a recipe nobody could open).

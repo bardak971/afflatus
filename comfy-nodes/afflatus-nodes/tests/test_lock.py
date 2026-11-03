@@ -170,7 +170,7 @@ def test_a_new_token_ends_the_old_cookie(lock, mw):
 def test_a_login_lands_where_asked_and_only_on_this_server(lock, mw):
     lock.write(TOKEN, local=False)
     assert 'url=/?template=x&amp;source=afflatus"' in call(mw, Request(L.LOGIN, query={"code": lock.code(), "next": "/?template=x&source=afflatus"})).text
-    for away in ("https://evil.example/", "//evil.example/", "/\\evil.example"):
+    for away in ("https://evil.example/", "//evil.example/", "/\\evil.example", "/\t/evil.example", "/\n/evil.example", "/\r//evil.example", "/\x7f/x"):
         assert 'content="0;url=/"' in call(mw, Request(L.LOGIN, query={"code": lock.code(), "next": away})).text
 
 
@@ -189,15 +189,18 @@ def test_from_this_pc_only_when_said_and_only_really_from_it(lock, mw):
     assert call(mw, Request(remote="127.0.0.1")).status == 401
     lock.write(TOKEN, local=True, origin="http://127.0.0.1:8721")
     os.utime(lock.path, ns=(2, 2))
-    assert call(mw, Request(remote="127.0.0.1")).text == "handled"
-    assert call(mw, Request(remote="::1", host="[::1]:8188")).text == "handled"
+    # a program with this start's local key, ComfyUI's page opened from the address bar
+    assert call(mw, Request(remote="127.0.0.1", headers=bearer(lock.local_key))).text == "handled"
+    assert call(mw, Request(remote="::1", host="[::1]:8188", headers={"Sec-Fetch-Site": "none"})).text == "handled"
     # Afflatus's page (the origin it locked from), and ComfyUI's own by the name it was opened with
-    assert call(mw, Request(remote="127.0.0.1", headers={"Origin": "http://127.0.0.1:8721"})).text == "handled"
+    assert call(mw, Request(remote="127.0.0.1", headers={"Origin": "http://127.0.0.1:8721", "Sec-Fetch-Site": "same-site"})).text == "handled"
     assert call(mw, Request(remote="127.0.0.1", host="localhost:8188", headers={"Origin": "http://localhost:8188", "Sec-Fetch-Site": "same-origin"})).text == "handled"
     # another machine, a proxy on this one, a page of another site, a sandboxed page: all locked out
     assert call(mw, Request(remote="192.0.2.4")).status == 401
-    assert call(mw, Request(remote="127.0.0.1", headers={"X-Forwarded-For": "203.0.113.9"})).status == 401
-    assert call(mw, Request(remote="127.0.0.1", headers={"Forwarded": "for=203.0.113.9"})).status == 401
+    assert call(mw, Request(remote="127.0.0.1", headers={"X-Forwarded-For": "203.0.113.9", "Sec-Fetch-Site": "none"})).status == 401
+    assert call(mw, Request(remote="127.0.0.1", headers={"Forwarded": "for=203.0.113.9", "Sec-Fetch-Site": "none"})).status == 401
+    assert call(mw, Request(remote="127.0.0.1", headers={"Via": "1.1 tunnel", "Sec-Fetch-Site": "none"})).status == 401
+    assert call(mw, Request(remote="127.0.0.1", headers={"Via": "1.1 tunnel", **bearer(lock.local_key)})).status == 401
     assert call(mw, Request(remote="127.0.0.1", headers={"Origin": "https://evil.example"})).status == 401
     assert call(mw, Request(remote="127.0.0.1", headers={"Sec-Fetch-Site": "cross-site"})).status == 401
     assert call(mw, Request(remote="127.0.0.1", headers={"Origin": "null"})).status == 401
@@ -217,18 +220,51 @@ def test_from_this_pc_is_not_a_page_of_another_port_nor_a_name_that_points_here(
     assert call(mw, Request(remote="127.0.0.1", headers={"Origin": "http://127.0.0.1:8189"})).status == 401
     assert call(mw, Request(remote="127.0.0.1", headers={"Origin": "http://localhost:8722"})).status == 401
     assert call(mw, Request(remote="127.0.0.1", headers={"Origin": "http://localhost:8721/x"})).status == 401
-    # and these get in: Afflatus's page, ComfyUI's own, a program, the address bar
+    # and these get in: Afflatus's page, ComfyUI's own, a program with the local key, the address bar
     assert call(mw, Request(remote="127.0.0.1", headers={"Origin": "http://localhost:8721", "Sec-Fetch-Site": "same-site"})).text == "handled"
     assert call(mw, Request("/prompt", "POST", remote="127.0.0.1", headers={"Origin": "http://127.0.0.1:8188", "Sec-Fetch-Site": "same-origin"})).text == "handled"
-    assert call(mw, Request(remote="127.0.0.1", host="localhost:8188")).text == "handled"
+    assert call(mw, Request(remote="127.0.0.1", host="localhost:8188", headers=bearer(lock.local_key))).text == "handled"
     assert call(mw, Request(remote="127.0.0.1", headers={"Sec-Fetch-Site": "none"})).text == "handled"
+
+
+def test_from_this_pc_a_program_needs_the_local_key(tmp_path):
+    # anything forwarding TCP to a loopback ComfyUI (ssh -R, socat, ngrok, nginx's plain proxy_pass) calls from loopback
+    # with a Host its client wrote: "localhost:8188", no proxy header, no Origin, no Sec-Fetch-Site
+    lock = L.Lock(str(tmp_path), env={})
+    lock.write(TOKEN, local=True, origin="http://localhost:8721")
+    mw = L.make_middleware(lock, web)
+    assert call(mw, Request("/prompt", "POST", remote="127.0.0.1", host="localhost:8188")).status == 401
+    assert call(mw, Request("/api/manager/queue/install", "POST", remote="::1", host="127.0.0.1:8188")).status == 401
+    assert call(mw, Request(remote="127.0.0.1", headers=bearer("x" * 43))).status == 401
+    # a program of this computer reads this start's key in ComfyUI's user folder
+    key_file = os.path.join(str(tmp_path), L.LOCAL_KEY_FILE)
+    with open(key_file, encoding="utf-8") as f:
+        key = f.read()
+    assert key == lock.local_key and len(key) >= 40
+    assert call(mw, Request("/prompt", "POST", remote="127.0.0.1", host="localhost:8188", headers=bearer(key))).text == "handled"
+    # from another machine the key is nothing
+    assert call(mw, Request(remote="192.0.2.4", headers=bearer(key))).status == 401
+    # a new start, a new key; the old one no longer opens it
+    again = L.Lock(str(tmp_path), env={})
+    assert again.local_key != key
+    with open(key_file, encoding="utf-8") as f:
+        assert f.read() == again.local_key
+    assert call(L.make_middleware(again, web), Request(remote="127.0.0.1", headers=bearer(key))).status == 401
+    # "no token needed from this PC" off, or the lock taken off: the file goes, and the key opens nothing
+    again.write(TOKEN, local=False)
+    assert not os.path.exists(key_file)
+    assert call(L.make_middleware(again, web), Request(remote="127.0.0.1", headers=bearer(again.local_key))).status == 401
+    again.write(TOKEN, local=True)
+    assert os.path.exists(key_file)
+    again.remove()
+    assert not os.path.exists(key_file)
 
 
 def test_a_lock_without_afflatus_origin_lets_only_comfyui_own_page_in(lock, mw):
     lock.write(TOKEN, local=True)
     assert lock.state()["origin"] is None
-    assert call(mw, Request(remote="127.0.0.1", headers={"Origin": "http://127.0.0.1:8721"})).status == 401
-    assert call(mw, Request(remote="127.0.0.1", headers={"Origin": "http://127.0.0.1:8188"})).text == "handled"
+    assert call(mw, Request(remote="127.0.0.1", headers={"Origin": "http://127.0.0.1:8721", "Sec-Fetch-Site": "same-site"})).status == 401
+    assert call(mw, Request(remote="127.0.0.1", headers={"Origin": "http://127.0.0.1:8188", "Sec-Fetch-Site": "same-origin"})).text == "handled"
     # an origin that is not one is not kept
     lock.write(TOKEN, local=True, origin="javascript:alert(1)")
     os.utime(lock.path, ns=(3, 3))
@@ -363,10 +399,71 @@ def test_a_login_opened_from_afflatus_ends_with_its_sign_in(lock, mw):
     lock.keep([B])
     assert call(mw, Request(cookies=a)).status == 401
     assert call(mw, Request(cookies=b)).text == "handled"
-    # Sign out everywhere: none named; the login made by pasting the token holds as long as the token
+    # A's sign-out ended the login made by pasting the token too (its key is made anew); one made after holds until the
+    # next sign-in ends
+    assert call(mw, Request(cookies=token)).status == 401
+    token = {"afflatus_lock_8188": call(mw, Request(L.LOGIN, "POST", form={"token": TOKEN})).cookies["afflatus_lock_8188"][0]}
+    lock.keep([B, A])
+    assert call(mw, Request(cookies=token)).text == "handled"
+    # Sign out everywhere: none named, and none holds, the token's included
     lock.keep([])
     assert call(mw, Request(cookies=b)).status == 401
-    assert call(mw, Request(cookies=token)).text == "handled"
+    assert call(mw, Request(cookies=token)).status == 401
+    # the token itself still opens it
+    assert call(mw, Request(headers=bearer(TOKEN))).text == "handled"
+
+
+def test_the_token_login_ends_with_its_time(lock, mw):
+    lock.write(TOKEN, local=False)
+    value, opts = call(mw, Request(L.LOGIN, "POST", form={"token": TOKEN})).cookies["afflatus_lock_8188"]
+    assert opts["max_age"] == L.TOKEN_LOGIN_S
+    keys = lock.keys()
+    now = L.time.time()
+    assert L.login_of(value, keys, L.hash_of(TOKEN), now=now) == L.TOKEN_LOGIN
+    assert L.login_of(value, keys, L.hash_of(TOKEN), now=now + L.TOKEN_LOGIN_S + 1) is None
+    # a cookie naming an end further away than a login is given for is no login of the pack's
+    far = L.cookie_of(keys["token"], L.hash_of(TOKEN), L.token_login(now + 10 * L.TOKEN_LOGIN_S))
+    assert call(mw, Request(cookies={"afflatus_lock_8188": far})).status == 401
+    past = L.cookie_of(keys["token"], L.hash_of(TOKEN), L.token_login(now - 1))
+    assert call(mw, Request(cookies={"afflatus_lock_8188": past})).status == 401
+
+
+def test_the_lock_file_alone_makes_no_cookie(lock, mw):
+    # whoever reads afflatus-lock.json once has the token's hash: a cookie made from it is refused, the old pack's way
+    # (the hash as the MAC's key) included
+    import hashlib
+    import hmac
+
+    lock.write(TOKEN, local=False)
+    lock.keep([A])
+    with open(lock.path, encoding="utf-8") as f:
+        digest = json.load(f)["hash"]
+    for login in (L.TOKEN_LOGIN, L.token_login(L.time.time() + 60), A):
+        for key in (digest, L.hash_of(digest)):
+            old = hmac.new(key.encode("ascii"), f"afflatus-lock-login:{login}".encode("ascii"), hashlib.sha256).hexdigest()
+            assert call(mw, Request(cookies={"afflatus_lock_8188": f"{login}.{old}"})).status == 401
+            assert call(mw, Request(cookies={"afflatus_lock_8188": L.cookie_of(key, digest, login)})).status == 401
+    # the cookies' keys are kept beside the logins, not in the lock file, and a new token makes them anew
+    keys = dict(lock.keys())
+    with open(lock.path, encoding="utf-8") as f:
+        assert keys["login"] not in f.read()
+    lock.write(OTHER, local=False)
+    assert lock.keys()["login"] != keys["login"] and lock.keys()["token"] != keys["token"]
+
+
+def test_the_cookie_is_secure_behind_an_https_proxy(lock, mw):
+    lock.write(TOKEN, local=False)
+
+    def secure(**kw):
+        return call(mw, Request(L.LOGIN, "POST", form={"token": TOKEN}, **kw)).cookies["afflatus_lock_8188"][1]["secure"]
+
+    # RunPod's proxy takes https and speaks http to ComfyUI
+    assert secure(host="abc123-8188.proxy.runpod.net", headers={"X-Forwarded-Proto": "https"})
+    assert secure(host="abc123-8188.proxy.runpod.net")
+    assert secure(host="comfy.example", headers={"Forwarded": "for=192.0.2.1;proto=https"})
+    # plain http, on this computer or the network: a Secure cookie would not be kept, and the login would not hold
+    assert not secure()
+    assert not secure(host="192.168.1.20:8188")
 
 
 def test_a_cookie_names_its_login_and_no_other(lock, mw):

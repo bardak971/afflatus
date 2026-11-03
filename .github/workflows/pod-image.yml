@@ -77,8 +77,8 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # the base the top is built on was built from base/Dockerfile as this commit has it, for this CUDA: a change to that
-      # file with no new base (or a digest of another build pasted in) would ship a pod that is not its code
+      # the base the top is built on was built from base/ (its Dockerfile and locks) as this commit has it, for this CUDA: a
+      # change there with no new base (or a digest of another build pasted in) would ship a pod that is not its code
       - name: Check the base is this commit's
         env:
           CUDA: ${{ matrix.cuda }}
@@ -86,7 +86,7 @@ jobs:
           var="BASE_$(printf '%s' "$CUDA" | tr '[:lower:]' '[:upper:]')"
           base=$(sed -n "s/^ARG $var=//p" deploy/runpod/Dockerfile | tr -d '\r')
           if ! printf '%s' "$base" | grep -Eq '@sha256:[0-9a-f]{64}$'; then echo "::error::deploy/runpod/Dockerfile's $var is not pinned by digest: $base"; exit 1; fi
-          want=$(tr -d '\r' < deploy/runpod/base/Dockerfile | sha256sum | cut -d' ' -f1)
+          want=$(cat deploy/runpod/base/Dockerfile deploy/runpod/base/requirements-cu128.lock deploy/runpod/base/requirements-cu130.lock | tr -d '\r' | sha256sum | cut -d' ' -f1)
           labels=$(docker buildx imagetools inspect "$base" --format '{{json .Image.Config.Labels}}')
           got=$(printf '%s' "$labels" | jq -r '."afflatus.base-dockerfile-sha256" // ""')
           cuda=$(printf '%s' "$labels" | jq -r '."afflatus.cuda" // ""')

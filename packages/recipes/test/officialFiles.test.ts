@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { isOfficialFile, isOfficialName, type PresetFile } from "@afflatus/core";
+import { isOfficialFile, isOfficialName, officialGet, type PresetFile } from "@afflatus/core";
 import { families, familyById } from "../src/index";
 
 const PRESETS = join(__dirname, "..", "..", "..", "presets");
@@ -33,5 +33,30 @@ describe("a family's official file", () => {
     expect(atOfficial.length).toBeGreaterThan(0);
     for (const f of atOfficial) expect(isOfficialFile(families, f), `${f.preset}: ${f.folder}/${f.file}`).toBe(true);
     expect(atOfficial).toContainEqual(expect.objectContaining({ preset: "ltx23-distilled.json", folder: "diffusion_models" }));
+  });
+});
+
+/**
+ * A pickle (.pt, .pth, .ckpt, .bin, .pkl) runs code as it loads (Ultralytics takes a .pt with weights_only off): a family's
+ * own one is fetched at a commit, never a branch its repository's owner (or a stolen account) can move, and with the bytes
+ * it must have, which Afflatus and the node pack check before naming the file (the 2026-11-02 review, M7).
+ */
+describe("a family's pickle", () => {
+  const gets = families.flatMap((f) => f.slots.flatMap((s) => (s.get ? [{ family: f.id, slot: s.id, ...s.get }] : [])));
+  const pickles = gets.filter((g) => /\.(pt|pth|ckpt|bin|pkl)$/i.test(g.file));
+
+  it("is fetched at a commit and with its SHA-256", () => {
+    expect(pickles.map((g) => g.slot)).toEqual(expect.arrayContaining(["faceDetector", "handDetector", "faceSeg", "faceSam"]));
+    for (const g of pickles) {
+      expect(g.url, `${g.family} ${g.slot}`).toMatch(/^https:\/\/huggingface\.co\/[^/]+\/[^/]+\/resolve\/[0-9a-f]{40}\//);
+      expect(g.sha256, `${g.family} ${g.slot}`).toMatch(/^[0-9a-f]{64}$/);
+    }
+  });
+
+  it("hands its SHA-256 on with its address", () => {
+    const face = pickles.find((g) => g.slot === "faceDetector")!;
+    expect(officialGet(families, { url: face.url, file: face.file })?.sha256).toBe(face.sha256);
+    expect(officialGet(families, { url: face.url, file: "other.pt" })).toBeUndefined();
+    expect(officialGet(families, { file: face.file })).toBeUndefined();
   });
 });
