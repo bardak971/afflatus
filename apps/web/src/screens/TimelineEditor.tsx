@@ -25,7 +25,8 @@ import { clipMenuItems } from "../timeline/menus";
 import { FoldedColumn, OverviewColumn } from "../timeline/EditorColumns";
 import { RangeBar } from "../timeline/RangeBar";
 import { SoundMenus } from "../timeline/SoundMenus";
-import { clipActs, exportProps, pinMenuProps, finishProps, headerProps, inspectorProps, overviewProps, placeItemsOf, playerProps, recordingPanelProps, soundMenusProps, trackProps, transportProps } from "../timeline/editorProps";
+import { clipActs, exportProps, pinMenuProps, finishProps, headerProps, inspectorProps, overviewProps, placeItemsOf, playerProps, soundMenusProps, trackProps, transportProps } from "../timeline/editorProps";
+import { recordingPanelProps } from "../timeline/recordingProps";
 import { useTimelineEditor } from "../timeline/useTimelineEditor";
 
 /**
@@ -66,8 +67,8 @@ function Editor({ id }: { id: string }) {
   const maskVideo = current && e.sourceLane.masks[current.id]?.shown ? e.sourceLane.maskOfCurrent.data?.video : null;
   const maskOverlay = current && maskVideo ? { src: fileUrl(maskVideo.id), startMs: Number(current.inputs.sourceStart ?? 0) * 1000, lengthMs: maskVideo.durationMs ?? Number(current.inputs.sourceSeconds ?? 0) * 1000 } : null;
   // the recording open (its band clicked): its stage and its panel, as the source's
-  const recordingShown = e.recordingAt ? t.recordings?.find((r) => r.asset.id === e.selection.recordingOpen) ?? null : null;
-  const recordingPanel = e.recordingAt && recordingShown ? recordingPanelProps(e, e.recordingAt) : null;
+  const recordingShown = e.recordings.recordingAt ? t.recordings?.find((r) => r.asset.id === e.selection.recordingOpen) ?? null : null;
+  const recordingPanel = e.recordings.recordingAt && recordingShown ? recordingPanelProps(e, e.recordings.recordingAt) : null;
   return (
     <div className="flex min-w-0 grow flex-col">
       <TimelineHeader {...headerProps(e)} />
@@ -108,12 +109,12 @@ function Editor({ id }: { id: string }) {
                 overlay={maskOverlay}
                 removed={t.source.removed}
               />
-            ) : e.recordingAt && recordingShown ? (
+            ) : e.recordings.recordingAt && recordingShown ? (
               <RecordingStage
                 key={recordingShown.asset.id}
                 ref={e.player}
                 recording={recordingShown.asset}
-                place={e.recordingAt}
+                place={e.recordings.recordingAt}
                 playing={e.playhead.playing}
                 onPlaying={e.playhead.setPlaying}
                 onTime={e.playhead.onTime}

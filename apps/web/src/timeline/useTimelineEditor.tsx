@@ -10,14 +10,13 @@ import { useNewClock } from "./clock";
 import { rememberAspect } from "./EditorSkeleton";
 import type { ExportAsk } from "./ExportDialog";
 import { layout, moveAfter, otherShape, placeOf, playOfTrack, ZOOM } from "./model";
-import { clipsOfRecording } from "./track/RecordingBand";
-import { recordingPlace, stageEnd } from "./recordingPlace";
 import type { PlayerHandle } from "./Player";
+import { stageEnd } from "./recordingPlace";
 import { useClipEdits } from "./useClipEdits";
 import { useOneTrim } from "./useOneTrim";
-import { droppedRemovedTakes } from "./removedDropped";
 import { useClipSteps } from "./useClipSteps";
 import { useEditorSource } from "./useEditorSource";
+import { useEditorRecording } from "./useEditorRecording";
 import { useEditorMenus } from "./useEditorMenus";
 import { useBarRequests } from "./useBarRequests";
 import { useEditorKeys } from "./useEditorKeys";
@@ -113,16 +112,6 @@ export function useTimelineEditor(id: string) {
   const liveShown = renderingAt >= 0 && (clips[renderingAt]!.id === selected || !clips.some((c) => c.take || c.still)) ? { clipId: running!, clip: renderingAt + 1 } : null;
   const slots = useMemo(() => layout(clips, pps, videoRecipes), [clips, pps, videoRecipes]);
   const total = slots.length ? slots.at(-1)!.startMs + slots.at(-1)!.lengthMs : 0;
-  /** The recording open on the stage: its clips' parts, and where each moment of it plays on the track. */
-  const openedRecording = t?.recordings?.find((r) => r.asset.id === recordingOpen) ?? null;
-  const recordingAt = useMemo(
-    () => (openedRecording ? recordingPlace(slots, videoRecipes, openedRecording.asset.id, openedRecording.asset.durationMs) : null),
-    [slots, videoRecipes, openedRecording],
-  );
-  // the recording open taken off the timeline (an Undo, its clips removed, another tab): the clips' player again
-  useEffect(() => {
-    if (recordingOpen && t && !recordingAt) setRecordingOpen(null);
-  }, [recordingOpen, t, recordingAt, setRecordingOpen]);
 
   const { dropEdits, saveFailed, save, turn, inputsOf, editInputs, savedElsewhere, agentLaid, typeSource, sourceTyped, shown, formOf, ready, keptToClip, keepToClip } = useClipEdits({ timeline: t, clips, recipes, setup, settings, comfyOnline });
   /** What a clip says happens, in a few words, for the designer: its main text, or what it is. */
@@ -146,7 +135,7 @@ export function useTimelineEditor(id: string) {
     timeline: t, clipsNow, recipes: recipes.data?.recipes ?? [], edits: { save, turn, ready, inputsOf, editInputs, dropEdits, savedElsewhere, sourceTyped }, firstRecipe,
     on: { note: setNote, select, unpick: () => setPicked(new Set()), writing: setWriting, open: setOpened, stepping: () => oneTrim.drop() },
   });
-  const { after, render, patch, fix, edit, recording: recordingMut, cutRecording: cutRecordingMut, recordingForm: recordingFormMut, trimRecording: trimRecordingMut, add, remove, removeMany, bringBack, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
+  const { after, render, patch, fix, edit, add, remove, removeMany, bringBack, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
   // a change an MCP token made: said with Undo (that step alone), its clips ringed
   useAgentTimeline(id, { undo: (steps) => undo.mutate(steps), laid: agentLaid, selected });
   const pickedNow = useRef(picked);
@@ -206,92 +195,9 @@ export function useTimelineEditor(id: string) {
   // the source on the track and its runs (useEditorSource.ts): one piece the editor's parts read
   const sourceLane = useEditorSource({ t, slots, videoRecipes, selection, m, save, typeSource, sourceTyped, oneTrim, toRender, setToRender, trimmed });
   const { place, removeSource, stretch } = sourceLane;
-  const runs = useRef<{ recordingTrim: typeof recordingTrim; clips: Clip[]; videoRecipes: RecipeInfo[] }>(null!);
-
-  /**
-   * A recording's Lip sync clips trimmed (their Recording chapter's In / Out): the end at once, its start moved asked first
-   * when that leaves rendered takes behind (`recordingAsk`: Change or Keep).
-   */
-  const [recordingAsk, setRecordingAsk] = useState<{ asset: string; fromMs: number; toMs: number; rendered: number; clips: number } | null>(null);
-  const recordingTrim = {
-    pending: trimRecordingMut.isPending,
-    /** A trim of this recording waits for the one on its way (the source's, or another): said as under way as well. */
-    waits: (asset: string) => oneTrim.waits(`recording:${asset}`),
-    ask: recordingAsk,
-    run: (asset: string, mine: Clip[], fromMs: number, toMs: number, sure = false): Promise<boolean> => {
-      // its clips taken again from the timeline read back: the trim before may have made them anew
-      if (oneTrim.busy) return oneTrim.later(`recording:${asset}`, () => runs.current.recordingTrim.run(asset, clipsOfRecording(runs.current.clips, runs.current.videoRecipes, asset), fromMs, toMs, sure));
-      const startMs = Math.round(Number(mine[0]?.inputs.recordingStart ?? 0) * 1000);
-      const rec = t?.recordings?.find((r) => r.asset.id === asset);
-      // with the takes a trim set aside, and those of a part removed before the new In (droppedRemovedTakes)
-      const rendered = mine.filter((c) => c.take).length + (rec?.parkedTakes ?? 0) + droppedRemovedTakes(rec?.removed, fromMs, toMs);
-      // asked in the first clip's Recording chapter, opened so the question is in view (its band dragged on the Audio row);
-      // in the recording's own panel when it is open
-      if (!sure && rendered > 0 && Math.abs(fromMs - startMs) > 20) {
-        setRecordingAsk({ asset, fromMs, toMs, rendered, clips: mine.length });
-        if (recordingOpenNow.current !== asset) select(mine[0]!.id);
-        return Promise.resolve(false);
-      }
-      setRecordingAsk(null);
-      return oneTrim.run(trimRecordingMut.mutate, { asset, fromMs, toMs }, trimmed);
-    },
-    keep: () => setRecordingAsk(null),
-  };
-  runs.current = { recordingTrim, clips, videoRecipes };
-
-  /**
-   * A recording's clips cut again from its panel (Clip length ± its window): asked first when that leaves rendered takes
-   * behind (`ask`: Change or Keep), as its moved start is. What was typed in its clips is saved first: they are made anew
-   * with their forms as the server has them.
-   */
-  const [cutAsk, setCutAsk] = useState<{ asset: string; seconds: number; within: number; rendered: number; clips: number } | null>(null);
-  // under way from the click on, not from the cut's request: while what was typed is saved first, a window typed sent a
-  // second cut with the Clip length from before the first
-  const [cutting, setCutting] = useState(false);
-  const recordingCut = {
-    pending: cutting || cutRecordingMut.isPending,
-    ask: cutAsk,
-    run: (asset: string, seconds: number, within: number, sure = false) => {
-      const mine = clipsOfRecording(clips, videoRecipes, asset);
-      const rec = t?.recordings?.find((r) => r.asset.id === asset);
-      // cut again over the stretch its clips use: a part removed past the last one (kept with a clip a trim set aside) goes
-      const last = mine.at(-1);
-      const fromMs = Number(mine[0]?.inputs.recordingStart ?? 0) * 1000;
-      const toMs = last ? (Number(last.inputs.recordingStart ?? 0) + Number(last.inputs.recordingSeconds ?? 0)) * 1000 : fromMs;
-      const rendered = mine.filter((c) => c.take).length + (rec?.parkedTakes ?? 0) + droppedRemovedTakes(rec?.removed, fromMs, toMs);
-      if (!sure && rendered > 0) return setCutAsk({ asset, seconds, within, rendered, clips: mine.length });
-      setCutAsk(null);
-      setCutting(true);
-      // a failure is the mutation's own, said with the editor's others (latestFailure); a save that failed is said by the autosave
-      void save()
-        .then(() => cutRecordingMut.mutateAsync({ asset, seconds, window: within }).then((r) => trimmed(r.clips)))
-        .catch(() => {})
-        .finally(() => setCutting(false));
-    },
-    keep: () => setCutAsk(null),
-  };
-  /**
-   * What a recording's clips share given to all of them (its panel), after what was typed in them is saved: under way from
-   * that save on, for its fields to keep what was typed until it is in the clips' forms. Counted: with two shares out, the
-   * first one's end is not the end of sharing, the second's field would else be reset to the first one's text.
-   */
-  const [sharing, setSharing] = useState(0);
-  const recordingShared = {
-    pending: sharing > 0 || recordingFormMut.isPending,
-    run: (asset: string, inputs: Record<string, unknown>) => {
-      setSharing((n) => n + 1);
-      // a failure is the mutation's own, said with the editor's others (latestFailure)
-      // in the forms' turn: a clip's save sent while the share is out went before it on the server's side and after it
-      // here, and wrote the old shared text back; waiting its turn, it goes with the share laid over it (savedElsewhere)
-      void save().then(() => turn(() => recordingFormMut.mutateAsync({ asset, inputs }))).catch(() => {}).finally(() => setSharing((n) => n - 1));
-    },
-  };
-
-  /** A voice recording made into Lip sync clips, the first one opened (nothing renders: its scene is to be written first). */
-  const recording = {
-    pending: recordingMut.isPending,
-    run: (asset: string, clip?: string) => recordingMut.mutate({ asset, clip }, { onSuccess: (r) => setToRender({ ids: r.clips, render: false }) }),
-  };
+  // the voice recordings: the one open on the stage and their runs (useEditorRecording.ts), one piece as well
+  const recordings = useEditorRecording({ t, clips, slots, videoRecipes, selection, recordingOpenNow, m, save, turn, oneTrim, setToRender, trimmed });
+  const { recordingAt, recordingTrim } = recordings;
 
   // a window of the source (Motion transfer) is made from its driving video: a clip added by hand, or extending one, takes
   // the timeline's other model, as the server does (timelinePlan.ts newClip), else the first that can run
@@ -446,7 +352,7 @@ export function useTimelineEditor(id: string) {
 
   return {
     id, timeline, t, shown, clips, recipes, setup, settings, videoRecipes, running, panelWidth, folded, slots, total, selection, playhead,
-    sourceLane, openRecordingAt, recordingAt, recordingCut, recordingShared, recording, recordingTrim, pps, setPps, trackView,
+    sourceLane, recordings, openRecordingAt, pps, setPps, trackView,
     preview, setPreview, opened, setOpened, picking, setPicking, casting, setCasting, mood, setMood, setDesigning, designed,
     talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, exp, setExp, fin, setFin, writing, player,
     liveShown, saveFailed, save, inputsOf, editInputs, formOf, ready, keptToClip, keepToClip, sayOf, say, m, range, setRange, loopRange, snapQuiet,
