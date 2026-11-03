@@ -84,7 +84,7 @@ function useJobsOf(ids: string[]) {
   });
 }
 
-export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, onPick, frameControl, after }: {
+export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, onPick, frameControl }: {
   /** What the set is kept under: a draft, a timeline's source. */
   keyId: string;
   /** The driving video, and the moment of it the person is put into. */
@@ -101,8 +101,6 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
   onPick(asset: string): void;
   /** How the frame is chosen here (a slider within the part, or "the playhead"): drawn under the frame. */
   frameControl?: React.ReactNode;
-  /** Under the results (the timeline's "then make the clips"). */
-  after?: React.ReactNode;
 }) {
   const set = usePictureSets((s) => s.of[keyId] ?? EMPTY);
   const change = usePictureSets((s) => s.set);
@@ -268,7 +266,6 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
           ))}
         </div>
       )}
-      {after}
       {shown.data && <Viewer asset={shown.data} onClose={() => setLooking(null)} />}
       {jobs.some((j) => j.state === "done") && !measured && (
         <span className="flex items-center gap-1.5 text-meta text-ink-3">

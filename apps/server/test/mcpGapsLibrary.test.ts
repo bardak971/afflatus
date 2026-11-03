@@ -217,6 +217,17 @@ describe("places", () => {
       await refused(c, "delete_folder", { folder: linked }, /unlinking it stays in Afflatus/);
       expect(await t.db.selectFrom("folders").select("path").where("id", "=", linked).executeTakeFirst()).toMatchObject({ path: disk });
       await refused(c, "look_again", { folder: outer.id }, /not linked/);
+      // its disk gone: said without where it was on the disk (card #254), no answer carries a path
+      await rm(disk, { recursive: true, force: true });
+      const gone = await c.callTool({ name: "look_again", arguments: { folder: linked } });
+      expect(textOf(gone)).toMatch(/cannot be read/);
+      expect(textOf(gone)).not.toContain(tmpdir());
+      // nor a job's error, ComfyUI's or ffmpeg's text naming a file where it is
+      const at = new Date().toISOString();
+      await t.db.insertInto("jobs").values({ id: "zz-test-failed", owner_id: "local", recipe_id: "sdxl.text-to-picture", label: "zz-test", inputs: "{}", status: "failed", priority: 0, created_at: at, updated_at: at, finished_at: at, error: `Error opening input file ${join(disk, "zz test take.mp4")}.` } as never).execute();
+      const failed = await ok(c, "job", { job: "zz-test-failed" });
+      expect(failed.error).toMatch(/^Error opening input file /);
+      expect(JSON.stringify(failed)).not.toContain(tmpdir().split(/[\\/]/).filter(Boolean).at(-1)!);
     } finally {
       await rm(disk, { recursive: true, force: true });
     }

@@ -103,6 +103,23 @@ describe("a backup and the keys", () => {
     }
   };
 
+  it("holds no password's hash when asked for from another device, and keeps it on this computer (card #254)", async () => {
+    const PASSWORD = "zz-test password 0123";
+    const cookieOf = (res: { headers: Record<string, unknown> }) => ([res.headers["set-cookie"] ?? []].flat() as string[]).map((c) => c.split(";")[0]!).filter((c) => !c.endsWith("=")).join("; ");
+    const set = await t.app.inject({ method: "POST", url: "/api/session/password", payload: { password: PASSWORD } });
+    expect(set.statusCode).toBe(200);
+    const lan = { remoteAddress: "192.168.1.20", headers: { "user-agent": "Mozilla/5.0 (Windows NT 10.0) Chrome/130.0" } };
+    const signed = await t.app.inject({ method: "POST", url: "/api/session/sign-in", payload: { password: PASSWORD, remember: true }, ...lan });
+    expect(signed.statusCode).toBe(200);
+    // a session of another device (a stolen cookie): the copy could be guessed at offline, past the sign-in's limits
+    const away = await t.app.inject({ method: "GET", url: "/api/backup.zip", remoteAddress: lan.remoteAddress, headers: { ...lan.headers, cookie: cookieOf(signed) } });
+    expect(away.statusCode).toBe(200);
+    expect(settingsIn(databaseOf(away.rawPayload)).access.password).toBeNull();
+    expect(away.rawPayload.toString("latin1")).toMatch(/holds no password either/);
+    const here = await t.app.inject({ method: "GET", url: "/api/backup.zip", headers: { cookie: cookieOf(set) } });
+    expect(settingsIn(databaseOf(here.rawPayload)).access.password).toMatchObject({ hash: expect.any(String) });
+  });
+
   it("leaves every key and token out of the database's copy, without a trace in its bytes, and says so", async () => {
     const res = await get(t.app, "/api/backup.zip");
     expect(res.statusCode).toBe(200);

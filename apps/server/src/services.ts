@@ -439,11 +439,12 @@ export async function createServices(
 
 /**
  * Each step's live preview written to `dir/<prompt id>/step-<n>-sigma-<s>.<ext>`, while `dir` exists (made by hand for a
- * measuring series, removed after): the swap judge's material. Best effort, never in a render's way.
+ * measuring series, removed after): the swap judge's material. Best effort, never in a render's way. @internal
  */
-function keepPreview(dir: string) {
+export function keepPreview(dir: string) {
   return (promptId: string, at: { step: number; steps: number; sigma: number | null }, bytes: Uint8Array, mime: string): void => {
-    if (!existsSync(dir)) return;
+    // the prompt's id is ComfyUI's word, made a folder's name: a uuid's letters only, never a way out of the folder (card #254)
+    if (!existsSync(dir) || !/^[\w-]{1,64}$/.test(promptId)) return;
     const ext = mime === "video/mp4" ? "mp4" : mime === "image/webp" ? "webp" : mime === "image/png" ? "png" : "jpg";
     const name = `step-${String(at.step).padStart(2, "0")}-of-${at.steps}-sigma-${at.sigma === null ? "x" : at.sigma.toFixed(3)}.${ext}`;
     void mkdir(join(dir, promptId), { recursive: true }).then(() => writeFile(join(dir, promptId, name), bytes)).catch(() => {});

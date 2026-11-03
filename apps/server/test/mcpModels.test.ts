@@ -152,6 +152,10 @@ describe("withoutPaths", () => {
     expect(withoutPaths("ENOENT: no such file, stat C:\\ComfyUI\\models\\vae")).toBe("ENOENT: no such file, stat vae");
     expect(withoutPaths("open /home/me/ComfyUI/models/loras/x.part failed")).toBe("open x.part failed");
     expect(withoutPaths("\\\\nas\\share\\models\\x.gguf is gone")).toBe("x.gguf is gone");
+    // a folder with a space in its name, unquoted (ComfyUI's and ffmpeg's lines): whole, not cut at the space (card #254)
+    expect(withoutPaths("ENOENT: no such file, stat C:\\Users\\John Smith\\ComfyUI\\models\\vae, then gave up")).toBe("ENOENT: no such file, stat vae, then gave up");
+    expect(withoutPaths("Error opening input file D:\\My Videos\\zz-test.mp4.")).toBe("Error opening input file zz-test.mp4.");
+    expect(withoutPaths("\\\\nas\\Shared Models\\x.gguf: not found")).toBe("x.gguf: not found");
     for (const kept of ["https://huggingface.co/o/r/resolve/main/x.safetensors (404)", "ENOSPC: no space left on device, write", "(409: that file is there already)", "and/or 3/4 done"]) expect(withoutPaths(kept)).toBe(kept);
   });
 });

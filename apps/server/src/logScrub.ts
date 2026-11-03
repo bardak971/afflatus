@@ -51,10 +51,13 @@ const SHAPES: Array<[RegExp, string]> = [
   [/(\b[\w.-]*?(?:token|api[_-]?key|access[_-]?key|secret|password|passwd)["']?\s*[:=]\s*["']?)(?!\[hidden\])[^\s"',;&]+/gi, `$1${HIDDEN}`],
 ];
 
-/** A line of a log without the secrets in `secrets`, nor what looks like one, nor a folder on a disk. */
-export function scrubbed(text: string, secrets: readonly string[]): string {
+/**
+ * A line of a log without the secrets in `secrets`, nor what looks like one, nor a folder on a disk. `shapes: false`: a
+ * line Afflatus wrote itself (an MCP refusal), whose words are not taken for a secret's ("… is a secret: it is pasted…").
+ */
+export function scrubbed(text: string, secrets: readonly string[], o: { shapes?: boolean } = {}): string {
   let out = text;
   for (const v of secrets) out = out.split(v).join(HIDDEN);
-  for (const [shape, by] of SHAPES) out = out.replace(shape, by);
+  if (o.shapes !== false) for (const [shape, by] of SHAPES) out = out.replace(shape, by);
   return withoutPaths(out);
 }

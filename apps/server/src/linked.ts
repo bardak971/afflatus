@@ -1,5 +1,5 @@
 import { constants, createReadStream, type Dirent } from "node:fs";
-import { copyFile, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, link, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, delimiter, dirname, extname, join, parse, relative, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
@@ -56,12 +56,15 @@ export async function whyNotLinkableOnDisk(dir: string, comfyDir = "", env: Node
  * Whether a directory may be linked at all, and why not when it may not. Linking serves everything under
  * the directory and writes into it, so the system's own directories are never linked: Windows, the program
  * folders, everything under a user's AppData, the root of a drive, the home directory itself (what is
- * in it is fine, folder by folder); on Linux and macOS the root, /etc, /usr, /bin, /sbin, /var and its
- * first level, /System and /Library. Nor Afflatus's own data folder (DATA_DIR) or ComfyUI's custom_nodes
+ * in it is fine, folder by folder); on Linux and macOS the root, SYSTEM_DIRS and /lib*, /var and /home and their
+ * first level. Nor Afflatus's own data folder (DATA_DIR) or ComfyUI's custom_nodes
  * (when ComfyUI's folder is known), or a folder around them. LINK_ROOTS, when set (directories separated
  * as PATH is), narrows linking to those directories and what is under them; a server that listens on more
  * than loopback (HOST) links nothing until it is set.
  */
+/** The system's own directories on Linux and macOS, never linked nor anything in them (whyNotLinkable). */
+const SYSTEM_DIRS = ["/etc", "/usr", "/bin", "/sbin", "/System", "/Library", "/proc", "/sys", "/dev", "/run", "/root", "/boot", "/opt", "/srv", "/snap"];
+
 export function whyNotLinkable(dir: string, env: NodeJS.ProcessEnv = environment(), platform: NodeJS.Platform = process.platform, home: string = homedir(), comfyDir = ""): string | null {
   const windows = platform === "win32";
   const norm = (p: string) => (windows ? p.toLowerCase() : p);
@@ -76,8 +79,12 @@ export function whyNotLinkable(dir: string, env: NodeJS.ProcessEnv = environment
     // a folder inside the temporary folder is scratch space, the one part of AppData no program runs or reads its settings from
     if (/^users\\[^\\]+\\appdata(\\|$)/.test(rest) && !/^users\\[^\\]+\\appdata\\local\\temp\\./.test(rest)) return "AppData holds your programs' settings and code: nothing in it can be linked.";
   } else {
-    if (["/etc", "/usr", "/bin", "/sbin", "/System", "/Library"].some((top) => inside(d, top))) return "The system's own directories cannot be linked.";
+    // the system's own and its live ones (/proc, /sys, /dev, /run), the administrator's home, the boot and library folders
+    // and the programs installed beside the system (/opt, /srv, /snap) (card #254)
+    if (SYSTEM_DIRS.some((top) => inside(d, top)) || /^\/lib[^/]*(\/|$)/.test(d)) return "The system's own directories cannot be linked.";
     if (/^\/var(\/[^/]+)?$/.test(d)) return "/var holds the system's own files: link a folder further inside it, not /var itself.";
+    // every user's homes at once, or another user's whole
+    if (/^\/home(\/[^/]+)?$/.test(d)) return "/home and a whole home folder cannot be linked: pick a folder inside one.";
   }
   // linking either would let a file be written among Afflatus's own files or ComfyUI's code, or bin one of them
   const data = norm(loadConfig(env).dataDir);
@@ -602,17 +609,11 @@ export class Linked {
     if (isLinked(a.file_key)) {
       const from = resolve(diskPath(a.file_key));
       if (dirname(from) === dir) return;
-      const to = await this.free(dir, basename(from));
-      await rename(from, to).catch(async () => {
-        // another disk: copied, then removed where it was
-        await copyFile(from, to);
-        await rm(from, { force: true });
-      });
+      const to = await placeFree(from, dir, basename(from), (d, w) => this.free(d, w));
       await this.db.updateTable("assets").set({ file_key: LINKED + to, name: basename(to), folder_id: folder.id }).where("id", "=", a.id).execute();
       return;
     }
-    const to = await this.free(dir, await this.nameFor(a));
-    await writeOut(this.storage, a.file_key, to);
+    const to = await writeOut(this.storage, a.file_key, dir, await this.nameFor(a), (d, w) => this.free(d, w));
     await this.db.updateTable("assets").set({ file_key: LINKED + to, name: basename(to), folder_id: folder.id, kept_at: a.kept_at ?? now() }).where("id", "=", a.id).execute();
     await this.storage.delete(a.file_key).catch(() => {});
   }
@@ -675,29 +676,52 @@ export class Linked {
       await this.db.updateTable("assets").set({ deleted_at: null, linked_path: null, folder_id: null }).where("id", "=", a.id).execute();
       return;
     }
-    const to = await this.free(dir, basename(a.linked_path!));
-    await writeOut(this.storage, a.file_key, to);
+    const to = await writeOut(this.storage, a.file_key, dir, basename(a.linked_path!), (d, w) => this.free(d, w));
     await this.db.updateTable("assets").set({ file_key: LINKED + to, name: basename(to), folder_id: folder.id, linked_path: null, deleted_at: null }).where("id", "=", a.id).execute();
     await this.storage.delete(a.file_key).catch(() => {});
   }
 }
 
 /**
- * A stored file written out to `to` on the disk: copied there by the file system when the storage has it on this disk, else
- * written from its bytes. Read whole into memory first, a 515 MB video moved into a linked folder held 521 MB more. Written
- * under a hidden name beside it (a reading skips it) and renamed once whole: a copy that failed half way (a full disk, a
- * read error) left half a file in the user's folder, which the next reading registered as an item.
+ * A stored file written out into `dir` under a free name (`free` finds one for `wanted`; placeFree), answering where it
+ * went: copied there by the file system when the storage has it on this disk, else written from its bytes. Read whole into
+ * memory first, a 515 MB video moved into a linked folder held 521 MB more. Written under a hidden name beside it (a reading
+ * skips it) and moved once whole: a copy that failed half way (a full disk, a read error) left half a file in the user's
+ * folder, which the next reading registered as an item.
  */
-async function writeOut(storage: Storage, key: string, to: string): Promise<void> {
-  const part = join(dirname(to), `.${basename(to)}.part`);
+async function writeOut(storage: Storage, key: string, dir: string, wanted: string, free: (dir: string, wanted: string) => Promise<string>): Promise<string> {
+  const part = join(dir, `.${wanted}.part`);
   try {
     const path = storage.localPath?.(key);
     if (path) await copyFile(path, part);
     else await writeFile(part, await storage.get(key));
-    await rename(part, to);
+    return await placeFree(part, dir, wanted, free);
   } catch (err) {
     await rm(part, { force: true }).catch(() => {});
     throw err;
+  }
+}
+
+/**
+ * `from` moved into `dir` under a free name (`free`), never over a file made there between the name found and the move
+ * (card #254: a rename replaces one): linked to its new name, which fails on a name taken, then removed where it was;
+ * copied with nothing replaced where a link cannot be made (another disk, a file system without them). A name taken
+ * meanwhile: the next free one. Answers where it went. @internal
+ */
+export async function placeFree(from: string, dir: string, wanted: string, free: (dir: string, wanted: string) => Promise<string>): Promise<string> {
+  for (let tries = 0; ; tries++) {
+    const to = await free(dir, wanted);
+    try {
+      await link(from, to).catch(async (err: NodeJS.ErrnoException) => {
+        if (err.code === "EEXIST") throw err;
+        await copyFile(from, to, constants.COPYFILE_EXCL);
+      });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "EEXIST" && tries < 5) continue;
+      throw err;
+    }
+    await rm(from, { force: true });
+    return to;
   }
 }
 

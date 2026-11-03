@@ -1011,11 +1011,15 @@ export async function modelRoot(paths: Record<string, string[]> | null, folder: 
   // the place chosen comes first, as long as ComfyUI still reads it: never a path it does not list
   const pick = chosen ? ordered.find((p) => sameKey(p) === sameKey(chosen)) : undefined;
   const listed = pick ? [pick, ...ordered.filter((p) => p !== pick)] : ordered;
+  // a node pack's own folder takes no file from outside (VideoHelperSuite's video formats, a folder a pack registers inside
+  // its code), as the pack's downloads refuse it (downloads.py _code_dirs, card #254)
+  const code = await Promise.all([...(paths?.custom_nodes ?? []), ...(dir ? [join(dir, "custom_nodes")] : [])].map((c) => realpath(c).catch(() => null)));
   for (const p of listed) {
     if (!p || isNetworkPath(p) || !isAbsolute(p)) continue;
     try {
       const real = await realpath(p);
       if (within && !inside(within, real)) continue;
+      if (code.some((c) => c && inside(c, real)) || real.split(/[\\/]/).some((part) => part.toLowerCase() === "custom_nodes")) continue;
       if (!(await stat(real)).isDirectory()) continue;
       await access(real, constants.W_OK);
       return real;

@@ -51,7 +51,7 @@ afterEach(async () => {
 });
 
 const put = async (url: string, payload: unknown) => t.app.inject({ method: "PUT", url, payload: payload as object });
-/** The one model, as Settings › Designer sends the list: a key left out stays as it was. */
+/** The one model, as the Settings page sends the list: a key left out stays as it was. */
 const setLlm = (over: Record<string, unknown> = {}) => put("/api/settings", { llms: [{ id: "main", baseUrl: llm.url, model: "test-model", ...over }] });
 const useLlm = (over: Record<string, unknown> = {}) => setLlm({ apiKey: "secret", ...over });
 const system = (n = -1) => String(llm.asked.at(n)!.messages[0]!.content);

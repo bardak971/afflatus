@@ -6,6 +6,7 @@ import { compose, lookSchema, withMentions, type Look } from "./entities";
 import { httpError } from "./errors";
 import { jobBody, queueRender } from "./jobs-api";
 import { oneAtATime } from "./keyedLock";
+import { scrubbed, secretsOf } from "./logScrub";
 import { readJson } from "./queueModel";
 import { needsComfy } from "./queueOffline";
 import { formArgs, formAsked, machineName, machineOf, seen, spends, wholeOf, type Seen } from "./mcpForms";
@@ -467,7 +468,8 @@ function jobSaid(j: { id: string; label: string; recipe: string; status: string;
     ...(j.phase ? { phase: j.phase } : {}),
     ...(j.estimateMs ? { takesMs: j.estimateMs } : {}),
     ...(j.startsInMs ? { startsInMs: j.startsInMs } : {}),
-    ...(j.error ? { error: j.error } : {}),
+    // ComfyUI's and ffmpeg's own text: never a path on the disk, nor what looks like a secret (card #254)
+    ...(j.error ? { error: scrubbed(j.error, []) } : {}),
   };
 }
 
@@ -547,7 +549,7 @@ export async function jobEnded(s: Services, row: Tables["jobs"], names?: Readonl
     if (exported) made.push({ item: exported.id, kind: exported.kind, width: exported.width, height: exported.height, durationMs: exported.durationMs });
   }
   return {
-    ...jobSaid({ id: row.id, label: row.label, recipe: row.recipe_id, status: row.status, machine: row.machine_id, error: row.error }, names ?? (await machineNames(s))),
+    ...jobSaid({ id: row.id, label: row.label, recipe: row.recipe_id, status: row.status, machine: row.machine_id, error: row.error && scrubbed(row.error, secretsOf(await readSettings(s.db))) }, names ?? (await machineNames(s))),
     ...(h ? { tookMs: h.tookMs, seed: h.seed } : {}),
     ...(h || made.length ? { made } : {}),
   };
