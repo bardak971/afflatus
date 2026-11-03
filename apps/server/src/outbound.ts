@@ -98,6 +98,9 @@ export function assertPublicUrl(url: string, allow: Array<string | null | undefi
     throw httpError("That is not an address.");
   }
   if (at.protocol !== "http:" && at.protocol !== "https:") throw httpError("Only http and https addresses are fetched.");
+  // a name and password in the address went into undici's error ("…cannot be constructed from a URL that includes
+  // credentials: https://u:pw@…"), and from there to the page, agents, the log and the node pack: a key goes in Settings
+  if (at.username || at.password) throw httpError("An address with a user name or password in it is not fetched: save the site's key in Settings › Models instead.");
   const host = at.hostname.replace(/^\[|\]$/g, "").toLowerCase();
   const allowed = new Set(allow.map((a) => (a ? hostPortOf(a) : null)).filter(Boolean));
   if (!allowed.has(hostPortOf(at.href)) && isPrivateHost(host)) {
@@ -156,26 +159,37 @@ function insideOf(err: unknown): InsideNetwork | null {
 const PLAIN = new Set(["user-agent", "accept", "range"]);
 
 /**
+ * One request, its redirects not followed (the caller reads them): through the guarded agent, unless the address is one
+ * named as allowed (the one place inside the network it may reach), which is fetched as it is. The address is judged as
+ * written first (assertPublicUrl), and again where it connects. What signedLink asks a source with, as fetchPublic does.
+ */
+export async function fetchOnce(url: string, init: RequestInit, allow: Array<string | null | undefined> = []): Promise<Response> {
+  assertPublicUrl(url, allow);
+  const allowed = new Set(allow.map((a) => (a ? hostPortOf(a) : null)).filter(Boolean));
+  const init_ = { ...init, redirect: "manual" } as RequestInit;
+  return (allowed.has(hostPortOf(url)) ? fetch(url, init_) : guardedFetch(url, init_)).catch((err: unknown) => {
+    const inside = insideOf(err);
+    throw inside ? httpError(inside.message) : err;
+  });
+}
+
+/**
  * fetch() for an address already judged by assertPublicUrl: redirects are followed here, at most `hops`
  * of them, each new address judged the same way (a public link may send on into the network, or to the
  * cloud's metadata address), and never from https down to http. The headers given (a Civitai key) go to the
- * host first asked only. `seen` hears of each answer that sends on, before its body is let go: Hugging Face says
- * a file's size and SHA-256 there only.
+ * host first asked only, and a body (Civitai's by-hash POST, the user's model hashes) too: another host is asked
+ * with a GET, as a browser does. `seen` hears of each answer that sends on, before its body is let go: Hugging Face
+ * says a file's size and SHA-256 there only.
  */
 export async function fetchPublic(url: string, init: Omit<RequestInit, "redirect" | "headers"> & { headers?: Record<string, string> }, allow: Array<string | null | undefined> = [], hops = 5, seen?: (res: Response) => void): Promise<Response> {
   const first = new URL(url).host;
   const all = init.headers ?? {};
   const plain = Object.fromEntries(Object.entries(all).filter(([k]) => PLAIN.has(k.toLowerCase())));
-  const allowed = new Set(allow.map((a) => (a ? hostPortOf(a) : null)).filter(Boolean));
+  const { body, method, ...rest } = init;
   let at = url;
   for (let n = 0; ; n++) {
-    // an address named as allowed is the one place inside the network it may reach; any other is judged again where it connects
-    const init_ = { ...init, headers: new URL(at).host === first ? all : plain, redirect: "manual" } as RequestInit;
-    const sent = allowed.has(hostPortOf(at)) ? fetch(at, init_) : guardedFetch(at, init_);
-    const res = await sent.catch((err: unknown) => {
-      const inside = insideOf(err);
-      throw inside ? httpError(inside.message) : err;
-    });
+    const home = new URL(at).host === first;
+    const res = await fetchOnce(at, { ...rest, ...(home ? { method, body } : { method: method === "HEAD" ? "HEAD" : "GET" }), headers: home ? all : plain }, allow);
     const next = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
     if (!next) return res;
     seen?.(res);
@@ -187,6 +201,15 @@ export async function fetchPublic(url: string, init: Omit<RequestInit, "redirect
     at = to.href;
   }
 }
+
+/** An address's host ("civitai.com", "127.0.0.1:8188"), or the text as it is when it is not an address. */
+export const hostOf = (url: string): string => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+};
 
 /** The error codes that say a host could not be reached at all, where trying again a moment later changes nothing. */
 const UNREACHABLE = /^(ECONNREFUSED|ENOTFOUND|CERT_|UNABLE_TO_|DEPTH_ZERO_|SELF_SIGNED_|ERR_TLS_CERT)/;

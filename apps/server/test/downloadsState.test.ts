@@ -92,16 +92,21 @@ describe("the downloads' state file", () => {
     expect(readdirSync(dir)).toEqual(["downloads.json"]);
   });
 
-  it("removes the .part of a download Afflatus was writing itself when it stopped", async () => {
+  it("keeps the .part of a download Afflatus was writing itself when it stopped, for a Download again, and removes it once it leaves the list (card #256)", async () => {
     const file = join(dir, "downloads.json");
     const part = join(dir, "big.safetensors.part");
     writeFileSync(part, "half");
-    writeFileSync(file, JSON.stringify([{ id: "h", file: "big.safetensors", folder: "loras", title: "Big", bytes: 4, total: 8, status: "downloading", via: "afflatus", part }]));
+    writeFileSync(file, JSON.stringify([{ id: "h", file: "big.safetensors", folder: "loras", title: "Big", bytes: 4, total: 8, status: "downloading", via: "afflatus", part, partOf: "https://example.com/big.safetensors" }]));
     const downloads = open(new EventEmitter(), file);
     await downloads.restored;
     expect(downloads.list()).toMatchObject([{ id: "h", status: "error", via: "afflatus" }]);
     // the path of the .part stays in the state file, never in what the browser is told
     expect(downloads.list()[0]).not.toHaveProperty("part");
+    expect(downloads.list()[0]).not.toHaveProperty("partOf");
+    expect(readdirSync(dir).sort()).toEqual(["big.safetensors.part", "downloads.json"]);
+    await until(() => (JSON.parse(readFileSync(file, "utf8")) as Array<{ part?: string }>)[0]?.part === part);
+    // taken off the list: what it left goes with it
+    expect(downloads.stop("h")).toBe(true);
     await until(() => readdirSync(dir).join() === "downloads.json");
   });
 

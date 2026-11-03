@@ -1030,7 +1030,8 @@ export class PodFiles {
         const found = await civitaiVersion(src.version, src.pick ?? name, settings.civitaiKey, src);
         if (!found?.file.downloadUrl) throw new Error("Civitai lists no file of that version to download");
         source = found.file.downloadUrl;
-        headers = settings.civitaiKey ? { Authorization: `Bearer ${settings.civitaiKey}` } : undefined;
+        // the key to Civitai alone (keyFor): the address is the one its answer names, which may be any host's
+        headers = keyFor(source, settings);
         total = Math.round((found.file.sizeKB ?? 0) * 1024) || total;
         // the pack checks the file against it before naming it: a part written wrong is never a model ComfyUI loads
         sha256 = found.file.hashes?.SHA256 ?? src.sha256;

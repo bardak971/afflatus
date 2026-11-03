@@ -183,7 +183,8 @@ export function fakeFolders(fake: FakeState): (r: FakeRequest) => boolean {
     }
     if (!path.startsWith("/afflatus/download") || !fake.packVersion || !atLeast(fake.packVersion, "0.11.0")) return false;
     if (method === "POST" && path === "/afflatus/download") {
-      const body = JSON.parse(raw.toString("utf8") || "{}") as { url?: string; folder?: string; filename?: string; total?: number };
+      const body = JSON.parse(raw.toString("utf8") || "{}") as { url?: string; folder?: string; filename?: string; total?: number; sha256?: string };
+      fake.packAsked.push({ url: body.url, total: body.total, sha256: body.sha256 });
       const root = paths[body.folder ?? ""]?.[0];
       if (!root || !body.url || !body.filename || /(^|[\\/])\.\.([\\/]|$)/.test(body.filename)) return plain(400, "refused");
       if (fake.diskFree !== undefined && body.total && fake.diskFree < body.total) return plain(507, `the disk has ${fake.diskFree} bytes free, the file is ${body.total}`);
