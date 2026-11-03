@@ -30,7 +30,7 @@ import { failedBanner } from "../sayFailed";
 // that would otherwise fill the editor's layout, one builder a part.
 
 export function headerProps(e: LoadedEditor): ComponentProps<typeof TimelineHeader> {
-  const { t, clips, picked, render, undo, redo, edit } = e;
+  const { t, clips, render, undo, redo, edit, selection: { picked } } = e;
   return {
     t,
     clips,
@@ -49,7 +49,7 @@ export function headerProps(e: LoadedEditor): ComponentProps<typeof TimelineHead
     rendering: render.isPending,
     onRename: (name) => edit.mutate({ name }),
     onRenderMissing: () => render.mutate({ clips: e.missing }),
-    onRenderPicked: () => { render.mutate({ clips: clips.filter(e.renderable) }); e.setPicked(new Set()); },
+    onRenderPicked: () => { render.mutate({ clips: clips.filter(e.renderable) }); e.selection.setPicked(new Set()); },
     onFinish: () => e.setFin(true),
     onExport: () => e.exportNow(t),
   };
@@ -57,60 +57,60 @@ export function headerProps(e: LoadedEditor): ComponentProps<typeof TimelineHead
 
 /** What a picture or a video dropped on the media overlay can become here: a clip, its sound, the music, a pinned frame. */
 export const placeItemsOf = (e: LoadedEditor) => (a: Asset) => placeItems(a, {
-  current: e.current, clips: e.clips, recipes: e.recipes.data?.recipes ?? [], music: Boolean(e.t.music), inputsOf: e.inputsOf, editInputs: e.editInputs, select: e.select,
+  current: e.selection.current, clips: e.clips, recipes: e.recipes.data?.recipes ?? [], music: Boolean(e.t.music), inputsOf: e.inputsOf, editInputs: e.editInputs, select: e.selection.select,
   patch: (clip: string, p: { soundAsset: string }) => e.patch.mutate({ clip, patch: p }),
   edit: (p: Parameters<typeof e.edit.mutate>[0]) => e.edit.mutate(p),
-  openMusic: () => e.setMusicOpen(true),
+  openMusic: () => e.selection.setMusicOpen(true),
   add: (v: { asset: string; after?: string | null }) => e.add.mutate(v),
 });
 
 export function playerProps(e: LoadedEditor): ComponentPropsWithoutRef<typeof Player> {
-  const { t, player, range, muted, volume } = e;
+  const { t, player, range, playhead: { muted, volume } } = e;
   return {
     timeline: t.id,
     clips: e.clips,
     music: t.music,
     frame: t.width && t.height ? { width: t.width, height: t.height } : null,
-    playing: e.playing,
-    onPlaying: e.setPlaying,
-    onTime: e.onTime,
-    stopAt: e.stopAt,
-    playhead: e.playheadNow,
+    playing: e.playhead.playing,
+    onPlaying: e.playhead.setPlaying,
+    onTime: e.playhead.onTime,
+    stopAt: e.playhead.stopAt,
+    playhead: e.playhead.now,
     preview: e.preview,
     live: e.liveShown,
     onStop: (job) => e.stop.mutate(job),
     master: muted ? 0 : volume,
-    screen: { clock: e.clock, total: e.total, playing: e.playing, volume, muted, onToggle: e.toggle, onSeek: (ms) => player.current?.seek(ms), onVolume: e.onVolume, onMute: e.onMute, onJump: e.jump, loop: range ? { on: e.loopRange, toggle: e.toggleLoop } : undefined },
-    onPickPreview: (take) => { if (e.current) e.patch.mutate({ clip: e.current.id, patch: { take: take.id } }); e.setPreview(null); },
+    screen: { clock: e.playhead.clock, total: e.total, playing: e.playhead.playing, volume, muted, onToggle: e.toggle, onSeek: (ms) => player.current?.seek(ms), onVolume: e.playhead.onVolume, onMute: e.playhead.onMute, onJump: e.jump, loop: range ? { on: e.loopRange, toggle: e.toggleLoop } : undefined },
+    onPickPreview: (take) => { if (e.selection.current) e.patch.mutate({ clip: e.selection.current.id, patch: { take: take.id } }); e.setPreview(null); },
   };
 }
 
 /** How long the transport runs: the clips, or the source or the recording as far as it reaches when the stage plays it. */
 const runOf = (e: LoadedEditor) => Math.max(e.total, stageEndOf(e) ?? 0);
 /** Where what the stage plays in place of the clips ends on the track (stageEnd); null when it plays the clips. */
-const stageEndOf = (e: LoadedEditor) => stageEnd(e.sourceOpen, e.place, e.recordingAt);
+const stageEndOf = (e: LoadedEditor) => stageEnd(e.selection.sourceOpen, e.place, e.recordingAt);
 
 export function transportProps(e: LoadedEditor): ComponentProps<typeof Transport> {
   const { player } = e;
   return {
     t: e.t,
-    clock: e.clock,
+    clock: e.playhead.clock,
     slots: e.slots,
-    cursor: e.cursor,
+    cursor: e.playhead.cursor,
     total: runOf(e),
-    source: e.sourceOpen ? e.place : e.recordingAt ? { atMs: e.recordingAt.toTrack(0), lengthMs: e.recordingAt.lengthMs, label: "Recording", at: e.recordingAt.toRecording } : null,
-    playing: e.playing,
+    source: e.selection.sourceOpen ? e.place : e.recordingAt ? { atMs: e.recordingAt.toTrack(0), lengthMs: e.recordingAt.lengthMs, label: "Recording", at: e.recordingAt.toRecording } : null,
+    playing: e.playhead.playing,
     ranged: Boolean(e.range && !e.emptyRange),
     loopRange: e.loopRange,
-    volume: e.volume,
-    muted: e.muted,
+    volume: e.playhead.volume,
+    muted: e.playhead.muted,
     adding: e.add.isPending,
     saving: e.frame.isPending,
     onJump: e.jump,
     onToggle: e.toggle,
     onToggleLoop: e.toggleLoop,
-    onVolume: e.onVolume,
-    onMute: e.onMute,
+    onVolume: e.playhead.onVolume,
+    onMute: e.playhead.onMute,
     onFullscreen: () => player.current?.fullscreen(),
     onExtend: e.continueHere,
     onSaveFrame: () => {
@@ -131,51 +131,51 @@ function setVoice(e: LoadedEditor, clip: Clip, asset: string) {
 }
 
 export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
-  const { t, patch, edit, add, render, musicOpen } = e;
+  const { t, patch, edit, add, render, selection: { musicOpen } } = e;
   return {
     timeline: e.shown,
     recipes: e.videoRecipes,
     pps: e.pps,
     onZoom: e.setPps,
-    selected: musicOpen ? null : e.selected,
+    selected: musicOpen ? null : e.selection.selected,
     musicSelected: musicOpen,
-    picked: e.picked,
-    onPick: (id) => e.setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; }),
-    clock: e.clock,
+    picked: e.selection.picked,
+    onPick: e.selection.togglePick,
+    clock: e.playhead.clock,
     running: e.running,
     onStop: (job) => e.stop.mutate(job),
     // a clip with nothing to play yet renders from the track itself, as from its menu
     renderOf: (c) => (c.kind === "video" && !c.job && e.ready(c).input && !render.isPending ? { run: () => render.mutate({ clips: [c] }), ms: e.takes(c) } : null),
     busy: add.isPending,
-    onSelect: (clipId) => e.select(clipId),
+    onSelect: (clipId) => e.selection.select(clipId),
     // the music's panel: opening it closes a recording open (useEditorPanels), the source's keeps the column, as it did
-    onSelectMusic: () => e.setMusicOpen(true),
-    cursorMs: e.cursor,
+    onSelectMusic: () => e.selection.setMusicOpen(true),
+    cursorMs: e.playhead.cursor,
     onSeek: (ms, trackMs) => {
       // the stage plays the source or a recording: the playhead stands in the track's own time
-      e.player.current?.seek((e.sourceOpen || e.recordingAt) && trackMs !== undefined ? trackMs : ms);
+      e.player.current?.seek((e.selection.sourceOpen || e.recordingAt) && trackMs !== undefined ? trackMs : ms);
       // after the seek, which says where the player is: the playhead stays exactly where it was put
-      if (trackMs !== undefined) e.setCursor(trackMs);
+      if (trackMs !== undefined) e.playhead.setCursor(trackMs);
     },
     // its answer tells the track whether to keep the order dropped (until the timeline says it) or glide back
     onMove: (clip, afterId) => patch.mutateAsync({ clip, patch: { after: afterId } }),
     onJoin: (clip, joined) => patch.mutate({ clip: clip.id, patch: { joined } }),
-    onOpenJoin: (clip) => e.openJoin(clip.id),
+    onOpenJoin: (clip) => e.selection.openJoin(clip.id),
     onRecording: (asset, clip) => e.recording.run(asset, clip),
     // its Audio cell, its menu: the clip opened on its form, the recording in its Recording field
     onVoice: (clip, asset) => {
       setVoice(e, clip, asset);
-      e.select(clip.id);
+      e.selection.select(clip.id);
     },
     // a clip not rendered yet given another model, as its Model field does for one the source did not make
     onRecipe: (clip, recipe) => patch.mutate({ clip: clip.id, patch: { recipe } }),
-    onSourceSettings: () => e.openSource(),
+    onSourceSettings: () => e.selection.openSource(),
     // its band on the Audio row dragged: trimmed as its Recording chapter's In and Out trim it
     onRecordingTrim: (asset, fromMs, toMs) => e.recordingTrim.run(asset, clipsOfRecording(e.clips, e.videoRecipes, asset), fromMs, toMs),
     // a removed part's mark on its band or the Source lane: its clips back, before the clip it was kept with
     onBringBack: (before) => e.bringBack.mutate(before),
     // its band clicked: the recording on the stage and in the column, as the source lane opens
-    recordingOpen: e.recordingOpen,
+    recordingOpen: e.selection.recordingOpen,
     stageEndMs: e.recordingAt ? stageEndOf(e) : null,
     onView: e.recordingAt ? e.trackView.set : undefined,
     onOpenRecording: (asset, atMs) => e.openRecordingAt(asset, atMs),
@@ -185,30 +185,30 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
       // its windows then in its place; else the source's model before; else the one the recipes name as a source's default
       // (the swap)
       const of = (id: string | null | undefined) => e.videoRecipes.find((r) => r.id === id && windowed(r));
-      const chosen = sourceDropClip(e.t, e.videoRecipes, e.current);
+      const chosen = sourceDropClip(e.t, e.videoRecipes, e.selection.current);
       const model = of(chosen?.recipe) ?? of(e.t.source?.recipe) ?? e.videoRecipes.find((r) => r.traits?.windows?.sourceDefault && windowed(r));
       if (!model) {
         edit.mutate({ source: { asset } });
-        return e.openSource();
+        return e.selection.openSource();
       }
       const source = { asset, recipe: model.id, ...(chosen ? { clip: chosen.id } : {}) };
       // a model with a Picture of its own (Motion transfer) waits for it in the source panel; a swap has no source form (the
       // owner, 2026-10-18): dropped, the video is made into its clips at once, nothing rendered, the first opened
       if (model.inputs.some((i) => i.type === "image" && i.role === "source")) {
         edit.mutate({ source });
-        return e.openSource();
+        return e.selection.openSource();
       }
       edit.mutate({ source }, { onSuccess: () => e.makeSource.run(false) });
     },
-    sourceSelected: e.sourceOpen,
+    sourceSelected: e.selection.sourceOpen,
     // the source plays on the stage, as ever; once made, the column shows no form of its own but the clip made from it
     // where the playhead stands (else its first), its form every clip's (the owner, 2026-10-18)
     onSelectSource: () => {
       const made = e.place?.made ? madeFromSource(e.t, e.videoRecipes) : [];
-      e.openSource();
+      e.selection.openSource();
       if (!made.length) return;
-      const at = e.cursor ?? e.clock.get();
-      e.setSelected((made.find((c) => at >= c.atMs && at < c.atMs + c.lengthMs) ?? made[0]!).id);
+      const at = e.playhead.cursor ?? e.playhead.clock.get();
+      e.selection.setSelected((made.find((c) => at >= c.atMs && at < c.atMs + c.lengthMs) ?? made[0]!).id);
     },
     onOpenSource: e.setOpened,
     onRemoveSource: e.removeSource,
@@ -217,10 +217,10 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     sourcePlace: e.place,
     onPeekSource: (ms) => {
       // the stage turns to the source as soon as it is dragged: its frame there shows as it moves
-      if (ms !== null && !e.sourceOpen) e.openSource();
+      if (ms !== null && !e.selection.sourceOpen) e.selection.openSource();
       e.setSourcePeek(ms);
     },
-    sourceMode: e.sourceOpen && Boolean(e.place),
+    sourceMode: e.selection.sourceOpen && Boolean(e.place),
     sourceLabel: (() => {
       const r = e.videoRecipes.find((x) => x.id === e.t.source?.recipe);
       return r ? e.recipes.data?.families.find((f) => f.id === r.family)?.name ?? r.title : undefined;
@@ -230,7 +230,7 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
           const place = e.place!;
           const source = e.t.source!;
           // where the playhead stands on the source: the stage plays it in the track's own time
-          const at = (e.sourceOpen ? e.cursor ?? e.clock.get() : e.cursor ?? -1) - place.atMs;
+          const at = (e.selection.sourceOpen ? e.playhead.cursor ?? e.playhead.clock.get() : e.playhead.cursor ?? -1) - place.atMs;
           if (at <= source.fromMs + 200 || at >= source.toMs - 1000) {
             e.setNote("Put the playhead inside the source's stretch (click the source lane: the stage plays it) to split it there.");
             return;
@@ -240,7 +240,7 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
       : undefined,
     onTransition: (clip, transition) => {
       patch.mutate({ clip, patch: { transition } });
-      e.openJoin(clip);
+      e.selection.openJoin(clip);
     },
     onInsert: (asset, afterId) => add.mutate({ after: afterId, asset }),
     onUpload: (file, reuse) =>
@@ -257,12 +257,12 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
       // over the form as it stands when the file lands: a file from the computer is uploaded first, and what was typed
       // over the clip meanwhile stays
       e.editInputs(clip, (was) => ({ ...was, [input]: asset, ...(where === "mid" && pins.midAt && atS ? { [pins.midAt]: atS } : {}) }));
-      e.select(clip.id);
+      e.selection.select(clip.id);
     },
     onClipSound: (clip, asset) => patch.mutate({ clip, patch: { soundAsset: asset } }),
     onMusic: (asset) => {
       edit.mutate({ music: { asset } });
-      e.setMusicOpen(true);
+      e.selection.setMusicOpen(true);
     },
     onTrim: (clip, p) => patch.mutate({ clip: clip.id, patch: p }),
     onNewClip: (afterId) => e.newClip(afterId),
@@ -314,7 +314,7 @@ function clipRecordingOf(e: LoadedEditor, current: Clip): ClipRecording | undefi
  * first clip's join through the clip's patch, its clips with nothing to play rendered as Render all renders them.
  */
 export function recordingPanelProps(e: LoadedEditor, place: NonNullable<LoadedEditor["recordingAt"]>): RecordingPanelProps | null {
-  const recording = e.t.recordings?.find((r) => r.asset.id === e.recordingOpen);
+  const recording = e.t.recordings?.find((r) => r.asset.id === e.selection.recordingOpen);
   const first = place.parts[0]!.clip;
   const recipe = e.videoRecipes.find((r) => r.id === first.recipe);
   const input = recordingInput(recipe);
@@ -352,8 +352,8 @@ export function recordingPanelProps(e: LoadedEditor, place: NonNullable<LoadedEd
     place,
     newClips: { value: newForm, options: recordingFormOptions(e.videoRecipes, families, undefined), onChange: (to) => e.m.recordingNewClips.mutate({ asset, recipe: to }), pending: e.m.recordingNewClips.isPending },
     forms: { of: formOptions, change: (clip, to) => e.patch.mutate({ clip, patch: { recipe: to } }) },
-    clock: e.clock,
-    onClose: () => e.setRecordingOpen(null),
+    clock: e.playhead.clock,
+    onClose: () => e.selection.setRecordingOpen(null),
     onUses: (fromMs, toMs) => void e.recordingTrim.run(asset, mine, fromMs, toMs),
     trimAsk: trimAsk ? { fromMs: trimAsk.fromMs, rendered: trimAsk.rendered, clips: trimAsk.clips, change: () => void e.recordingTrim.run(asset, mine, trimAsk.fromMs, trimAsk.toMs, true), keep: e.recordingTrim.keep } : null,
     trimming: e.recordingTrim.pending || e.recordingTrim.waits(asset),
@@ -367,7 +367,7 @@ export function recordingPanelProps(e: LoadedEditor, place: NonNullable<LoadedEd
       ask: cutAsk ? { rendered: cutAsk.rendered, clips: cutAsk.clips, change: () => e.recordingCut.run(asset, cutAsk.seconds, cutAsk.within, true), keep: e.recordingCut.keep } : null,
       pending: e.recordingCut.pending,
     },
-    onSelectClip: (id) => e.select(id),
+    onSelectClip: (id) => e.selection.select(id),
     opens: { before: at > 0 ? at : null, joined: first.joined, onJoined: (joined) => e.patch.mutate({ clip: first.id, patch: { joined } }) },
     shared,
     onShared: (inputs) => e.recordingShared.run(asset, inputs),
@@ -430,7 +430,7 @@ function clipSourceOf(e: LoadedEditor, current: Clip): ClipSource | undefined {
         rendered: Boolean(c.take),
       };
     }),
-    onSelectWindow: e.select,
+    onSelectWindow: e.selection.select,
     runUp: runUp ? { counts: runUp.counts, value: recipe ? carriedOf(recipe, e.inputsOf(current)) : runUp.counts[0]!, on: (n: number) => e.cutSource.run({ inputs: { ...source.inputs, [runUp.input]: String(n) } }) } : null,
     stretchAsk: e.stretch.ask ? { ...e.stretch.ask, change: () => e.stretch.run(e.stretch.ask!.fromMs, e.stretch.ask!.toMs, true), keep: e.stretch.keep } : null,
     onUses: (fromMs, toMs) => e.stretch.run(fromMs, toMs),
@@ -461,15 +461,15 @@ function clipSourceOf(e: LoadedEditor, current: Clip): ClipSource | undefined {
       if (!input) return;
       void e.save(current.id).then(() => api.maskPreview(current.id, input)).then((r) => {
         e.setMasks((m) => ({ ...m, [current.id]: { job: r.job, shown: true } }));
-        e.openSource();
-        e.setSelected(current.id);
+        e.selection.openSource();
+        e.selection.setSelected(current.id);
       });
     },
     onMaskShown: (on) => {
       e.setMasks((m) => (m[current.id] ? { ...m, [current.id]: { ...m[current.id]!, shown: on } } : m));
       if (on) {
-        e.openSource();
-        e.setSelected(current.id);
+        e.selection.openSource();
+        e.selection.setSelected(current.id);
       }
     },
     cutting: e.cutSource.pending,
@@ -488,7 +488,7 @@ export function inspectorProps(e: LoadedEditor, current: Clip): ComponentProps<t
   return {
     fromSource: clipSourceOf(e, current),
     fromRecording: clipRecordingOf(e, current),
-    onSelectClip: e.select,
+    onSelectClip: e.selection.select,
     timeline: t,
     clip: current,
     index: clips.indexOf(current),
@@ -554,7 +554,7 @@ export function inspectorProps(e: LoadedEditor, current: Clip): ComponentProps<t
         onClose={() => e.setDesigning(null)}
       />
     ) : undefined,
-    onClose: () => e.setSelected(null),
+    onClose: () => e.selection.setSelected(null),
     onPreview: e.setPreview,
     writing: writeBetween.isPending && e.writing === current.id,
     writeError: writeBetween.isError && writeBetween.variables?.clip === current.id && writeBetween.variables.force ? writeBetween.error.message : null,
@@ -569,18 +569,18 @@ export function overviewProps(e: LoadedEditor): ComponentProps<typeof OverviewCo
     clips,
     checks: e.checks,
     width: e.panelWidth,
-    picked: e.picked,
+    picked: e.selection.picked,
     rendering: render.isPending || e.fix.isPending,
     onEdit: (p) => e.edit.mutate(p),
-    onPick: (id) => e.select(id),
+    onPick: (id) => e.selection.select(id),
     onVoice: (id, asset) => {
       const clip = e.shown.clips.find((c) => c.id === id);
       if (clip) setVoice(e, clip, asset);
     },
-    onMusic: () => e.setMusicOpen(true),
+    onMusic: () => e.selection.setMusicOpen(true),
     onCast: () => e.setCasting(true),
     onFix: (f) => e.fix.mutate(f),
-    onRenderPicked: () => { render.mutate({ clips: clips.filter(e.renderable) }); e.setPicked(new Set()); },
+    onRenderPicked: () => { render.mutate({ clips: clips.filter(e.renderable) }); e.selection.setPicked(new Set()); },
     start: { busy: add.isPending, planning: plan.isPending, onPickImage: () => e.setPicking(true), onPlan: (idea, count) => plan.mutate({ idea, clips: count }), onNewClip: () => e.newClip() },
   };
 }
@@ -639,14 +639,14 @@ export function clipActs(e: LoadedEditor): ClipMenuActions {
     slow: (factor, inMs, outMs) => rangeAct.mutate({ slow: factor, inMs, outMs }),
     remove: (clip) => remove.mutate(clip),
     move: e.move,
-    openJoin: e.openJoin,
-    picked: e.picked,
+    openJoin: e.selection.openJoin,
+    picked: e.selection.picked,
     removeMany: (ids) => removeMany.mutate(ids),
     toSource: (c) => {
       if (!c.take) return;
       // the source sits so that what the clip plays stays where it is; the clips made from it take its place
       e.edit.mutate({ source: { asset: c.take.asset.id, atMs: c.atMs - c.take.startMs, fromMs: c.take.startMs, toMs: c.take.endMs, clip: c.id } });
-      e.openSource();
+      e.selection.openSource();
     },
   };
 }
@@ -659,9 +659,9 @@ export function soundMenusProps(e: LoadedEditor): ComponentProps<typeof SoundMen
     musicMenu: e.musicMenu,
     onPatch: (clip, p) => e.patch.mutate({ clip, patch: p }),
     onEdit: (p) => e.edit.mutate(p),
-    select: e.select,
-    openMusic: () => { e.setSelected(null); e.setMusicOpen(true); },
-    showMusic: () => e.setMusicOpen(true),
+    select: e.selection.select,
+    openMusic: () => { e.selection.setSelected(null); e.selection.setMusicOpen(true); },
+    showMusic: () => e.selection.setMusicOpen(true),
   };
 }
 

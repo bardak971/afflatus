@@ -57,7 +57,7 @@ function Editor({ id }: { id: string }) {
   if (!t || !shown) return <EditorSkeleton id={id} />;
 
   const e = { ...editor, t, shown };
-  const { clips, current, musicOpen, range, clipMenu, rangeMenu, exp } = e;
+  const { clips, range, clipMenu, rangeMenu, exp, selection: { current, musicOpen } } = e;
   const pinMenu = pinMenuProps(e);
   // the clips made from the source: its panel renders those with nothing to play once they are made
   const fromSource = new Set(madeFromSource(t, e.videoRecipes).map((c) => c.id));
@@ -66,7 +66,7 @@ function Editor({ id }: { id: string }) {
   const maskVideo = current && e.masks[current.id]?.shown ? e.maskOfCurrent.data?.video : null;
   const maskOverlay = current && maskVideo ? { src: fileUrl(maskVideo.id), startMs: Number(current.inputs.sourceStart ?? 0) * 1000, lengthMs: maskVideo.durationMs ?? Number(current.inputs.sourceSeconds ?? 0) * 1000 } : null;
   // the recording open (its band clicked): its stage and its panel, as the source's
-  const recordingShown = e.recordingAt ? t.recordings?.find((r) => r.asset.id === e.recordingOpen) ?? null : null;
+  const recordingShown = e.recordingAt ? t.recordings?.find((r) => r.asset.id === e.selection.recordingOpen) ?? null : null;
   const recordingPanel = e.recordingAt && recordingShown ? recordingPanelProps(e, e.recordingAt) : null;
   return (
     <div className="flex min-w-0 grow flex-col">
@@ -80,7 +80,7 @@ function Editor({ id }: { id: string }) {
 
         <main className="flex min-w-0 grow flex-col">
             {/* the source on the stage: its lane opened, or the person a swap replaces being picked (from a clip's Source chapter too) */}
-            {(e.sourceOpen || e.whoPicking || Boolean(maskOverlay)) && t.source && e.place ? (
+            {(e.selection.sourceOpen || e.whoPicking || Boolean(maskOverlay)) && t.source && e.place ? (
               <SourceStage
                 ref={e.player}
                 video={t.source.video}
@@ -88,15 +88,15 @@ function Editor({ id }: { id: string }) {
                 fromMs={t.source.fromMs}
                 toMs={t.source.toMs}
                 frame={t.width && t.height ? { width: t.width, height: t.height } : null}
-                playing={e.playing}
-                onPlaying={e.setPlaying}
-                onTime={e.onTime}
+                playing={e.playhead.playing}
+                onPlaying={e.playhead.setPlaying}
+                onTime={e.playhead.onTime}
                 // the playhead where it stands, when that is on the source; else the stretch's start
                 startAt={(() => {
-                  const now = e.cursor ?? e.clock.get();
+                  const now = e.playhead.cursor ?? e.playhead.clock.get();
                   return now >= e.place.atMs && now <= e.place.atMs + e.place.lengthMs ? now : e.place.atMs + t.source.fromMs;
                 })()}
-                master={e.muted ? 0 : e.volume}
+                master={e.playhead.muted ? 0 : e.playhead.volume}
                 peekMs={e.sourcePeek}
                 pick={t.source.pick ?? null}
                 picking={e.whoPicking}
@@ -114,12 +114,12 @@ function Editor({ id }: { id: string }) {
                 ref={e.player}
                 recording={recordingShown.asset}
                 place={e.recordingAt}
-                playing={e.playing}
-                onPlaying={e.setPlaying}
-                onTime={e.onTime}
-                stopAt={e.stopAt}
-                startAt={e.cursor ?? e.clock.get()}
-                master={e.muted ? 0 : e.volume}
+                playing={e.playhead.playing}
+                onPlaying={e.playhead.setPlaying}
+                onTime={e.playhead.onTime}
+                stopAt={e.playhead.stopAt}
+                startAt={e.playhead.cursor ?? e.playhead.clock.get()}
+                master={e.playhead.muted ? 0 : e.playhead.volume}
                 view={e.trackView}
                 removed={recordingShown.removed}
               />
@@ -142,11 +142,11 @@ function Editor({ id }: { id: string }) {
             label={recordingPanel ? "Recording" : musicOpen && t.music ? "Music" : current ? `${current.kind === "still" ? "Still" : "Clip"} ${clips.indexOf(current) + 1}` : "Overview"}
             {...e.checks}
           />
-        ) : e.sourceOpen && !(e.place?.made && current) ? (
+        ) : e.selection.sourceOpen && !(e.place?.made && current) ? (
           <SourcePanel
             timeline={t}
             place={e.place}
-            clock={e.clock}
+            clock={e.playhead.clock}
             onLook={(look) => e.edit.mutate({ look })}
             recipes={e.videoRecipes}
             onEdit={(source) => e.edit.mutate({ source })}
@@ -157,15 +157,15 @@ function Editor({ id }: { id: string }) {
             made={{ left: sourceLeft.length, queued: clips.filter((c) => fromSource.has(c.id) && c.job).length }}
             onRender={() => e.render.mutate({ clips: sourceLeft })}
             rendering={e.render.isPending}
-            onClose={() => e.setSourceOpen(false)}
+            onClose={() => e.selection.setSourceOpen(false)}
             picking={e.whoPicking}
             onPicking={e.setWhoPicking}
           />
         ) : recordingPanel ? (
           <RecordingPanel key={recordingPanel.recording.id} {...recordingPanel} />
         ) : musicOpen && t.music ? (
-          <MusicPanel timeline={t} onEdit={(p) => e.edit.mutate(p)} onClose={() => e.setMusicOpen(false)} />
-        ) : current && e.joinOpen === current.id && clips.indexOf(current) > 0 ? (
+          <MusicPanel timeline={t} onEdit={(p) => e.edit.mutate(p)} onClose={() => e.selection.setMusicOpen(false)} />
+        ) : current && e.selection.joinOpen === current.id && clips.indexOf(current) > 0 ? (
           <JoinPanel
             key={`join:${current.id}`}
             clip={current}
@@ -174,8 +174,8 @@ function Editor({ id }: { id: string }) {
             recipes={e.videoRecipes}
             onPatch={(p) => e.patch.mutate({ clip: current.id, patch: p })}
             retake={current.kind === "video" ? { run: () => e.render.mutate({ clips: [current], takes: 1 }), why: current.job ? "A render of this clip is on its way" : e.render.isPending ? "Sending…" : e.ready(current).why ?? null } : undefined}
-            onClose={() => e.select(null)}
-            onSelectClip={e.select}
+            onClose={() => e.selection.select(null)}
+            onSelectClip={e.selection.select}
           />
         ) : current ? (
           <Inspector key={current.id} {...inspectorProps(e, current)} />

@@ -30,7 +30,7 @@ import { unsplittable } from "./runSplit";
 import { useRange } from "./useRange";
 import { useTimelineMutations } from "./useTimelineMutations";
 import { useAgentTimeline } from "./useAgentTimeline";
-import { useEditorPanels } from "./useEditorPanels";
+import { useEditorSelection } from "./useEditorPanels";
 import { useRenderPlan } from "./useRenderPlan";
 import { useSelectedClipBridge } from "./useSelectedClipBridge";
 import { newViewStore } from "./track/useTrackView";
@@ -38,9 +38,10 @@ import { newViewStore } from "./track/useTrackView";
 const NONE: RecipeInfo[] = [];
 
 /**
- * What the timeline editor holds: the timeline and the lists it is read with, what is selected, picked and open, the
- * playhead, the range, the edits and the mutations, and the keys. The editor (screens/TimelineEditor.tsx) lays it out;
- * editorProps.tsx hands each of its parts what it needs from here.
+ * What the timeline editor holds: the timeline and the lists it is read with, what is selected, picked and open
+ * (`selection`), the playhead (`playhead`), the range, the edits and the mutations, and the keys. Each concern is one
+ * field, so that a part reads the piece it needs rather than a field of the whole. The editor
+ * (screens/TimelineEditor.tsx) lays it out; editorProps.tsx hands each of its parts what it needs from here.
  */
 /** A change to the source that cuts it again (its window, scene cuts, run-up, or a window's form): useTimelineEditor's cutSource. */
 type SourceCut = { windowMs?: number; withinMs?: number; inputs?: Record<string, unknown>; recipe?: string; clip?: string };
@@ -55,7 +56,11 @@ export function useTimelineEditor(id: string) {
   const panelWidth = useEditorColumn((st) => st.width);
   const folded = useEditorColumn((st) => st.folded);
 
-  const { selected, setSelected, picked: pickedAll, setPicked, musicOpen, setMusicOpen, joinOpen, setJoinOpen, sourceOpen, setSourceOpen, recordingOpen, setRecordingOpen, select, openSource, openRecording, openJoin } = useEditorPanels();
+  const t = timeline.data;
+  const clips = useMemo(() => t?.clips ?? [], [t]);
+  // what is selected, picked and open: one piece the editor's parts read (useEditorSelection), its fields used here too
+  const selection = useEditorSelection(clips);
+  const { selected, setSelected, picked, setPicked, musicOpen, setMusicOpen, sourceOpen, setSourceOpen, recordingOpen, setRecordingOpen, select, openSource, openRecording, current } = selection;
   /** The recording open, for what is asked or made after a render of this one (a trim's question, its clips made anew). */
   const recordingOpenNow = useRef(recordingOpen);
   recordingOpenNow.current = recordingOpen;
@@ -91,19 +96,6 @@ export function useTimelineEditor(id: string) {
     if (!sourceOpen) setWhoPicking(false);
   }, [sourceOpen]);
 
-  const t = timeline.data;
-  const clips = useMemo(() => t?.clips ?? [], [t]);
-  // the picked clips still on the timeline: an Undo or a removal takes clips away under the pick, and Delete would send
-  // ids no longer there (the whole removal refused), the header and the menus count them; dropped from the pick too, so
-  // a Redo bringing one back does not bring it back picked
-  const picked = useMemo(() => {
-    const here = new Set(clips.map((c) => c.id));
-    const kept = new Set([...pickedAll].filter((id) => here.has(id)));
-    return kept.size === pickedAll.size ? pickedAll : kept;
-  }, [pickedAll, clips]);
-  useEffect(() => {
-    if (picked !== pickedAll) setPicked(picked);
-  }, [picked, pickedAll, setPicked]);
   /** Why a clip cannot be split (a recording's clip, a window of the source), as the server refuses it: Split greyed with it. */
   const unsplit = (c: Clip) => unsplittable(c, recipes.data?.recipes ?? NONE, t?.source ?? null);
   // the frame's shape as it is shown (the timeline's, or its first take's while the first clip decides), kept for the
@@ -123,7 +115,6 @@ export function useTimelineEditor(id: string) {
   );
   // no ComfyUI of the user's own and none answering: a clip still queues, waiting for a GPU
   const comfyOnline = formsCanQueue(setup.data?.comfy);
-  const current = clips.find((c) => c.id === selected) ?? null;
   // the selected clip's Show the mask, followed until its video is made (the stage draws it over the source)
   const maskOfCurrent = useMaskPreview(current?.id, current ? masks[current.id]?.job : undefined);
   // a take shown over the player while hovered goes away as soon as it is no longer one to look at: removed, or the one that
@@ -454,6 +445,8 @@ export function useTimelineEditor(id: string) {
     return { ms: at.ms, held: at.planned };
   };
   playheadRef.current = playheadNow;
+  /** The playhead and what plays, read by the editor's parts in one piece: the clock, Play, the volume, where it stands. */
+  const playhead = { clock, playing, setPlaying, cursor, setCursor, now: playheadNow, onTime, stopAt, volume, muted, onVolume, onMute };
   // a key held down sends one undo at a time: the next only once the last is back
   const stepping = undo.isPending || redo.isPending;
   // the keys' refs for what is set below: Ctrl+Enter renders, [ and ] jump, S and Ctrl+B split, Alt+[ and Alt+] step the take; - and =, Shift+Z: the track's zoom (filled by the track)
@@ -573,13 +566,13 @@ export function useTimelineEditor(id: string) {
   }
 
   return {
-    id, timeline, t, shown, clips, recipes, setup, settings, videoRecipes, running, panelWidth, folded, slots, total, current,
-    selected, setSelected, select, joinOpen, setJoinOpen, openJoin, sourceOpen, setSourceOpen, openSource, recordingOpen, setRecordingOpen, openRecording, openRecordingAt, recordingAt, recordingCut, recordingShared, removeSource, makeSource, cutSource, sourceForm, recording, stretch, recordingTrim, splitSource, masks, setMasks, maskOfCurrent, place, sourceMarks, sourcePeek, setSourcePeek, whoPicking, setWhoPicking, picked, setPicked, musicOpen, setMusicOpen, playing, setPlaying, clock, pps, setPps, trackView,
+    id, timeline, t, shown, clips, recipes, setup, settings, videoRecipes, running, panelWidth, folded, slots, total, selection, playhead,
+    openRecordingAt, recordingAt, recordingCut, recordingShared, removeSource, makeSource, cutSource, sourceForm, recording, stretch, recordingTrim, splitSource, masks, setMasks, maskOfCurrent, place, sourceMarks, sourcePeek, setSourcePeek, whoPicking, setWhoPicking, pps, setPps, trackView,
     preview, setPreview, opened, setOpened, picking, setPicking, casting, setCasting, mood, setMood, setDesigning, designed,
     talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, exp, setExp, fin, setFin, writing, player,
     liveShown, saveFailed, save, typeSource, sourceTyped, inputsOf, editInputs, formOf, ready, keptToClip, keepToClip, sayOf, say, m, range, setRange, loopRange, snapQuiet,
     toggleSnapQuiet, emptyRange, toggle, toggleLoop, rangeAct, rangeItems, clipMenu, soundMenu, pinMenu, musicMenu, rangeMenu, onClip,
-    newClip, move, missing, renderable, takes, takesOn, allMs, allOn, allBlocked, checks, volume, muted, onVolume, onMute, cursor, setCursor, playheadNow, onTime, stopAt,
+    newClip, move, missing, renderable, takes, takesOn, allMs, allOn, allBlocked, checks,
     trackKeys, jump, splitAt, stepTake, continueFrom, continueHere, misfits, finishedSize, fixFirst, exportNow, clipHead,
     after, render, patch, fix, edit, add, remove, removeMany, bringBack, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan,
   };
