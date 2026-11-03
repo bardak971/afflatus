@@ -4,6 +4,7 @@ import { HIRES_PASS_INPUTS, hiresPass, UPSCALER_PREFER, type HiresPass } from ".
 import type { FlowBase } from "../flow/kit";
 import { flowFixFace } from "../flow/fix-face";
 import { flowPaintOver } from "../flow/paint-over";
+import { flowOutpaint } from "../flow/outpaint";
 import { flowRedraw } from "../flow/redraw";
 import { flowSharper } from "../flow/sharper";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
@@ -290,9 +291,10 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
   ],
 }), krea2Spec.drops);
 
-// ---------------------------------------------------------------- img2img, inpaint, upscale 2x, face detailer: the picture models' own
+// ---------------------------------------------------------------- img2img, inpaint, outpaint, upscale 2x, face detailer: the picture models' own
 
 export const krea2Redraw = flowRedraw(krea2Spec, krea2Kit);
 export const krea2PaintOver = flowPaintOver(krea2Spec, krea2Kit);
+export const krea2Outpaint = flowOutpaint(krea2Spec, krea2Kit);
 export const krea2Sharper = flowSharper(krea2Spec, krea2Kit);
 export const krea2FixFace = flowFixFace(krea2Spec, krea2Kit);

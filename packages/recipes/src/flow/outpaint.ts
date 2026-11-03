@@ -35,7 +35,7 @@ export function flowOutpaint(spec: FlowSpec, kit: FlowKit): Recipe<FlowOutpaint>
       ...inputs,
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),
-    nodes: (input) => [...loadNodes(input).filter((n) => n !== "VAEDecode" && n !== "PreviewImage"), ...OUTPAINT_NODES, ...PASTE_BACK_NODES, "GrowMask", "VAEEncode", "SetLatentNoiseMask", "DifferentialDiffusion"],
+    nodes: (input) => [...loadNodes(input).filter((n) => n !== "VAEDecode" && n !== "PreviewImage"), ...OUTPAINT_NODES, ...PASTE_BACK_NODES, "GrowMask", "VAEEncode", "SetLatentNoiseMask", ...(spec.hardInpaint ? [] : ["DifferentialDiffusion"])],
     ...(spec.inpaintPatch ? { needsWith: inpaintPatchNeeds(spec) } : {}),
     ...(SOMETIMES.length || spec.inpaintPatch ? { optionalNodes: [...SOMETIMES, ...(spec.inpaintPatch ? INPAINT_PATCH_NODES : [])] } : {}),
     build(input, ctx) {
@@ -48,12 +48,14 @@ export function flowOutpaint(spec: FlowSpec, kit: FlowKit): Recipe<FlowOutpaint>
       const source = g.out("LoadImage", { image: ctx.uploads.source });
       const { padded, pixels: grey, mask } = outpaintLatent(g, source, from, input, size, k.vae);
       const c = cond(g, k, input, input.prompt);
-      const model = shifted(g, g.out("DifferentialDiffusion", { model: k.model }), input, size);
+      // a family that inpaints with the mask as it is (hardInpaint, Krea 2's) outpaints so too
+      const soft = (m: Ref) => (spec.hardInpaint ? m : g.out("DifferentialDiffusion", { model: m }));
+      const model = shifted(g, soft(k.model), input, size);
       const start = g.out("SetLatentNoiseMask", { samples: g.out("VAEEncode", { pixels: stretchedFill(g, source, input, whole, size), vae: k.vae }), mask });
       g.phase("sampling");
       // the inpaint guide, when the family has one, on the first pass only: it is given the padding, which the seam pass's band is not
       const guided = inpaintPatched(g, ctx, spec, k.model, k.vae, grey, mask);
-      const first = sample(g, k, input, guided.loads.length ? shifted(g, g.out("DifferentialDiffusion", { model: guided.model }), input, size) : model, c, start, ctx.seed);
+      const first = sample(g, k, input, guided.loads.length ? shifted(g, soft(guided.model), input, size) : model, c, start, ctx.seed);
       const atSize = (image: Ref, to: { width: number; height: number }) => g.out("ImageScale", { image, upscale_method: "lanczos", width: to.width, height: to.height, crop: "disabled" });
       const drawn = pasteBack(g, atSize(g.out("VAEDecode", { samples: first.latent, vae: k.vae }), whole), source, padded, from, input);
       // the seam pass: the new part and a band into the picture, redrawn lightly
