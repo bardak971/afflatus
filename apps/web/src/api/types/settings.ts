@@ -296,6 +296,8 @@ export interface Settings {
   designerInstruction: string;
   /** Tags written for an anime model are compared with danbooru's list. */
   tagCheck: boolean;
+  /** A render's picture downloaded or exported carries its generation parameters (A1111's, with hashes). */
+  pngInfo: boolean;
   /** Model families switched on or off by hand; one that is not named follows its files, or is on with `allFamilies`. */
   families: Record<string, boolean>;
   /** A family not named in `families` is on whatever files are found (a new install's rule; "Turn them all on"). */

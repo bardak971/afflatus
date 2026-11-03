@@ -3,11 +3,12 @@ import { Readable } from "node:stream";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { CUT_WINDOW_MOST, RANDOM_SEED, TRANSITION_KINDS, TRANSITION_MS, movedSeed, typedSeed } from "@afflatus/core";
-import { fromRender, markPng } from "./aiMark";
+import { fromRender } from "./aiMark";
 import { nameOf } from "./autoName";
 import { VERSION } from "./config";
 import { CutError, markedVideoFile } from "./cut";
 import { musicTrack } from "./exportJoin";
+import { outgoingPng } from "./pngInfo";
 import { now } from "./db";
 import { httpError } from "./errors";
 import { compose, lookSchema, withMood } from "./entities";
@@ -470,8 +471,9 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
           files.set(i.file, i.key);
           if (i.soundFile) files.set(i.soundFile.file, i.soundFile.key);
         }
-        // a render (or a frame, cut or edit of one) goes in marked as made by a model, its frames as they are (aiMark.ts)
-        const rows = await s.db.selectFrom("assets").select(["file_key", "kind", "mime", "origin", "source_id"]).where("file_key", "in", [...files.values()]).execute();
+        // a render (or a frame, cut or edit of one) goes in marked as made by a model, its frames as they are (aiMark.ts),
+        // a rendered picture with how it was made (pngInfo.ts)
+        const rows = await s.db.selectFrom("assets").select(["file_key", "kind", "mime", "origin", "source_id", "generation_id", "width", "height"]).where("file_key", "in", [...files.values()]).execute();
         const byKey = new Map(rows.map((r) => [r.file_key, r]));
         for (const [path, key] of files) {
           if (req.raw.destroyed) break;
@@ -487,7 +489,7 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
               }
               continue;
             }
-            const marked = markPng(await s.storage.get(key));
+            const marked = await outgoingPng(s, a, await s.storage.get(key));
             await zip.add(path, Readable.from([Buffer.from(marked.buffer, marked.byteOffset, marked.byteLength)]), new Date(), marked.length);
             continue;
           }

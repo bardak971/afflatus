@@ -81,6 +81,7 @@ export const SETTING_INDEX: SettingSpot[] = [
   { tab: "storage", label: "Takes that never play", key: "storage.idle", near: "storage.disk", words: "idle" },
   { tab: "storage", label: "Render times kept for", key: "storage.renderTimes", words: "history retention days forget" },
   { tab: "storage", label: "Forget every render time", key: "storage.forgetTimes", words: "estimates reset clear render stats history start again" },
+  { tab: "storage", label: "Generation parameters in downloads", key: "server.pngInfo", words: "png info parameters metadata exif civitai hashes a1111 privacy prompt download export" },
   { tab: "storage", label: "Back up now", key: "storage.backup", words: "backup zip export restore database files" },
   { tab: "notifications", label: "Banner when renders finish", key: "notify.banner", words: "toast banner done finished popup announce quiet" },
   { tab: "notifications", label: "Browser notifications", key: "notify.browser", words: "notifications notify browser permission allow desktop" },

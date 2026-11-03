@@ -1,5 +1,5 @@
-import { formModelInput, type InputSpec, type Recipe } from "@afflatus/core";
-import { stemOf, type FoundSettings } from "./embedded";
+import { formModelInput, isModelFile, type InputSpec, type Recipe } from "@afflatus/core";
+import { stemOf, type FoundSettings, type OwnForm } from "./embedded";
 
 /**
  * Settings read from a picture, worked into the form of a recipe: any recipe that makes a picture from
@@ -24,6 +24,12 @@ const fileFor = (name: string | undefined, list: string[] | undefined) =>
 const takesSettings = (r: Recipe<any>) =>
   r.output === "image" && r.inputs.some((i) => i.type === "prompt" && !i.optional || i.id === "prompt") && !r.inputs.some((i) => (i.type === "image" && !i.optional) || (i.type === "image" && i.role === "mask"));
 
+/**
+ * A form a picture itself can go into with its settings (img2img, inpaint, upscale, a face pass): it makes a picture and
+ * starts from one. The picture is put in its source slot by the page, once it is in the library.
+ */
+export const takesPicture = (r: Recipe<any>) => r.output === "image" && r.inputs.some((i) => i.type === "image" && i.role === "source" && !i.optional);
+
 export interface Target {
   id: string;
   /** Why it is offered first, when there is a reason. */
@@ -31,9 +37,11 @@ export interface Target {
 }
 
 /** The recipes the settings can fill, the likeliest first: the one that loads the picture's model, then the ones that have it to pick. */
-export function targetsFor(found: FoundSettings, recipes: Recipe<any>[], optionsOf: (id: string) => Options): Target[] {
+export function targetsFor(found: FoundSettings, recipes: Recipe<any>[], optionsOf: (id: string) => Options, own?: OwnForm): Target[] {
   const able = recipes.filter(takesSettings);
   const rank = (r: Recipe<any>): { score: number; why?: string } => {
+    // a picture downloaded from Afflatus names the form it was made with: that one, filled exactly
+    if (own?.recipe === r.id) return { score: 4, why: "it was made with it" };
     if (!found.checkpoint) return { score: 0 };
     if ((r.files ?? []).some((f) => sameModel(found.checkpoint!, f.file))) return { score: 3, why: "it uses this model" };
     const model = formModelInput(r);
@@ -52,11 +60,15 @@ const named = (i: InputSpec, id: string, label: RegExp) => i.id === id || label.
 /**
  * The form of a recipe, filled with what the picture says: each setting goes to the input that holds
  * it there (by what the input is, then by its name), within that input's range. What has no place in
- * this recipe, or is not on this ComfyUI, is said in the notes instead of being forced in.
+ * this recipe, or is not on this ComfyUI, is said in the notes instead of being forced in. A form that starts from a
+ * picture (takesPicture) takes the img2img strength rather than a size. `made`: the form the picture was made with in
+ * Afflatus, which fills its own recipe exactly (ownInto).
  */
-export function fill(found: FoundSettings, recipe: Recipe<any>, options: Options, online: boolean) {
+export function fill(found: FoundSettings, recipe: Recipe<any>, options: Options, online: boolean, made?: OwnForm) {
   const input: Record<string, unknown> = {};
-  const notes = [...found.notes];
+  const fromPicture = takesPicture(recipe);
+  // the picture itself goes in this time: that it was an img2img is no news
+  const notes = found.notes.filter((n) => !(fromPicture && /img2img/.test(n)));
   const missing: Array<{ file: string; folder: string; civitai?: number }> = [];
   const number = (i: Extract<InputSpec, { type: "number" }>, value: number) => (input[i.id] = clamp(i.step >= 1 ? Math.round(value) : value, i.min, i.max));
 
@@ -88,12 +100,13 @@ export function fill(found: FoundSettings, recipe: Recipe<any>, options: Options
   if (!online) notes.push("ComfyUI is not answering, so its model and LoRAs could not be looked up: the form keeps the ones it has.");
 
   const size = recipe.inputs.find((i): i is Extract<InputSpec, { type: "size" }> => i.type === "size");
-  if (size && found.width && found.height) {
+  if (size && found.width && found.height && !fromPicture) {
     const edge = (n: number) => Math.round(clamp(n, size.min, size.max) / size.grid) * size.grid;
     input[size.id] = { width: edge(found.width), height: edge(found.height) };
   }
   const seed = recipe.inputs.find((i) => i.type === "seed");
-  if (seed && found.seed !== undefined && found.seed >= 0 && found.seed < 2 ** 32) input[seed.id] = Math.floor(found.seed);
+  // a pass on the picture itself rolls its own seed, as one from the library does (the web's carried)
+  if (seed && !fromPicture && found.seed !== undefined && found.seed >= 0 && found.seed < 2 ** 32) input[seed.id] = Math.floor(found.seed);
 
   // the settings of the first pass: under their own names in a built-in form, under the node's names in an imported one
   const numbers = recipe.inputs.filter((i): i is Extract<InputSpec, { type: "number" }> => i.type === "number");
@@ -101,6 +114,8 @@ export function fill(found: FoundSettings, recipe: Recipe<any>, options: Options
   if (steps && found.steps) number(steps, found.steps);
   const cfg = numbers.find((i) => named(i, "cfg", /^cfg( scale)?( · first pass)?$/i));
   if (cfg && found.cfg) number(cfg, found.cfg);
+  const strength = numbers.find((i) => !i.id.startsWith("hires") && named(i, "strength", /^denois(e|ing strength)$/i));
+  if (strength && fromPicture && found.denoise) number(strength, found.denoise);
   const clipSkip = numbers.find((i) => i.id === "clipSkip");
   if (clipSkip && found.clipSkip) number(clipSkip, found.clipSkip);
   const choices = recipe.inputs.filter((i): i is Extract<InputSpec, { type: "choice" }> => i.type === "choice");
@@ -127,10 +142,37 @@ export function fill(found: FoundSettings, recipe: Recipe<any>, options: Options
     }
   }
 
+  if (made?.recipe === recipe.id) ownInto(recipe, made.input, input, options);
+
   return {
     recipe: recipe.id, input, source: found.source, notes, missing,
     /** What was read, to show before anything is done with it. */
     model: found.checkpoint ? { name: found.checkpoint, found: modelFound } : null,
     loras: loras.map((l) => ({ name: l.name, weight: l.weight, found: Boolean(l.file) })),
   };
+}
+
+/** The inputs that hold the library's pictures, sounds and clips: a file from elsewhere names none of this library's. */
+const MEDIA_TYPES = new Set(["image", "audio", "clip", "references", "cues", "video"]);
+const bare = (v: string) => v.replace(/^.*[\\/]/, "");
+
+/**
+ * Afflatus's own form, read from a picture it gave out (pngInfo.ts), over what the A1111 text filled: every setting as it
+ * was, but the model and the LoRAs, which the text's names already matched to this ComfyUI's files (sameModel), and the
+ * pictures. A file the form names (an upscaler) went out by its name alone: it is this ComfyUI's file of that name, else
+ * the form keeps its own.
+ */
+function ownInto(recipe: Recipe<any>, own: Record<string, unknown>, input: Record<string, unknown>, options: Options): void {
+  for (const spec of recipe.inputs as InputSpec[]) {
+    const v = own[spec.id];
+    if (v === undefined || MEDIA_TYPES.has(spec.type) || spec.type === "loras" || spec === formModelInput(recipe)) continue;
+    if (typeof v === "string" && isModelFile(v)) {
+      const offered = spec.type === "choice" && Array.isArray(spec.options) ? spec.options : options[spec.id] ?? [];
+      const file = offered.find((o) => o === v) ?? offered.find((o) => bare(o).toLowerCase() === v.toLowerCase());
+      if (file) input[spec.id] = file;
+      else if (!offered.length) input[spec.id] = v;
+      continue;
+    }
+    input[spec.id] = v;
+  }
 }

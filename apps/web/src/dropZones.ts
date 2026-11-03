@@ -34,7 +34,7 @@ export function zonesFor(kind: Kind | null, onTimeline: boolean): Array<{ id: Zo
       detail: kind === "audio" ? "It plays under every clip" : kind === "video" ? "At the end, as it is" : "At the end, as a still. Drop it on a clip instead to make it the clip's first or last frame",
     });
   }
-  if (kind === "image" || kind === "other") zones.push({ id: "settings", label: "PNG info", hint: "Its settings into a new form", detail: "Its generation parameters (prompt, checkpoint, LoRAs, sampling settings) fill a new form" });
+  if (kind === "image" || kind === "other") zones.push({ id: "settings", label: "PNG info", hint: "Its settings into a form", detail: "Its generation parameters (prompt, checkpoint, LoRAs, sampling settings) fill a new form, or go with the picture itself into Edit (img2img), Inpaint or Upscale" });
   if (kind !== "audio") {
     zones.push({
       id: "workflow", label: kind === "json" ? "Import this workflow" : "Import embedded workflow",

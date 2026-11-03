@@ -1,15 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { ScanSearch } from "lucide-react";
-import { api, type Embedded } from "./api";
-import { useRecipes } from "./data";
+import { api, type Embedded, type RecipeInfo } from "./api";
+import { useFamilies, useRecipes, useSetup } from "./data";
 import { Dialog, DialogFoot, DialogHead } from "./Dialog";
 import { useOpenNewDraft } from "./draft";
 import { fileLabel, recipeLabel } from "./format";
 import { GetFile } from "./GetFile";
+import { handMask } from "./handoff";
+import { ACTIONS, PASS_KEYS, type ActionId } from "./itemActions";
+import { useQueueVariation } from "./queueVariation";
+import { useFormAim } from "./recipeForm/formAim";
 import { Select } from "./Select";
 import { useHandover } from "./store";
 import { Button, cx, ErrorNote } from "./ui";
+import { OPS, toolOf } from "./viewer/shared";
 
 import { workflowFile } from "./dropZones";
 
@@ -17,15 +22,18 @@ import { workflowFile } from "./dropZones";
  * What a picture says about how it was made (A1111's "PNG info"): its prompt, its checkpoint and LoRAs
  * with whether this ComfyUI has them and how to get the ones it lacks, its settings; and which form they
  * are sent to. The same for a file being dropped on the app and for a picture already in the library:
- * `read` fetches it either way, for the form asked for.
+ * `read` fetches it either way, for the form asked for. With `picture`, the picture itself goes too: into img2img,
+ * inpaint or an upscale, the passes of the library's own list (itemActions.tsx), its settings filled in.
  */
-export function PngInfo({ name, title = "PNG info", read, first, onClose, onSent }: {
+export function PngInfo({ name, title = "PNG info", read, first, picture, onClose, onSent }: {
   name: string;
   /** "PNG info" for a picture; a video or a sound says what it holds in its own tags. */
   title?: string;
   read(recipe?: string): Promise<Embedded>;
   /** What was already read, when the caller had to read it to know whether to open this. */
   first?: Embedded;
+  /** The picture as an item of the library, for the passes on it: a dropped file is imported the first time one is asked. */
+  picture?(): Promise<string>;
   onClose(): void;
   /** A form was filled with what was read: what this was opened over can step aside. */
   onSent?(): void;
@@ -37,6 +45,12 @@ export function PngInfo({ name, title = "PNG info", read, first, onClose, onSent
   const hand = useHandover((h) => h.set);
   const openNew = useOpenNewDraft();
   const load = (recipe?: string) => read(recipe).then(setData, (err: Error) => setFailed(err.message));
+  const { offers } = useFamilies();
+  const setup = useSetup();
+  const queued = useQueueVariation();
+  const [busy, setBusy] = useState(false);
+  // imported once, whichever pass asks first
+  const placed = useRef<Promise<string> | null>(null);
   useEffect(() => {
     if (!first) void load();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- read once, as it opens
@@ -58,6 +72,43 @@ export function PngInfo({ name, title = "PNG info", read, first, onClose, onSent
       setFailed((err as Error).message);
     }
   };
+
+  /** The recipe of a pass, as the library's list picks it: the one of the model the form above is for, else one that is ready. */
+  const toolFor = (key: string): RecipeInfo | undefined => {
+    const all = (recipes.data?.recipes ?? []).filter(offers);
+    return toolOf(key, all, recipes.data?.families ?? [], data?.settings?.recipe, (r) => Boolean(setup.data?.recipes.find((x) => x.id === r.id)?.ready));
+  };
+  /** The picture into a pass, with what was read filled in: Edit and Inpaint open their form (Inpaint on its painter), Upscale is queued at once. */
+  const pass = async (id: ActionId, tool: RecipeInfo) => {
+    if (!picture) return;
+    setBusy(true);
+    try {
+      placed.current ??= picture();
+      const [asset, fresh] = await Promise.all([placed.current, read(tool.id)]);
+      const slot = tool.inputs.find((i) => i.type === "image" && i.role === "source")!.id;
+      const input = { ...(fresh.settings?.recipe === tool.id ? fresh.settings.input : {}), [slot]: asset };
+      if (id === "upscale") {
+        queued.mutate({ recipe: tool, stored: input, label: OPS.u!.label, from: asset });
+        onClose();
+        return;
+      }
+      useFormAim.getState().set(tool.id, slot);
+      const d = await api.createDraft({ recipe: tool.id, forms: { [tool.id]: input } });
+      if (tool.inputs.some((i) => i.type === "image" && i.role === "mask")) handMask(asset);
+      onClose();
+      onSent?.();
+      openNew(d);
+    } catch (err) {
+      placed.current = null;
+      setFailed((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const passes = picture ? (["edit", "inpaint", "upscale"] as const).flatMap((id) => {
+    const tool = toolFor(PASS_KEYS[id]!);
+    return tool ? [{ id, tool }] : [];
+  }) : [];
 
   const s = data?.settings;
   return (
@@ -116,7 +167,11 @@ export function PngInfo({ name, title = "PNG info", read, first, onClose, onSent
             {data?.workflow ? (
               <Button onClick={() => { hand({ workflow: workflowFile(name, data.workflow) }); onClose(); go("/workflows"); }}>Import embedded workflow</Button>
             ) : null}
-            {s && <Button tone="primary" onClick={() => void send()}>Send to form</Button>}
+            {s && passes.map(({ id, tool }) => {
+              const Icon = ACTIONS[id].icon;
+              return <Button key={id} disabled={busy} data-tip={`${ACTIONS[id].tip} (${nameOf(tool.id)})`} onClick={() => void pass(id, tool)}><Icon size={14} /> {ACTIONS[id].label}</Button>;
+            })}
+            {s && <Button tone="primary" disabled={busy} onClick={() => void send()}>Send to form</Button>}
           </DialogFoot>
         </footer>
     </Dialog>

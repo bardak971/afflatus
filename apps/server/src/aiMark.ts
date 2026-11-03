@@ -38,22 +38,39 @@ function chunk(type: string, data: Buffer): Buffer {
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 /**
+ * A text chunk: tEXt for plain ASCII, the one every reader takes; anything else (an accent, another script) iTXt,
+ * uncompressed and in UTF-8. tEXt is Latin-1 by the standard, which PIL (so A1111) follows and other readers do not
+ * (they read UTF-8): a "café" there reads right in only half of them, iTXt in all.
+ */
+function textChunk(key: string, text: string): Buffer {
+  return /^[\x00-\x7f]*$/.test(text)
+    ? chunk("tEXt", Buffer.from(`${key}\0${text}`, "latin1"))
+    : chunk("iTXt", Buffer.concat([Buffer.from(`${key}\0\0\0\0\0`, "latin1"), Buffer.from(text, "utf8")]));
+}
+
+/**
  * A PNG with the mark: an XMP packet (iTXt) and a comment (tEXt) put just before its end, its pictures untouched. A PNG
  * holds one XMP packet at most, so one that has its own keeps it and gets the comment alone. Anything that is not a whole
- * PNG comes back as it was.
+ * PNG comes back as it was. `texts` go in beside the mark (the generation parameters, pngInfo.ts), each keyword only when
+ * the file has no text of that name already: a file holds one "parameters", and the one it came with is kept.
  */
-export function markPng(bytes: Uint8Array): Uint8Array {
+export function markPng(bytes: Uint8Array, texts: Record<string, string> = {}): Uint8Array {
   const buf = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (buf.length < 8 || !buf.subarray(0, 8).equals(PNG_SIGNATURE)) return bytes;
   let at = 8;
   let end = -1;
   let hasXmp = false;
+  const had = new Set<string>();
   while (at + 12 <= buf.length) {
     const length = buf.readUInt32BE(at);
     const type = buf.toString("latin1", at + 4, at + 8);
     if (type === "IEND") {
       end = at;
       break;
+    }
+    if (type === "tEXt" || type === "iTXt" || type === "zTXt") {
+      const nul = buf.indexOf(0, at + 8);
+      if (nul > at + 8 && nul < at + 8 + length) had.add(buf.toString("latin1", at + 8, nul));
     }
     if (type === "iTXt" && buf.toString("latin1", at + 8, at + 8 + XMP_KEY.length + 1) === `${XMP_KEY}\0`) hasXmp = true;
     if (type === "tEXt" && buf.toString("latin1", at + 8, at + 8 + 8) === "Comment\0" && buf.toString("latin1", at + 16, at + 8 + length) === AI_COMMENT) return bytes;
@@ -64,6 +81,7 @@ export function markPng(bytes: Uint8Array): Uint8Array {
     // iTXt: keyword, no compression, no language, no translated keyword, the text in UTF-8
     ...(hasXmp ? [] : [chunk("iTXt", Buffer.concat([Buffer.from(`${XMP_KEY}\0\0\0\0\0`, "latin1"), Buffer.from(xmpPacket(), "utf8")]))]),
     chunk("tEXt", Buffer.from(`Comment\0${AI_COMMENT}`, "latin1")),
+    ...Object.entries(texts).filter(([key, text]) => text && !had.has(key)).map(([key, text]) => textChunk(key, text)),
   ];
   return new Uint8Array(Buffer.concat([buf.subarray(0, end), ...added, buf.subarray(end)]));
 }
