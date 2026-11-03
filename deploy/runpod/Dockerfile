@@ -18,12 +18,12 @@
 # The build context is the repository's root (for comfy-nodes/afflatus-nodes); Dockerfile.dockerignore beside this
 # file keeps the rest out of it.
 
-ARG BASE_CU130=ghcr.io/bardak971/afflatus-pod-base:8@sha256:ca477bb3dec9fb69c9b3b50d641b58103d5253a70fb74821866575a9987124e0
-ARG BASE_CU128=ghcr.io/bardak971/afflatus-pod-base:8-cu128@sha256:87902aa5abbbad68c871f0166494d38bbe28ab4ac6e4db29d4a8f2b863430d2f
+ARG BASE_CU130=ghcr.io/bardak971/afflatus-pod-base:9@sha256:2dcb96f66d982dfa7e595ba4cc89fdf8d8746c68ba5f464d24f6ba2c7a4d2819
+ARG BASE_CU128=ghcr.io/bardak971/afflatus-pod-base:9-cu128@sha256:0d56d47494b6745d1c2821d3320bf184a2ab35625383313d722300852070d258
 ARG TORCH_CUDA=cu130
 # the ComfyUI the base is built on (base/Dockerfile's COMFYUI_VERSION; test_image.py holds the two together), for Manager's
 # registry list below, made outside the base (the base's AFFLATUS_COMFYUI_VERSION says the same, but only to a stage on it)
-ARG COMFYUI_VERSION=v0.41.2
+ARG COMFYUI_VERSION=v0.44.0
 
 # What the top makes it makes here, on the small Python image the base starts from, not on the base: the last stage then
 # only copies, each copy a layer of its own (--link), so the build pushes the top without pulling the base's GBs (6–8 min
