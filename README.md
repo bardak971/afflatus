@@ -25,6 +25,7 @@ It is one small server and a folder of data, on your PC or in a container.
 
 ## What's new in 0.9
 
+- **0.9.1 · Seamless H3 chains that hold their look:** no more sharpening or colour drift clip after clip, no more yellowing with a person picture, the face carried on by Face refine; **Krea 2 with a person reference**; a cast person's clearest face sent first; big model downloads to this PC over several connections.
 - **Rented GPUs ranked by $ per render**, not by the hour: each GPU's time on the renders waiting, from your own renders, at its price, plus its share of the deploy. And big Civitai files reach a pod over 8 connections, a 21 GB model in about two minutes.
 - **The join panel says what a switch does before you click:** Seamless or Hard cut, and a seamless join that cut anyway flagged on the track with New take beside it.
 - **Upscale 2x keeps the person** on FLUX.1 and Klein: its denoise is now the real noise it starts from, where 0.25 used to redraw a face as someone else.
