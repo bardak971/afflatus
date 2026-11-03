@@ -117,6 +117,8 @@ export interface FakeComfy {
   alive: Array<{ at: number; minutes: number }>;
   /** Every address the pretend node pack fetched a download from, in order (a fresh link after one expired among them). */
   packFetched: string[];
+  /** What each download the pretend node pack was asked for said of its file: the size and SHA-256 it is held to. */
+  packAsked: Array<{ url?: string; total?: number; sha256?: string }>;
   /** The pieces the pack's upload took (0.14.0): into which file, at which byte, how many bytes. */
   packUploaded: Array<{ file: string; offset: number; bytes: number }>;
   /** Pieces of an upload cut on their way (each answered 400, nothing kept), counted down. */
@@ -200,7 +202,7 @@ const body = async (req: IncomingMessage) => {
 
 export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
   const fake: FakeState = {
-    calls: [], prompts: new Map(), history: {}, running: [], pending: [], deaf: new Set(), files: {}, rejectWith: null, rejectNext: [], uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, rebootAnswer: null, userdata: {}, lock: null, refused: [], logins: [], packFetched: [], packUploaded: [], removed: [], uploadCut: 0, managerVersion: "V4.2.1", oldPage: false, down: false, podBroken: null, podDied: null, ram: null, version: "0.0.0-fake", pytorch: null, bootLog: null, printed: [], alive: [],
+    calls: [], prompts: new Map(), history: {}, running: [], pending: [], deaf: new Set(), files: {}, rejectWith: null, rejectNext: [], uploads: [], uploadDelayMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, rebootAnswer: null, userdata: {}, lock: null, refused: [], logins: [], packFetched: [], packAsked: [], packUploaded: [], removed: [], uploadCut: 0, managerVersion: "V4.2.1", oldPage: false, down: false, podBroken: null, podDied: null, ram: null, version: "0.0.0-fake", pytorch: null, bootLog: null, printed: [], alive: [],
     folderPaths: init.folderPaths ?? null, hideFolderPaths: init.hideFolderPaths ?? false,
     catalog: init.catalog ?? {},
     models: init.models ?? {},

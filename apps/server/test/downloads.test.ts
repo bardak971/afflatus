@@ -65,6 +65,11 @@ beforeEach(async () => {
   versionPage = () => twoNames(false);
   site = createServer((req, res) => {
     asked.push({ url: req.url ?? "", auth: req.headers.authorization, ...(req.headers.range ? { range: req.headers.range } : {}) });
+    // a version whose file Civitai's answer says is on another host
+    if (req.url === "/api/v1/model-versions/43") {
+      res.setHeader("content-type", "application/json");
+      return res.end(JSON.stringify({ id: 43, name: "v1", model: { name: "Elsewhere" }, files: [{ name: "Elsewhere-v1.safetensors", type: "Model", primary: true, sizeKB: FILE.length / 1024, downloadUrl: "https://cdn.example.com/Elsewhere-v1.safetensors" }] }));
+    }
     if (req.url === "/api/v1/model-versions/42") {
       res.setHeader("content-type", "application/json");
       return res.end(JSON.stringify({
@@ -577,7 +582,7 @@ describe("who downloads", () => {
     const signedFor: Array<{ source: string; headers: Record<string, string> }> = [];
     t.services.downloads.signer = async (source, headers) => {
       signedFor.push({ source, headers });
-      return `${siteUrl}/signed/ok?sig=1`;
+      return { url: `${siteUrl}/signed/ok?sig=1` };
     };
     const d = (await post(t.app, "/api/downloads", { file: "signed.safetensors", folder: "loras", url: `${siteUrl}/files/plain.safetensors` })).json();
     await done(d.id);
@@ -590,11 +595,50 @@ describe("who downloads", () => {
     expect(asked.filter((a) => a.url === "/files/plain.safetensors")).toEqual([]);
   });
 
+  it("sends the Civitai key to Civitai alone, never to another host Civitai's answer names for the file (card #252)", async () => {
+    await start(true, { folderPaths: paths(), hideFolderPaths: true });
+    fake.packVersion = "0.12.0";
+    await on();
+    const signedFor: Array<{ source: string; headers: Record<string, string> }> = [];
+    t.services.downloads.signer = async (source, headers) => {
+      signedFor.push({ source, headers });
+      return { url: `${siteUrl}/signed/ok?sig=1` };
+    };
+    const d = (await post(t.app, "/api/downloads", { civitai: 43, folder: "loras" })).json();
+    await done(d.id);
+    expect(signedFor).toEqual([{ source: "https://cdn.example.com/Elsewhere-v1.safetensors", headers: {} }]);
+  });
+
+  it("passes on what Hugging Face says of the file (its size and SHA-256), for the pack to hold it to (card #257)", async () => {
+    await start(true, { folderPaths: paths(), hideFolderPaths: true });
+    fake.packVersion = "0.44.1";
+    await on();
+    t.services.downloads.signer = async () => ({ url: `${siteUrl}/signed/ok?sig=1`, size: FILE.length, sha256: FILE_SHA.toLowerCase() });
+    const d = (await post(t.app, "/api/downloads", { file: "hf.safetensors", folder: "loras", url: `${siteUrl}/files/plain.safetensors` })).json();
+    await done(d.id);
+    expect(fake.packAsked).toEqual([{ url: `${siteUrl}/signed/ok?sig=1`, total: FILE.length, sha256: FILE_SHA.toLowerCase() }]);
+  });
+
+  it("says the source's refusal of a fresh link at once, and stops the pack's download, never waiting for one that cannot come (card #257)", async () => {
+    await start(true, { folderPaths: paths(), hideFolderPaths: true });
+    fake.packVersion = "0.12.0";
+    await on();
+    let asks = 0;
+    t.services.downloads.signer = async () => {
+      if (asks++ === 0) return { url: `${siteUrl}/signed/gone?sig=1` };
+      throw new Refused(DOWNLOADS_DISABLED);
+    };
+    const d = (await post(t.app, "/api/downloads", { file: "closed.safetensors", folder: "loras", url: `${siteUrl}/files/plain.safetensors` })).json();
+    await done(d.id);
+    expect(await item(d.id)).toMatchObject({ status: "error", error: DOWNLOADS_DISABLED, refused: true });
+    await until(() => fake.calls.some((c) => c.startsWith("DELETE /afflatus/download/")));
+  });
+
   it("sends the pack a fresh signed link when the first expires, and it carries on", async () => {
     await start(true, { folderPaths: paths(), hideFolderPaths: true });
     fake.packVersion = "0.12.0";
     await on();
-    const links = [`${siteUrl}/signed/gone?sig=1`, `${siteUrl}/signed/ok?sig=2`];
+    const links = [{ url: `${siteUrl}/signed/gone?sig=1` }, { url: `${siteUrl}/signed/ok?sig=2` }];
     t.services.downloads.signer = async () => links.shift() ?? null;
     const d = (await post(t.app, "/api/downloads", { file: "renewed.safetensors", folder: "loras", url: `${siteUrl}/files/plain.safetensors` })).json();
     await done(d.id);
@@ -617,7 +661,7 @@ describe("who downloads", () => {
     fake.packVersion = "0.12.0";
     await on();
     const comfy = await t.services.comfy();
-    t.services.downloads.signer = async () => `${siteUrl}/signed/ok?sig=1`;
+    t.services.downloads.signer = async () => ({ url: `${siteUrl}/signed/ok?sig=1` });
     const d = await t.services.downloads.start(comfy, "", { file: "own.safetensors", folder: "loras", title: "own", source: `${siteUrl}/files/plain.safetensors`, noSelf: true });
     await done(d.id);
     expect(await item(d.id)).toMatchObject({ status: "done" });
@@ -740,9 +784,17 @@ describe("a source's own signed download link", () => {
     const seen: Array<{ url: string; auth?: string; method?: string }> = [];
     const hf = "https://huggingface.co/org/m/resolve/main/m.safetensors";
     const cdn = "https://us.aws.cdn.hf.co/xet-bridge-us/abc?X-Xet-Signed-Range=1&Expires=2";
-    expect(await signedLink(hf, { Authorization: "Bearer hf_secret_token_1" }, site({ [hf]: { status: 302, location: cdn } }, seen))).toBe(cdn);
+    expect(await signedLink(hf, { Authorization: "Bearer hf_secret_token_1" }, site({ [hf]: { status: 302, location: cdn } }, seen))).toEqual({ url: cdn });
     // asked with HEAD, never the file itself
     expect(seen).toEqual([{ url: hf, auth: "Bearer hf_secret_token_1", method: "HEAD" }]);
+  });
+
+  it("comes with the size and SHA-256 Hugging Face says of the file on its redirect (card #257)", async () => {
+    const hf = "https://huggingface.co/org/m/resolve/main/m.safetensors";
+    const cdn = "https://cas-bridge.xethub.hf.co/xet-bridge-us/abc?X-Xet-Signed-Range=1";
+    const sha = "ab".repeat(32);
+    const answers = (async () => new Response(null, { status: 302, headers: { location: cdn, "x-linked-size": "21474836480", "x-linked-etag": `"${sha.toUpperCase()}"` } })) as typeof fetch;
+    expect(await signedLink(hf, {}, answers)).toEqual({ url: cdn, size: 21474836480, sha256: sha });
   });
 
   it("is the R2 link Civitai redirects to, through a page of theirs, the key only to the host first asked", async () => {
@@ -750,7 +802,7 @@ describe("a source's own signed download link", () => {
     const api = "https://civitai.com/api/download/models/128713";
     const hop = "https://civitai.com/api/download/models/128713?type=Model&format=SafeTensor";
     const r2 = "https://civitai-delivery-worker-prod.abc.r2.cloudflarestorage.com/53515/model/x.safetensors?X-Amz-Signature=s";
-    expect(await signedLink(api, { Authorization: "Bearer civitai_key_12345" }, site({ [api]: { status: 307, location: hop }, [hop]: { status: 307, location: r2 } }, seen))).toBe(r2);
+    expect(await signedLink(api, { Authorization: "Bearer civitai_key_12345" }, site({ [api]: { status: 307, location: hop }, [hop]: { status: 307, location: r2 } }, seen))).toEqual({ url: r2 });
     expect(seen.map((x) => x.url)).toEqual([api, hop]);
   });
 
@@ -759,7 +811,7 @@ describe("a source's own signed download link", () => {
     const seen: Array<{ url: string; auth?: string; method?: string }> = [];
     const api = "https://civitai.com/api/download/models/1691220";
     const b2 = "https://b2.civitai.com/file/civitai-modelfiles/model/6357/cyberrealisticPony.safetensors?Authorization=signed";
-    expect(await signedLink(api, { Authorization: "Bearer civitai_key_12345" }, site({ [api]: { status: 307, location: b2 }, [b2]: { status: 200 } }, seen))).toBe(b2);
+    expect(await signedLink(api, { Authorization: "Bearer civitai_key_12345" }, site({ [api]: { status: 307, location: b2 }, [b2]: { status: 200 } }, seen))).toEqual({ url: b2 });
     expect(seen.map((x) => x.url)).toEqual([api]);
   });
 
@@ -770,7 +822,7 @@ describe("a source's own signed download link", () => {
     expect(await signedLink(api, { Authorization: "Bearer civitai_key_12345" }, site({ [api]: { status: 302, location: "https://x.r2.cloudflarestorage.com/f?token=civitai_key_12345" } }))).toBeNull();
     // the file served as it is: only without a key, and only on a download host
     const plain = "https://huggingface.co/org/m/resolve/main/README.md";
-    expect(await signedLink(plain, {}, site({ [plain]: { status: 200 } }))).toBe(plain);
+    expect(await signedLink(plain, {}, site({ [plain]: { status: 200 } }))).toEqual({ url: plain });
     expect(await signedLink(plain, { Authorization: "Bearer hf_secret_token_1" }, site({ [plain]: { status: 200 } }))).toBeNull();
     expect(await signedLink("https://example.com/m.safetensors", {}, site({ "https://example.com/m.safetensors": { status: 200 } }))).toBeNull();
   });

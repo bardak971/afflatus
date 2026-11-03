@@ -92,7 +92,7 @@ beforeEach(async () => {
   t.services.downloads.packEveryMs = 10;
   t.services.downloads.listedEveryMs = 10;
   // the site's own signed link for any of its addresses (signedLink asks the site): here the address itself, signed
-  t.services.downloads.signer = async (source) => (source.includes("/nolink/") ? null : `${source.replace("/files/", "/signed/")}?sig=1`);
+  t.services.downloads.signer = async (source) => (source.includes("/nolink/") ? null : { url: `${source.replace("/files/", "/signed/")}?sig=1` });
   const comfy = new Comfy(pod.url, t.services.registry);
   files = new PodFiles({
     db: t.services.db, downloads: t.services.downloads,
@@ -180,7 +180,7 @@ describe("a rented pod's model files", () => {
     const seen: Array<Record<string, string>> = [];
     t.services.downloads.signer = async (source, headers) => {
       seen.push(headers);
-      return source.startsWith("https://huggingface.co/") ? `${siteUrl}/signed/gated.safetensors?sig=1` : null;
+      return source.startsWith("https://huggingface.co/") ? { url: `${siteUrl}/signed/gated.safetensors?sig=1` } : null;
     };
     const comfy = new Comfy(pod.url, t.services.registry);
     const withToken = new PodFiles({
@@ -561,7 +561,7 @@ describe("a rented pod's file its Civitai version refuses", () => {
     expect(await podSource(lookup(), { file: "mine.safetensors", folder: "loras" }, { live: true })).toMatchObject({ kind: "upload" });
     // the version gave its file on a pod after all: open again for the next lookup
     await t.services.db.updateTable("model_hashes").set({ civitai_version: 77 }).execute();
-    t.services.downloads.signer = async (source) => `${source.replace("/files/", "/signed/")}?sig=1`;
+    t.services.downloads.signer = async (source) => ({ url: `${source.replace("/files/", "/signed/")}?sig=1` });
     files.want("pod", [{ file: "c.safetensors", folder: "loras", civitai: { version: 77 } }], { tier: "need" });
     await settle("pod", "c.safetensors");
     expect(files.view("pod")[0]).toMatchObject({ state: "ready", via: "civitai" });
