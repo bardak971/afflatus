@@ -1,13 +1,12 @@
 import { httpError } from "./errors";
-import { COMFY_PORT, HOURS_A_MONTH, RUNNING_DISK_PER_GB_MONTH, STOPPED_DISK_PER_GB_MONTH, type GpuOffer } from "./runpod";
-import { shortGpu, stepSaid, volumePerMonth, type PresetFile } from "@afflatus/core";
+import { COMFY_PORT, type GpuOffer } from "./runpod";
+import { diskPerHour, HOURS_A_MONTH, shortGpu, stepSaid, STOPPED_DISK_PER_GB_MONTH, usd, usdFor, volumePerMonth, type PresetFile } from "@afflatus/core";
 import { bootOf } from "./podBoot";
 import { buildOf } from "./podImage";
-import { dollars } from "./notifyWords";
 import { forgetSetAside, machinesSetAside, readSettings, updateSettings, type Machine } from "./settings";
 import { CAP_REACHED } from "./queueModel";
 import type { RentedView, Seen } from "./rentedModel";
-import { capReached, HOUR } from "./rentedBilling";
+import { capReached } from "./rentedBilling";
 import { BILLED, bootLimit, secretOf, TRANSITIONAL } from "./rentedFollow";
 import { ownPorts, RentedDeploy } from "./rentedDeploy";
 
@@ -149,7 +148,7 @@ export class Rented extends RentedDeploy {
       provider: "runpod", pod: machine.rented.pod, status, rate, gpuRate: pod?.gpuCost || null, gpu: pod?.gpu ?? null, dataCenter: pod?.dataCenter ?? null,
       // the build from the image it was deployed with, else as RunPod names it (a pod added by hand)
       cuda: buildOf(machine.rented.image || pod?.image), hostCuda: pod?.hostCuda ?? null,
-      since, spent: since && rate ? ((this.now() - since) / HOUR) * rate : 0,
+      since, spent: since && rate ? usdFor(this.now() - since, rate) : 0,
       diskPerDay: pod ? (pod.diskGb * STOPPED_DISK_PER_GB_MONTH * 24) / HOURS_A_MONTH : 0,
       volume: Boolean(pod && (pod.networkVolume || pod.diskGb > 0)),
       otherPorts: pod ? pod.ports.filter((p) => !ownPorts(machine).includes(p)) : [],
@@ -366,7 +365,7 @@ export class Rented extends RentedDeploy {
     const refetch = volume ? null : { files: m.rented.setFiles.length, bytes: m.rented.setFiles.reduce((n, f) => n + (f.size ?? 0), 0) };
     return {
       name: m.name || pod.name, was: wasName, gpu: { id: gpu.id, name: gpu.name, price: gpu.price }, same: gpu.id === was?.id, sized: Boolean(was), cloud, template: image && !build ? "runpod" : "afflatus", cuda, cudaChanged: cuda !== build, dataCenter: volume?.dataCenter ?? null,
-      volume: volume ? { id: volume.id, name: volume.name } : null, disk, rate: gpu.price + (disk * RUNNING_DISK_PER_GB_MONTH) / HOURS_A_MONTH, refetch,
+      volume: volume ? { id: volume.id, name: volume.name } : null, disk, rate: gpu.price + diskPerHour(disk), refetch,
       idleMinutes: m.rented.idleMinutes, idleDo: volume ? m.rented.idleDo : "terminate", watchdogMinutes: m.rented.watchdogMinutes,
     };
   }
@@ -426,9 +425,9 @@ export class Rented extends RentedDeploy {
     });
     const disks = mine.flatMap((m) => {
       const pod = podOf(m);
-      return pod?.status === "EXITED" && pod.diskGb > 0 ? [`${m.name || pod.name}, stopped: its ${pod.diskGb} GB disk, ${dollars(pod.diskGb * STOPPED_DISK_PER_GB_MONTH)}/month`] : [];
+      return pod?.status === "EXITED" && pod.diskGb > 0 ? [`${m.name || pod.name}, stopped: its ${pod.diskGb} GB disk, ${usd(pod.diskGb * STOPPED_DISK_PER_GB_MONTH)}/month`] : [];
     });
-    const kept = known ? [] : (volumes ?? []).map((v) => `volume ${v.name} (${v.size} GB, ${dollars(volumePerMonth(v.size))}/month)`);
+    const kept = known ? [] : (volumes ?? []).map((v) => `volume ${v.name} (${v.size} GB, ${usd(volumePerMonth(v.size))}/month)`);
     return { running, billing: [...disks, ...kept], unknown: !pods || (!known && !volumes), unreadable };
   }
 }

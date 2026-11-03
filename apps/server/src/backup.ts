@@ -1,12 +1,13 @@
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, mkdtemp, open, readdir, rm, stat, type FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { DatabaseSync } from "node:sqlite";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
+import { isInside } from "./fsUtil";
 import { VERSION } from "./config";
 import { httpError } from "./errors";
 import { fromThisComputer } from "./hostCheck";
@@ -228,7 +229,7 @@ export async function restoreBackup(zipPath: string, dataDir: string): Promise<n
     for (const e of await centralOf(zip)) {
       if (e.name.endsWith("/")) continue;
       const to = resolve(target, e.name);
-      if (!to.startsWith(target + sep)) throw new Error(`the backup names a file outside the data folder: ${e.name}`);
+      if (to === target || !isInside(target, to)) throw new Error(`the backup names a file outside the data folder: ${e.name}`);
       if (e.method !== 0) throw new Error(`${e.name} is compressed: this is not a backup Afflatus made`);
       // the local header has name and extra lengths of its own: the bytes start after them
       const local = Buffer.alloc(30);

@@ -71,6 +71,9 @@ describe("Krea 2 · person reference", () => {
       thrown = e;
     }
     expect(String(thrown)).toMatch(/older than 2\.0/);
+    // the commit to check out, never its repository's head (the 2026-11-02 review, M6)
+    expect(String(thrown)).toMatch(/checkout [0-9a-f]{40}/);
+    expect(String(thrown)).not.toMatch(/nightly|latest/);
     expect(isBeyondPack(thrown)).toBe(true);
     // 2.0's inputs: built
     expect(() => build({ person }, { inputs: (n) => (n === "Krea2EditModelPatch" ? ["model", "source_latent", "ref_position", "ref_position_a"] : null) })).not.toThrow();

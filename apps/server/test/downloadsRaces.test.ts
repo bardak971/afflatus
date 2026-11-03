@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,12 +9,14 @@ import type { Comfy } from "../src/comfy";
  * What Afflatus writes itself is handed to a stand-in of fetchToFile: each test says when the file is "fetched", and what
  * happens meanwhile (a second start, a stop).
  */
-const fetched = vi.hoisted(() => ({ run: async (_o: { dest: string; signal: AbortSignal }) => {} }));
+type Fetched = { dest: string; signal: AbortSignal; takeOver?: boolean; keepPart?: boolean; reserved?: () => number };
+const fetched = vi.hoisted(() => ({ run: async (_o: Fetched) => {} }));
 vi.mock("../src/modelDownload", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/modelDownload")>()),
-  fetchToFile: (o: { dest: string; signal: AbortSignal }) => fetched.run(o),
+  fetchToFile: (o: Fetched) => fetched.run(o),
 }));
 const { Downloads } = await import("../src/downloads");
+const { Passing } = await import("../src/modelDownload");
 const { until } = await import("./helpers");
 
 /** Starts and stops that land at the same time as something else: a second start, a stop after the file was named, a restart. */
@@ -128,5 +130,89 @@ describe("downloads, at the same time as something else", () => {
     release();
     await resumed;
     expect(asked).toEqual(["a.safetensors", "b.safetensors", "c.safetensors"]);
+  });
+  it("lets a download stopped a moment ago let go of its .part before the same file starts again (card #236)", async () => {
+    const d = open();
+    const comfy = stub();
+    let letGo = () => {};
+    let aGone = false;
+    // the first: stopped while its hash follower still reads, which then removes its .part by name
+    fetched.run = async (o) => {
+      writeFileSync(`${o.dest}.part`, "first");
+      await new Promise<void>((resolve) => o.signal.addEventListener("abort", () => resolve(), { once: true }));
+      await new Promise<void>((resolve) => (letGo = resolve));
+      rmSync(`${o.dest}.part`, { force: true });
+      aGone = true;
+      throw new Error("stopped");
+    };
+    const a = await d.start(comfy, "http://127.0.0.1:2", want);
+    await until(() => existsSync(join(loras, "a.safetensors.part")));
+    expect(d.stop(a.id)).toBe(true);
+    // the second writes its own .part and names it once the first is gone
+    fetched.run = async (o) => {
+      writeFileSync(`${o.dest}.part`, "second");
+      await until(() => aGone);
+      renameSync(`${o.dest}.part`, o.dest);
+    };
+    const b = d.start(comfy, "http://127.0.0.1:2", want);
+    await new Promise((r) => setTimeout(r, 100));
+    letGo();
+    const id = (await b).id;
+    listed = ["a.safetensors"];
+    await until(() => d.get(id)?.status !== "downloading" && d.get(id)?.status !== "starting");
+    expect(d.get(id)).toMatchObject({ status: expect.stringMatching(/^(saving|done)$/) });
+    expect(readFileSync(join(loras, "a.safetensors"), "utf8")).toBe("second");
+  });
+
+  it("starts the same file into a models folder two ComfyUIs share once, whichever asked (card #236)", async () => {
+    let release = () => {};
+    fetched.run = () => new Promise((r) => (release = () => r(undefined)));
+    const d = open();
+    const a = await d.start(stub(1), "http://127.0.0.1:2", want);
+    const b = await d.start(stub(3), "http://127.0.0.1:2", want);
+    expect(b.id).toBe(a.id);
+    expect(d.list()).toHaveLength(1);
+    release();
+  });
+
+  it("carries a Download again on from what the failed one left, of the same source only (card #256)", async () => {
+    const d = open();
+    const comfy = stub();
+    const asked: Fetched[] = [];
+    fetched.run = async (o) => {
+      asked.push(o);
+      writeFileSync(`${o.dest}.part`, "half");
+      throw new Passing("The download failed 5 times in a row (the connection was cut at 1 MB). Press Download again to carry on from 1 MB.");
+    };
+    const first = await d.start(comfy, "http://127.0.0.1:2", want);
+    await until(() => d.get(first.id)?.status === "error");
+    expect(asked[0]).toMatchObject({ keepPart: true, takeOver: false });
+    const again = await d.start(comfy, "http://127.0.0.1:2", want);
+    await until(() => d.get(again.id)?.status === "error");
+    expect(asked[1]).toMatchObject({ takeOver: true });
+    // the first taken off the list now: what the second left stays for a third
+    expect(d.stop(first.id)).toBe(true);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(existsSync(join(loras, "a.safetensors.part"))).toBe(true);
+    // another source for the same name: never its bytes
+    await d.start(comfy, "http://127.0.0.1:2", { ...want, source: "http://127.0.0.1:1/other.safetensors" });
+    await until(() => asked.length === 3);
+    expect(asked[2]).toMatchObject({ takeOver: false });
+  });
+
+  it("tells a download how much the other one under way on the same disk still has to write (card #256)", async () => {
+    const d = open();
+    const comfy = stub();
+    let release = () => {};
+    const kept: number[] = [];
+    fetched.run = async (o) => {
+      if (o.dest.endsWith("a.safetensors")) return new Promise((r) => (release = () => r(undefined)));
+      kept.push(o.reserved!());
+    };
+    await d.start(comfy, "http://127.0.0.1:2", { ...want, total: 5000 });
+    await d.start(comfy, "http://127.0.0.1:2", { ...want, file: "b.safetensors", total: 100 });
+    await until(() => kept.length === 1);
+    expect(kept).toEqual([5000]);
+    release();
   });
 });

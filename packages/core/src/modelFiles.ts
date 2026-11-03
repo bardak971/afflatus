@@ -41,19 +41,23 @@ export const baseName = (file: string) => file.split(/[\\/]/).pop() ?? file;
  * One model file wherever it is said, by its folder and its name without its sub-folder, lower case: a job's file, a
  * preset's, a set's and a pod's are the same file when this is the same (a pod lists a file by its name in the folder).
  */
-export const fileKey = (f: { folder: string; file: string }) => `${f.folder}|${baseName(f.file).toLowerCase()}`;
+export const fileKey = (f: { folder: string; file: string }) => `${f.folder}|${nameKey(f.file)}`;
 
 /** A model file's name without its folder and without its extension: "Wan\\wan_2.1_vae.safetensors" → "wan_2.1_vae". */
 export const modelStem = (file: string) => baseName(file).replace(MODEL_EXT, "");
 
 /** The families' downloads (their slots' `get`), as the server and the web both have them. */
-type Downloads = ReadonlyArray<{ slots?: ReadonlyArray<{ get?: { file: string; url: string } }> }>;
+type Downloads = ReadonlyArray<{ slots?: ReadonlyArray<{ get?: { file: string; url: string; sha256?: string } }> }>;
 
-const nameOf = (file: string) => baseName(file).toLowerCase();
+/**
+ * A file's name as a key, lower case without its sub-folder: the same file on Windows and on a pod. Written by hand about
+ * eleven times, server and web.
+ */
+export const nameKey = (file: string) => baseName(file).toLowerCase();
 
 /** Whether `file` is a family's official file by its name (a slot's download), whatever its sub-folder or case. */
 export const isOfficialName = (families: Downloads, file: string): boolean =>
-  families.some((f) => (f.slots ?? []).some((x) => x.get !== undefined && nameOf(x.get.file) === nameOf(file)));
+  families.some((f) => (f.slots ?? []).some((x) => x.get !== undefined && nameKey(x.get.file) === nameKey(file)));
 
 /**
  * Whether `url` is a family's own official file for `file` (a slot's `get`): the same address, and a file of the same name
@@ -64,14 +68,74 @@ export const isOfficialName = (families: Downloads, file: string): boolean =>
  * gave that file its official address and sent it to a pod, whose fetch then refused it as no official file of that
  * folder, the pod billed while it waited (2026-10-22). The web and the server each had a test of their own, apart.
  */
-export const isOfficialFile = (families: Downloads, want: { url?: string; file: string }): boolean =>
-  Boolean(want.url) && families.some((f) => (f.slots ?? []).some((x) => x.get !== undefined && x.get.url === want.url && nameOf(x.get.file) === nameOf(want.file)));
+export const isOfficialFile = (families: Downloads, want: { url?: string; file: string }): boolean => officialGet(families, want) !== undefined;
+
+/** The family's download `want` is (isOfficialFile), with the bytes it must have when they are known. */
+export const officialGet = (families: Downloads, want: { url?: string; file: string }): { file: string; url: string; sha256?: string } | undefined => {
+  if (!want.url) return undefined;
+  for (const f of families) for (const x of f.slots ?? []) if (x.get !== undefined && x.get.url === want.url && nameKey(x.get.file) === nameKey(want.file)) return x.get;
+  return undefined;
+};
 
 /** What each model folder holds, as Settings › Model files names its kind; a folder not named here is "Other". */
 const KINDS: Record<string, string> = {
-  checkpoints: "Checkpoint", diffusion_models: "Diffusion model", unet: "Diffusion model", loras: "LoRA", vae: "VAE", text_encoders: "Text encoder", clip: "Text encoder",
+  checkpoints: "Checkpoint", diffusion_models: "Diffusion model", loras: "LoRA", vae: "VAE", text_encoders: "Text encoder",
   clip_vision: "CLIP vision", upscale_models: "Upscaler", latent_upscale_models: "Upscaler", controlnet: "ControlNet", audio_encoders: "Audio encoder",
 };
 
 /** A model folder's kind of file ("loras" is "LoRA"). */
-export const kindOfFolder = (folder: string) => KINDS[folder] ?? "Other";
+export const kindOfFolder = (folder: string) => KINDS[canonicalFolder(folder)] ?? "Other";
+
+/** A file's path as a key: forward slashes, lower case ("SDXL\\X.safetensors" is "sdxl/x.safetensors"). */
+export const pathKey = (file: string) => file.replace(/\\/g, "/").toLowerCase();
+
+/**
+ * A safetensors file by its name: ".sft" is the same format (Flux's files were shipped so). The downloader counted .sft as
+ * safetensors, while the header read, the update check and the drop in Settings › Model files took .safetensors alone.
+ */
+export const SAFETENSORS = endsIn(["safetensors", "sft"]);
+export const isSafetensors = (name: string) => SAFETENSORS.test(name);
+/** The biggest safetensors header read, server and page: a header is small, and a file that claims more is not one. */
+export const SAFETENSORS_HEADER_MOST = 64 * 2 ** 20;
+
+/**
+ * ComfyUI's older names of two model folders, which it still reads (folder_paths.map_legacy): a file in models/unet is a
+ * diffusion model, one in models/clip a text encoder.
+ */
+export const LEGACY_FOLDER: Readonly<Record<string, string>> = { unet: "diffusion_models", clip: "text_encoders" };
+
+/** A model folder by its current name: "unet" is "diffusion_models", "clip" is "text_encoders"; any other as it is. */
+export const canonicalFolder = (folder: string) => LEGACY_FOLDER[folder] ?? folder;
+
+/** A model folder's other name, older or newer ("unet" ↔ "diffusion_models"); undefined for a folder with one name. */
+export const otherName = (folder: string): string | undefined =>
+  LEGACY_FOLDER[folder] ?? Object.keys(LEGACY_FOLDER).find((old) => LEGACY_FOLDER[old] === folder);
+
+/** Civitai's types of model, as its API takes them (`types=`). */
+export const CIVITAI_TYPES = ["Checkpoint", "UNet", "LORA", "LoCon", "DoRA", "VAE", "TextEncoder", "CLIP", "CLIPVision", "Upscaler", "Controlnet", "TextualInversion", "Detection", "Other"] as const;
+export type CivitaiType = (typeof CIVITAI_TYPES)[number];
+
+/**
+ * What Civitai calls the models of each ComfyUI folder, the folder's usual kind first. One table both ways: the search for
+ * a file of a folder asks for these types, and a Civitai link's type says its folder. The two were written apart and had
+ * drifted: a link to a detector got no folder, and UNet, CLIP and CLIP vision models were never asked for.
+ */
+const CIVITAI_KINDS: Readonly<Record<string, readonly CivitaiType[]>> = {
+  checkpoints: ["Checkpoint"], diffusion_models: ["UNet", "Checkpoint"],
+  loras: ["LORA", "LoCon", "DoRA"], vae: ["VAE"], text_encoders: ["TextEncoder", "CLIP"], clip_vision: ["CLIPVision"],
+  upscale_models: ["Upscaler"], controlnet: ["Controlnet"], embeddings: ["TextualInversion"],
+  // the Impact pack's detectors are Civitai's "Detection" models; its SAM files have no type of their own there
+  ultralytics: ["Detection"], sams: ["Other"],
+};
+
+/** The Civitai types of a folder's models (its older name too); undefined for a folder Civitai has no type for. */
+export const civitaiKinds = (folder: string): readonly CivitaiType[] | undefined => CIVITAI_KINDS[canonicalFolder(folder)];
+
+/**
+ * The folder a model of a Civitai type goes in: its first folder (a Checkpoint is a checkpoint; folderFor tells a diffusion
+ * model filed as one). "Other" says no folder: it is a SAM file only when the search asked for one.
+ */
+export function folderOfCivitaiKind(kind: string): string | null {
+  if (kind === "Other") return null;
+  return Object.keys(CIVITAI_KINDS).find((folder) => CIVITAI_KINDS[folder]!.includes(kind as CivitaiType)) ?? null;
+}

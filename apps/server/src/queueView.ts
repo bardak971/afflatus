@@ -1,7 +1,7 @@
 import { isPodMachineId } from "./runpod";
 import { createHash } from "node:crypto";
 import { SqliteAdapter, sql, type Expression } from "kysely";
-import { modelName, modelOf, type JoinKind, joinKindOf } from "@afflatus/core";
+import { cents, modelName, modelOf, type JoinKind, joinKindOf } from "@afflatus/core";
 import type { Comfy } from "./comfy";
 import type { Lack } from "./machineScans";
 import type { PodDisk, PodFileView } from "./podFiles";
@@ -492,7 +492,7 @@ export function paged<S extends { waiting: W[]; machines: M[] }, W extends Pick<
   const machines = s.machines.map((m) => {
     if (!m.rented) return { ...m, rented: null };
     const { idleLeftMs, ...rented } = m.rented;
-    return { ...m, rented: { ...rented, spent: Math.round(rented.spent * 100) / 100, idleAt: idleLeftMs === null ? null : Math.round((Date.now() + idleLeftMs) / 1000) * 1000 } };
+    return { ...m, rented: { ...rented, spent: cents(rented.spent), idleAt: idleLeftMs === null ? null : Math.round((Date.now() + idleLeftMs) / 1000) * 1000 } };
   });
   const waiting = s.waiting.slice(0, shown);
   const parts = { waiting: hashOf(waiting), later: hashOf(later) };

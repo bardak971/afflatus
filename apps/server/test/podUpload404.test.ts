@@ -26,3 +26,25 @@ describe("a 404 to the node pack's upload start", () => {
     expect(PASSING.test((err as Error).message)).toBe(false);
   });
 });
+
+describe("a Stop while an upload waits to try again", () => {
+  it("ends the wait at once: a stopped upload no longer sits out its backoff", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "afflatus-upstop-")), "a.safetensors");
+    writeFileSync(path, Buffer.alloc(1000, 1));
+    const stop = new AbortController();
+    const raw = async (url: string, init?: RequestInit) => {
+      if (url === "/afflatus/upload" && init?.method === "POST") return Response.json({ id: "u1" });
+      // each piece fails, and the pack says nothing came: the upload waits its backoff before the next try
+      if (init?.method === "PUT") {
+        setTimeout(() => stop.abort(), 20);
+        return new Response("busy", { status: 500 });
+      }
+      if (init?.method === "DELETE") return new Response(null, { status: 200 });
+      return Response.json({ state: "uploading", bytes: 0, total: 1000 });
+    };
+    const from = Date.now();
+    const err = await uploadFile({ client: { raw }, path, folder: "loras", file: "a.safetensors", signal: stop.signal, backoffMs: 30_000 }).catch((e: Error) => e);
+    expect((err as Error).message).toBe("stopped");
+    expect(Date.now() - from).toBeLessThan(5000);
+  });
+});

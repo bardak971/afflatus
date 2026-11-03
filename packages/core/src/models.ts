@@ -1,3 +1,5 @@
+import { modelStem } from "./modelFiles";
+
 /**
  * What a model file says about itself. A .safetensors file starts with a header, and trainers write
  * things into it: a name, the model it was trained for, sometimes a trigger phrase, and (kohya's
@@ -201,7 +203,8 @@ export function identityWords(file: string): string[] {
  * for another line of the same family.
  */
 export function modelFit(model: string, lora: string, info?: ModelInfo): 2 | 1 | 0 | -1 {
-  const stem = (f: string) => (f.split(/[\\/]/).pop() ?? f).replace(/\.[a-z0-9]+$/i, "").toLowerCase();
+  // only a model's extension comes off: a trainedOn of "sd_xl_base_1.0" is sd_xl_base_1.0.safetensors, not "sd_xl_base_1"
+  const stem = (f: string) => modelStem(f).toLowerCase();
   if (info?.trainedOn && stem(info.trainedOn) === stem(model)) return 2;
   const about = `${info?.trainedOn ?? ""} ${info?.title ?? ""} ${lora}`;
   const mine = lineOf(model);

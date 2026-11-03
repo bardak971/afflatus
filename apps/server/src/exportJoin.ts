@@ -2,13 +2,14 @@ import { readFile, writeFile } from "node:fs/promises";
 import { FRAME_SLACK_MS, JOIN_FADE_MS, musicGainAt, type MusicPlan } from "@afflatus/core";
 import { gainWav, type DuckCurve } from "./duck";
 import { join } from "node:path";
-import { graphFileOption, tools } from "./video";
+import { graphFileOption } from "./video";
 import { aiVideoArgs } from "./aiMark";
-import { CutError, fpsMode, inTemp, type Media, must, onDisk, sec } from "./cut";
+import { fpsMode, type Media, onDisk, sec } from "./cut";
+import { CutError, inTemp, must, streamKinds, tools } from "./ff";
 import { colourNudge, type FrameMeans, MATCH, type Means, meansOf, meansWithin } from "./measure";
 
 /**
- * A timeline as one file (cut.ts runs ffmpeg): its parts joined with their blends, holds, freezes and transitions,
+ * A timeline as one file (ff.ts runs ffmpeg): its parts joined with their blends, holds, freezes and transitions,
  * colour-matched at the joins, with their sound and the music under them (ducked where people speak), whole or in pieces.
  */
 
@@ -222,8 +223,8 @@ export async function joinVideosInto<T>(parts: ExportPart[], frame: { width: num
         "-y", "-loglevel", "error", ...inputs.args, ...(await graphFile(dir, `graph${k}.txt`, chains)), "-map", "[v]", "-map", "[a]", ...codec, "-c:a", "pcm_f32le", file,
       ], run);
       // where the next piece starts: the end of its longest stream, exact (the file's own duration is in milliseconds)
-      const said = await must(tools.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type,duration", "-of", "csv=p=0", file]);
-      const lengths = new Map(said.split(/\r?\n/).filter(Boolean).map((l) => [l.split(",")[0], Number(l.split(",")[1])] as const));
+      // a piece that cannot be read fails the export here, said as such: the pieces after it would start at the wrong moment
+      const lengths = new Map((await streamKinds(file)).map((s) => [s.kind, s.seconds] as const));
       const longest = Math.max(lengths.get("video") ?? 0, lengths.get("audio") ?? 0);
       ending = clock + Math.max((lengths.get("video") ?? 0) - 1 / fps, lengths.get("audio") ?? 0);
       clock += longest;

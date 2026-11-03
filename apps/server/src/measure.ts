@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { tools } from "./video";
 import { ffmpegPool } from "./pool";
-import { failureOf, FfmpegMissing, ffRun, heldLast, inTemp, type Media, missing, must, onDisk, STRIP } from "./cut";
+import { heldLast, type Media, onDisk, STRIP } from "./cut";
+import { failureOf, FfmpegMissing, ffRun, hasStream, inTemp, missing, must, streamKinds, tools } from "./ff";
 
 /**
  * Measuring videos (cut.ts runs them): how a take looks (lookOf), what its landing measures at once (takeMeasures), its
@@ -254,7 +254,7 @@ export async function meansAlong(source: Media, ext: string): Promise<FrameMeans
   });
 }
 
-/** Frame means from what signalstats printed of every frame (a metadata print). */
+/** Frame means from what signalstats printed of every frame (a metadata print): meansAlong's, and meansOf's stretch. */
 function meansIn(said: string): FrameMeans {
   const out: FrameMeans = { t: [], y: [], u: [], v: [] };
   for (const block of said.split(/^frame:/m).slice(1)) {
@@ -285,10 +285,8 @@ export function meansWithin(along: FrameMeans, fromMs: number, seconds: number):
 /** The mean luma and chroma of a stretch of a video file, for matching one clip's colour to the next. */
 export async function meansOf(file: string, fromSec: number, seconds: number): Promise<Means | null> {
   const said = await ffmpegPool(() => must(tools.ffmpeg, ["-loglevel", "error", "-ss", Math.max(0, fromSec).toFixed(3), "-t", seconds.toFixed(3), "-i", file, "-an", "-vf", "scale=96:-2,signalstats,metadata=print:file=-", "-f", "null", "-"])).catch(() => "");
-  const pick = (key: string) => [...said.matchAll(new RegExp(`lavfi\\.signalstats\\.${key}=([\\d.]+)`, "g"))].map((m) => Number(m[1]));
-  const y = pick("YAVG");
-  const u = pick("UAVG");
-  const v = pick("VAVG");
+  // read frame by frame as meansAlong's are, so that a stretch measured here and one read off those (meansWithin) agree
+  const { y, u, v } = meansIn(said);
   if (!y.length) return null;
   const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
   return { y: mean(y), u: mean(u), v: mean(v) };
@@ -359,12 +357,12 @@ async function measureAtOnce(dir: string, input: string, has: { video: boolean; 
 /** measureOf as it was first written, a stream at a time after ffprobe says which there are: for a file the one run refused (and what the tests hold the one run to). */
 export async function measureApart(input: string): Promise<{ motion: number[]; sound: number[] | null; speech: number[] | null }> {
   // a file ffprobe cannot read has nothing to measure; ffprobe not there at all is said
-  const streams = await must(tools.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", input]).catch((err: Error) => {
+  const streams = await streamKinds(input).catch((err: Error) => {
     if (err instanceof FfmpegMissing) throw err;
-    return "";
+    return [];
   });
   let motion: number[] = [];
-  if (/video/.test(streams)) {
+  if (hasStream(streams, "video")) {
     const said = await must(tools.ffmpeg, [
       "-loglevel", "error", "-i", input, "-an",
       "-vf", `fps=${MOTION_RATE},scale=96:-2,format=gray,tblend=all_mode=difference,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-`,
@@ -373,7 +371,7 @@ export async function measureApart(input: string): Promise<{ motion: number[]; s
     motion = motionIn(said);
   }
   let sound: number[] | null = null;
-  if (/audio/.test(streams)) {
+  if (hasStream(streams, "audio")) {
     const said = await must(tools.ffmpeg, [
       "-loglevel", "error", "-i", input, "-vn",
       "-af", `aresample=8000,asetnsamples=n=${8000 / MOTION_RATE}:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-`,

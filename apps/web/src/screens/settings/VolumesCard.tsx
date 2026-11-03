@@ -1,13 +1,13 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useLocation, useSearch } from "wouter";
-import { volumePerMonth } from "@afflatus/core";
+import { cents, VOLUME_MAX_GB, VOLUME_PER_GB_MONTH, VOLUME_PER_GB_MONTH_PAST_TB, volumePerMonth } from "@afflatus/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, HardDrive, MoreHorizontal, Trash2 } from "lucide-react";
 import { api, type NetworkVolume, type VolumePlan } from "../../api";
 import { ContextMenu, useMenu } from "../../ContextMenu";
 import { useSettings } from "../../data";
 import { DEPLOYED_READS } from "../../deployReads";
-import { LicenceChecks } from "../../DeployModels";
+import { GUESS_TIP, LicenceChecks } from "../../DeployModels";
 import { Dialog, DialogFoot, DialogHead, DIALOG } from "../../Dialog";
 import { est, gb, plural, usd, when } from "../../format";
 import { Keys } from "../../Keys";
@@ -18,10 +18,10 @@ import { firstFailed } from "../../sayFailed";
 import { Block, Card } from "./Rows";
 import { VolumeFiles } from "./VolumeFiles";
 
-const WHY_VOLUMES = "A network volume keeps your models between deploys: a pod on it is up in a minute with what it holds, instead of fetching them each time. It bills every month, with or without a pod ($0.07 per GB, $0.05 past the first TB), and ties its pods to its data center. One pod at a time on a volume: Afflatus never puts a second one on it. Files shows what it holds, read through the pod running on it (or with no pod running, through RunPod's S3 API, with its optional key), and deletes what you no longer need to make room.";
+const WHY_VOLUMES = `A network volume keeps your models between deploys: a pod on it is up in a minute with what it holds, instead of fetching them each time. It bills every month, with or without a pod ($${VOLUME_PER_GB_MONTH.toFixed(2)} per GB, $${VOLUME_PER_GB_MONTH_PAST_TB.toFixed(2)} past the first TB), and ties its pods to its data center. One pod at a time on a volume: Afflatus never puts a second one on it. Files shows what it holds, read through the pod running on it (or with no pod running, through RunPod's S3 API, with its optional key), and deletes what you no longer need to make room.`;
 
 /** What a volume of that size costs a month at RunPod's price, to the cent (core's volumePerMonth, as the server says it). */
-const perMonth = (gbs: number) => Math.round(volumePerMonth(gbs) * 100) / 100;
+const perMonth = (gbs: number) => cents(volumePerMonth(gbs));
 
 /** A range of minutes and dollars, as the estimates say it: "~12–18 min · $0.10–0.15". */
 const rangeSaid = (r: { fastMs: number; slowMs: number; lowUsd: number; highUsd: number }) =>
@@ -173,9 +173,6 @@ function VolumeRow({ v, stock, onAct }: { v: NetworkVolume; stock: Array<{ name:
   );
 }
 
-/** The "?" of an estimate with a guess in it: a source (or a pod's start) never measured on the user's deploys. */
-const GUESS_TIP = "Part of this was never measured on your deploys (a source the files come from, or a pod's start): that part is taken at a cautious usual speed. It is measured from the first pod that fetches one, and said from then on.";
-
 /** What a volume saves at the user's pace: the deploys of the last 30 days, each fetching the sets at the measured speeds. */
 function paysSaid(plan: VolumePlan, size: number): string {
   const cost = usd(perMonth(size));
@@ -223,7 +220,7 @@ function MakeVolume({ plan, onClose }: { plan: VolumePlan | null; onClose(): voi
         </div>
         <label className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-semibold text-ink-2">Size</span>
-          <input inputMode="numeric" aria-label="Size in GB" value={gbs} onChange={(e) => setSize(Math.min(4096, Number(e.target.value.replace(/\D/g, "")) || 0))} className={cx("h-8 w-[90px] font-mono text-xs", fieldClass)} />
+          <input inputMode="numeric" aria-label="Size in GB" value={gbs} onChange={(e) => setSize(Math.min(VOLUME_MAX_GB, Number(e.target.value.replace(/\D/g, "")) || 0))} className={cx("h-8 w-[90px] font-mono text-xs", fieldClass)} />
           <span className="text-xs text-ink-3">GB{gbs < 10 ? " · 10 at least" : ""} · {setsBytes ? `your sets take ${gb(setsBytes)}` : "no Model set yet"} · a volume grows later, never shrinks</span>
         </label>
         {plan && <span className="text-xs text-ink-2" data-tip={plan.fetch?.guessed ? GUESS_TIP : undefined}>{paysSaid(plan, gbs)}</span>}
@@ -292,7 +289,7 @@ function FillVolume({ volume, onClose }: { volume: NetworkVolume; onClose(): voi
 
 function GrowVolume({ volume, onClose }: { volume: NetworkVolume; onClose(): void }) {
   const client = useQueryClient();
-  const [size, setSize] = useState(Math.min(4096, Math.ceil((volume.size * 1.5) / 10) * 10));
+  const [size, setSize] = useState(Math.min(VOLUME_MAX_GB, Math.ceil((volume.size * 1.5) / 10) * 10));
   const grow = useMutation({
     mutationFn: () => api.growVolume(volume.id, size),
     onSuccess: () => {
@@ -305,13 +302,13 @@ function GrowVolume({ volume, onClose }: { volume: NetworkVolume; onClose(): voi
       <DialogHead icon={<HardDrive size={16} />} title={`Grow ${volume.name}`} sub={`${volume.size} GB now · ${usd(volume.perMonth)} a month`} onClose={onClose} />
       <label className="flex items-center gap-2 text-body">
         <span className="text-xs font-semibold text-ink-2">New size</span>
-        <input inputMode="numeric" aria-label="New size in GB" value={size} onChange={(e) => setSize(Math.min(4096, Number(e.target.value.replace(/\D/g, "")) || 0))} className={cx("h-8 w-[90px] font-mono text-xs", fieldClass)} />
+        <input inputMode="numeric" aria-label="New size in GB" value={size} onChange={(e) => setSize(Math.min(VOLUME_MAX_GB, Number(e.target.value.replace(/\D/g, "")) || 0))} className={cx("h-8 w-[90px] font-mono text-xs", fieldClass)} />
         <span className="text-xs text-ink-3">GB · {usd(perMonth(size))} a month · it never shrinks again</span>
       </label>
       {grow.isError && <Failed what="Volume not grown" error={grow.error} />}
       <DialogFoot>
         <Button tone="quiet" onClick={onClose}>Cancel <Keys keys="Esc" size="sm" /></Button>
-        <Button tone="primary" onClick={() => grow.mutate()} disabled={size <= volume.size || size > 4096 || grow.isPending}>Grow · {usd(perMonth(size))} a month</Button>
+        <Button tone="primary" onClick={() => grow.mutate()} disabled={size <= volume.size || size > VOLUME_MAX_GB || grow.isPending}>Grow · {usd(perMonth(size))} a month</Button>
       </DialogFoot>
     </Dialog>
   );

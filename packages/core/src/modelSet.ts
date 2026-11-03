@@ -1,6 +1,6 @@
 import type { GraphFile } from "./graphFiles";
 import type { InputSpec, LoraValue } from "./inputs";
-import { modelStem } from "./modelFiles";
+import { modelStem, pathKey } from "./modelFiles";
 import { loraFit, versionOf, type ModelInfo } from "./models";
 import type { Family } from "./recipe";
 
@@ -113,7 +113,7 @@ export function setPlaces(
   input: Readonly<Record<string, unknown>>,
   files: readonly GraphFile[],
 ): SetPlace[] {
-  const same = (a: string, b: string) => a.replace(/\\/g, "/").toLowerCase() === b.replace(/\\/g, "/").toLowerCase();
+  const same = (a: string, b: string) => pathKey(a) === pathKey(b);
   const out: SetPlace[] = [];
   for (const f of files) {
     const model = inputs.find((i) => i.type === "model" && typeof input[i.id] === "string" && same(input[i.id] as string, f.file));

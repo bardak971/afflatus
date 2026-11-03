@@ -1,11 +1,9 @@
-import { execFile } from "node:child_process";
-import { mkdtemp, open as openFile, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { open as openFile, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { inflateSync } from "node:zlib";
 import { modelStem } from "@afflatus/core";
 import { PICTURE_MOST, pictureTooLarge } from "./media";
-import { localInputs, readAs, tools } from "./video";
+import { ffRun, inTemp, readAs, tools } from "./ff";
 
 /**
  * What a picture or a video carries inside it about how it was made:
@@ -156,13 +154,15 @@ function exifUserComment(exif: Buffer): string | null {
   return body.toString("utf8").replace(/\0+$/, "");
 }
 
-/** The tags of a video or sound file on disk, read with ffprobe, their names in lower case. Empty when ffprobe is not installed. */
+/**
+ * The tags of a video or sound file on disk, read with ffprobe, their names in lower case. Empty when ffprobe is not
+ * installed or cannot read it: what a file carries is a help, never needed. Read as a stranger's file, within 30 s (a
+ * workflow in the tags can be large: 32 MB of answer at most).
+ */
 async function tagsOfFile(file: string): Promise<Record<string, string>> {
   try {
-    const out = await new Promise<string>((done) => {
-      execFile(tools.ffprobe, localInputs(readAs("stranger", ["-v", "error", "-show_entries", "format_tags", "-of", "json", file])), { encoding: "utf8", timeout: 30_000, maxBuffer: 32 * 1024 * 1024, windowsHide: true }, (err, stdout) => done(err ? "" : stdout));
-    });
-    const tags = (JSON.parse(out || "{}") as { format?: { tags?: Record<string, string> } }).format?.tags ?? {};
+    const ran = await ffRun(tools.ffprobe, readAs("stranger", ["-v", "error", "-show_entries", "format_tags", "-of", "json", file]), { timeout: 30_000, maxBuffer: 32 * 1024 * 1024 });
+    const tags = (JSON.parse((!ran.err && ran.stdout) || "{}") as { format?: { tags?: Record<string, string> } }).format?.tags ?? {};
     return Object.fromEntries(Object.entries(tags).map(([k, v]) => [k.toLowerCase(), v]));
   } catch {
     return {};
@@ -171,16 +171,11 @@ async function tagsOfFile(file: string): Promise<Record<string, string>> {
 
 /** The same for a file in memory, written to a temporary folder for ffprobe. */
 async function mediaTags(bytes: Uint8Array): Promise<Record<string, string>> {
-  const dir = await mkdtemp(join(tmpdir(), "afflatus-tags-"));
-  try {
+  return inTemp(async (dir) => {
     const file = join(dir, "in.bin");
     await writeFile(file, bytes);
-    return await tagsOfFile(file);
-  } catch {
-    return {};
-  } finally {
-    await rm(dir, { recursive: true, force: true }).catch(() => {});
-  }
+    return tagsOfFile(file);
+  }, "tags").catch(() => ({}));
 }
 
 // ---------------------------------------------------------------- A1111 text

@@ -1,3 +1,4 @@
+import { pathKey } from "@afflatus/core";
 import { useMemo } from "react";
 import type { FilePlaces, OfferedFile } from "./api";
 import { useSettings, useSetup } from "./data";
@@ -24,7 +25,6 @@ export interface FolderPlaces {
 }
 
 /** A file's name as two lists compare it: its slashes one way, its case aside (Windows lists one, a pod the other). */
-const keyOf = (file: string) => file.replace(/\\/g, "/").toLowerCase();
 
 /** The pure part of useFilePlaces, for a folder: `machines` are the settings' (names, which are pods). */
 export function folderPlaces(places: FilePlaces | undefined, folder: string | undefined, machines: ReadonlyArray<{ id: string; name: string; url: string; rented?: unknown }>): FolderPlaces {
@@ -56,10 +56,10 @@ export function folderPlaces(places: FilePlaces | undefined, folder: string | un
       return `On ${ids.map(pod).join(", ")}`;
     },
     offered: (listed) => {
-      const have = new Set(listed.map(keyOf));
+      const have = new Set(listed.map(pathKey));
       const seen = new Set<string>();
       return offeredHere.flatMap((o: OfferedFile): Option[] => {
-        const key = keyOf(o.file);
+        const key = pathKey(o.file);
         if (have.has(key) || seen.has(key)) return [];
         seen.add(key);
         // the pod's state after the place, not inside it: "On pod A40's volume · stopped"
@@ -74,7 +74,7 @@ export function folderPlaces(places: FilePlaces | undefined, folder: string | un
 
 /** Whether a stopped pod holds or fetches a file of a folder (its volume, its deploy's set) that no answering ComfyUI lists. */
 export function isOffered(places: FilePlaces | undefined, folder: string | undefined, file: string): boolean {
-  return Boolean(folder && places?.offered[folder]?.some((o) => keyOf(o.file) === keyOf(file)));
+  return Boolean(folder && places?.offered[folder]?.some((o) => pathKey(o.file) === pathKey(file)));
 }
 
 const NONE: never[] = [];

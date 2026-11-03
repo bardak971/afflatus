@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
-import { createHash, createPublicKey, verify } from "node:crypto";
-import { createReadStream, existsSync } from "node:fs";
+import { createPublicKey, verify } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { sql } from "kysely";
+import { sha256File } from "./fsUtil";
 import { environment, envSaid } from "./config";
 import { now, toRun } from "./db";
 import { httpError } from "./errors";
@@ -56,13 +57,6 @@ export function readSums(text: string): Map<string, string> {
     if (m) sums.set(m[2]!.trim(), m[1]!.toLowerCase());
   }
   return sums;
-}
-
-function sha256Of(path: string): Promise<string> {
-  return new Promise((done, fail) => {
-    const hash = createHash("sha256");
-    createReadStream(path).on("data", (d) => hash.update(d)).on("end", () => done(hash.digest("hex"))).on("error", fail);
-  });
 }
 
 // ---------------------------------------------------------------- unpacking and running
@@ -216,7 +210,7 @@ export class UpdatesInstall extends UpdatesCheck {
     if (!expected) throw new Refused(`The signed list of checksums does not name ${asset.name}, so it was not used`);
     const archive = join(dir, asset.name);
     // an archive downloaded before (an update stopped while it waited) is used again when it is the one signed
-    let sha = existsSync(archive) ? await sha256Of(archive) : null;
+    let sha = existsSync(archive) ? await sha256File(archive) : null;
     if (sha !== expected) {
       await rm(archive, { force: true });
       sha = (await fetchOne(asset, (bytes, total) => this.set({ bytes, total: total || asset.size }, false))).sha256;

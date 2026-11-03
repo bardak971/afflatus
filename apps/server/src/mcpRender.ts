@@ -1,5 +1,5 @@
 import { setTimeout as sleep } from "node:timers/promises";
-import { notFilled, plural, verb, type Recipe } from "@afflatus/core";
+import { cents, notFilled, plural, usd, usdFor, verb, type Recipe } from "@afflatus/core";
 import { z } from "zod";
 import type { Tables } from "./db";
 import { compose, lookSchema, withMentions, type Look } from "./entities";
@@ -11,7 +11,6 @@ import { needsComfy } from "./queueOffline";
 import { formArgs, formAsked, machineName, machineOf, seen, spends, wholeOf, type Seen } from "./mcpForms";
 import { quoted, tool, type ToolCtx } from "./mcpTool";
 import { refusal } from "./mcpTokens";
-import { dollars } from "./notifyWords";
 import { runwayNeed } from "./rentedBilling";
 import { EXPORT_JOB } from "./timelineModel";
 import type { Services } from "./services";
@@ -30,7 +29,6 @@ import { readSettings, type Machine } from "./settings";
  * (`mcp-render:<token>`): two renders at once both passed a cap that holds one.
  */
 
-const HOUR = 3_600_000;
 
 /** A pod in these states takes no job now (stopped, terminated, gone from the account, failed): only a render pinned there may wait for it. */
 const IDLE_POD = new Set(["EXITED", "TERMINATED", "GONE", "ERROR"]);
@@ -82,7 +80,7 @@ async function mayCostEach(s: Services, recipe: string | null, input: unknown, p
     // a pod whose price is not known yet cannot be held to a cap: nothing goes there through a token until it is
     const rate = rates.get(pod.id)?.rate;
     if (rate === null || rate === undefined) throw refusal(`${unpriced(pod)}: pin the render to another machine, or wait until the pod is up.`);
-    most = Math.max(most, (ms / HOUR) * rate);
+    most = Math.max(most, usdFor(ms, rate));
   }
   return most;
 }
@@ -164,7 +162,7 @@ export const CAP_FULL = "its MCP token's spend cap has no room for it on a rente
  * this job, and this job, so that the row says why it waits and not only that it does.
  */
 const capFull = (cap: number, spent: number, ahead: number, cost: number) =>
-  `${CAP_FULL} (${dollars(cap)} a month): ${dollars(spent)} spent this month, ${dollars(ahead)} for its work running and waiting ahead, ${dollars(cost)} for this one, ${dollars(spent + ahead + cost)} in all. Raise the cap in Settings › Agents (MCP), or it runs on a machine of the user's own`;
+  `${CAP_FULL} (${usd(cap)} a month): ${usd(spent)} spent this month, ${usd(ahead)} for its work running and waiting ahead, ${usd(cost)} for this one, ${usd(spent + ahead + cost)} in all. Raise the cap in Settings › Agents (MCP), or it runs on a machine of the user's own`;
 
 /**
  * The jobs among these, queued by MCP tokens with Spend, that no rented pod takes this pass, each with why (the planner,
@@ -406,7 +404,7 @@ export async function renderForm(args: { draft?: string; form?: string; values?:
     const usd = await mayQueue(s, ctx, at, { recipe: form.recipe.id, input: form.input, takes, machine });
     const ids = await queueRender(s, jobBody.parse({ recipe: form.recipe.id, input: form.input, count: takes, look: form.look, draft: form.draft?.id, label: args.label, machine: machine?.id }), { mcpToken: token.id });
     ctx.said(`Rendered ${plural(takes, "take")} of ${quoted(form.name)}${machine ? ` on ${quoted(machineName(machine))}` : ""}`);
-    return { jobs: ids, takes, on: machine ? machineName(machine) : spends(ctx) ? "wherever the queue ends it first" : "the user's own machines (this token has no Spend)", ...(usd ? { mayCostUsd: Math.round(usd * 100) / 100 } : {}) };
+    return { jobs: ids, takes, on: machine ? machineName(machine) : spends(ctx) ? "wherever the queue ends it first" : "the user's own machines (this token has no Spend)", ...(usd ? { mayCostUsd: cents(usd) } : {}) };
   });
 }
 

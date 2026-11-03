@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { fileKey } from "@afflatus/core";
-import { api, type DeployAsk, type DeployFile, type DeployModels as View, type MeasuredRange, type PresetFile } from "./api";
+import { fetchTime, fileKey, usdFor } from "@afflatus/core";
+import { api, type DeployAsk, type DeployFile, type DeployModels as View, type PresetFile } from "./api";
 import { est, gb, plural, size, usd } from "./format";
 import { openFindModels, useFind, type FindTarget } from "./findModels/store";
 import { ViaChip } from "./modelFilesUi";
@@ -11,7 +11,7 @@ import { useSayFailed } from "./sayFailed";
 import { Select } from "./Select";
 import { Button, Checkbox, CloseButton, cx, Failed, fieldClass, Help } from "./ui";
 
-const WHY_MODELS = "What the pod gets once it is up, straight from Hugging Face or Civitai (a file no site is known for is sent from this PC). Your waiting jobs' files come first, in the order the queue needs them: a job starts as soon as its own files are there. A job whose file you untick stays home. Fetching is billed GPU time: the time and price are measured on your own deploys (the speeds of each source), or not said. A file fetched never keeps the pod: with nothing to render it goes idle and ends on time.";
+const WHY_MODELS = "What the pod gets once it is up, straight from Hugging Face or Civitai (a file no site is known for is sent from this PC). Your waiting jobs' files come first, in the order the queue needs them: a job starts as soon as its own files are there. A job whose file you untick stays home. Fetching is billed GPU time: the time and price are measured on your own deploys (the speeds of each source); before a pod has fetched from a source, its usual speed is taken, slow end cautious, and said as a guess. A file fetched never keeps the pod: with nothing to render it goes idle and ends on time.";
 
 /** What the Models part asks the deploy to bring: the files ticked, the job files left out, the licences accepted, and whether it may go. */
 export interface ModelsPicked {
@@ -51,19 +51,17 @@ function FileRow({ f, on, onChange, note, dim, disabled }: { f: DeployFile; on: 
   );
 }
 
-/** How long these files take, slowest to fastest (ms), at the speeds measured; null when a source of them was never measured. */
-function timeOf(files: DeployFile[], speeds: View["speeds"]): { fast: number; slow: number } | null {
-  let fast = 0;
-  let slow = 0;
-  for (const f of files) {
-    if (!f.size || !f.via) continue;
-    const r: MeasuredRange | null = speeds[f.via];
-    if (!r) return null;
-    fast += (f.size / r.high) * 1000;
-    slow += (f.size / r.low) * 1000;
-  }
-  return { fast, slow };
+/**
+ * How long these files take, slowest to fastest (ms), at the speeds measured, or guessed for a source never measured (core's
+ * fetchTime, as the server times a fill and the queue): Deploy said "not known yet" exactly where the others guessed.
+ */
+function timeOf(files: DeployFile[], speeds: View["speeds"]): { fast: number; slow: number; guessed: boolean } {
+  const t = fetchTime(files.map((f) => ({ bytes: f.size, kind: f.via })), speeds);
+  return t ? { fast: t.fastMs, slow: t.slowMs, guessed: t.guessed } : { fast: 0, slow: 0, guessed: true };
 }
+
+/** The tip of a time or price that holds a guess (here, and a volume's plan in Settings › Rented GPUs). */
+export const GUESS_TIP = "Part of this was never measured on your deploys (a source the files come from, or a pod's start): that part is taken at a cautious usual speed. It is measured from the first pod that fetches one, and said from then on.";
 
 /**
  * Deploy a GPU's Models: the waiting jobs' files (ticked), a Model set's, and any file found by words; what that comes to,
@@ -124,7 +122,7 @@ export function DeployModels({ want, set, rate, gpu, onPicked }: { want: DeployA
     what: gpu ? `Deploy · ${gpu}` : "this deploy", action: "Add to this deploy", add,
     estimate: (files) => {
       const t = v ? timeOf(files, v.speeds) : null;
-      return t && rate !== null ? `${est(t.fast)}–${est(t.slow).replace(/^~/, "")} · ${usd((t.fast / 3_600_000) * rate, true)}–${usd((t.slow / 3_600_000) * rate, true)}` : null;
+      return t && rate !== null ? `${est(t.fast)}–${est(t.slow).replace(/^~/, "")} · ${usd(usdFor(t.fast, rate), true)}–${usd(usdFor(t.slow, rate), true)}${t.guessed ? " (a guess)" : ""}` : null;
     },
   }), [gpu, add, v, rate]);
   // open, it follows this dialog: a GPU picked anew, its rate, or the speeds read again (another cloud) give it a new estimate
@@ -190,12 +188,14 @@ export function DeployModels({ want, set, rate, gpu, onPicked }: { want: DeployA
               {uploadBytes > 0 && ` · ${size(uploadBytes)} from this PC`}
               {unknownSizes > 0 && ` · ${plural(unknownSizes, "file")} of a size not known yet`}
               {" · "}
-              {time && rate !== null
-                ? <>{est(time.fast)}–{est(time.slow).replace(/^~/, "")} · <b className="text-ink">{usd((time.fast / 3_600_000) * rate, true)}–{usd((time.slow / 3_600_000) * rate, true)}</b> at {usd(rate)}/h</>
-                : "time and price not known yet: measured from your first deploy"}
+              {time && <>
+                {est(time.fast)}–{est(time.slow).replace(/^~/, "")}
+                {rate !== null ? <> · <b className="text-ink">{usd(usdFor(time.fast, rate), true)}–{usd(usdFor(time.slow, rate), true)}</b> at {usd(rate)}/h</> : " · its price once a GPU is picked"}
+                {time.guessed && <span data-tip={GUESS_TIP}> · a guess until a pod has fetched one of each source</span>}
+              </>}
             </span>)}
-            {v.boot && first && rate !== null && firstFiles.length > 0 && (
-              <span>Before your first render: up in {est(v.boot.high)}, then its {gb(firstFiles.reduce((n, f) => n + (f.size ?? 0), 0))} · <b className="text-ink">{est(v.boot.high + first.slow)} · ~{usd(((v.boot.high + first.slow) / 3_600_000) * rate, true)}</b></span>
+            {first && rate !== null && firstFiles.length > 0 && (
+              <span data-tip={v.boot.guessed || first.guessed ? GUESS_TIP : undefined}>Before your first render: up in {est(v.boot.high)}, then its {gb(firstFiles.reduce((n, f) => n + (f.size ?? 0), 0))} · <b className="text-ink">{est(v.boot.high + first.slow)} · ~{usd(usdFor(v.boot.high + first.slow, rate), true)}</b>{v.boot.guessed || first.guessed ? " · a guess" : ""}</span>
             )}
             {!ready && <span className="text-warn-ink">Accept the licence above to deploy with those files.</span>}
           </div>

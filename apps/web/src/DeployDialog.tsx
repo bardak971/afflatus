@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { cudaFits, shortGpu, type RankedGpu } from "@afflatus/core";
+import { cudaFits, diskPerHour, perGbMonth, RUNNING_DISK_PER_GB_MONTH, shortGpu, VOLUME_PER_GB_MONTH, type RankedGpu } from "@afflatus/core";
 import { useLocation } from "wouter";
 import { Bookmark, ChevronDown, CircleAlert, Cpu, RotateCw, Search } from "lucide-react";
 import { ContextMenu, useMenu } from "./ContextMenu";
@@ -16,7 +16,7 @@ import { gb, minutesSaid, plural, spell, usd } from "./format";
 import { useDebounced, useNow } from "./hooks";
 import { ceilingFor, deploySaid, firstPick } from "./huntSaid";
 import { Keys } from "./Keys";
-import { diskPerHour, IDLE_MINUTES } from "./machines";
+import { IDLE_MINUTES } from "./machines";
 import { queryKeys } from "./queryKeys";
 import { Select } from "./Select";
 import { useSayFailed } from "./sayFailed";
@@ -38,7 +38,7 @@ const WHY_CU128 = "No host of this GPU with a driver for CUDA 13 is free now: th
 const WHY_CUDA = "The CUDA build of the Afflatus image: the same PyTorch, for a host whose driver runs CUDA 13, or for an older driver (12.8). The same GPU can sit on either kind of host. 12.8 renders slower: on 13.0, a GPU whose free hosts are all older is not deployed but asked about, and a hunt waits for a CUDA 13 host. Either: 13.0 where it can, 12.8 where it cannot. Each pod's build is on its card and in Render times.";
 
 /** The list's price is the GPU's alone, as RunPod lists it and as the hunt's ceiling reads it: the pod's own disk is added on Deploy. */
-const WHY_PRICE = "RunPod's price of the GPU an hour. The pod's own disk adds to it while it runs ($0.10/GB a month): Deploy says the two together, its tip each part.";
+const WHY_PRICE = `RunPod's price of the GPU an hour. The pod's own disk adds to it while it runs (${perGbMonth(RUNNING_DISK_PER_GB_MONTH)}): Deploy says the two together, its tip each part.`;
 /** The list's $ / render: the hunt's ranking of the renders waiting (gpuRank.ts), its value order with its ties and guesses. */
 const WHY_RENDER = "What a render of those waiting costs on that GPU: its time there for these forms (from your own renders on it, else a guess from a GPU you rendered on) times its price, with its share of a deploy's usual boot and idle. Sorted by it, the order is the hunt's best value: within 10 %, the faster GPU first; a guess counted 30 % dearer. Nothing waiting, or no time known: sorted by price.";
 /** The columns the list of GPUs sorts by: a click on one sorts by it, a second click the other way. */
@@ -57,7 +57,7 @@ const WHY_TEMPLATE = "Afflatus: ComfyUI 0.37 with its Manager, the Afflatus node
 const WHY_CLOUD = "Secure Cloud: RunPod's own data centers. Community Cloud: hosts run by others, cheaper, fewer guarantees: some have a GPU that does not work (the Afflatus image finds it at its start, and the pod is terminated within minutes, its pull time billed). Both bill by the second while the pod exists.";
 /** GB kept free on a pod's own disk beside its models (its outputs, the .part of a download): podFiles.ts DISK_MARGIN, and a little more. */
 const DISK_ROOM = 3;
-const WHY_DISK = "No volume: the models are fetched onto the pod's own disk at each deploy, and go with it when it is terminated ($0.10/GB a month while it runs, nothing after). A network volume keeps them between deploys, so a pod is ready in a minute ($0.07/GB a month, billed with or without a pod), and ties the pod to the volume's data center.";
+const WHY_DISK = `No volume: the models are fetched onto the pod's own disk at each deploy, and go with it when it is terminated (${perGbMonth(RUNNING_DISK_PER_GB_MONTH)} while it runs, nothing after). A network volume keeps them between deploys, so a pod is ready in a minute (${perGbMonth(VOLUME_PER_GB_MONTH)}, billed with or without a pod), and ties the pod to the volume's data center.`;
 const WHY_ROOM = "When a model its jobs need does not fit on its disk, Afflatus first deletes models it fetched there that no waiting or running job needs, the longest unused first, and fetches them again if a job needs them later. It never deletes a file it did not fetch (the image's, a volume's own). Off: a job whose models do not fit goes to another machine, and its row says why. Off by default with a network volume, whose models are kept on purpose.";
 const WHY_DONE = "Idle: nothing rendering on it and nothing waiting that it could take. Terminate: nothing billed after, nothing left on RunPod (the pod, its secret). Watchdog: if this PC goes silent (crash, sleep, no internet), the node pack on the pod stops it by itself after that long (Afflatus's image only).";
 

@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { ChevronRight, Film, PenLine, Zap } from "lucide-react";
+import { usdFor } from "@afflatus/core";
 import { api, type CostsView, type PodSession, type ProjectCost, type RenderCostRow } from "../../api";
 import { Dialog, DialogHead } from "../../Dialog";
 import { dayMonth, est, gb, hourMinute, long, plural, spell, usd, UI_LOCALE } from "../../format";
@@ -273,7 +274,7 @@ function SessionRow({ s, longest, split }: { s: PodSession; longest: number; spl
               {s.bootLog && <>{s.dataCenter || s.hostCuda || s.pull ? " · " : ""}<a href={`/api/rented/sessions/${encodeURIComponent(s.id)}/boot-log`} target="_blank" rel="noreferrer" className="font-semibold text-accent hover:underline">boot log</a></>}
             </span>
           )}
-          {s.parts.outside > 0 && <span className="text-ink-3" data-tip={OUTSIDE_WHY}>Outside Afflatus: {long(s.parts.outside)}, {usd((s.parts.outside / 3_600_000) * s.rate, true)}</span>}
+          {s.parts.outside > 0 && <span className="text-ink-3" data-tip={OUTSIDE_WHY}>Outside Afflatus: {long(s.parts.outside)}, {usd(usdFor(s.parts.outside, s.rate), true)}</span>}
           {s.renders.length ? s.renders.map((r) => (
             // the time's column holds the longest spell() gives on one line ("59 min 59 s"): at 64px it wrapped
             <span key={r.id} className="grid grid-cols-[48px_minmax(0,1fr)_88px_64px] items-center gap-2">

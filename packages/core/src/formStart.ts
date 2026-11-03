@@ -1,4 +1,5 @@
 import { chosenDefaults, formModelInput, OWN_MODEL, pickChoice, RANDOM_SEED, ruledDefaults, withoutOldZeros, type InputSpec, type StartRule } from "./inputs";
+import { nameKey } from "./modelFiles";
 import { modelStart, type Preset } from "./recipe";
 
 /**
@@ -102,8 +103,6 @@ export function notFilled(recipe: Pick<FormRecipe, "inputs">, input: Record<stri
   return null;
 }
 
-const baseName = (f: string) => (f.split(/[\\/]/).pop() ?? f).toLowerCase();
-
 /**
  * A preset's model files, as this ComfyUI names them: a preset made elsewhere says "model.safetensors",
  * ComfyUI here may keep it as "High\\model.safetensors". The same file by name is taken for the same file.
@@ -115,7 +114,7 @@ export function matchFiles(recipe: Pick<FormRecipe, "inputs">, options: Record<s
     const list = options?.[i.id] ?? [];
     const value = out[i.id] as string;
     if (!list.includes(value)) {
-      const same = list.find((o) => baseName(o) === baseName(value));
+      const same = list.find((o) => nameKey(o) === nameKey(value));
       if (same) out[i.id] = same;
     }
   }

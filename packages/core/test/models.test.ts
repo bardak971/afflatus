@@ -53,6 +53,9 @@ describe("how well a LoRA suits the very model in use", () => {
     const model = "Illustrious\\waiNSFWIllustrious_v140.safetensors";
     expect(modelFit(model, "style.safetensors", { base: "SDXL", trainedOn: "waiNSFWIllustrious_v140" })).toBe(2);
     expect(modelFit(model, "style.safetensors", { base: "SDXL", trainedOn: "illustriousXL_v01" })).toBe(1);
+    // only a model's extension comes off a name: "sd_xl_base_1.0" was cut to "sd_xl_base_1" and never matched its model
+    expect(modelFit("sd_xl_base_1.0.safetensors", "detail.safetensors", { base: "SDXL", trainedOn: "sd_xl_base_1.0" })).toBe(2);
+    expect(modelFit("SDXL\\sd_xl_base_1.0.safetensors", "detail.safetensors", { base: "SDXL", trainedOn: "SD_XL_BASE_1.0.safetensors" })).toBe(2);
     expect(modelFit(model, "IL\\style_ilxl.safetensors", { base: "SDXL" })).toBe(1);
     expect(modelFit(model, "style.safetensors", { base: "SDXL", trainedOn: "ponyDiffusionV6XL" })).toBe(-1);
     expect(modelFit(model, "Pony\\style.safetensors")).toBe(-1);

@@ -19,8 +19,9 @@ const LOGIN_ID = /^[0-9a-f]{32}$/;
 
 /**
  * The Afflatus node pack's lock, as lock.py does it: once locked, every route needs the token (Bearer, `?token=` on the
- * websocket, or the login cookie), else a 401 that says it is the lock; with `local`, a call from this machine through no
- * proxy gets in without it (every call to the fake comes from this machine). And its routes: the state, lock, unlock,
+ * websocket, or the login cookie), else a 401 that says it is the lock; with `local`, a browser's call through no proxy
+ * gets in without it (every call to the fake comes from this machine; a program needs the pack's local key, which the fake
+ * has none of). And its routes: the state, lock, unlock,
  * a one-time login code, the logins still good, and the login page. A login cookie names its login and holds while
  * Afflatus names it (no lease here: lock.py's tests have it), or always for the token's.
  */
@@ -36,7 +37,8 @@ export function fakeLock(fake: FakeState) {
     const sent = String(headers.cookie ?? "").split(/;\s*/).find((c) => c.startsWith(`${COOKIE}=`))?.slice(COOKIE.length + 1) ?? "";
     const login = sent.split(".")[0] ?? "";
     if (sent === cookieOf(lock.token, login) && (login === TOKEN_LOGIN || fake.logins.includes(login))) return true;
-    return lock.local && !headers["x-forwarded-for"] && !headers.forwarded;
+    const site = String(headers["sec-fetch-site"] ?? "");
+    return lock.local && !headers["x-forwarded-for"] && !headers.forwarded && !headers.via && (site === "same-origin" || site === "none");
   };
   const loginsOf = (got: unknown): string[] | null => (Array.isArray(got) && got.every((x) => typeof x === "string" && LOGIN_ID.test(x)) ? (got as string[]) : null);
   const isJson = (r: FakeRequest) => /^application\/json\b/.test(String(r.headers["content-type"] ?? ""));

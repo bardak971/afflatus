@@ -1,4 +1,5 @@
 import type { BootMs, BootPart, CostPart, CostsView, PartMs, PodSession } from "../../api";
+import { monthStart, usdFor } from "@afflatus/core";
 import { gb, long, plural, spell, usd } from "../../format";
 
 /**
@@ -21,10 +22,7 @@ export const COST_PRESETS: ReadonlyArray<{ label: string; ms: number | null | "m
 export function presetWindow(label: string, now = Date.now()): { from: number; to: number } | null {
   const p = COST_PRESETS.find((x) => x.label === label) ?? COST_PRESETS[4]!;
   if (p.ms === null) return null;
-  if (p.ms === "month") {
-    const d = new Date(now);
-    return { from: new Date(d.getFullYear(), d.getMonth(), 1).getTime(), to: now };
-  }
+  if (p.ms === "month") return { from: monthStart(now), to: now };
   return { from: now - p.ms, to: now };
 }
 
@@ -159,7 +157,7 @@ export function bootSaid(s: Pick<PodSession, "boot" | "rate" | "startFailed" | "
       // a boot's part not recorded is said as booting: "earlier boots" is the window's word for those boots, not a session's
       const what = b.part === "startFailed" ? `failed start${s.startFailed ? ` at "${s.startFailed}"` : ""}` : b.part === "boot" ? "booting" : lowerFirst(b.name);
       const packs = b.part === "packs" && s.packs.length ? ` (${s.packs.map((p) => `${p.pack} ${spell(p.ms)}`).join(", ")})` : "";
-      return `${what} ${long(ms)}, ${usd((ms / HOUR) * s.rate, true)}${packs}`;
+      return `${what} ${long(ms)}, ${usd(usdFor(ms, s.rate), true)}${packs}`;
     })
     .join(" · ")}`;
 }

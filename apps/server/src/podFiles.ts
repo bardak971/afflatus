@@ -1,3 +1,4 @@
+import { Kept } from "./kept";
 import { fileName } from "./media";
 import { civitaiVersion, keyFor } from "./civitai";
 import type { Comfy } from "./comfy";
@@ -714,41 +715,28 @@ export class PodFiles {
     return ms;
   }
 
-  private readonly sources = new Map<string, { at: number; value: Promise<PodSource | null> }>();
+  private readonly sources = new Kept<PodSource | null>({ ttlMs: KEEP_MS });
   /** Where a file comes from (podSources.ts), kept a minute; `live`: a site may be asked (a pod's fetch, the queue's plan for it). */
   private sourceOf(f: PodFileWant, live: boolean): Promise<PodSource | null> {
     // the source given is part of the key: a set's Civitai version is not taken for a job's file with none; and what is
     // known only is not taken for what a site was asked
     const key = `${keyOf(f.folder, f.file)}|${f.url ?? ""}|${f.civitai?.version ?? ""}|${live ? "live" : "known"}`;
-    const kept = this.sources.get(key);
-    if (kept && Date.now() - kept.at < KEEP_MS) return kept.value;
-    const value = podSource(this.d.lookup, { file: f.file, folder: f.folder, ...(f.url ? { url: f.url } : {}), ...(f.civitai ? { civitai: f.civitai } : {}) }, { live });
     // a lookup that failed (the database) is not kept: asked again next time, not taken for "no source" a minute long
-    value.catch(() => this.sources.delete(key));
-    const safe = value.catch(() => null);
-    this.sources.set(key, { at: Date.now(), value: safe });
-    return safe;
+    return this.sources.get(key, () => podSource(this.d.lookup, { file: f.file, folder: f.folder, ...(f.url ? { url: f.url } : {}), ...(f.civitai ? { civitai: f.civitai } : {}) }, { live })).catch(() => null);
   }
 
-  private readonly ranges = new Map<string, { at: number; value: Promise<Range | null> }>();
+  private readonly ranges = new Kept<Range | null>({ ttlMs: KEEP_MS });
   private rangeOf(kind: Exclude<MeasureKind, "boot">, cloud: string | null): Promise<Range | null> {
     const key = `${kind}|${cloud ?? ""}`;
-    const kept = this.ranges.get(key);
-    if (kept && Date.now() - kept.at < KEEP_MS) return kept.value;
-    const value = measuredRange(this.d.db, kind, cloud).catch(() => null);
-    this.ranges.set(key, { at: Date.now(), value });
-    return value;
+    // a read that failed is not kept a minute as "never measured" (it was): asked again at the next pass
+    return this.ranges.get(key, () => measuredRange(this.d.db, kind, cloud)).catch(() => null);
   }
 
-  private readonly sizes = new Map<string, { at: number; value: Promise<number> }>();
+  private readonly sizes = new Kept<number>({ ttlMs: KEEP_MS });
   /** A file's size before it is fetched, kept a minute: the queue asks for every waiting job at every pass. */
   private sizeOf(f: PodFileWant, src: PodSource): Promise<number> {
     const key = keyOf(f.folder, f.file);
-    const kept = this.sizes.get(key);
-    if (kept && Date.now() - kept.at < KEEP_MS) return kept.value;
-    const value = this.readSize(f, src);
-    this.sizes.set(key, { at: Date.now(), value });
-    return value;
+    return this.sizes.get(key, () => this.readSize(f, src));
   }
 
   /**
@@ -767,7 +755,8 @@ export class PodFiles {
       }
       return 0;
     };
-    if (src.kind === "url" && !src.sha256) {
+    // a family's own file has its hash too (a pickle's), which says nothing of this computer's copy of that name
+    if (src.kind === "url" && (!src.sha256 || isOfficialFile(this.d.lookup.families(), { url: src.url, file: f.file }))) {
       const named = await presetSize();
       if (named) return named;
       if ((await this.d.settings().catch(() => null))?.civitaiLookups) {
@@ -1030,7 +1019,8 @@ export class PodFiles {
         const found = await civitaiVersion(src.version, src.pick ?? name, settings.civitaiKey, src);
         if (!found?.file.downloadUrl) throw new Error("Civitai lists no file of that version to download");
         source = found.file.downloadUrl;
-        headers = settings.civitaiKey ? { Authorization: `Bearer ${settings.civitaiKey}` } : undefined;
+        // the key to Civitai alone (keyFor): the address is the one its answer names, which may be any host's
+        headers = keyFor(source, settings);
         total = Math.round((found.file.sizeKB ?? 0) * 1024) || total;
         // the pack checks the file against it before naming it: a part written wrong is never a model ComfyUI loads
         sha256 = found.file.hashes?.SHA256 ?? src.sha256;
@@ -1080,7 +1070,7 @@ export class PodFiles {
       // later pod got the file over the home line once it was free (the 0.9.0 review, M3)
       if (was?.kind === "civitai" && !keyMayDo(why) && !isPaidSaid(why)) await closeVersion(this.d.lookup, e.folder, was.version).catch((err: Error) => console.warn(`[pod files] a refused version not kept: ${err.message}`));
       // what was known of where it comes from is asked afresh: the version just closed is no longer taken
-      for (const key of this.sources.keys()) if (key.startsWith(`${keyOf(e.folder, e.file)}|`)) this.sources.delete(key);
+      this.sources.deleteWhere((key) => key.startsWith(`${keyOf(e.folder, e.file)}|`));
       // the bytes the refused source would have given, when known: this computer's copy is sent only if it has them
       const known = e.sha256 ?? (was && was.kind !== "upload" ? was.sha256 : undefined);
       let next = await this.sourceOf(e, true);

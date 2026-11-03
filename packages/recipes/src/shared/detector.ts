@@ -1,11 +1,18 @@
 import type { ChoiceInput } from "@afflatus/core";
 import { FACE_DETECTOR_PREFER } from "../sdxl/common";
 
+/**
+ * Bingsu's adetailer files at the commit their hashes were read from (2026-11-03), not at `main`: Ultralytics loads a .pt
+ * as a pickle (code), and a branch moves at its owner's word (or a stolen account's). The hashes are checked before a file
+ * is named, on this computer and on a pod.
+ */
+export const ADETAILER = "https://huggingface.co/Bingsu/adetailer/resolve/53cc19de382014514d9d4038601d261a7faa9b7b";
+
 /** The face detector, a slot of its own for the families that find faces with it (H3's Face refine too). */
 export const FACE_DETECTOR_SLOT = {
   id: "faceDetector", label: "Face detector (Face refine)", folder: "ultralytics", detect: ["face_yolov8m", "face_yolo"], optional: true,
   hint: "Optional, 52 MB: the YOLOv8 face detector Face refine finds faces with, in ComfyUI's models/ultralytics/bbox folder (needs the Impact Subpack).",
-  get: { file: "bbox/face_yolov8m.pt", url: "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt" },
+  get: { file: "bbox/face_yolov8m.pt", url: `${ADETAILER}/face_yolov8m.pt`, sha256: "717923c19b3f4bbf5250b728f1fa6b2cb72a33aed1d236ea9caf0e21ad943e5f" },
 };
 
 /**
@@ -18,7 +25,7 @@ export const DETECTOR_SLOTS = [
   {
     id: "handDetector", label: "Hand detector (Hand refine)", folder: "ultralytics", detect: ["hand_yolo"], optional: true,
     hint: "Optional, 23 MB: a YOLOv8 hand detector, in ComfyUI's models/ultralytics/bbox folder. Hand refine finds hands with it (Face refine with this detection model).",
-    get: { file: "bbox/hand_yolov8s.pt", url: "https://huggingface.co/Bingsu/adetailer/resolve/main/hand_yolov8s.pt" },
+    get: { file: "bbox/hand_yolov8s.pt", url: `${ADETAILER}/hand_yolov8s.pt`, sha256: "70b540063fbc385736d8258970744a4afbc4cbf7932134bae3b24cdadeadec06" },
   },
 ];
 

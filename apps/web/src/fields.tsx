@@ -1,8 +1,8 @@
 import { useId } from "react";
-import { addedRows, pickChoice, RANDOM_SEED, partFit, secondsOf, type PartFit, type ClipValue, type CueValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
+import { addedRows, folderOfFileInput, pickChoice, RANDOM_SEED, partFit, secondsOf, type PartFit, type ClipValue, type CueValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import type { FamilyInfo } from "./api";
 import { useCastPictures, useCastVoice } from "./castPictures";
-import { FileSelect, FOLDER_OF, ModelField } from "./fields/FileSelect";
+import { FileSelect, ModelField } from "./fields/FileSelect";
 import { Loras, type MainText } from "./fields/Loras";
 import { PromptField } from "./fields/PromptField";
 import { SeedField } from "./fields/SeedField";
@@ -179,7 +179,7 @@ export function Field({ spec, value, values, specs, options, setup, family, mode
             // fixed options said in other words than their values, each with what it does (the upscale routes)
             <Select id={id} label={spec.label} value={current} onChange={onChange} options={all.map((o) => ({ value: o, label: said(o), detail: spec.details?.[o] }))} />
           ) : (
-            <FileSelect id={id} label={spec.label} value={current} onChange={onChange} files={all.includes(current) ? all : [current, ...all]} folder={Array.isArray(spec.options) ? undefined : FOLDER_OF[spec.options.input]} />
+            <FileSelect id={id} label={spec.label} value={current} onChange={onChange} files={all.includes(current) ? all : [current, ...all]} folder={Array.isArray(spec.options) ? undefined : folderOfFileInput(spec.options.node, spec.options.input) ?? undefined} />
           )}
         </FieldRow>
       );

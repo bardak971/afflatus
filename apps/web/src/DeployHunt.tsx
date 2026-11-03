@@ -1,5 +1,5 @@
 import { useRef, type ReactNode } from "react";
-import type { RankedGpu } from "@afflatus/core";
+import { perGbMonth, RUNNING_DISK_PER_GB_MONTH, type RankedGpu } from "@afflatus/core";
 import type { DeployOverhead, HuntAsk } from "./api";
 import { useQueue } from "./data";
 import { minutesSaid, usd } from "./format";
@@ -8,7 +8,7 @@ import { Select } from "./Select";
 import { Checkbox, Chip, cx, ErrorNote, Help, NumberBox, Segmented } from "./ui";
 
 /** The ceiling is the GPU's price, as the ranking's prices are: the disk's part depends on the disk picked, not on the GPU. */
-const WHY_CEILING = "The highest price an hour of the GPU itself, as RunPod lists it and as the table below says it. The pod's own disk adds a little to it while it runs ($0.10/GB a month); a network volume is billed apart.";
+const WHY_CEILING = `The highest price an hour of the GPU itself, as RunPod lists it and as the table below says it. The pod's own disk adds a little to it while it runs (${perGbMonth(RUNNING_DISK_PER_GB_MONTH)}); a network volume is billed apart.`;
 const WHY_MODE = "What the hunt deploys first, among the GPUs ticked that fit these renders and are within your price. Best value: the lowest cost a render all told (its time on that GPU for these forms times its price an hour, with its share of a deploy's boot and idle); within 10 %, the faster GPU. Fastest: the shortest render. Cheapest an hour: the lowest price an hour. A render's time comes from your own renders on that GPU; a guess from a GPU you rendered on until you have some, counted 30 % dearer.";
 const WHY_TABLE = "Ticked: the hunt may deploy it. Fits these renders: no file of the renders waiting is larger than its memory, nor ran out of memory on it before. Now: RunPod's stock where the pod would go. The first GPU in this order that is free is deployed, once.";
 const WHY_HOLD = "Hold: the home machines are paused (a render under way finishes first) so that every render waiting goes to the GPU found; they go on when its pod stops, or when the hunt ends without one. Keep rendering: they go on, and the GPU found takes its share.";

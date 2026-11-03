@@ -1,4 +1,4 @@
-import { plural, tooOldSaid, type ComfyTooOld } from "@afflatus/core";
+import { cents, plural, tooOldSaid, usd, type ComfyTooOld } from "@afflatus/core";
 import { z } from "zod";
 import { costsOf } from "./costs-api";
 import { deployFiles } from "./deployModels";
@@ -8,7 +8,6 @@ import { machineName, machineOf, seen } from "./mcpForms";
 import { committedSpend, mustNotSteerOntoPods, podsTaking, podsUp, workCommitted } from "./mcpRender";
 import { quoted, tool, type ToolCtx } from "./mcpTool";
 import { refusal, type McpToken } from "./mcpTokens";
-import { dollars } from "./notifyWords";
 import { runningRate } from "./runpod";
 import type { Services } from "./services";
 import { deploySchema, readSettings, type Machine } from "./settings";
@@ -60,7 +59,7 @@ function podSaid(m: Machine, v: ReturnType<Services["rented"]["view"]>) {
   const r = m.rented!;
   return {
     pod: r.pod, status: v?.status ?? "UNKNOWN", gpu: v?.gpu ?? null, usdPerHour: v?.rate ?? null,
-    ...(v?.since ? { runningSince: new Date(v.since).toISOString(), spentThisRun: Math.round(v.spent * 100) / 100 } : {}),
+    ...(v?.since ? { runningSince: new Date(v.since).toISOString(), spentThisRun: cents(v.spent) } : {}),
     ...(v?.answers !== null && v?.answers !== undefined ? { comfyAnswers: v.answers } : {}),
     ...(v?.idleLeftMs ? { stopsIdleInMs: v.idleLeftMs } : {}),
     ...(v?.capped ? { capped: true } : {}),
@@ -223,7 +222,7 @@ export async function mayStart(s: Services, token: McpToken, hour: number, what:
     const rate = s.rented.view(pod)?.rate;
     if (rate === null || rate === undefined) throw refusal(`${machineName(pod)} is up and its price is not known yet, so the spending caps cannot be held: wait until it answers, or the user starts this one in Afflatus.`);
     all += rate;
-    allPods.push(`${quoted(machineName(pod))} ${dollars(rate)}`);
+    allPods.push(`${quoted(machineName(pod))} ${usd(rate)}`);
     if (pod.rented!.mcpToken === ctx.token.id) {
       mine += rate;
       minePods.push({ what: `the next hour of ${quoted(machineName(pod))}, up (started by this token)`, usd: rate });
@@ -232,7 +231,7 @@ export async function mayStart(s: Services, token: McpToken, hour: number, what:
   const work = await committedSpend(s, machines, ctx.token.id);
   await s.mcp.tokens.maySpend(token, hour + mine + work.usd, { committed: [...workCommitted(work), ...minePods], adds: { what: `the first hour of ${pod}`, usd: hour } });
   const why = await s.rented.noRoomFor(hour + all);
-  if (why) throw refusal(`The rented GPUs' spending cap has no room for this pod's first hour (${dollars(hour)}${all ? `, with the next hour of the pods up: ${dollars(all)}` : ""}): ${why}.${allPods.length ? ` Up: ${allPods.join(", ")} an hour.` : ""} The user raises it in Settings › Costs.`);
+  if (why) throw refusal(`The rented GPUs' spending cap has no room for this pod's first hour (${usd(hour)}${all ? `, with the next hour of the pods up: ${usd(all)}` : ""}): ${why}.${allPods.length ? ` Up: ${allPods.join(", ")} an hour.` : ""} The user raises it in Settings › Costs.`);
 }
 
 /**
@@ -242,7 +241,7 @@ export async function mayStart(s: Services, token: McpToken, hour: number, what:
 export async function huntMayDeploy(s: Services, tokenId: string, hour: number, gpu: string): Promise<void> {
   const token = await s.mcp.tokens.get(tokenId);
   if (!token) throw refusal("The MCP token that started the hunt is gone: it spends nothing more.");
-  await mayStart(s, token, hour, `deploying ${gpu} bills ${dollars(hour)} an hour`, `a new ${quoted(gpu)}`);
+  await mayStart(s, token, hour, `deploying ${gpu} bills ${usd(hour)} an hour`, `a new ${quoted(gpu)}`);
 }
 
 const deployPod = tool({
@@ -282,12 +281,12 @@ const deployPod = tool({
     // what it bills an hour while it runs: its GPU and its container disk (with a volume, the disk is kept small: rentedDeploy.ts)
     const hour = runningRate(offer.price, ask.volume ? Math.min(ask.disk, 40) : ask.disk, 0);
     return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
-      await mayStart(s, token, hour, `deploying ${offer.name} bills ${dollars(hour)} an hour`, `a new ${quoted(offer.name)}`);
+      await mayStart(s, token, hour, `deploying ${offer.name} bills ${usd(hour)} an hour`, `a new ${quoted(offer.name)}`);
       const made = await s.rented.deploy(async () => ({ ...ask, files: await deployFiles(s, ask) }), { mcpToken: token.id });
-      ctx.said(`Deployed ${quoted(offer.name)} (${dollars(hour)}/h, idle ${ask.idleMinutes} min then ${ask.idleDo})`);
+      ctx.said(`Deployed ${quoted(offer.name)} (${usd(hour)}/h, idle ${ask.idleMinutes} min then ${ask.idleDo})`);
       return {
         machine: made.id, gpu: offer.name, usdPerHour: Math.round(hour * 1000) / 1000, dataCenter: made.dataCenter, idleMinutes: ask.idleMinutes, idleDo: ask.idleDo,
-        said: `Billed from now. Its first start pulls its image and boots ComfyUI (some minutes): pods says when it answers. Its whole run counts against this token's cap (${dollars(token.spendCapCents / 100)} a month), and it stops once that is reached.`,
+        said: `Billed from now. Its first start pulls its image and boots ComfyUI (some minutes): pods says when it answers. Its whole run counts against this token's cap (${usd(token.spendCapCents / 100)} a month), and it stops once that is reached.`,
       };
     });
   },
@@ -327,9 +326,9 @@ const startPod = tool({
     if (v?.rate === null || v?.rate === undefined) throw refusal(`${machineName(m)}'s price is not known yet, so this token's spend cap cannot be held: the user starts it in Afflatus.`);
     const rate = v.rate;
     return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
-      await mayStart(s, token, rate, `starting ${machineName(m)} bills ${dollars(rate)} an hour`, quoted(machineName(m)));
+      await mayStart(s, token, rate, `starting ${machineName(m)} bills ${usd(rate)} an hour`, quoted(machineName(m)));
       const view = await s.rented.start(m.id, token.id);
-      ctx.said(`Started ${quoted(machineName(m))} (${dollars(rate)}/h)`);
+      ctx.said(`Started ${quoted(machineName(m))} (${usd(rate)}/h)`);
       return { started: m.id, status: view.status, usdPerHour: rate, idleMinutes: m.rented!.idleMinutes, idleDo: m.rented!.idleDo, said: "Billed from now; its run counts against this token's cap." };
     });
   },
@@ -376,18 +375,17 @@ const costsTool = tool({
   },
   async run(a, ctx) {
     const { view: v } = await costsOf(ctx.s, { from: a.from, to: a.to });
-    const r2 = (n: number) => Math.round(n * 100) / 100;
-    ctx.said(`Looked at the costs: ${dollars(v.month)} this month`);
+    ctx.said(`Looked at the costs: ${usd(v.month)} this month`);
     return {
       window: { from: new Date(v.from).toISOString(), to: new Date(v.to).toISOString() },
       billedByRunpod: v.billed,
-      month: r2(v.month), today: r2(v.today.usd), caps: v.caps,
-      pacePerDay: r2(v.pace7 + v.storageDay), monthEndAtPace: r2(v.monthEnd),
-      balance: v.balance === null ? null : r2(v.balance), runwayDays: v.runwayDays === null ? null : Math.round(v.runwayDays * 10) / 10,
-      podTime: Object.fromEntries(Object.entries(v.where.usd).map(([k, usd]) => [k, { usd: r2(usd), ms: v.where.ms[k as keyof typeof v.where.ms] }])),
-      projects: v.projects.slice(0, 8).map((p) => ({ name: p.name, usd: r2(p.usd), renders: p.renders })),
-      runs: v.sessions.slice(0, a.runs ?? 8).map((x) => ({ machine: x.machine, gpu: x.gpu, from: new Date(x.from).toISOString(), to: x.open ? null : new Date(x.to).toISOString(), usdPerHour: x.rate, usd: r2(x.usd), ended: x.open ? "running" : x.why, renders: x.renders.length })),
-      advice: v.advice.map((x) => ({ title: x.title, why: x.why, ...(x.save !== null ? { wouldSave: r2(x.save) } : {}) })),
+      month: cents(v.month), today: cents(v.today.usd), caps: v.caps,
+      pacePerDay: cents(v.pace7 + v.storageDay), monthEndAtPace: cents(v.monthEnd),
+      balance: v.balance === null ? null : cents(v.balance), runwayDays: v.runwayDays === null ? null : Math.round(v.runwayDays * 10) / 10,
+      podTime: Object.fromEntries(Object.entries(v.where.usd).map(([k, usd]) => [k, { usd: cents(usd), ms: v.where.ms[k as keyof typeof v.where.ms] }])),
+      projects: v.projects.slice(0, 8).map((p) => ({ name: p.name, usd: cents(p.usd), renders: p.renders })),
+      runs: v.sessions.slice(0, a.runs ?? 8).map((x) => ({ machine: x.machine, gpu: x.gpu, from: new Date(x.from).toISOString(), to: x.open ? null : new Date(x.to).toISOString(), usdPerHour: x.rate, usd: cents(x.usd), ended: x.open ? "running" : x.why, renders: x.renders.length })),
+      advice: v.advice.map((x) => ({ title: x.title, why: x.why, ...(x.save !== null ? { wouldSave: cents(x.save) } : {}) })),
     };
   },
 });
@@ -404,8 +402,8 @@ const caps = tool({
     const spent = await s.mcp.tokens.spentThisMonth(token.id);
     ctx.said("Looked at the spending caps");
     return {
-      app: { day: settings.rentCaps.day || "none", month: settings.rentCaps.month || "none", ...(spending ? { spentToday: dollars(spending.today), spentThisMonth: dollars(spending.month), balance: spending.balance === null ? null : dollars(spending.balance) } : {}) },
-      thisToken: token.scopes.includes("spend") ? { cap: dollars(token.spendCapCents / 100), spentThisMonth: dollars(spent) } : "Spend is not ticked: no rented GPU",
+      app: { day: settings.rentCaps.day || "none", month: settings.rentCaps.month || "none", ...(spending ? { spentToday: usd(spending.today), spentThisMonth: usd(spending.month), balance: spending.balance === null ? null : usd(spending.balance) } : {}) },
+      thisToken: token.scopes.includes("spend") ? { cap: usd(token.spendCapCents / 100), spentThisMonth: usd(spent) } : "Spend is not ticked: no rented GPU",
     };
   },
 });

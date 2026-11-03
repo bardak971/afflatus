@@ -1,3 +1,4 @@
+import { nameKey } from "@afflatus/core";
 import { sql, type Insertable } from "kysely";
 import { now, OWNER, type Db, type Tables } from "./db";
 import { httpError } from "./errors";
@@ -104,4 +105,4 @@ const DISK_MIME: Record<string, string> = {
 export const mimeOfDiskFile = (filename: string) => DISK_MIME[filename.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream";
 
 /** The name of a file without its folders, lower-cased: how model files are compared, whichever folder and case ComfyUI lists them with. */
-export const fileName = (path: string) => (path.split(/[\\/]/).pop() ?? path).toLowerCase();
+export const fileName = nameKey;
