@@ -1,7 +1,8 @@
 import { defineRecipe, GraphBuilder, roundTo, type Ref } from "@afflatus/core";
+import { pictureForm } from "../shared/pictureForm";
 import { redrawInTiles, tileInputs, TILE_NODES, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import {
-  boxOf, FACE_INPUTS, FACTOR_INPUT, loadSdxl, NO_FACE, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, PASTE_BACK_NODES, pasteBack, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, REPAINT_NODES, repaintGuided, repaintInputs, repaints, samplerOf, stretchedFill, samplingInputs, SDXL_PRESETS, UPSCALER_PREFER, workSize,
+  boxOf, FACE_INPUTS, SDXL_DROPS, FACTOR_INPUT, loadSdxl, NO_FACE, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, PASTE_BACK_NODES, pasteBack, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, REPAINT_NODES, repaintGuided, repaintInputs, repaints, samplerOf, stretchedFill, samplingInputs, SDXL_PRESETS, UPSCALER_PREFER, workSize,
   type FaceSettings, type MaskSettings, type OutpaintSettings, type RefineColourMatch, type RepaintSettings, type UpscaleSettings,
   type SdxlBase,
 } from "./common";
@@ -18,7 +19,7 @@ interface SdxlRedraw extends SdxlBase {
 }
 
 /** A picture you have, drawn again from tags: a little (same picture, cleaner) or a lot (same layout, new picture). */
-export const sdxlRedraw = defineRecipe<SdxlRedraw>({
+export const sdxlRedraw = pictureForm("img2img", defineRecipe<SdxlRedraw>({
   id: "sdxl.redraw",
   family: "sdxl",
   version: 1,
@@ -58,7 +59,7 @@ export const sdxlRedraw = defineRecipe<SdxlRedraw>({
       uploads: { source: "s.png" }, media: { source: { width: 3000, height: 2000 } },
     },
   ],
-});
+}), SDXL_DROPS);
 
 // ---------------------------------------------------------------- paint over a part
 
@@ -75,7 +76,7 @@ interface SdxlPaintOver extends SdxlBase, MaskSettings, RepaintSettings {
  * mode (xinsir's ProMax) the new part is guided to fit what is around it: a plain checkpoint at a high
  * denoise only sees noise there, and often draws something that does not belong.
  */
-export const sdxlPaintOver = defineRecipe<SdxlPaintOver>({
+export const sdxlPaintOver = pictureForm("inpaint", defineRecipe<SdxlPaintOver>({
   id: "sdxl.paint-over",
   family: "sdxl",
   version: 1,
@@ -139,7 +140,7 @@ export const sdxlPaintOver = defineRecipe<SdxlPaintOver>({
       uploads: { source: "s.png", mask: "m.png" }, media: { source: picture, mask: { ...picture, box: { x: 200, y: 300, width: 320, height: 400 } } },
     },
   ],
-});
+}), SDXL_DROPS);
 
 // ---------------------------------------------------------------- outpaint
 
@@ -156,7 +157,7 @@ interface SdxlOutpaint extends SdxlBase, OutpaintSettings, RepaintSettings {
  * Tried on a real ComfyUI: grey padding drew a window around the picture, the stretched one a scene; and a
  * guide picture scaled after its part was blacked out rang at that edge, which was drawn as a line.
  */
-export const sdxlOutpaint = defineRecipe<SdxlOutpaint>({
+export const sdxlOutpaint = pictureForm("outpaint", defineRecipe<SdxlOutpaint>({
   id: "sdxl.outpaint",
   family: "sdxl",
   version: 1,
@@ -207,7 +208,7 @@ export const sdxlOutpaint = defineRecipe<SdxlOutpaint>({
     { name: "taller, a LoRA", input: { source: "p", prompt: "a", checkpoint: "x.safetensors", padLeft: 0, padRight: 0, padTop: 256, padBottom: 128, feathering: 64, loras: [{ file: "l.safetensors", weight: 0.8 }] }, uploads: { source: "s.png" }, media: { source: { width: 1216, height: 832 } } },
     { name: "no ControlNet: grey padding, the picture put back", input: { source: "p", prompt: "a", checkpoint: "x.safetensors", repaint: false }, uploads: { source: "s.png" }, media: { source: picture } },
   ],
-});
+}), SDXL_DROPS);
 
 // ---------------------------------------------------------------- twice as large
 
@@ -223,7 +224,7 @@ interface SdxlSharper extends SdxlBase, UpscaleSettings, TileSettings, RefineCol
 const REFINE_WHOLE_PIXELS = 4.2e6;
 const REFINE_NODES = ["CheckpointLoaderSimple", "CLIPTextEncode", "LoraLoader", "CLIPSetLastLayer", "VAEEncode", "KSampler", "VAEDecode"];
 
-export const sdxlSharper = defineRecipe<SdxlSharper>({
+export const sdxlSharper = pictureForm("upscale", defineRecipe<SdxlSharper>({
   id: "sdxl.sharper",
   family: "sdxl",
   version: 1,
@@ -293,7 +294,7 @@ export const sdxlSharper = defineRecipe<SdxlSharper>({
     { name: "too large to go over whole: in tiles", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth", clipSkip: 2 }, uploads: { source: "s.png" }, media: { source: { width: 1664, height: 2432 } } },
     { name: "too large, asked whole: gone over whole", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth", tiles: "Whole picture" }, uploads: { source: "s.png" }, media: { source: { width: 1664, height: 2432 } } },
   ],
-});
+}), SDXL_DROPS);
 
 // ---------------------------------------------------------------- fix the faces
 
@@ -305,7 +306,7 @@ interface SdxlFixFace extends SdxlBase, FaceSettings {
 }
 
 /** The Impact Pack's FaceDetailer: every face is found, redrawn larger, and put back with a soft edge. */
-export const sdxlFixFace = defineRecipe<SdxlFixFace>({
+export const sdxlFixFace = pictureForm("face", defineRecipe<SdxlFixFace>({
   id: "sdxl.fix-face",
   family: "sdxl",
   version: 1,
@@ -354,4 +355,4 @@ export const sdxlFixFace = defineRecipe<SdxlFixFace>({
       uploads: { source: "s.png" }, media: { source: picture },
     },
   ],
-});
+}), SDXL_DROPS);

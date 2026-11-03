@@ -66,6 +66,11 @@ export interface FlowSpec {
    * are the family's slots `redux` and `vision`.
    */
   look?: boolean;
+  /**
+   * The sampling rows every picture form shares (see pictureForm) that this family's forms do not take, each with why: Krea 2's
+   * own inputs have no weight precision.
+   */
+  drops?: Record<string, string>;
   /** For the graph checker: the family's files under their usual names, and what a fine-tune could be called. */
   files: Record<string, string>;
   fineTune: string;

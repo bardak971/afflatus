@@ -24,6 +24,12 @@ const V_PRED = "v-prediction (zsnr)";
 export const isVPred = (input: Pick<SdxlBase, "checkpoint" | "prediction">) => input.prediction === V_PRED || (input.prediction === PREDICTION_AUTO && /v.?pred/i.test(input.checkpoint.split(/[\\/]/).pop() ?? ""));
 /** The nodes a v-prediction checkpoint is sampled through. */
 export const PREDICTION_NODES = ["ModelSamplingDiscrete", "RescaleCFG"];
+
+/** The sampling rows of the picture forms (pictureForm) that SDXL's do not take. */
+export const SDXL_DROPS = {
+  shift: "an SDXL checkpoint is not a flow model: it has no shift",
+  precision: "a checkpoint is loaded whole by CheckpointLoaderSimple, which has no weight precision",
+};
 /**
  * A v-prediction checkpoint (NoobAI v-pred and merges of it) sampled as one: ComfyUI only knows when the
  * file says so in its metadata, and many merges do not, which comes out as a grey, washed picture. The

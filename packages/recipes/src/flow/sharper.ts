@@ -1,4 +1,5 @@
 import { defineRecipe, GraphBuilder, roundTo, type Recipe, type Ref } from "@afflatus/core";
+import { pictureForm } from "../shared/pictureForm";
 import { FACTOR_INPUT, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_PREFER, type RefineColourMatch, type UpscaleSettings } from "../sdxl/common";
 import { redrawInTiles, tileInputs, tilePass, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
 import { rowsWhile } from "../shared/addedRows";
@@ -29,7 +30,7 @@ export function flowSharper(spec: FlowSpec, kit: FlowKit): Recipe<FlowSharper> {
     : noiseWords(0.25, lightSteps(spec.sampling.steps), [{ size: big, where: "on a 1536×2048 gone over whole" }, { size: { width: 1024, height: 1024 }, where: "in tiles" }]);
   /** The pass's KSampler denoise at this size: the field as the real σ it starts from, or ComfyUI's own. */
   const denoiseAt = (input: FlowSharper, at: { width: number; height: number }, steps: number) => (spec.sharperRealSigma ? realDenoise(input, at, steps, input.strength) : input.strength);
-  return defineRecipe<FlowSharper>({
+  return pictureForm("upscale", defineRecipe<FlowSharper>({
     id: `${spec.family}.sharper`,
     family: spec.family,
     version: 1,
@@ -106,5 +107,5 @@ export function flowSharper(spec: FlowSpec, kit: FlowKit): Recipe<FlowSharper> {
       // Turbo's branch: the LoRA put on, its steps at CFG 1 (the operations' other variants have no turbo file)
       ...(kit.turboFiles ? [{ name: "Turbo with its LoRA", input: { source: "p", upscaler: "u.pth", fast: true, turboSteps: 6 } as Partial<FlowSharper>, slots: kit.turboFiles, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } }] : []),
     ],
-  });
+  }), spec.drops);
 }

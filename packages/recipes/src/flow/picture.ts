@@ -1,4 +1,5 @@
 import { defineRecipe, GraphBuilder, roundTo, type InputSpec, type Recipe, type Ref, type SizeValue } from "@afflatus/core";
+import { pictureForm } from "../shared/pictureForm";
 import { HIRES_PASS_INPUTS, hiresPass, UPSCALER_PREFER, type HiresPass } from "../sdxl/common";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { redrawInTiles, tileInputs, tileNodes, tilePass, inTiles, type TileSettings } from "../shared/tiles";
@@ -31,7 +32,7 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
   const hiresDefault = { scale: spec.hires?.scale ?? 1.25, denoise: spec.hires?.denoise ?? 0.4, steps: spec.hires?.steps ?? Math.max(4, Math.round(spec.sampling.steps / 2)) };
   const hiresAt = { width: roundTo(shape.width * hiresDefault.scale, 16), height: roundTo(shape.height * hiresDefault.scale, 16) };
   const hiresNoise = noiseWords(hiresDefault.denoise, hiresDefault.steps, [{ size: hiresAt, where: `at ${hiresAt.width}×${hiresAt.height}` }]);
-  return defineRecipe<FlowPicture>({
+  return pictureForm("txt2img", defineRecipe<FlowPicture>({
     id: `${spec.family}.text-to-picture`,
     family: spec.family,
     version: 1,
@@ -137,5 +138,5 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
         ]
         : []),
     ],
-  });
+  }), spec.drops);
 }

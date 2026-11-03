@@ -41,6 +41,7 @@ export const krea2Spec: FlowSpec = {
   hires: { scale: 1.5, denoise: 0.35, steps: 4 },
   inputs: krea2Inputs,
   hardInpaint: true,
+  drops: { precision: "Krea 2 Turbo comes as an fp8_scaled file, which UNETLoader reads as it is: its own inputs leave the weight precision out" },
   shapes: [
     { id: "tall", label: "Portrait", width: 896, height: 1152 },
     { id: "square", label: "Square", width: 1024, height: 1024 },

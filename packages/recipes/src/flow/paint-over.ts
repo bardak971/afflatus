@@ -1,4 +1,5 @@
 import { defineRecipe, GraphBuilder, type Recipe } from "@afflatus/core";
+import { pictureForm } from "../shared/pictureForm";
 import { boxOf, MASK_INPUTS, MASK_NODES, maskParts, type MaskSettings } from "../sdxl/common";
 import { INPAINT_PATCH_NODES, inpaintPatched, inpaintPatchNeeds, photo, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
 
@@ -13,7 +14,7 @@ export function flowPaintOver(spec: FlowSpec, kit: FlowKit): Recipe<FlowPaintOve
   // the "?": the real noise the default starts from (card #146)
   const noise = noiseWords(0.8, spec.sampling.steps, [{ size: { width: 1024, height: 1024 }, where: "at 1 MP" }]);
   const files = spec.files;
-  return defineRecipe<FlowPaintOver>({
+  return pictureForm("inpaint", defineRecipe<FlowPaintOver>({
     id: `${spec.family}.paint-over`,
     family: spec.family,
     version: 1,
@@ -74,5 +75,5 @@ export function flowPaintOver(spec: FlowSpec, kit: FlowKit): Recipe<FlowPaintOve
         slots: kit.turboFiles, uploads: { source: "s.png", mask: "m.png" }, media: { source: photo, mask: { ...photo, box: { x: 300, y: 500, width: 600, height: 500 } } },
       }] : []),
     ],
-  });
+  }), spec.drops);
 }

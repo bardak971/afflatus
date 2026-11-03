@@ -1,4 +1,5 @@
 import { defineRecipe, GraphBuilder, type Recipe } from "@afflatus/core";
+import { pictureForm } from "../shared/pictureForm";
 import { FACE_INPUTS, NO_FACE, type FaceSettings } from "../sdxl/common";
 import { A_FACE, photo, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
 import { DETECTOR_INPUT } from "../shared/detector";
@@ -11,7 +12,7 @@ export function flowFixFace(spec: FlowSpec, kit: FlowKit): Recipe<FlowFixFace> {
   const files = spec.files;
   // the "?": the real noise the default starts from, the face redrawn at 1024 and its shift (card #146)
   const noise = noiseWords(0.4, spec.sampling.steps, [{ size: { width: 1024, height: 1024 }, where: "at 1 MP" }]);
-  return defineRecipe<FlowFixFace>({
+  return pictureForm("face", defineRecipe<FlowFixFace>({
     id: `${spec.family}.fix-face`,
     family: spec.family,
     version: 1,
@@ -54,5 +55,5 @@ export function flowFixFace(spec: FlowSpec, kit: FlowKit): Recipe<FlowFixFace> {
       // Turbo's branch: the LoRA put on, its steps at CFG 1 (the operations' other variants have no turbo file)
       ...(kit.turboFiles ? [{ name: "Turbo with its LoRA", input: { source: "p", detector: "bbox/face.pt", fast: true, turboSteps: 6 } as Partial<FlowFixFace>, slots: kit.turboFiles, uploads: { source: "s.png" }, media: { source: photo } }] : []),
     ],
-  });
+  }), spec.drops);
 }

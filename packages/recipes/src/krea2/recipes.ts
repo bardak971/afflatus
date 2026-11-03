@@ -1,4 +1,5 @@
 import { beyondPack, defineRecipe, GraphBuilder, packCommit, roundTo, type ReferenceValue, type Ref, type SizeValue } from "@afflatus/core";
+import { pictureForm } from "../shared/pictureForm";
 import { HIRES_PASS_INPUTS, hiresPass, UPSCALER_PREFER, type HiresPass } from "../sdxl/common";
 import type { FlowBase } from "../flow/kit";
 import { flowFixFace } from "../flow/fix-face";
@@ -87,7 +88,7 @@ const NOT_BOTH = "Krea 2 takes a person reference or style reference images, not
  * (PERSON_ROW), and Face refine redraws their face when it is a small one. Hires fix is the usual upscale and
  * second pass, at the model's own shift (see krea2Spec).
  */
-export const krea2Picture = defineRecipe<Krea2Picture>({
+export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
   id: "krea2.text-to-picture",
   family: "krea2",
   version: 1,
@@ -287,7 +288,7 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
       slots: withPerson, uploads: { "person.0": "p.png" },
     },
   ],
-});
+}), krea2Spec.drops);
 
 // ---------------------------------------------------------------- img2img, inpaint, upscale 2x, face detailer: the picture models' own
 

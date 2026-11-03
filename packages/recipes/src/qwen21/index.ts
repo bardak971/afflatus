@@ -1,4 +1,5 @@
 import { defineFamily, defineRecipe, GraphBuilder, REFERENCE_ROLES, roundTo, type InputSpec, type LoraValue, type Ref, type ReferenceValue, type SizeValue } from "@afflatus/core";
+import { pictureForm } from "../shared/pictureForm";
 import { loadUnet, unetNodes } from "../shared/unet";
 import { qwen21Lint } from "../shared/lint";
 import { FACE_AT_NODE, FACE_NODE, faceScore } from "../shared/face";
@@ -117,9 +118,11 @@ function load(g: GraphBuilder, input: Qwen21Base, ctx: Parameters<typeof loadUne
   };
 }
 const NODES = (input: Qwen21Base) => [...unetNodes(input.model), "QwenImage21Cache", "CLIPLoader", "VAELoader", "TextEncodeQwenImage21", "KSampler", "VAEDecode", "PreviewImage"];
+/** The sampling rows of the picture forms (pictureForm) that Qwen Image 2.1's do not take. */
+const QWEN21_DROPS = { shift: "ComfyUI's Qwen Image 2.1 templates set no shift: the model samples at its own" };
 const files = { unet: "qwen_image_2.1_int8_convrot.safetensors", clip: "qwen3vl_8b_int8_convrot.safetensors", vae: "qwen_image_2.1_vae_bf16.safetensors" };
 
-export const qwen21Picture = defineRecipe<Qwen21Picture>({
+export const qwen21Picture = pictureForm("txt2img", defineRecipe<Qwen21Picture>({
   id: "qwen21.text-to-picture",
   family: "qwen21",
   version: 1,
@@ -169,6 +172,9 @@ export const qwen21Picture = defineRecipe<Qwen21Picture>({
     { name: "from words, as ComfyUI's template", input: { prompt: "a" }, slots: files },
     { name: "2K, a LoRA, a negative prompt with a CFG, the cache in int8", input: { prompt: "a", size: { width: 2048, height: 2048 }, negative: "blurry", cfg: 2.5, cacheDtype: "int8", loras: [{ file: "l.safetensors", weight: 0.8 }] }, slots: files },
   ],
+}), {
+  ...QWEN21_DROPS,
+  ...Object.fromEntries(["detail", "detailStrength", "detailMethod", "detailStart", "detailEnd", "hires", "hiresScale", "hiresUpscaler", "hiresDenoise", "hiresSteps", "hiresSampler", "hiresScheduler", "tiles", "tileSize", "tileOverlap"].map((id) => [id, "written from ComfyUI's template, which has no second pass"])),
 });
 
 /** How many pictures the model reads next to the instruction: the one that is edited and nine more. */
@@ -190,7 +196,7 @@ function editPixels(first: { width: number; height: number } | undefined, resolu
   return Math.round(canvas * (1 + PICTURE_COST * pictures));
 }
 
-export const qwen21Edit = defineRecipe<Qwen21Edit>({
+export const qwen21Edit = pictureForm("edit", defineRecipe<Qwen21Edit>({
   id: "qwen21.edit",
   family: "qwen21",
   version: 1,
@@ -240,7 +246,7 @@ export const qwen21Edit = defineRecipe<Qwen21Edit>({
       slots: files, uploads: { source: "s.png", "references.0": "a.png", "references.1": "b.png" }, media: { source: { width: 1536, height: 2048 } },
     },
   ],
-});
+}), QWEN21_DROPS);
 
 /** The photos as the instruction names them, every one: "<image2>", "<image2> and <image3>", "<image2>, <image3> and <image4>". */
 const photoTags = (n: number) => {
@@ -303,7 +309,7 @@ const FIRST_RELIGHT =
  * pass on what the first made: the two steps the meme test took by hand (motionPicture.tsx, the picture box of the
  * Motion transfer forms, runs it three times and lets the user pick). Without relight, the first pass alone.
  */
-export const qwen21MotionPicture = defineRecipe<Qwen21MotionPicture>({
+export const qwen21MotionPicture = pictureForm("own", defineRecipe<Qwen21MotionPicture>({
   id: "qwen21.motion-picture",
   family: "qwen21",
   version: 1,
@@ -375,4 +381,4 @@ export const qwen21MotionPicture = defineRecipe<Qwen21MotionPicture>({
     },
     { name: "without relight", input: { source: "f", people: [{ asset: "a", role: "person" }], relight: false }, slots: files, uploads: { source: "f.png", "people.0": "a.png" }, media: { source: { width: 480, height: 854 } } },
   ],
-});
+}), QWEN21_DROPS);

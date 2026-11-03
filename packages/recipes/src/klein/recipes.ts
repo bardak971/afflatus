@@ -1,4 +1,5 @@
 import { defineRecipe, GraphBuilder, roundTo, type ReferenceValue, type Ref, type SizeValue } from "@afflatus/core";
+import { pictureForm } from "../shared/pictureForm";
 import {
   boxOf, FACE_INPUTS, FACTOR_INPUT, MASK_INPUTS, NO_FACE, MASK_NODES, maskParts, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_PREFER,
   type FaceSettings, type MaskSettings, type RefineColourMatch, type UpscaleSettings,
@@ -15,6 +16,13 @@ import { SAME_FACE } from "./facePass";
 const files = { unet: "flux-2-klein-base-4b.safetensors", clip: "qwen_3_4b.safetensors", vae: "flux2-vae.safetensors" };
 const photo = { width: 1536, height: 2048 };
 const ALL_ROLES = ["person", "place", "clothing", "object", "style"] as const;
+
+/** The sampling rows of the picture forms (pictureForm) that Klein's do not take. */
+const KLEIN_DROPS = {
+  scheduler: "Klein samples on Flux2Scheduler, laid out for the size it draws at: there is no scheduler to pick",
+  shift: "Flux2Scheduler sets Klein's shift from the size it draws at",
+  precision: "Klein's files come in the precision they were made in (bf16, fp8, nvfp4), loaded as they are, as ComfyUI's templates do",
+};
 
 // ---------------------------------------------------------------- a new picture
 
@@ -34,7 +42,7 @@ const kleinLarge = (input: { size: SizeValue; hiresScale: number }) => ({ width:
 /** The sentence each tile of a hires pass is redrawn from: the scene's prompt would be drawn again in every tile. */
 const SAME = "a high quality photo with sharp natural detail, the same image";
 
-export const kleinPicture = defineRecipe<KleinPicture>({
+export const kleinPicture = pictureForm("txt2img", defineRecipe<KleinPicture>({
   id: "klein.picture",
   family: "klein",
   needsWith: kleinNeeds,
@@ -137,6 +145,10 @@ export const kleinPicture = defineRecipe<KleinPicture>({
       slots: files, uploads: { "references.0": "a.png", "references.1": "b.png", "references.2": "c.png" },
     },
   ],
+}), {
+  ...KLEIN_DROPS,
+  hiresSampler: "the second pass runs on the first pass's sampler",
+  hiresScheduler: "Klein samples on Flux2Scheduler: there is no scheduler to pick",
 });
 
 // ---------------------------------------------------------------- change a picture with words
@@ -148,7 +160,7 @@ interface KleinEdit extends KleinBase {
 }
 
 /** The picture is handed over as the first picture to follow, and the words say what to change in it. */
-export const kleinEdit = defineRecipe<KleinEdit>({
+export const kleinEdit = pictureForm("edit", defineRecipe<KleinEdit>({
   id: "klein.edit",
   family: "klein",
   needsWith: kleinNeeds,
@@ -189,7 +201,7 @@ export const kleinEdit = defineRecipe<KleinEdit>({
       slots: files, uploads: { source: "s.png", "references.0": "c.png" }, media: { source: photo },
     },
   ],
-});
+}), KLEIN_DROPS);
 
 // ---------------------------------------------------------------- paint over a part
 
@@ -210,7 +222,7 @@ const FRESH_FROM = 0.9;
  * part as the picture to follow and the words as an instruction): a partial redo would only copy the
  * part back. Lower strengths touch up what is there.
  */
-export const kleinPaintOver = defineRecipe<KleinPaintOver>({
+export const kleinPaintOver = pictureForm("inpaint", defineRecipe<KleinPaintOver>({
   id: "klein.paint-over",
   family: "klein",
   needsWith: kleinNeeds,
@@ -268,7 +280,7 @@ export const kleinPaintOver = defineRecipe<KleinPaintOver>({
       slots: files, uploads: { source: "s.png", mask: "m.png", "references.0": "a.png" }, media: { source: photo },
     },
   ],
-});
+}), KLEIN_DROPS);
 
 // ---------------------------------------------------------------- another shape
 
@@ -301,7 +313,7 @@ interface KleinReshape extends KleinBase {
  * (Drawing only the new room from noise, the rest held by a mask, left a visible seam and sometimes
  * another place altogether: tried on a real ComfyUI.)
  */
-export const kleinReshape = defineRecipe<KleinReshape>({
+export const kleinReshape = pictureForm("outpaint", defineRecipe<KleinReshape>({
   id: "klein.change-shape",
   family: "klein",
   needsWith: kleinNeeds,
@@ -345,6 +357,9 @@ export const kleinReshape = defineRecipe<KleinReshape>({
     { name: "a tall picture made wide", input: { source: "p" }, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
     { name: "a wide picture made tall, with words", input: { source: "p", shape: "Portrait 9:16", prompt: "a", loras: [{ file: "l.safetensors", weight: 1 }] }, slots: files, uploads: { source: "s.png" }, media: { source: { width: 1600, height: 900 } } },
   ],
+}), {
+  ...KLEIN_DROPS,
+  ...Object.fromEntries(["padLeft", "padRight", "padTop", "padBottom", "feathering"].map((id) => [id, "Klein extends a picture to an aspect ratio, the picture in the middle, with a soft edge of its own"])),
 });
 
 // ---------------------------------------------------------------- twice as large
@@ -358,7 +373,7 @@ interface KleinSharper extends KleinBase, UpscaleSettings, TileSettings, RefineC
 /** Past this many pixels, Auto makes the light pass in tiles: a picture that large is past what the model draws whole. It is never skipped for its size. */
 const REFINE_WHOLE_PIXELS = 2.6e6;
 
-export const kleinSharper = defineRecipe<KleinSharper>({
+export const kleinSharper = pictureForm("upscale", defineRecipe<KleinSharper>({
   id: "klein.sharper",
   family: "klein",
   needsWith: kleinNeeds,
@@ -431,6 +446,10 @@ export const kleinSharper = defineRecipe<KleinSharper>({
     { name: "too large to go over whole: in tiles", input: { source: "p", upscaler: "u.pth" }, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
     { name: "too large, asked whole: gone over whole", input: { source: "p", upscaler: "u.pth", tiles: "Whole picture" }, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
   ],
+}), {
+  ...KLEIN_DROPS,
+  prompt: "the light pass redraws the picture from Klein's own words for the same picture, the picture (or its tile) as the reference it keeps",
+  strength: "the light pass starts from 0.25 of real noise (kleinRealPass), at every size",
 });
 
 // ---------------------------------------------------------------- fix the face
@@ -457,7 +476,7 @@ const detail = (k: ReturnType<typeof loadKlein>, input: KleinFixFace, cond: { po
  * people the two largest faces are found first and sorted left to right: the left one is redrawn from
  * the first person's pictures, the right one from the second's.
  */
-export const kleinFixFace = defineRecipe<KleinFixFace>({
+export const kleinFixFace = pictureForm("face", defineRecipe<KleinFixFace>({
   id: "klein.fix-face",
   family: "klein",
   needsWith: kleinNeeds,
@@ -537,6 +556,9 @@ export const kleinFixFace = defineRecipe<KleinFixFace>({
       slots: files, uploads: { source: "s.png", "references.0": "a.png", "second.0": "c.png", "second.1": "d.png" }, media: { source: photo },
     },
   ],
+}), {
+  ...KLEIN_DROPS,
+  prompt: "the face is redrawn from the person's reference images with Klein's own words for the same face (SAME_FACE): words of the user's would pull it from them",
 });
 
 // ---------------------------------------------------------------- a variation
@@ -551,7 +573,7 @@ interface KleinVariation extends KleinBase {
 const DIFFERS = "a slightly different pose, expression and camera angle";
 
 /** The same picture taken again: the picture is handed over as the one to follow, and the words ask for the same thing a little differently. */
-export const kleinVariation = defineRecipe<KleinVariation>({
+export const kleinVariation = pictureForm("own", defineRecipe<KleinVariation>({
   id: "klein.variation",
   family: "klein",
   needsWith: kleinNeeds,
@@ -593,4 +615,4 @@ export const kleinVariation = defineRecipe<KleinVariation>({
       slots: files, uploads: { source: "s.png", "references.0": "a.png" }, media: { source: photo },
     },
   ],
-});
+}), KLEIN_DROPS);

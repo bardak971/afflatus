@@ -1,4 +1,5 @@
 import { defineRecipe, GraphBuilder, type Recipe, type Ref } from "@afflatus/core";
+import { pictureForm } from "../shared/pictureForm";
 import { OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, PASTE_BACK_NODES, pasteBack, stretchedFill, type OutpaintSettings } from "../sdxl/common";
 import { INPAINT_PATCH_NODES, inpaintPatched, inpaintPatchNeeds, photo, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
 
@@ -19,7 +20,7 @@ const SEAM_DENOISE = 0.35;
 export function flowOutpaint(spec: FlowSpec, kit: FlowKit): Recipe<FlowOutpaint> {
   const { inputs, loadNodes, SOMETIMES, load, shifted, cond, sample, sizeOf, tuned } = kit;
   const files = spec.files;
-  return defineRecipe<FlowOutpaint>({
+  return pictureForm("outpaint", defineRecipe<FlowOutpaint>({
     id: `${spec.family}.outpaint`,
     family: spec.family,
     version: 1,
@@ -70,5 +71,5 @@ export function flowOutpaint(spec: FlowSpec, kit: FlowKit): Recipe<FlowOutpaint>
       // Turbo's branch: the LoRA put on, its steps at CFG 1 (the operations' other variants have no turbo file)
       ...(kit.turboFiles ? [{ name: "Turbo with its LoRA", input: { source: "p", prompt: "a", fast: true, turboSteps: 6 } as Partial<FlowOutpaint>, slots: kit.turboFiles, uploads: { source: "s.png" }, media: { source: { width: 896, height: 1152 } } }] : []),
     ],
-  });
+  }), spec.drops);
 }
