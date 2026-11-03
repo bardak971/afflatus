@@ -149,6 +149,8 @@ def test_the_route_answers_the_facts_of_the_bytes_sent(monkeypatch):
 
 
 def test_the_route_says_a_picture_it_cannot_read(monkeypatch):
+    # the words are Pillow's own, so the test needs it (the pod image's test step installs only pytest and numpy)
+    pytest.importorskip("PIL")
     monkeypatch.setattr(face_match, "available", lambda: True)
     monkeypatch.setattr(face_match, "_loaded", lambda: App([]))
     monkeypatch.setattr(face_match, "_app", None)
