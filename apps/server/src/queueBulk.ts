@@ -22,7 +22,15 @@ export async function dismissAll(core: QueueCore, ids: readonly string[]): Promi
   const finished = core.db.selectFrom("jobs").where("id", "in", [...ids]).where("status", "in", ["done", "failed", "cancelled"]).where((eb) => eb.not(awaited(eb)));
   // a clip's job, a cut or an export is seen on its timeline too
   const timeline = await finished.select("id").where((eb) => eb.or([eb("clip_id", "is not", null), eb("timeline_id", "is not", null)])).executeTakeFirst();
-  const r = await core.db.deleteFrom("jobs").where("id", "in", [...ids]).where("status", "in", ["done", "failed", "cancelled"]).where((eb) => eb.not(awaited(eb))).executeTakeFirst();
+  const r = await core.db.transaction().execute(async (tx) => {
+    const going = (eb: ExpressionBuilder<Tables, "jobs">) => eb.and([eb("id", "in", [...ids]), eb("status", "in", ["done", "failed", "cancelled"]), eb.not(awaited(eb))]);
+    // an MCP token's jobs still count for its limits once off the list (its renders an hour, its spend this month): copied
+    // where Dismiss never deletes, in the same go, or dismissing each job as it ends let a token past both (card #268)
+    await tx.insertInto("mcp_token_jobs").columns(["id", "mcp_token_id", "machine_id", "warm", "created_at", "started_at", "finished_at"])
+      .expression(tx.selectFrom("jobs").select(["id", "mcp_token_id", "machine_id", "warm", "created_at", "started_at", "finished_at"]).where(going).where("mcp_token_id", "is not", null))
+      .onConflict((oc) => oc.column("id").doNothing()).execute();
+    return tx.deleteFrom("jobs").where(going).executeTakeFirst();
+  });
   core.events.emit("queue");
   if (timeline) core.events.emit("timeline");
   return Number(r.numDeletedRows);
