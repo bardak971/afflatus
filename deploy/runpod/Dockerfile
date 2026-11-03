@@ -23,7 +23,7 @@ ARG BASE_CU128=ghcr.io/bardak971/afflatus-pod-base:8-cu128@sha256:87902aa5abbbad
 ARG TORCH_CUDA=cu130
 # the ComfyUI the base is built on (base/Dockerfile's COMFYUI_VERSION; test_image.py holds the two together), for Manager's
 # registry list below, made outside the base (the base's AFFLATUS_COMFYUI_VERSION says the same, but only to a stage on it)
-ARG COMFYUI_VERSION=v0.41.2
+ARG COMFYUI_VERSION=v0.44.0
 
 # What the top makes it makes here, on the small Python image the base starts from, not on the base: the last stage then
 # only copies, each copy a layer of its own (--link), so the build pushes the top without pulling the base's GBs (6–8 min

@@ -26,9 +26,9 @@
 FROM python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258
 
 # the ComfyUI release the image is built on: the one Afflatus is tested against
-ARG COMFYUI_VERSION=v0.41.2
+ARG COMFYUI_VERSION=v0.44.0
 # the commit that tag names: a tag can be moved, a commit cannot
-ARG COMFYUI_COMMIT=b53f77a74e21091cbdebfdf7b85fc80326932646
+ARG COMFYUI_COMMIT=2c75dc1b379a59e0880619d029607af5169a62ef
 # PyTorch's build and versions: torch, torchvision and torchaudio of one release, for one CUDA
 ARG TORCH_CUDA=cu130
 ARG TORCH_VERSION=2.10.0
