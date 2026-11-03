@@ -5,7 +5,7 @@ import type { InputSpec } from "./inputs";
  * set in the form they leave, for the inputs both forms have under the same name and of the same
  * kind. A setting whose starting value differs between the two (the denoising strength of img2img
  * and of inpaint) is each operation's own and stays behind. What the new form already holds is kept. The server
- * carries a clip's inputs the same way when a recording dropped on it makes it Lip sync (Timelines.recordingClipsIn).
+ * carries a clip's inputs the same way when a recording dropped on it makes it Lip sync (TimelineRecording.recordingClipsIn).
  */
 export function carryOver(from: { inputs: InputSpec[] }, to: { inputs: InputSpec[] }, stored: Record<string, unknown> | undefined, held: Record<string, unknown> | undefined): Record<string, unknown> {
   const out: Record<string, unknown> = {};
