@@ -12,7 +12,7 @@ import { itemActions, PASS_KEYS, sentPrompt, type ActionId, type ItemFacts, type
 import { useItemMutations, useTimelineSubmenu } from "./itemMutations";
 import { canCopyPicture } from "./secureContext";
 import { useBanners } from "./store";
-import { handsOf, OPS } from "./viewer/shared";
+import { handsInput, NO_HAND_DETECTOR, OPS } from "./viewer/shared";
 import { useMediaExtract } from "./viewer/useMediaExtract";
 import { useNewDraftActions } from "./viewer/useNewDraftActions";
 import { useFlash } from "./hooks";
@@ -91,16 +91,13 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
    */
   const hands = () => {
     const tool = toolFor("h");
-    const way = tool && handsOf(tool);
+    const way = tool && handsInput(tool, setup.data?.recipes.find((x) => x.id === tool.id)?.options, Boolean(setup.data?.comfy.online));
     if (!tool || !way) return;
-    const offered = setup.data?.recipes.find((x) => x.id === tool.id)?.options[way.input.id] ?? [];
-    const file = offered.find((o) => new RegExp(way.match, "i").test(o));
-    // offline, nothing is listed: the queue says ComfyUI does not answer, which is the reason
-    if (!file && setup.data?.comfy.online) {
-      say({ id: `queued:${Date.now()}`, tone: "bad", title: "Hand refine could not be queued", text: "The hand detector is not installed: Settings → Models → Image tools has it (one click).", href: "/settings/models", go: "Open Settings" });
+    if (way.missing) {
+      say({ id: `queued:${Date.now()}`, tone: "bad", title: "Hand refine could not be queued", text: NO_HAND_DETECTOR, href: "/settings/models", go: "Open Settings" });
       return;
     }
-    queue("hand", { recipe: tool, stored: { ...toolInput(tool), ...way.values, ...(file ? { [way.input.id]: file } : {}) }, label: OPS.h!.label, from: a.id });
+    queue("hand", { recipe: tool, stored: { ...toolInput(tool), ...way.values }, label: OPS.h!.label, from: a.id });
   };
   /** A pass that opens a form with the picture in place (Inpaint, Edit, Outpaint). */
   const openPass = (key: string) => {

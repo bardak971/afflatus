@@ -1,3 +1,5 @@
+import type { Asset } from "../api";
+
 /**
  * What the viewer is asked to do as it opens on an item: Trim, Compare and Details from a list shown outside it (a
  * tile's menu, the command bar) open the viewer on the item with that tool. The place that asks opens the viewer
@@ -5,7 +7,7 @@
  */
 export type ViewerAsk = "trim" | "compare" | "details";
 
-let pending: { id: string; what: ViewerAsk; at: number } | null = null;
+let pending: { id: string; what: ViewerAsk; pin?: Asset; at: number } | null = null;
 
 /**
  * The passes queued from an item (job id → the item's id): when one is done, its banner offers Compare, the item and
@@ -13,13 +15,14 @@ let pending: { id: string; what: ViewerAsk; at: number } | null = null;
  */
 export const passFrom = new Map<string, string>();
 
-export function askViewer(id: string, what: ViewerAsk): void {
-  pending = { id, what, at: Date.now() };
+/** `pin`: Compare against this one (the two of a library selection), not the one Compare would pick. */
+export function askViewer(id: string, what: ViewerAsk, pin?: Asset): void {
+  pending = { id, what, pin, at: Date.now() };
 }
 
-export function takeViewerAsk(id: string): ViewerAsk | null {
+export function takeViewerAsk(id: string): { what: ViewerAsk; pin?: Asset } | null {
   if (!pending || pending.id !== id) return null;
-  const { what, at } = pending;
+  const { what, pin, at } = pending;
   pending = null;
-  return Date.now() - at < 5000 ? what : null;
+  return Date.now() - at < 5000 ? { what, pin } : null;
 }

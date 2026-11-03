@@ -1,4 +1,5 @@
 import { Send, ArrowRightFromLine, AudioLines, Clapperboard, ClipboardCopy, Columns2, Copy, Download, Eraser, ExternalLink, Eye, Film, FlipHorizontal2, FlipVertical2, FolderKanban, Hand, Image as Picture, ImageDown, Info, Maximize2, Mic, Paintbrush, Pencil, PenLine, PersonStanding, Scissors, Shuffle, SlidersHorizontal, Smile, SquareDashed, Star, Trash2, Undo2, VolumeX, Wand2, Wrench, type LucideIcon } from "lucide-react";
+import { plural } from "@afflatus/core";
 import { fold, type MenuItem } from "./ContextMenu";
 
 /**
@@ -276,6 +277,51 @@ export function itemActions(f: ItemFacts, runs: Runs, notes: Partial<Record<Acti
   const back = pick("bin").map((a): ItemAction => ({ ...a, group: "item" }));
   const erase: ItemAction[] = runs.erase ? [{ id: "erase", group: spec.group, label: spec.label, icon: spec.icon, tip: spec.tip, danger: true, disabled: false, run: runs.erase }] : [];
   return [...back, ...pick("open"), ...pick("download"), ...pick("compare"), ...erase];
+}
+
+/** The passes a library selection queues on each of its pictures at once: those that need no form (no mask, no frame to set). */
+export const SELECTION_PASSES = ["upscale", "face", "hand", "background"] as const satisfies readonly ActionId[];
+export type SelectionPass = (typeof SELECTION_PASSES)[number];
+
+/** What a library selection is: how many of each kind are ticked, and what the place can do with them. */
+export interface SelectionFacts {
+  /** Pictures ticked: what the passes run on. */
+  pictures: number;
+  /** Pictures and videos ticked: what Compare puts side by side. */
+  seen: number;
+  /** Everything ticked: what the zip holds. */
+  count: number;
+  inBin: boolean;
+  /** The recipe each pass would use, by its title; absent: none is installed for it. */
+  passes: Partial<Record<ActionId, string>>;
+}
+
+/**
+ * What a library selection does together, beside a timeline of them, Move to, Keep and the bin: Download as one zip, each
+ * quick pass queued on every picture ticked (one job each), Compare when exactly two are ticked. The same actions as an
+ * item's (their labels, icons and tips), said for many; in the bin only Download and Compare, as an item's list there.
+ */
+export function selectionActions(f: SelectionFacts, runs: { zip?(): void; pass?(id: SelectionPass): void; compare?(): void }): ItemAction[] {
+  const of = (id: ActionId, over: Partial<ItemAction>): ItemAction => {
+    const spec = ACTIONS[id];
+    return { id, group: spec.group, sub: spec.sub, label: spec.label, icon: spec.icon, tip: spec.tip, disabled: false, ...over };
+  };
+  const zip = of("download", {
+    label: "Download zip",
+    tip: `The ${plural(f.count, "item")} ticked as one zip, each under its name, renders marked as made by a model as one by one. Written to your downloads as it comes.`,
+    run: runs.zip, disabled: !runs.zip,
+  });
+  const passes = f.inBin || !f.pictures ? [] : SELECTION_PASSES.map((id) => {
+    const off = f.passes[id] ? undefined : "no model for it";
+    return of(id, {
+      tip: `${ACTIONS[id].label} on each of the ${plural(f.pictures, "picture")} ticked: one job each, queued at once with each picture's own generation parameters.`,
+      note: off ?? `on ${plural(f.pictures, "picture")}`,
+      disabled: Boolean(off) || !runs.pass,
+      run: runs.pass && !off ? () => runs.pass!(id) : undefined,
+    });
+  });
+  const compare = f.seen === 2 && f.count === 2 ? [of("compare", { tip: "The two ticked side by side, pictures also with a wipe, zoom and pan in step; videos play in step.", run: runs.compare, disabled: !runs.compare })] : [];
+  return [zip, ...passes, ...compare];
 }
 
 /** Where a list is shown: each place's keys act or not. */

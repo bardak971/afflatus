@@ -2,11 +2,11 @@ import { lazy, Suspense, type RefObject } from "react";
 import { useKeysHere } from "../keys/here";
 import type { Range } from "../Trim";
 import { fileUrl, type Asset } from "../api";
-import { cx } from "../cx";
 import { DRAG_HAS_SOUND, DRAG_TYPE, dragKind } from "../dragging";
 import type { ViewerActions } from "./useViewerActions";
 import { AudioPlayer } from "../AudioPlayer";
 import { VideoPlayer } from "../VideoPlayer";
+import { ZoomPicture } from "./ZoomPicture";
 
 // Trim is a chunk of its own: fetched the first time a video is trimmed
 const Trim = lazy(() => import("../Trim").then((m) => ({ default: m.Trim })));
@@ -25,6 +25,7 @@ const dragOf = (a: Asset) => (e: React.DragEvent) => {
 /**
  * The item itself, large: a picture, a video with Trim under it, or a sound (in Trim: over its waveform). In place, the picture is a
  * button that opens the details; over the screen, a click on the picture copies it and a click beside the item closes the viewer.
+ * A picture zooms and pans in both (ZoomPicture).
  */
 export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, onTrimRange: setTrimRange, onMenu, overlay, onDetails, onClose, onCopy }: {
   acts: ViewerActions;
@@ -52,16 +53,22 @@ export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, on
   const prompt = typeof g?.inputs[mainText] === "string" ? (g.inputs[mainText] as string) : "";
   return (
     <div className={overlay ? "flex min-w-0 grow flex-col items-center justify-center gap-3 p-6" : "flex min-h-0 grow flex-col items-center justify-center gap-2"} onClick={overlay ? onClose : undefined}>
-      {a.kind === "image" && (overlay
-        ? <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} draggable onDragStart={dragOf(a)} onContextMenu={onMenu} data-tip={onCopy ? "Click to copy the picture (Ctrl+C)" : undefined} className={cx("max-h-full max-w-full rounded-lg object-contain", onCopy && "cursor-copy")} onClick={(e) => {
-            e.stopPropagation();
-            onCopy?.();
-          }} />
-        : (
-          <button type="button" onClick={onDetails} aria-label="Details: generation parameters, lineage and every action" data-tip="Details: generation parameters, lineage and every action" className="flex h-full max-w-full items-center justify-center">
-            <img key={a.id} src={fileUrl(a.id)} alt={prompt || "Image"} draggable onDragStart={dragOf(a)} onContextMenu={onMenu} className="max-h-full max-w-full rounded-lg object-contain" />
-          </button>
-        ))}
+      {/* the picture looked at closely: wheel zoom, drag to pan once zoomed in, double-click fit / 1:1 (ZoomPicture) */}
+      {a.kind === "image" && (
+        <ZoomPicture
+          key={a.id}
+          src={fileUrl(a.id)}
+          natural={a.width && a.height ? { w: a.width, h: a.height } : null}
+          onPick={overlay ? onCopy : onDetails}
+          pickLabel={overlay ? "Copy the picture" : "Details: generation parameters, lineage and every action"}
+          imgProps={{
+            alt: prompt || "Image", draggable: true, onDragStart: dragOf(a), onContextMenu: onMenu,
+            "data-tip": overlay ? (onCopy ? "Click to copy the picture (Ctrl+C)" : undefined) : "Details: generation parameters, lineage and every action",
+            className: overlay && onCopy ? "cursor-copy" : !overlay ? "cursor-pointer" : undefined,
+          } as React.ImgHTMLAttributes<HTMLImageElement>}
+          className="min-h-0 flex-1"
+        />
+      )}
       {a.kind === "video" && (
         <div className="flex min-h-0 w-full flex-1 items-center justify-center gap-3" onClick={overlay ? onClose : undefined}>
           <VideoPlayer

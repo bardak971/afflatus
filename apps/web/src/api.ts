@@ -607,6 +607,8 @@ export const api = {
   /** Several items at once: kept or not, to the bin, or back from it. */
   /** `inUse`: how many were left as they were because something still uses them (a timeline, the kit, a draft, a job to run). */
   bulkAssets: (ids: string[], action: "keep" | "unkeep" | "bin" | "restore") => call<{ changed: number; inUse?: number }>("POST", "/assets/bulk", { ids, action }),
+  /** Several items as one zip: the address to follow for it, good for a minute and once (the server's assetsZip.ts). */
+  zipAssets: (ids: string[]) => call<{ href: string }>("POST", "/assets/zip", { ids }),
   /** The drafts that use these items (their forms name one, or they edit one), with which, the last saved first. */
   draftsUsing: (ids: string[]) => call<{ drafts: Array<{ id: string; name: string; assets: string[] }> }>("POST", "/drafts/using", { ids }),
   /** These items taken out of every draft that uses them: the fields that held one follow their default again. */

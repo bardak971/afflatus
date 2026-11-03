@@ -89,7 +89,8 @@ export interface BackupPlaces {
   filesDir: string;
 }
 
-const stamp = () => {
+/** The local date and minute, in a download's name: 20261104-0044 (a backup's, a library selection's zip). */
+export const stamp = () => {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
