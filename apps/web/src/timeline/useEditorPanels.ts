@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { Clip } from "../api";
 
 /**
  * What is selected and open in the timeline editor (useTimelineEditor): the clip selected, the clips picked to render
@@ -58,3 +59,29 @@ export function useEditorPanels() {
   };
   return { selected, setSelected, picked, setPicked, musicOpen, setMusicOpen, joinOpen, setJoinOpen, sourceOpen, setSourceOpen, recordingOpen, setRecordingOpen, select, openSource, openRecording, openJoin };
 }
+
+/**
+ * The editor's selection, read by its parts in one piece (editorProps): the panels open (useEditorPanels), the picked clips
+ * kept to those still on the timeline, and the clip selected as it stands on it.
+ */
+export function useEditorSelection(clips: Clip[]) {
+  const { picked: pickedAll, setPicked, selected, ...panels } = useEditorPanels();
+  // the picked clips still on the timeline: an Undo or a removal takes clips away under the pick, and Delete would send
+  // ids no longer there (the whole removal refused), the header and the menus count them; dropped from the pick too, so
+  // a Redo bringing one back does not bring it back picked
+  const picked = useMemo(() => {
+    const here = new Set(clips.map((c) => c.id));
+    const kept = new Set([...pickedAll].filter((id) => here.has(id)));
+    return kept.size === pickedAll.size ? pickedAll : kept;
+  }, [pickedAll, clips]);
+  useEffect(() => {
+    if (picked !== pickedAll) setPicked(picked);
+  }, [picked, pickedAll, setPicked]);
+  /** A clip picked with Ctrl + click on the track, or let go when it was picked. */
+  const togglePick = (id: string) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const current = clips.find((c) => c.id === selected) ?? null;
+  return { ...panels, selected, picked, setPicked, togglePick, current };
+}
+
+/** What is selected and open in the editor (useEditorSelection). */
+export type EditorSelection = ReturnType<typeof useEditorSelection>;

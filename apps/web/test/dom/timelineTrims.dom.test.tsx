@@ -37,11 +37,11 @@ describe("a trim waiting for the one on its way (W-13)", () => {
   async function oneWaiting(now: () => ReturnType<typeof useTimelineEditor>) {
     const first = later<unknown>();
     fakeApi.on("POST /timelines/:id/source/trim", () => first.promise);
-    act(() => void now().stretch.run(2000, 7000));
+    act(() => void now().sourceLane.stretch.run(2000, 7000));
     await waitFor(() => expect(fakeApi.calls("POST", "/timelines/zz-test-timeline/source/trim")).toHaveLength(1));
     let waited: boolean | undefined;
-    act(() => void now().stretch.run(2000, 6000).then((taken) => (waited = taken)));
-    expect(now().stretch.pending).toBe(true);
+    act(() => void now().sourceLane.stretch.run(2000, 6000).then((taken) => (waited = taken)));
+    expect(now().sourceLane.stretch.pending).toBe(true);
     return { first, waited: () => waited };
   }
 
@@ -49,11 +49,11 @@ describe("a trim waiting for the one on its way (W-13)", () => {
     const now = await editor();
     const { first, waited } = await oneWaiting(now);
     fakeApi.on("POST /timelines/:id/undo", { undone: "zz-test trim" });
-    act(() => now().undo.mutate());
+    act(() => now().actions.undo.mutate());
     await waitFor(() => expect(waited()).toBe(false));
     first.answer({ clips: [], toMs: 7000 });
-    await waitFor(() => expect(now().undo.isSuccess).toBe(true));
-    await waitFor(() => expect(now().stretch.pending).toBe(false));
+    await waitFor(() => expect(now().actions.undo.isSuccess).toBe(true));
+    await waitFor(() => expect(now().sourceLane.stretch.pending).toBe(false));
     expect(fakeApi.calls("POST", "/timelines/zz-test-timeline/source/trim").map((c) => c.body)).toEqual([{ fromMs: 2000, toMs: 7000 }]);
   });
 
@@ -61,10 +61,10 @@ describe("a trim waiting for the one on its way (W-13)", () => {
     const now = await editor();
     const { first, waited } = await oneWaiting(now);
     fakeApi.on("PATCH /timelines/:id", {});
-    act(() => now().removeSource());
+    act(() => now().sourceLane.removeSource());
     await waitFor(() => expect(waited()).toBe(false));
     first.answer({ clips: [], toMs: 7000 });
-    await waitFor(() => expect(now().stretch.pending).toBe(false));
+    await waitFor(() => expect(now().sourceLane.stretch.pending).toBe(false));
     expect(fakeApi.calls("POST", "/timelines/zz-test-timeline/source/trim")).toHaveLength(1);
     // the removal only: no stretch sent after it
     expect(fakeApi.calls("PATCH", "/timelines/zz-test-timeline").map((c) => c.body)).toEqual([{ source: null }]);
@@ -96,13 +96,13 @@ describe("Make undone at once (W-17)", () => {
     const makeRead = later<unknown>();
     fakeApi.on("GET /timelines/:id", () => makeRead.promise);
     fakeApi.on("POST /timelines/:id/source/make", { clips: ["zz-test-window"] });
-    act(() => seen.makeSource.run());
+    act(() => seen.sourceLane.makeSource.run());
     await waitFor(() => expect(fakeApi.calls("GET", "/timelines/zz-test-timeline").length).toBeGreaterThan(1));
-    expect(seen.makeSource.pending).toBe(true);
+    expect(seen.sourceLane.makeSource.pending).toBe(true);
     fakeApi.on("GET /timelines/:id", { ...before, undo: null, redo: "zz-test make" });
     fakeApi.on("POST /timelines/:id/undo", { undone: "zz-test make" });
-    act(() => seen.undo.mutate());
+    act(() => seen.actions.undo.mutate());
     await waitFor(() => expect(seen.t?.redo).toBe("zz-test make"));
-    await waitFor(() => expect(seen.makeSource.pending).toBe(false));
+    await waitFor(() => expect(seen.sourceLane.makeSource.pending).toBe(false));
   });
 });
