@@ -20,8 +20,6 @@ const gb = (n: number) => `${(n / 2 ** 30).toFixed(1)} GB`;
 console.log(`source: ${load.source === "comfyui" ? "ComfyUI itself (no monitor extension heard)" : load.source}`);
 if (load.cpu !== undefined) console.log(`CPU ${load.cpu}%`);
 if (load.ram) console.log(`RAM ${load.ram.percent}% (${gb(load.ram.used)} of ${gb(load.ram.total)})`);
-if (load.swap !== undefined) console.log(`Swap ${load.swap}%`);
-for (const d of load.disks) console.log(`Disk ${d.path} ${d.percent}%${d.readMbS !== undefined ? ` · read ${d.readMbS} MB/s · write ${d.writeMbS} MB/s` : ""}`);
 for (const g of load.gpus) {
   console.log(`${g.name}: memory ${g.vramPercent}% (${gb(g.vramUsed)} of ${gb(g.vramTotal)})${g.load !== undefined ? ` · load ${g.load}%` : ""}${g.temperature !== undefined ? ` · ${g.temperature}°` : ""}`);
 }

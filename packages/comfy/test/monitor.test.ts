@@ -397,8 +397,7 @@ describe("Monitor", () => {
     });
     await until(() => monitor.system !== null);
     expect(monitor.system).toMatchObject({
-      source: "dasiwa", cpu: 14, ram: { percent: 79 }, swap: 2,
-      disks: [{ path: "E:\\", percent: 70, readMbS: 0, writeMbS: 1.5 }],
+      source: "dasiwa", cpu: 14, ram: { percent: 79 },
       gpus: [{ name: "Some GPU", load: 100, temperature: 82, vramPercent: 80 }],
     });
   });
@@ -420,7 +419,7 @@ describe("systemLoadFrom", () => {
       cpu_utilization: 20, ram_total: 32e9, ram_used: 16e9, ram_used_percent: 50, hdd_used_percent: 60,
       gpus: [{ gpu_utilization: 90, gpu_temperature: 70, vram_total: 12e9, vram_used: 6e9, vram_used_percent: 50 }],
     })!;
-    expect(load).toMatchObject({ source: "crystools", cpu: 20, ram: { percent: 50 }, disks: [{ percent: 60 }], gpus: [{ load: 90, temperature: 70, vramPercent: 50 }] });
+    expect(load).toMatchObject({ source: "crystools", cpu: 20, ram: { percent: 50 }, gpus: [{ load: 90, temperature: 70, vramPercent: 50 }] });
   });
 
   it("is null for any other message", () => {

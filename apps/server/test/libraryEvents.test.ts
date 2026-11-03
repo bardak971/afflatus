@@ -173,7 +173,7 @@ describe("the machines' load on the live events", () => {
   });
 
   it("names the machines whose load changed, and every machine's id", () => {
-    const load = (vramPercent: number, at: number): SystemLoad => ({ at, source: "comfyui", disks: [], gpus: [{ name: "GPU", vramUsed: vramPercent, vramTotal: 100, vramPercent }] });
+    const load = (vramPercent: number, at: number): SystemLoad => ({ at, source: "comfyui", gpus: [{ name: "GPU", vramUsed: vramPercent, vramTotal: 100, vramPercent }] });
     const opened = systemFrame(new Map(), [{ id: "m1", load: load(10, 1) }, { id: "m2", load: null }]);
     // read again a moment later, the same figures: no frame (the moment it was read aside)
     const same = systemFrame(opened.now, [{ id: "m1", load: load(10, 2) }, { id: "m2", load: null }]);

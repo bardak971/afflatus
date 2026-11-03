@@ -2,13 +2,12 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { Kysely, PostgresDialect, SqliteAdapter, SqliteDialect, sql, type DialectAdapter, type Driver, type SqlBool, type SqliteDatabase } from "kysely";
+import { Kysely, PostgresDialect, SqliteAdapter, SqliteDialect, sql, type DialectAdapter, type SqlBool, type SqliteDatabase } from "kysely";
 import { Migrator } from "kysely/migration";
 import pg from "pg";
-import { envSaid, type Config } from "./config";
+import type { Config } from "./config";
 import { writeCounter } from "./dbWrites";
 import { migrations } from "./migrations";
-import { JOURNAL_LIMIT, WorkerSqliteDriver } from "./sqliteWorker";
 
 /**
  * One schema for both databases. To keep it that way: ids and timestamps are text (ISO 8601),
@@ -533,22 +532,20 @@ export function takeOver(dataDir: string): string {
 }
 
 /**
- * ":memory:" for tests. `worker`: the statements run in a worker thread (sqliteWorker.ts), so that a long read does not
- * hold the server's other requests; `inline`: on this thread. Left out, AFFLATUS_SQLITE_WORKER=1 says which. The thread
- * stays the default for now: each statement then crosses to the worker and back, and with every core busy (an export, a
- * cut: ffmpeg takes them all) each crossing waits for the scheduler, so a route of many statements took several times as
- * long (measured at scale: 1.3 to 22 times, the most for the routes of many small statements). The routes no longer
- * count on nothing coming in between two statements (keyedLock.ts, test/races.test.ts).
+ * The most the WAL file keeps on the disk once a checkpoint has written it back (bytes). Left unset, it stayed as large as
+ * the biggest burst of writes since the start (a fold, an import, a first tidy of old jobs) for as long as the app ran.
+ * The commits stay synchronous = FULL, the default: NORMAL would save about a millisecond a commit but can lose the last
+ * one on a power cut, which is the owner's call.
  */
-export function openSqlite(file: string, opts: { worker?: boolean; inline?: boolean } = {}): Db {
-  if (opts.inline || !(opts.worker ?? envSaid.sqliteWorker())) {
-    const sqlite = new DatabaseSync(file);
-    sqlite.exec("PRAGMA journal_mode = WAL");
-    sqlite.exec(`PRAGMA journal_size_limit = ${JOURNAL_LIMIT}`);
-    sqlite.exec("PRAGMA foreign_keys = ON");
-    return new Kysely<Tables>({ dialect: new TransactionalSqlite({ database: forKysely(sqlite) }), plugins: [writeCounter] });
-  }
-  return new Kysely<Tables>({ dialect: new WorkerSqlite(file), plugins: [writeCounter] });
+export const JOURNAL_LIMIT = 16 * 1024 * 1024;
+
+/** ":memory:" for tests. The statements run on the server's own thread. */
+export function openSqlite(file: string): Db {
+  const sqlite = new DatabaseSync(file);
+  sqlite.exec("PRAGMA journal_mode = WAL");
+  sqlite.exec(`PRAGMA journal_size_limit = ${JOURNAL_LIMIT}`);
+  sqlite.exec("PRAGMA foreign_keys = ON");
+  return new Kysely<Tables>({ dialect: new TransactionalSqlite({ database: forKysely(sqlite) }), plugins: [writeCounter] });
 }
 
 /**
@@ -564,18 +561,6 @@ class TransactionalSqlite extends SqliteDialect {
         return true;
       }
     })();
-  }
-}
-
-/** The same dialect, with the database in a worker thread. */
-class WorkerSqlite extends TransactionalSqlite {
-  constructor(private readonly file: string) {
-    // The database given to the base class is never opened: the driver below has its own, in the worker.
-    super({ database: {} as SqliteDatabase });
-  }
-
-  override createDriver(): Driver {
-    return new WorkerSqliteDriver(this.file);
   }
 }
 

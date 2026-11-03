@@ -3,8 +3,8 @@ import type { Db } from "./db";
 
 /**
  * Work done one at a time per key, in the order asked. A read, then a write that depends on it, is only safe when nothing
- * else writes the same thing in between: with the database in its worker thread (or a disk or ComfyUI call between the
- * two), another request runs at every await. Work asked for from inside a turn of the same key runs in that turn: waiting
+ * else writes the same thing in between: another request runs at every await (a statement, a disk or ComfyUI call between
+ * the two). Work asked for from inside a turn of the same key runs in that turn: waiting
  * for the turn it is part of would wait forever. Never wait for a turn from inside a transaction: the work that has the
  * turn may be waiting for the database the transaction holds.
  */

@@ -122,6 +122,7 @@ From the 2026-11-02 security review (cards #250, #251). **Node pack 0.49.6**, an
 ### Removed
 - **Node pack 0.49.6 no longer has H3 Tail Guide, MiniMax H3 Append Continuation, or Match Picture Colours.** The first two were deprecated in 0.11.2 and promised gone in the release after 0.4.0; no form has used them since. Match Picture Colours (0.48.0) went out of the H3 continuations with #223 a day after it came in, was never in a release, and no saved job names it: it is removed rather than deprecated. A graph that names one of them is told the node is missing (card #255).
 - **The old API's leftovers** (card #262): `DELETE /api/jobs/:id` (use `POST /api/jobs/dismiss`), `DELETE /api/models/updates/:folder`, the `runpodS3User` setting (the S3 key's user is the account's own id, which RunPod says), and the single-model `llm` key of `PUT /api/settings` (send `llms`). **The settings' old `llm` row is made the first of the list and deleted** (migration 0108): its API key stayed in the database after the model was changed in Settings.
+- **The `AFFLATUS_SQLITE_WORKER` option.** `1` ran SQLite's statements in a worker thread; it was off by default, nothing set it, and with every core busy (an export, a cut) it made a route of many small statements several times slower. SQLite runs on the server's own thread, as it did by default (card #264).
 
 ## [0.9.0] - 2026-10-31
 

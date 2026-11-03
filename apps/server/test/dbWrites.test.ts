@@ -9,7 +9,7 @@ import { keptRead, writesTo } from "../src/dbWrites";
  */
 describe("a read kept until its tables are written to", () => {
   it("is read once while nothing is written, again after an insert, an update, a delete or a statement by hand", async () => {
-    const db = openSqlite(":memory:", { inline: true });
+    const db = openSqlite(":memory:");
     await migrate(db);
     let reads = 0;
     const pages = keptRead(["model_pages"], async (d: typeof db) => {

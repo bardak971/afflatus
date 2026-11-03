@@ -77,8 +77,6 @@ export const envSaid = {
   startedFile: () => process.env.AFFLATUS_STARTED_FILE,
   /** Windows' own folder, where its tar.exe is (updates.ts systemTar). */
   systemRoot: () => process.env.SystemRoot,
-  /** "1": SQLite's statements run in a worker thread, not on the server's own (db.ts openSqlite). */
-  sqliteWorker: () => process.env.AFFLATUS_SQLITE_WORKER === "1",
   /** RunPod's API, for a pretend RunPod (the demo, the tests). */
   runpodApi: () => process.env.RUNPOD_API_URL,
   /** RunPod's S3 API of every data center, for a pretend S3 (the demo, the tests). */
