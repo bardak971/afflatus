@@ -47,7 +47,7 @@ export const fileKey = (f: { folder: string; file: string }) => `${f.folder}|${n
 export const modelStem = (file: string) => baseName(file).replace(MODEL_EXT, "");
 
 /** The families' downloads (their slots' `get`), as the server and the web both have them. */
-type Downloads = ReadonlyArray<{ slots?: ReadonlyArray<{ get?: { file: string; url: string } }> }>;
+type Downloads = ReadonlyArray<{ slots?: ReadonlyArray<{ get?: { file: string; url: string; sha256?: string } }> }>;
 
 /**
  * A file's name as a key, lower case without its sub-folder: the same file on Windows and on a pod. Written by hand about
@@ -68,8 +68,14 @@ export const isOfficialName = (families: Downloads, file: string): boolean =>
  * gave that file its official address and sent it to a pod, whose fetch then refused it as no official file of that
  * folder, the pod billed while it waited (2026-10-22). The web and the server each had a test of their own, apart.
  */
-export const isOfficialFile = (families: Downloads, want: { url?: string; file: string }): boolean =>
-  Boolean(want.url) && families.some((f) => (f.slots ?? []).some((x) => x.get !== undefined && x.get.url === want.url && nameKey(x.get.file) === nameKey(want.file)));
+export const isOfficialFile = (families: Downloads, want: { url?: string; file: string }): boolean => officialGet(families, want) !== undefined;
+
+/** The family's download `want` is (isOfficialFile), with the bytes it must have when they are known. */
+export const officialGet = (families: Downloads, want: { url?: string; file: string }): { file: string; url: string; sha256?: string } | undefined => {
+  if (!want.url) return undefined;
+  for (const f of families) for (const x of f.slots ?? []) if (x.get !== undefined && x.get.url === want.url && nameKey(x.get.file) === nameKey(want.file)) return x.get;
+  return undefined;
+};
 
 /** What each model folder holds, as Settings › Model files names its kind; a folder not named here is "Other". */
 const KINDS: Record<string, string> = {

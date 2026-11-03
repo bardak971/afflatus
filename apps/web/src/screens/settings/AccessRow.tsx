@@ -13,7 +13,7 @@ import { Block, Row } from "./Rows";
 const WHY_LOCK =
   "ComfyUI has no login of its own: anything that reaches its address can run work on it, and ComfyUI-Manager installs whatever it is asked to. In 2026 a botnet took over ComfyUIs left open on the internet that way. Locked, every call needs this machine's token: Afflatus sends it, and your browser logs in once. It matters most for a ComfyUI other computers can reach (started with --listen, a rented instance, a forwarded port). The node pack keeps the lock; to take it off by hand, delete afflatus-lock.json from ComfyUI's user folder.";
 const WHY_LOCAL =
-  "Calls made on ComfyUI's own computer get in without the token, so your other tools there keep working while other computers stay locked out. A web page open in your browser still cannot use it. Leave it off when nothing else calls this ComfyUI.";
+  "ComfyUI's own page, opened in this computer's browser, gets in without the token; another program on this computer gets in with the key the node pack writes at each ComfyUI start in its user folder (afflatus-local.key, sent as a Bearer token). Other computers stay locked out, and a web page of another site cannot use it. Unsafe with any tunnel or port forward to this ComfyUI (ssh -R, ngrok, frp, a reverse proxy): what comes through one can pass for this computer. Leave it off when nothing else calls this ComfyUI.";
 const CHECKS = ["Token made, kept in Afflatus", "ComfyUI locked", "Refused without the token", "Answering with it"];
 
 /** An address over plain http on another machine (not this computer's loopback): a token sent to it is not encrypted. */

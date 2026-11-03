@@ -1,4 +1,4 @@
-import { beyondPack, defineRecipe, GraphBuilder, roundTo, type ReferenceValue, type Ref, type SizeValue } from "@afflatus/core";
+import { beyondPack, defineRecipe, GraphBuilder, packCommit, roundTo, type ReferenceValue, type Ref, type SizeValue } from "@afflatus/core";
 import { HIRES_PASS_INPUTS, hiresPass, UPSCALER_PREFER, type HiresPass } from "../sdxl/common";
 import type { FlowBase } from "../flow/kit";
 import { flowFixFace } from "../flow/fix-face";
@@ -177,7 +177,7 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
     // person onto the layout, which is not what was measured. Installing it again would not help: it is updated by hand
     const takes = person ? ctx.inputs?.("Krea2EditModelPatch") : null;
     if (takes && !takes.includes("ref_position")) {
-      throw beyondPack("This ComfyUI's comfyui-krea2edit is older than 2.0, which the person reference is made for: update it to its repository's latest (ComfyUI-Manager: Switch Ver, nightly; or git pull in its folder under custom_nodes; the Comfy Registry has 1.2.3 only), then restart ComfyUI.");
+      throw beyondPack(`This ComfyUI's comfyui-krea2edit is older than 2.0, which the person reference is made for (the Comfy Registry has 1.2.3 only): in ComfyUI's folder, git -C custom_nodes/comfyui-krea2edit fetch, then git -C custom_nodes/comfyui-krea2edit checkout ${packCommit("comfyui-krea2edit")} (the commit Afflatus is built against), then restart ComfyUI.`);
     }
     const plain = k.model;
     let model = putAdded(g, plain, added);

@@ -53,8 +53,8 @@ describe("the detectors as downloads", () => {
   it("are optional image-tools files that land in models/ultralytics/bbox", () => {
     const face = tools.slots.find((s) => s.id === "faceDetector");
     const hand = tools.slots.find((s) => s.id === "handDetector");
-    expect(face).toMatchObject({ folder: "ultralytics", optional: true, get: { file: "bbox/face_yolov8m.pt", url: "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt" } });
-    expect(hand).toMatchObject({ folder: "ultralytics", optional: true, get: { file: "bbox/hand_yolov8s.pt", url: "https://huggingface.co/Bingsu/adetailer/resolve/main/hand_yolov8s.pt" } });
+    expect(face).toMatchObject({ folder: "ultralytics", optional: true, get: { file: "bbox/face_yolov8m.pt", url: expect.stringMatching(/^https:\/\/huggingface\.co\/Bingsu\/adetailer\/resolve\/[0-9a-f]{40}\/face_yolov8m\.pt$/) } });
+    expect(hand).toMatchObject({ folder: "ultralytics", optional: true, get: { file: "bbox/hand_yolov8s.pt", url: expect.stringMatching(/^https:\/\/huggingface\.co\/Bingsu\/adetailer\/resolve\/[0-9a-f]{40}\/hand_yolov8s\.pt$/) } });
     // found as ComfyUI lists them, with the sub-folder in front (a backslash on Windows)
     expect(new RegExp(face!.detect[0]!, "i").test("bbox\\face_yolov8m.pt")).toBe(true);
     expect(face!.detect.some((d) => new RegExp(d, "i").test("bbox/hand_yolov8s.pt"))).toBe(false);

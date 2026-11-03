@@ -9,7 +9,7 @@ import { fileName } from "./media";
 import { cleanName, SHA256_HEX } from "./modelDownload";
 import { webUrl } from "./modelPages";
 import { assertPublicUrl } from "./outbound";
-import { isOfficialFile } from "@afflatus/core";
+import { officialGet } from "@afflatus/core";
 import type { Services } from "./services";
 import { readSettings, type Settings } from "./settings";
 
@@ -60,7 +60,7 @@ export async function beginDownload(s: Services, from: FastifyRequest | string, 
   // a family's official file, its Download pressed (a form, a Queue row, Settings › Models): the press is the consent, and the
   // address is the family's own, not a lookup. Anything else needs downloads turned on; "Search Hugging Face and Civitai"
   // covers only what Afflatus asks on its own, and a Download (a file Find models showed, a link pasted) is the user asking (card #166)
-  const official = isOfficialFile(s.registry.families(), b);
+  const official = officialGet(s.registry.families(), b);
   if (!official && !settings.downloadModels) throw bad("Downloading into ComfyUI is turned off. Turn on “Download missing models” in Settings › Models.");
   if (!b.civitai === !b.url) throw bad("a source is needed: a Civitai version or a URL");
   const { comfy, dir, machine } = await downloadTarget(s, settings, b.machine);
@@ -90,7 +90,9 @@ export async function beginDownload(s: Services, from: FastifyRequest | string, 
     assertPublicUrl(b.url, civitaiSites());
     // the user's own account for the site the file is on, to that site alone (keyFor)
     const key = keyFor(b.url, settings);
-    const started = await s.downloads.start(comfy, self, { file: b.file, folder: b.folder, title: name, source: b.url, ...(key ? { headers: key } : {}), comfyDir: dir, machine, ...kept, ...reachable(b.url) });
+    // a family's own file with the bytes it must have (every pickle): checked before it is named, by Afflatus or the pack
+    const sha256 = official?.sha256;
+    const started = await s.downloads.start(comfy, self, { file: b.file, folder: b.folder, title: name, source: b.url, ...(key ? { headers: key } : {}), ...(sha256 ? { sha256 } : {}), comfyDir: dir, machine, ...kept, ...reachable(b.url) });
     await keepPage(started.file);
     return started;
   }

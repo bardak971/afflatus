@@ -755,7 +755,8 @@ export class PodFiles {
       }
       return 0;
     };
-    if (src.kind === "url" && !src.sha256) {
+    // a family's own file has its hash too (a pickle's), which says nothing of this computer's copy of that name
+    if (src.kind === "url" && (!src.sha256 || isOfficialFile(this.d.lookup.families(), { url: src.url, file: f.file }))) {
       const named = await presetSize();
       if (named) return named;
       if ((await this.d.settings().catch(() => null))?.civitaiLookups) {
