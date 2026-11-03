@@ -103,6 +103,7 @@ describe("the downloads' state file", () => {
     // the path of the .part stays in the state file, never in what the browser is told
     expect(downloads.list()[0]).not.toHaveProperty("part");
     expect(downloads.list()[0]).not.toHaveProperty("partOf");
+    await downloads.flushed();
     expect(readdirSync(dir).sort()).toEqual(["big.safetensors.part", "downloads.json"]);
     await until(() => (JSON.parse(readFileSync(file, "utf8")) as Array<{ part?: string }>)[0]?.part === part);
     // taken off the list: what it left goes with it
