@@ -298,7 +298,7 @@ export class TimelineHistory {
   }
 }
 
-/** A clip a trim set aside, as a timeline's source and recordings keep it (Timelines.trimSource). */
+/** A clip a trim set aside, as a timeline's source and recordings keep it (TimelineSource.trimSource). */
 type Parked = { clip: Record<string, unknown>; takes: Array<Record<string, unknown>> };
 
 const parse = (text: string | null | undefined): unknown => {

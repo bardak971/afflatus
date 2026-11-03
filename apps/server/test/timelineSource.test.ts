@@ -944,7 +944,7 @@ describe("a source saved while a Split runs", () => {
       const tl = await tls.create("zz-test split race");
       const meme = await asset("video");
       await tls.edit(tl.id, { source: { asset: meme.id } });
-      const split = tls.splitSource(tl.id, 3000);
+      const split = tls.source.splitSource(tl.id, 3000);
       for (let k = 0; k < ticks; k++) await new Promise((r) => setImmediate(r));
       await Promise.all([split, tls.edit(tl.id, { source: { windowMs: 6000 } })]);
       const v = await tls.view(tl.id);

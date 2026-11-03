@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { newId, now } from "../src/db";
 import { newAssetRow } from "../src/media";
-import { trimOut } from "../src/timelines";
+import { trimOut } from "@afflatus/core";
 import { makeApp, png, type TestApp } from "./helpers";
 
 /**

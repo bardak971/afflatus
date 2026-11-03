@@ -10,7 +10,8 @@ import { quoted, Rich, tool, type ToolCtx } from "./mcpTool";
 import { rootFolderOf } from "./projects";
 import type { Services } from "./services";
 import { contactSheet } from "./thumbs";
-import { exportBody, exportTimeline, finishBody, finishClips, finishPlan, maskPreview, maskPreviewOf, rangeAction, renderClips, timelineRangeBody } from "./timelines-api";
+import { exportBody, exportTimeline, maskPreview, maskPreviewOf, rangeAction, renderClips, timelineRangeBody } from "./timelines-api";
+import { finishBody, finishClips, finishPlan } from "./timelineFinish";
 import { faceRouteSaid, type FaceRoute } from "./timelineFace";
 import { clockOf, CUT_JOB } from "./timelineModel";
 import type { ClipPatch, TimelinePatch, Timelines } from "./timelines";
@@ -471,17 +472,17 @@ async function runAction(s: Services, ctx: ToolCtx, id: string, a: Action): Prom
       await itemOf(s, a.item, ["audio", "video"], "A recording is a sound, or a video with sound");
       const into = a.clip === undefined ? undefined : clip(a.clip);
       if (into && (into.clip.take || into.clip.kind !== "video")) throw httpError(`Clip ${into.i + 1} is not an empty clip: a recording goes in place of an empty clip, or after the last one.`);
-      const made = await t.makeFromRecording(id, { asset: a.item, clip: into?.clip.id, seconds: a.seconds, window: a.window, keepCut: a.seconds !== undefined || a.window !== undefined });
+      const made = await t.recording.makeFromRecording(id, { asset: a.item, clip: into?.clip.id, seconds: a.seconds, window: a.window, keepCut: a.seconds !== undefined || a.window !== undefined });
       const now = await t.view(id);
       const at = made.map((m) => now.clips.findIndex((c) => c.id === m) + 1);
       return `made ${plural(made.length, "Lip sync clip")} from the recording (clips ${at[0]}–${at.at(-1)}), cut at its pauses${a.seconds ? ` about every ${a.seconds} s` : ""}${a.window !== undefined ? ` ± ${a.window} s` : ""}: nothing rendered yet`;
     }
     case "recut_recording": {
-      const { clips } = await t.cutRecording(id, { asset: a.item, seconds: a.seconds, window: a.window });
+      const { clips } = await t.recording.cutRecording(id, { asset: a.item, seconds: a.seconds, window: a.window });
       return `cut the recording again into ${plural(clips.length, "clip")} of about ${a.seconds} s ± ${a.window} s`;
     }
     case "trim_recording": {
-      const { clips } = await t.trimRecording(id, { asset: a.item, fromMs: a.fromMs, toMs: a.toMs });
+      const { clips } = await t.recording.trimRecording(id, { asset: a.item, fromMs: a.fromMs, toMs: a.toMs });
       return `trimmed the recording to ${a.fromMs}–${a.toMs} ms: ${plural(clips.length, "clip")} under it`;
     }
     case "source": {
@@ -506,15 +507,15 @@ async function runAction(s: Services, ctx: ToolCtx, id: string, a: Action): Prom
       return `the source lane changed${view.clips.length && view.source ? "" : ": make_source cuts it into clips"}`;
     }
     case "make_source": {
-      const made = await t.makeFromSource(id, { again: a.again });
+      const made = await t.source.makeFromSource(id, { again: a.again });
       return `made ${plural(made.length, "clip")} from the source, window by window: nothing rendered yet`;
     }
     case "split_source": {
-      await t.splitSource(id, a.atMs);
+      await t.source.splitSource(id, a.atMs);
       return `split the source at ${a.atMs} ms: the part before is a clip playing it as it is`;
     }
     case "trim_source": {
-      const r = await t.trimSource(id, { fromMs: a.fromMs, toMs: a.toMs });
+      const r = await t.source.trimSource(id, { fromMs: a.fromMs, toMs: a.toMs });
       return `trimmed the source's stretch to ${a.fromMs}–${r.toMs} ms${r.said ? `: ${r.said}` : ""}`;
     }
     case "settings": {

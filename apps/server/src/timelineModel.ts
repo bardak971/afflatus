@@ -301,6 +301,8 @@ export function laidOut(all: Placed[]): Laid[] {
   return out;
 }
 
+export type Tx = Parameters<Parameters<ReturnType<Db["transaction"]>["execute"]>[0]>[0];
+
 /**
  * The model as the range, media and export modules see it: the database, the files and the events, and
  * the few things only the model does (reading its rows, placing a timeline's clips, keeping a state for
