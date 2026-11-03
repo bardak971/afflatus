@@ -1,9 +1,10 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, fileUrl, type Asset, type RemovedPart } from "../api";
 import { clock } from "../format";
 import { queryKeys } from "../queryKeys";
 import { cx } from "../ui";
+import { useClock, useClockAs, useNewClock, type Clock } from "./clock";
 import type { PlayerHandle } from "./Player";
 import { partAt, type RecordingPlace } from "./recordingPlace";
 import { removedSaid } from "./track/RemovedMark";
@@ -42,7 +43,9 @@ export const RecordingStage = forwardRef<PlayerHandle, {
 }>(function RecordingStage({ recording, place, playing, onPlaying, onTime, stopAt, startAt, master = 1, view, removed = [] }, ref) {
   const el = useRef<HTMLAudioElement>(null);
   const box = useRef<HTMLDivElement>(null);
-  const [local, setLocal] = useState(() => place.toRecording(startAt));
+  // the moment of it heard (ms of the recording): on a clock of its own, set on every frame while it plays. Only what shows
+  // it (the playhead, the readout, the slider's value) draws again then; the rest when the part under it changes (card #245)
+  const heard = useNewClock(place.toRecording(startAt));
   const placeNow = useRef(place);
   placeNow.current = place;
   const length = place.lengthMs;
@@ -52,7 +55,7 @@ export const RecordingStage = forwardRef<PlayerHandle, {
   const put = (ms: number) => {
     const at = Math.max(earliestOf(placeNow.current), Math.min(placeNow.current.lengthMs, ms));
     if (el.current) el.current.currentTime = at / 1000;
-    setLocal(at);
+    heard.set(at);
     onTime(placeNow.current.toTrack(at));
   };
   useImperativeHandle(ref, () => ({
@@ -66,7 +69,7 @@ export const RecordingStage = forwardRef<PlayerHandle, {
   }));
   // the playhead stands on the recording from the start: the moment of it heard where it was
   useEffect(() => {
-    onTime(place.toTrack(local));
+    onTime(place.toTrack(heard.get()));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- once, as the stage turns to the recording
   // its clips made anew (a trim, a cut): the playhead follows the moment heard to where it now plays. Only when that moved:
   // the place is made anew on every read of the timeline (a take landing), and following it then took the playhead back
@@ -75,6 +78,7 @@ export const RecordingStage = forwardRef<PlayerHandle, {
   useEffect(() => {
     const before = placeBefore.current;
     placeBefore.current = place;
+    const local = heard.get();
     const moved = place.toTrack(local);
     if (!playing && before !== place && Math.abs(moved - before.toTrack(local)) > 0.5) onTime(moved);
   }, [place]); // eslint-disable-line react-hooks/exhaustive-deps -- when the parts move under it
@@ -96,7 +100,7 @@ export const RecordingStage = forwardRef<PlayerHandle, {
     const tick = (now: number) => {
       const ms = a.currentTime * 1000;
       const track = placeNow.current.toTrack(ms);
-      setLocal(ms);
+      heard.set(ms);
       const out = stopAt?.() ?? null;
       if (now - said > 66 || (out !== null && track >= out - 15)) {
         said = now;
@@ -139,24 +143,32 @@ export const RecordingStage = forwardRef<PlayerHandle, {
       ...(pauses.data?.pauses ?? []).map((p) => ((p.start + p.end) / 2) * 1000).filter((ms) => ms < length && !cuts.some((c) => Math.abs(c - ms) < AT_A_CUT_MS)).map((ms) => ({ ms, used: false })),
     ];
   }, [place, pauses.data, length]);
-  const now = partAt(place, local);
-  // the clip under the playhead and its take, if it has one: its picture behind the waveform, in step with the sound
-  const trackNow = place.toTrack(local);
-  const under = place.parts.find((p) => trackNow >= p.clipFromMs && trackNow < p.clipToMs) ?? now;
+  // the part under the playhead, and the clip under it with its take, if it has one: its picture behind the waveform, in step
+  // with the sound. Read as the clips' ids: a frame that leaves them the same draws nothing
+  const nowId = useClockAs(heard, (ms) => partAt(place, ms)?.clip.id ?? null);
+  const underId = useClockAs(heard, (ms) => underOf(place, ms)?.clip.id ?? null);
+  const now = place.parts.find((p) => p.clip.id === nowId) ?? null;
+  const under = place.parts.find((p) => p.clip.id === underId) ?? null;
   const take = under?.clip.take ?? null;
-  const takeAt = take && under ? (take.startMs + (trackNow - under.clipFromMs)) / 1000 : 0;
+  const takeAt = () => (take && under ? (take.startMs + (place.toTrack(heard.get()) - under.clipFromMs)) / 1000 : 0);
   const pic = useRef<HTMLVideoElement>(null);
+  // kept in step on every moment heard, without drawing anything: the picture's own time is read from it
   useEffect(() => {
-    const v = pic.current;
-    if (!v || !take) return;
-    if (playing) {
-      if (v.paused) void v.play().catch(() => {});
-      if (Math.abs(v.currentTime - takeAt) > 0.12) v.currentTime = takeAt;
-    } else {
-      v.pause();
-      if (Math.abs(v.currentTime - takeAt) > 0.02) v.currentTime = takeAt;
-    }
-  }, [takeAt, playing, take?.id]); // eslint-disable-line react-hooks/exhaustive-deps -- the picture's own time is read from it
+    const step = () => {
+      const v = pic.current;
+      if (!v || !take) return;
+      const at = takeAt();
+      if (playing) {
+        if (v.paused) void v.play().catch(() => {});
+        if (Math.abs(v.currentTime - at) > 0.12) v.currentTime = at;
+      } else {
+        v.pause();
+        if (Math.abs(v.currentTime - at) > 0.02) v.currentTime = at;
+      }
+    };
+    step();
+    return heard.subscribe(step);
+  }, [heard, playing, take?.id, under, place]); // eslint-disable-line react-hooks/exhaustive-deps -- takeAt reads these
 
   // a click or a drag on the waveform: the playhead there, in the stretch shown
   const surface = useRef<HTMLDivElement>(null);
@@ -179,6 +191,7 @@ export const RecordingStage = forwardRef<PlayerHandle, {
   // from the editor's own keys, which step a frame
   const keys = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     const by = e.shiftKey ? 5000 : 1000;
+    const local = heard.get();
     const next = e.key === "ArrowRight" || e.key === "ArrowUp" ? local + by : e.key === "ArrowLeft" || e.key === "ArrowDown" ? local - by : e.key === "Home" ? 0 : e.key === "End" ? length : null;
     if (next === null || e.ctrlKey || e.metaKey || e.altKey) return;
     e.preventDefault();
@@ -199,17 +212,15 @@ export const RecordingStage = forwardRef<PlayerHandle, {
           preload="auto"
           playsInline
           aria-label={`Clip ${under.number}'s take under the sound`}
-          onLoadedMetadata={(e) => (e.currentTarget.currentTime = takeAt)}
+          onLoadedMetadata={(e) => (e.currentTarget.currentTime = takeAt())}
           className="pointer-events-none absolute inset-0 h-full w-full object-contain opacity-40"
         />
       )}
-      <audio key={recording.id} ref={el} src={fileUrl(recording.id)} preload="auto" onLoadedMetadata={(e) => (e.currentTarget.currentTime = local / 1000)} />
+      <audio key={recording.id} ref={el} src={fileUrl(recording.id)} preload="auto" onLoadedMetadata={(e) => (e.currentTarget.currentTime = heard.get() / 1000)} />
 
       <div className="absolute top-3 left-4 z-10 flex items-center gap-2 text-xs">
         <span className="rounded-chip border border-accent bg-ground/80 px-2 py-1 font-semibold text-accent">Recording</span>
-        <span className="rounded-chip border border-line-strong bg-ground/80 px-2 py-1">
-          {clock(local, { decimals: 1 })} of {(length / 1000).toFixed(1)} s{now ? ` · in clip ${now.number}` : local < place.fromMs ? " · before In" : " · past Out"}
-        </span>
+        <Readout heard={heard} place={place} />
         {take && under && <span className="rounded-chip border border-line-strong bg-ground/80 px-2 py-1">take {number(under)} under the sound</span>}
       </div>
       <span className="absolute top-3 right-4 z-10 max-w-[40%] truncate rounded-chip bg-ground/80 px-2 py-1 font-mono text-xs text-ink-2" data-tip={recording.name}>{recording.name}</span>
@@ -295,23 +306,18 @@ export const RecordingStage = forwardRef<PlayerHandle, {
             </span>
           );
         })}
-        <span aria-hidden className="pointer-events-none absolute -inset-y-10 w-0.5 bg-ink-strong" style={{ left: share(local) }} />
+        <Playhead heard={heard} at={share} />
         {/* last, over the marks drawn under it (each lets the pointer through) */}
-        <div
-          ref={surface}
-          role="slider"
-          tabIndex={0}
-          aria-label="The recording: click or drag to move the playhead"
-          aria-valuemin={Math.round(earliestOf(place))}
-          aria-valuemax={Math.round(length)}
-          aria-valuenow={Math.round(local)}
-          aria-valuetext={clock(local, { decimals: 1 })}
+        <Scrub
+          heard={heard}
+          surface={surface}
+          min={Math.round(earliestOf(place))}
+          max={Math.round(length)}
           onKeyDown={keys}
           onPointerDown={down}
           onPointerMove={(e) => dragging && put(at(e))}
           onPointerUp={() => setDragging(false)}
           onPointerCancel={() => setDragging(false)}
-          className="absolute inset-0 cursor-text"
         />
       </div>
       <div aria-hidden className="mx-9 flex justify-between font-mono text-micro text-ink-3">
@@ -321,6 +327,57 @@ export const RecordingStage = forwardRef<PlayerHandle, {
     </div>
   );
 });
+
+/** The clip under a moment of the recording, by where it plays on the track; else the part it is in (a clip's tail heard on). */
+function underOf(place: RecordingPlace, ms: number) {
+  const track = place.toTrack(ms);
+  return place.parts.find((p) => track >= p.clipFromMs && track < p.clipToMs) ?? partAt(place, ms);
+}
+
+/** Where it stands and in which clip, said at the top: drawn again on every moment heard. */
+function Readout({ heard, place }: { heard: Clock; place: RecordingPlace }) {
+  const local = useClock(heard);
+  const now = partAt(place, local);
+  return (
+    <span className="rounded-chip border border-line-strong bg-ground/80 px-2 py-1">
+      {clock(local, { decimals: 1 })} of {(place.lengthMs / 1000).toFixed(1)} s{now ? ` · in clip ${now.number}` : local < place.fromMs ? " · before In" : " · past Out"}
+    </span>
+  );
+}
+
+/** The playhead's line across the waveform, at the moment heard (`at`: where a moment is across the stretch shown). */
+function Playhead({ heard, at }: { heard: Clock; at(ms: number): string }) {
+  return <span aria-hidden className="pointer-events-none absolute -inset-y-10 w-0.5 bg-ink-strong" style={{ left: at(useClock(heard)) }} />;
+}
+
+/** The waveform as a slider over the marks, its value the moment heard: what is clicked, dragged and stepped by the keys. */
+function Scrub({ heard, surface, min, max, ...on }: {
+  heard: Clock;
+  surface: RefObject<HTMLDivElement | null>;
+  min: number;
+  max: number;
+  onKeyDown(e: ReactKeyboardEvent<HTMLDivElement>): void;
+  onPointerDown(e: ReactPointerEvent<HTMLDivElement>): void;
+  onPointerMove(e: ReactPointerEvent<HTMLDivElement>): void;
+  onPointerUp(): void;
+  onPointerCancel(): void;
+}) {
+  const local = useClock(heard);
+  return (
+    <div
+      ref={surface}
+      role="slider"
+      tabIndex={0}
+      aria-label="The recording: click or drag to move the playhead"
+      aria-valuemin={min}
+      aria-valuemax={max}
+      aria-valuenow={Math.round(local)}
+      aria-valuetext={clock(local, { decimals: 1 })}
+      {...on}
+      className="absolute inset-0 cursor-text"
+    />
+  );
+}
 
 /** The first moment of the recording heard at or after the track's start (0 of the track): the stage's playhead goes no earlier. */
 export function earliestOf(place: RecordingPlace): number {

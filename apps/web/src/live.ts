@@ -109,6 +109,11 @@ export function useLiveEvents(): void {
       void client.invalidateQueries({ queryKey: queryKeys.hunt(), refetchType: "active" });
       readDeployModels();
     }, 1000);
+    // the downloads list, and the model files' figures, read again at most every 2 s, the last event read too: a download
+    // tells its bytes twice a second, read whole each time by every tab (26 KB with a day's downloads kept), and the hash pass
+    // and the header reads tell "models" once per file or per 40 headers, each a read of the LoRA info and Model files (500 KB)
+    const readDownloads = throttle(on(queryKeys.downloads()), 2000);
+    const readModels = throttle(on(queryKeys.modelInfo.all()), 2000);
     // each "library" event says what it changed: what it says in full (a new name, a keep) is written in at once, and the
     // changes are gathered until the read, which reads only the queries one of them can touch (queryKeys.ts libraryReads)
     let libraryWaiting: Array<LibraryChange | null> = [];
@@ -193,7 +198,7 @@ export function useLiveEvents(): void {
         for (const u of said.all ?? [said]) if (typeof u.id === "string") progressWaiting.set(u.id, { ...progressWaiting.get(u.id), ...u });
         progressFlush ??= window.setTimeout(writeProgress, PROGRESS_EVERY_MS);
       },
-      models: on(queryKeys.modelInfo.all()),
+      models: readModels,
       // a timeline changed: its card, and the Projects panel's tree when it is open (its clips, its size)
       timeline: () => readTimelines({ tree: true }),
       entities: on(queryKeys.entities()),
@@ -223,7 +228,7 @@ export function useLiveEvents(): void {
         const n = parse(data) as NoticeEvent | null;
         if (n?.kind && notifier.current && useNotify.getState().browser[n.kind]) say(n.title, n.body, notifyTag(`${n.kind}:${n.title}`));
       },
-      downloads: on(queryKeys.downloads()),
+      downloads: readDownloads,
       // ComfyUI has a file it did not have: what is ready may have changed; or the machines changed (one added, a rented pod
       // that came up or went, a lock): the settings that list them too
       // the workflows too: one an agent imported, or one approved, changes what Studio › Workflows lists
@@ -366,6 +371,8 @@ export function useLiveEvents(): void {
     return () => {
       stop.abort();
       readQueue.cancel();
+      readDownloads.cancel();
+      readModels.cancel();
       readDeployModels.cancel();
       libraryRead.cancel();
       readTimelines.cancel();

@@ -10,7 +10,7 @@ import { useQueue } from "../../data";
 import { queryKeys } from "../../queryKeys";
 import { Select, type Option } from "../../Select";
 import { AutoText, Button, cx, fieldClass, Help, NumberBox, Segmented } from "../../ui";
-import { useClock, type Clock } from "../clock";
+import { useClockAs, type Clock } from "../clock";
 import { ColumnEdge, FoldButton, useColumnWidth } from "../column";
 import type { RecordingPlace } from "../recordingPlace";
 import { ClipLength, landedSaid } from "./clipLength";
@@ -231,8 +231,10 @@ function stateOf(c: Clip): { said: string; good: boolean } {
  * recording plays. A click on its number or part opens that clip.
  */
 function ClipRows({ place, clock, forms, onSelectClip }: { place: RecordingPlace; clock: Clock; forms: RecordingPanelProps["forms"]; onSelectClip(id: string): void }) {
-  const now = useClock(clock);
-  const under = place.parts.find((x) => now >= x.clipFromMs && now < x.clipToMs);
+  // the clip lit, read as its id: a tick that leaves the playhead in the same clip draws no row again (card #245: every row,
+  // a Select in each, was drawn again fifteen times a second while it played)
+  const underId = useClockAs(clock, (now) => place.parts.find((x) => now >= x.clipFromMs && now < x.clipToMs)?.clip.id ?? null);
+  const under = place.parts.find((x) => x.clip.id === underId);
   return (
     <div className="flex flex-col">
       {place.parts.map((x) => {

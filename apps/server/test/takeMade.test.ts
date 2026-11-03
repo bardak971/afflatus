@@ -47,7 +47,15 @@ async function oneClip(): Promise<{ timeline: string; clip: string }> {
   return { timeline: tl.id, clip: (await get(t.app, `/api/timelines/${tl.id}`)).json().clips[0].id };
 }
 
-const takesOf = async (timeline: string) => (await get(t.app, `/api/timelines/${timeline}`)).json().clips[0].takes as Array<{ id: string; made: { recipe: string; form: Record<string, unknown>; carried?: boolean; mirror: string[] } | null }>;
+type Made = { recipe: string; form: Record<string, unknown>; carried?: boolean; mirror: string[] } | null;
+/** The first clip's takes, each with what it was made with: read for the clip (card #242), the timeline's answer has it not. */
+const takesOf = async (timeline: string) => {
+  const clip = (await get(t.app, `/api/timelines/${timeline}`)).json().clips[0] as { id: string; takes: Array<{ id: string; made?: Made }> };
+  expect(clip.takes.every((x) => !("made" in x))).toBe(true);
+  const made = (await get(t.app, `/api/clips/${clip.id}/made`)).json().takes as Record<string, Made>;
+  expect(Object.keys(made).sort()).toEqual(clip.takes.map((x) => x.id).sort());
+  return clip.takes.map((x) => ({ id: x.id, made: made[x.id]! }));
+};
 
 describe("what a take was made with", () => {
   it("is its own render's form, with the seed it was rendered with and its flips, the timeline's part left out", async () => {

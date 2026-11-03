@@ -1,8 +1,10 @@
 import { lazy, Suspense } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { api, type Clip, type DesignerSession, type RecipeInfo, type Timeline } from "../api";
 import type { useModelSettings, useSetup } from "../data";
 import type { DesignerTurn } from "../designer/types";
 import { wholeForm } from "../form";
+import { queryKeys } from "../queryKeys";
 
 // the designer's panel is a chunk of its own: fetched the first time it opens
 const Designer = lazy(() => import("../Designer").then((m) => ({ default: m.Designer })));
@@ -30,8 +32,10 @@ export function ClipDesigner({ timeline: t, clip: c, clips, recipes, setup, sett
   onApply(changes: Record<string, unknown>): void;
   onClose(): void;
 }) {
+  // what was said before, kept with the clip: read as the designer opens (card #242: not with every read of the timeline)
+  const kept = useQuery({ queryKey: queryKeys.clipChat(c.id), queryFn: ({ signal }) => api.clipChat(c.id, { signal }), enabled: !turns });
   const recipe = recipes.find((r) => r.id === c.recipe);
-  if (!recipe) return null;
+  if (!recipe || (!turns && !kept.data && !kept.isError)) return null;
   const at = clips.indexOf(c);
   const before = at > 0 && c.joined === "continue" ? clips[at - 1] : undefined;
   const beforeRecipe = recipes.find((r) => r.id === before?.recipe);
@@ -50,7 +54,7 @@ export function ClipDesigner({ timeline: t, clip: c, clips, recipes, setup, sett
         story={{ clips: clips.map(sayOf), index: at }}
         look={c.look ?? t.look}
         mood={t.mood}
-        turns={turns ?? (c.chat as DesignerTurn[])}
+        turns={turns ?? ((kept.data?.chat ?? []) as DesignerTurn[])}
         onTurns={(next) => {
           onTurns(next);
           // kept with the clip, so that it is there the next time the timeline is opened

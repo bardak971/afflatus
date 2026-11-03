@@ -23,8 +23,15 @@ const FACE_GUIDE = 1024;
 const FACE_GROW = 10;
 const FACE_FEATHER = 12;
 
-/** Klein's own sampling for the pass: the base model's 20 steps at CFG 5 as tested, a distilled one's 4 at CFG 1. */
-const sampling = (file: string | undefined) => (new RegExp(KLEIN_PRESETS[0]!.match, "i").test(file?.split(/[\\/]/).pop() ?? "") ? { steps: 4, cfg: 1 } : { steps: 20, cfg: 5 });
+/**
+ * The base model's steps for the pass, at CFG 5. #219's pod test ran 20, chosen for the likeness and not for time: the pass
+ * then took longer than the picture (25 s against 19 s on an RTX 4070 Ti). Measured on a pod (card #240, six full-body
+ * pictures, faces of 103–127 px, ArcFace against photos of the person not sent): 20, 10, 8 and 6 steps all took the faces
+ * from 0.54 to 0.63–0.64, within 1–3 of 255 of each other over the face, and the pass from 31.5 s to 10 s there.
+ */
+const FACE_PASS_STEPS = 6;
+/** Klein's own sampling for the pass: the base model's FACE_PASS_STEPS at CFG 5, a distilled one's 4 at CFG 1. */
+const sampling = (file: string | undefined) => (new RegExp(KLEIN_PRESETS[0]!.match, "i").test(file?.split(/[\\/]/).pop() ?? "") ? { steps: 4, cfg: 1 } : { steps: FACE_PASS_STEPS, cfg: 5 });
 
 export const FACE_PASS_INPUTS: InputSpec[] = [
   {
@@ -35,7 +42,7 @@ export const FACE_PASS_INPUTS: InputSpec[] = [
   {
     // ComfyUI's denoise on Klein's simple schedule, as the pod test ran it (0.35: 0.5 kept less of the likeness)
     id: "faceRefineDenoise", type: "number", label: "Face refine denoise", min: 0.2, max: 0.6, step: 0.05, default: 0.35, showWhen: "faceRefine", advanced: true,
-    note: `${kleinNoise.detailer(0.35, 20)}. 0.5 kept less of the likeness than 0.35 in Afflatus's test`,
+    note: `${kleinNoise.detailer(0.35, FACE_PASS_STEPS)}. 0.5 kept less of the likeness than 0.35 in Afflatus's test`,
   },
 ];
 

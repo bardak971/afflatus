@@ -152,15 +152,19 @@ export async function filesIn(dirs: string[], folder: string): Promise<{ files: 
       whole = false;
       return;
     }
-    for (const e of entries) {
+    // a folder's links and model files read all at once, then taken in its order: one stat after the other, the 473 files
+    // of the owner's folders were most of Settings › Model files' read, waiting on the disk one at a time (card #244)
+    const statOf = (e: (typeof entries)[number]) => (e.isSymbolicLink() || (e.isFile() && MODEL_EXT.test(e.name)) ? stat(join(dir, e.name), { bigint: true }).catch(() => null) : null);
+    const stated = await Promise.all(entries.map(statOf));
+    for (const [i, e] of entries.entries()) {
       const path = join(dir, e.name);
       // a folder linked in (a junction, a directory symlink) is walked as ComfyUI walks it (os.walk, followlinks): what it
       // holds may be listed elsewhere too, one file on disk then seen in two places (identity). A link to a file holds its
       // name as ComfyUI reads it (a link leading nowhere does not)
-      const target = e.isSymbolicLink() ? await stat(path, { bigint: true }).catch(() => null) : null;
+      const target = e.isSymbolicLink() ? stated[i] : null;
       if (e.isDirectory() || target?.isDirectory()) await walk(root, path, depth + 1, real ? [...inside, real] : inside);
       else if ((e.isFile() || target?.isFile()) && MODEL_EXT.test(e.name)) {
-        const st = target ?? await stat(path, { bigint: true }).catch(() => null);
+        const st = stated[i];
         if (!st) continue;
         const file = relative(root, path).replace(/\\/g, "/");
         seen.push({ folder, file, path, size: Number(st.size), mtime: msOf(st.mtimeNs), ...(target ? { link: true } : {}) });

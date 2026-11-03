@@ -1,5 +1,6 @@
 import { fileKey, graphFiles, parseInput, pathKey, pickedFiles, type GraphFile, type InputSpec, type LoraValue } from "@afflatus/core";
 import { now, type Db } from "./db";
+import { keptRead } from "./dbWrites";
 import type { Services } from "./services";
 
 /**
@@ -144,19 +145,25 @@ export type UsesOf = (file: { key: string; sha256: string | null }) => Uses | nu
  * the use keys of the files listed) is the file's of the same hash now (moved or renamed, the same bytes). `machines`: only
  * uses on these (null: anywhere). `since`: the first use kept, before which nothing is known.
  */
+/** Every use kept, read again once one is written (9,208 rows on 2026-11-02, read for each Model files list: card #244). */
+const keptUseRows = keptRead(["model_uses"], (db: Db) => db.selectFrom("model_uses").select(["name_key", "sha256", "generation_id", "machine_id", "exact", "used_at"]).execute());
+
 export async function readUses(db: Db, machines: readonly string[] | null, present: ReadonlySet<string>): Promise<{ usesOf: UsesOf; since: string | null }> {
-  const rows = await db.selectFrom("model_uses").select(["name_key", "sha256", "generation_id", "machine_id", "exact", "used_at"]).execute();
-  const byName = new Map<string, Uses>();
-  const moved = new Map<string, Uses>();
-  const add = (m: Map<string, Uses>, key: string, r: (typeof rows)[number]) => {
+  const rows = await keptUseRows(db);
+  // the generations gathered in a set, made a list once each file is asked for: a LoRA of thousands of renders searched
+  // its list once per use was most of the Model files' read (card #244)
+  type Gathered = Omit<Uses, "generations"> & { generations: Set<string> };
+  const byName = new Map<string, Gathered>();
+  const moved = new Map<string, Gathered>();
+  const add = (m: Map<string, Gathered>, key: string, r: (typeof rows)[number]) => {
     let u = m.get(key);
-    if (!u) m.set(key, (u = { count: 0, last: null, approx: false, months: {}, generations: [] }));
+    if (!u) m.set(key, (u = { count: 0, last: null, approx: false, months: {}, generations: new Set() }));
     u.count++;
     if (!u.last || r.used_at > u.last) u.last = r.used_at;
     if (!r.exact) u.approx = true;
     const month = r.used_at.slice(0, 7);
     u.months[month] = (u.months[month] ?? 0) + 1;
-    if (r.generation_id && !u.generations.includes(r.generation_id)) u.generations.push(r.generation_id);
+    if (r.generation_id) u.generations.add(r.generation_id);
   };
   let since: string | null = null;
   for (const r of rows) {
@@ -166,8 +173,9 @@ export async function readUses(db: Db, machines: readonly string[] | null, prese
     if (present.has(r.name_key)) add(byName, r.name_key, r);
     else if (r.sha256) add(moved, r.sha256, r);
   }
-  const merged = (a: Uses | undefined, b: Uses | undefined): Uses | null => {
-    if (!a || !b) return a ?? b ?? null;
+  const listed = (u: Gathered): Uses => ({ ...u, generations: [...u.generations] });
+  const merged = (a: Gathered | undefined, b: Gathered | undefined): Uses | null => {
+    if (!a || !b) return a || b ? listed((a ?? b)!) : null;
     const months = { ...a.months };
     for (const [m, n] of Object.entries(b.months)) months[m] = (months[m] ?? 0) + n;
     return { count: a.count + b.count, last: !a.last || (b.last && b.last > a.last) ? b.last : a.last, approx: a.approx || b.approx, months, generations: [...new Set([...a.generations, ...b.generations])] };
@@ -177,7 +185,7 @@ export async function readUses(db: Db, machines: readonly string[] | null, prese
   return {
     usesOf: ({ key, sha256 }) => {
       const mine = byName.get(key);
-      if (!sha256 || given.has(sha256)) return mine ?? null;
+      if (!sha256 || given.has(sha256)) return mine ? listed(mine) : null;
       given.add(sha256);
       return merged(mine, moved.get(sha256));
     },

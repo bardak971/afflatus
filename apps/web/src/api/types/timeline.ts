@@ -38,8 +38,11 @@ export interface Take {
   laidSound?: boolean;
   /** Its head filed with the recording the clip before sang (the lead-in), not the model's guess: the sound hands over to it as to any. */
   headSung?: boolean;
-  /** What it was made with, as its clip's form would hold it (its draft's, for a finish); null for a take rendered nowhere here. */
-  made: TakeMade | null;
+  /**
+   * What it was made with, as its clip's form would hold it (its draft's, for a finish); null for a take rendered nowhere here.
+   * Not in the timeline's answer (card #242): read for the clip the inspector shows (useClipMade); left out until then.
+   */
+  made?: TakeMade | null;
 }
 /**
  * What an H3 clip does with its person's picture (card #223, the server's timelineFace): carried, a continuation with the same
@@ -112,8 +115,6 @@ export interface Clip {
   fitNext: boolean;
   /** Its own cast and style; null = the timeline's. */
   look: Look | null;
-  /** The conversation with the designer about this clip. */
-  chat: unknown[];
   /** The language model and instructions that conversation is held with; null = the usual ones. */
   designer: DesignerSession | null;
   /** What it asks of the music under it; null = as the rest of the video. */

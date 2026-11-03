@@ -11,8 +11,8 @@ export interface Clock {
   subscribe(onChange: () => void): () => void;
 }
 
-function makeClock(): Clock {
-  let ms = 0;
+function makeClock(start = 0): Clock {
+  let ms = start;
   const listeners = new Set<() => void>();
   return {
     get: () => ms,
@@ -28,8 +28,8 @@ function makeClock(): Clock {
   };
 }
 
-/** One clock for the life of a component. */
-export const useNewClock = (): Clock => useMemo(makeClock, []);
+/** One clock for the life of a component, at `start` first. */
+export const useNewClock = (start = 0): Clock => useMemo(() => makeClock(start), []); // eslint-disable-line react-hooks/exhaustive-deps -- where it starts, once
 
 /** The clock's moment, redrawn on every tick: for the parts that show it. */
 export const useClock = (clock: Clock): number => useSyncExternalStore(clock.subscribe, clock.get, clock.get);

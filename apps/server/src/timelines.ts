@@ -17,7 +17,7 @@ import { TimelineExport } from "./timelineExport";
 import { TimelineMedia } from "./timelineMedia";
 import { clipColumns, takeColumns, TimelineHistory } from "./timelineHistory";
 import { TimelineRange } from "./timelineRange";
-import { madeOf, takeView, TimelineViews } from "./timelineViews";
+import { madeOf, takeView, TimelineViews, type Made, type Rendered } from "./timelineViews";
 import { draftOf, generationOfTake, ownInputIds, recipeWithStart, settingsOf, TimelinePlan, type ClipPlan, type NewClip, type TakeLinks } from "./timelinePlan";
 import { clipsOfSource, patchedSource, planWindows, sourceOfRow, windowFormFor, windowRunUp, windowsOf, windowsReaching, type SourcePatch, type SourcePlan } from "./timelineSource";
 import { faceRoutes, spreadFace, type FaceRoute } from "./timelineFace";
@@ -421,7 +421,11 @@ export class Timelines {
     return { items };
   }
 
-  async view(id: string) {
+  /**
+   * A timeline as the editor and MCP read it. `made: false`: its takes' Made left out (null), as the browser gets them
+   * (timelines-api.ts sent): read for one clip at a time (madeOfClip), they were a third of the answer (card #242).
+   */
+  async view(id: string, opts: { made?: boolean } = {}) {
     const t = await this.row(id);
     const all = await this.placed(id);
     const { live, last } = await this.views.jobsOf(all.map((p) => p.clip.id));
@@ -450,10 +454,7 @@ export class Timelines {
       // render of its own, reads the draft's: else its head was said guessed, and the sound no longer handed over into it)
       const made = generationOfTake(x, takes);
       const own = made ? rendered.get(made) : undefined;
-      // what it was made with is its draft's form: what a finish added (its route, its upscale) is not the clip's to take back
-      const draft = draftOf(x, takes);
-      const drafted = draft === x ? own : rendered.get(generationOfTake(draft, takes) ?? "");
-      return takeView(x, r, laid(r?.recipe ?? clipRecipe, own?.inputs), madeOf(this.registry.recipe(drafted?.recipe ?? ""), drafted, draft.take.prev_take_id));
+      return takeView(x, r, laid(r?.recipe ?? clipRecipe, own?.inputs), opts.made === false ? null : this.madeOfTake(x, takes, rendered));
     };
     let at = 0;
     const hidden = sourceOfRow(t.source)?.hidden;
@@ -505,6 +506,31 @@ export class Timelines {
     const ofSource = this.runsOf(t, all).find((r) => r.kind === "source");
     const source = head.source && { ...head.source, removed: ofSource ? (head.source.removed ?? []).map((p) => removedView(p, (row) => ofSource.span(row.clip, false))) : [] };
     return { ...head, source, durationMs: at, clips, recordings: await this.recordingsView(t, all) };
+  }
+
+  /** What a take was made with: its draft's form, as what a finish added (its route, its upscale) is not the clip's to take back. */
+  private madeOfTake(x: Taken, takes: Taken[], rendered: Map<string, Rendered>): Made | null {
+    const draft = draftOf(x, takes);
+    const drafted = rendered.get(generationOfTake(draft, takes) ?? "");
+    return madeOf(this.registry.recipe(drafted?.recipe ?? ""), drafted, draft.take.prev_take_id);
+  }
+
+  /**
+   * What each take of a clip was made with (Made, by take id): the take list and "Use this take's settings" read it for the
+   * clip they show, rather than every take of the timeline coming with each read of it (card #242).
+   */
+  async madeOfClip(clipId: string): Promise<Record<string, Made | null>> {
+    const c = await this.clipRow(clipId);
+    const p = (await this.placed(c.timeline_id)).find((x) => x.clip.id === clipId);
+    if (!p) throw notFound("this clip");
+    const rendered = await this.views.renderedOf([p]);
+    return Object.fromEntries(p.takes.map((x) => [x.take.id, this.madeOfTake(x, p.takes, rendered)]));
+  }
+
+  /** A clip's conversation with the designer, read when the designer opens on it (card #242: not with every read of the timeline). */
+  async chatOf(clipId: string): Promise<unknown[]> {
+    const c = await this.clipRow(clipId);
+    return c.chat ? (JSON.parse(c.chat) as unknown[]) : [];
   }
 
   /**

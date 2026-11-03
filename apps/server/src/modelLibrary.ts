@@ -9,7 +9,8 @@ import { tensorsOf, architectureOf } from "@afflatus/comfy";
 import { baseName, fileKey, isModelFile, kindOfFolder, nameKey, type InputSpec } from "@afflatus/core";
 import { FAMILY_BASES } from "./browse";
 import { civitaiGet } from "./civitai";
-import { now, type Tables } from "./db";
+import { now, type Db, type Tables } from "./db";
+import { keptRead } from "./dbWrites";
 import { httpError } from "./errors";
 import { oneAtATime } from "./keyedLock";
 import { asideRoot, erase, inBinOrAside, moveBack, moveNoClobber, moveOut, systemBin, Taken, type BinFinder, type Place } from "./modelBin";
@@ -160,10 +161,8 @@ async function needsOf(s: Lib, families: ReadonlyArray<{ id: string; slots: Read
 }
 
 /** What Civitai said of each version, by version id. */
-async function civitaiOf(s: Pick<Services, "db">) {
-  const rows = await s.db.selectFrom("model_civitai").selectAll().execute();
-  return new Map(rows.map((r) => [Number(r.version_id), r]));
-}
+const civitaiRows = keptRead(["model_civitai"], async (db: Db) => new Map((await db.selectFrom("model_civitai").selectAll().execute()).map((r) => [Number(r.version_id), r])));
+const civitaiOf = (s: Pick<Services, "db">) => civitaiRows(s.db);
 
 /**
  * What Civitai says of the versions files were matched to, asked once each (a version's page: its model's name, its
@@ -190,17 +189,19 @@ export async function fillCivitai(s: Pick<Services, "db">, most = 100): Promise<
 }
 
 /** Each generation's takes and pictures still in the library (not in the bin). */
-async function takesByGeneration(s: Pick<Services, "db">): Promise<Map<string, number>> {
-  const rows = await s.db.selectFrom("assets").select(["generation_id"]).select((eb) => eb.fn.countAll<number>().as("n"))
+const takesRows = keptRead(["assets"], async (db: Db) => {
+  const rows = await db.selectFrom("assets").select(["generation_id"]).select((eb) => eb.fn.countAll<number>().as("n"))
     .where("generation_id", "is not", null).where("deleted_at", "is", null).groupBy("generation_id").execute();
   return new Map(rows.map((r) => [r.generation_id!, Number(r.n)]));
-}
+});
+const takesByGeneration = (s: Pick<Services, "db">): Promise<Map<string, number>> => takesRows(s.db);
 
 /** The families each generation was made with, for a file's families (a LoRA used with a family is one of its files). */
-async function familyOfGenerations(s: Pick<Services, "db">): Promise<Map<string, string>> {
-  const rows = await s.db.selectFrom("model_uses").innerJoin("generations", "generations.id", "model_uses.generation_id").select(["generations.id as id", "generations.family as family"]).distinct().execute();
+const familyRows = keptRead(["model_uses", "generations"], async (db: Db) => {
+  const rows = await db.selectFrom("model_uses").innerJoin("generations", "generations.id", "model_uses.generation_id").select(["generations.id as id", "generations.family as family"]).distinct().execute();
   return new Map(rows.map((r) => [r.id, r.family]));
-}
+});
+const familyOfGenerations = (s: Pick<Services, "db">): Promise<Map<string, string>> => familyRows(s.db);
 
 const exists = (p: string) => stat(p).then(() => true, () => false);
 
@@ -317,6 +318,21 @@ function oneRowEach(rows: Array<{ f: LibraryFile; identity: string | undefined; 
   });
 }
 
+/**
+ * What the model tables say of the files, by folder and name (or path, or hash): kept until one of them is written to, so
+ * that a list read again with nothing new reads them once (card #244). Shared by the reads: never changed by them.
+ */
+const keptRows = keptRead(["model_info", "model_pages", "model_hashes", "model_hash_places"], async (db: Db) => {
+  const infos = new Map((await db.selectFrom("model_info").select(["folder", "file", "info"]).execute()).map((r) => [`${r.folder}|${r.file.replace(/\\/g, "/")}`, JSON.parse(r.info) as { title?: string; base?: string }]));
+  const pages = new Map((await db.selectFrom("model_pages").select(["folder", "name", "url", "title"]).where("url", "!=", "").execute()).map((r) => [`${r.folder}|${r.name}`, r]));
+  const hashRows = await db.selectFrom("model_hashes").selectAll().execute();
+  const hashes = new Map(hashRows.map((r) => [`${r.folder}|${r.file}`, r]));
+  // a file another one's name shadows: its own hash, by its path, and what the sites said of those bytes under any name
+  const places = new Map((await db.selectFrom("model_hash_places").select(["path", "sha256", "size", "mtime"]).execute()).map((r) => [r.path, r]));
+  const matchOf = new Map(hashRows.map((r) => [r.sha256, r]));
+  return { infos, pages, hashes, places, matchOf };
+});
+
 /** The library of a machine: this computer's folders (`machine` left out or one of hereIds), else another machine's scan. */
 export async function library(s: Lib, machine?: string): Promise<Library> {
   const settings = await readSettings(s.db);
@@ -348,7 +364,9 @@ export async function library(s: Lib, machine?: string): Promise<Library> {
       if (st) moved.set((await identityOf(r.stored_path, st)).identity, Number(st.size));
       if (r.mtime !== null && r.mtime !== undefined && (!st || (Number(st.size) === Number(r.size) && msOf(st.mtimeNs) === Number(r.mtime)))) trusted.add(r.id);
     }
-    for (const [folder, list] of dirs) for (const f of (await filesIn(list, folder)).files) if (moved.get(f.identity) !== f.size) listed.push(f);
+    // the folders walked together, their files listed in the folders' order (card #244)
+    const walked = await Promise.all([...dirs].map(([folder, list]) => filesIn(list, folder)));
+    for (const { files: found } of walked) for (const f of found) if (moved.get(f.identity) !== f.size) listed.push(f);
     for (const r of away) listed.push({ folder: r.folder, file: r.file, size: Number(r.size), mtime: null, path: r.path_was, away: trusted.has(r.id) ? r : { ...r, sha256: null } });
   } else if (scan?.comfy.online) {
     // another machine: its scan's lists, by what its recipes offer, and its families' files (names only)
@@ -371,13 +389,7 @@ export async function library(s: Lib, machine?: string): Promise<Library> {
   const [needs, { usesOf, since }, takes, genFamily, civitai] = await Promise.all([needsOf(s, families), readUses(s.db, readOnly ? [id] : here, present), takesByGeneration(s), familyOfGenerations(s), civitaiOf(s)]);
   const slotFamilies = new Map<string, string[]>();
   for (const fam of families) for (const slot of fam.slots) if (slot.file) slotFamilies.set(fileKey({ folder: slot.folder, file: slot.file }), [...(slotFamilies.get(fileKey({ folder: slot.folder, file: slot.file })) ?? []), fam.id]);
-  const infos = new Map((await s.db.selectFrom("model_info").select(["folder", "file", "info"]).execute()).map((r) => [`${r.folder}|${r.file.replace(/\\/g, "/")}`, JSON.parse(r.info) as { title?: string; base?: string }]));
-  const pages = new Map((await s.db.selectFrom("model_pages").select(["folder", "name", "url", "title"]).where("url", "!=", "").execute()).map((r) => [`${r.folder}|${r.name}`, r]));
-  const hashRows = await s.db.selectFrom("model_hashes").selectAll().execute();
-  const hashes = new Map(hashRows.map((r) => [`${r.folder}|${r.file}`, r]));
-  // a file another one's name shadows: its own hash, by its path, and what the sites said of those bytes under any name
-  const places = new Map((await s.db.selectFrom("model_hash_places").select(["path", "sha256", "size", "mtime"]).execute()).map((r) => [r.path, r]));
-  const matchOf = new Map(hashRows.map((r) => [r.sha256, r]));
+  const { infos, pages, hashes, places, matchOf } = await keptRows(s.db);
   // a kept hash is the file's only while its size and date are those it was hashed at: a file replaced since (a v2 over
   // its v1) is not hashed again yet, and its old hash made a backup of v1 "a copy that stays" of it, Empty erasing v1
   const fresh = <R extends { size: number | string; mtime: number | string }>(row: R | undefined, f: Listed) => (row && (f.size === null || f.mtime === null || sameFile(row, { size: f.size, mtime: f.mtime })) ? row : undefined);

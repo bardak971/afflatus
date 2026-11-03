@@ -193,8 +193,13 @@ async function slowEngine(s: Services): Promise<"rife" | "ffmpeg"> {
  * A timeline's view as it is sent to the editor: each clip's playing take by its id, which the editor finds among the clip's
  * takes (web api.ts, withTakes). Sent whole beside them, every playing take went twice: 115 of 507 KB at 150 clips.
  */
-export function sent<V extends { clips: Array<{ take: { id: string } | null }> }>(view: V) {
-  return { ...view, clips: view.clips.map((c) => ({ ...c, take: c.take?.id ?? null })) };
+export function sent<V extends { clips: Array<{ take: { id: string } | null; takes: Array<{ made: unknown }>; chat: unknown[] }> }>(view: V) {
+  // what each take was made with and the clip's designer conversation are read for one clip when it is shown (GET
+  // /api/clips/:id/made and /chat): with every read of the timeline they were 70 % of it (card #242, 234 KB of 336)
+  return {
+    ...view,
+    clips: view.clips.map(({ chat: _chat, ...c }) => ({ ...c, take: c.take?.id ?? null, takes: c.takes.map(({ made: _made, ...x }) => x) })),
+  };
 }
 
 /** What a range of a video or a sound is cut as (POST /api/assets/:id/range, MCP's cut_range). `timeline`: the timeline it is cut in, whose folder the new videos land in (see folderForMade). */
@@ -320,7 +325,7 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     }
     return sent(await t.create(body.name, body.project ?? null, await rootFolderOf(s.db, body.project)));
   });
-  app.get<{ Params: { id: string } }>("/api/timelines/:id", async (req) => sent(await t.view(req.params.id)));
+  app.get<{ Params: { id: string } }>("/api/timelines/:id", async (req) => sent(await t.view(req.params.id, { made: false })));
   /** The music ducked under speech: its gain along the timeline (duck.ts), for the player; null when there is no music or it is not ducked. */
   app.get<{ Params: { id: string } }>("/api/timelines/:id/duck", async (req) => ({ curve: await t.duck(req.params.id) }));
   app.patch<{ Params: { id: string } }>("/api/timelines/:id", async (req) => sent(await t.edit(req.params.id, timelinePatch.parse(req.body))));
@@ -564,6 +569,10 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     return cached(req, reply).header("Content-Type", "image/jpeg").send(Buffer.from(await t.media.strip(req.params.id, { frames: q.frames, height: q.height, fromMs: q.from, toMs: q.to })));
   });
 
+  /** What each take of a clip was made with, by take id (its Made; null for one rendered nowhere here): its take list's. */
+  app.get<{ Params: { id: string } }>("/api/clips/:id/made", async (req) => ({ takes: await t.madeOfClip(req.params.id) }));
+  /** A clip's conversation with the designer, read as the designer opens on it. */
+  app.get<{ Params: { id: string } }>("/api/clips/:id/chat", async (req) => ({ chat: await t.chatOf(req.params.id) }));
   /** How smoothly each take of a clip meets its neighbours (×1 = like the clip's own motion): for picking among takes. */
   app.get<{ Params: { id: string } }>("/api/clips/:id/joins", async (req) => ({ items: await t.media.joins(req.params.id) }));
   /** The colour nudge each clip gets in the player, the export's matching made visible: toward the clip before at the join, within a few steps of 255. */
