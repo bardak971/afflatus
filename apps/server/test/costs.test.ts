@@ -123,10 +123,12 @@ describe("the advice", () => {
     const f = (session: string, ms: number): Fetched => ({ session, key: "wan.safetensors", name: "wan", bytes: 26e9, ms, rate: 0.6 });
     expect(fetchAdvice([f("a", 6 * MIN), { ...f("a", 1), key: "other", name: "other", bytes: 1e9 }])).toBeNull();
     const again = fetchAdvice([f("a", 6 * MIN), f("b", 4 * MIN)])!;
-    // 26 GB with room: a 30 GB volume at $0.07 a GB, $2.10 a month; fetching it once is 5 min at $0.60/h, $0.05
-    expect(again).toMatchObject({ bytes: 26e9, times: 2, volumeGb: 30, perMonth: expect.closeTo(2.1, 6), onceUsd: expect.closeTo(0.05, 6), deploys: 42 });
+    // 26e9 bytes (24.2 GB of 2^30) sized as Make a volume… sizes it (volumeSizeFor: a quarter more, to the next ten GB): a
+    // 40 GB volume at $0.07 a GB, $2.80 a month. Costs sized it at a tenth more in GB of 10^9 (30 GB, $2.10), a cheaper
+    // volume than the plan would make. Fetching it once is 5 min at $0.60/h, $0.05
+    expect(again).toMatchObject({ bytes: 26e9, times: 2, volumeGb: 40, perMonth: expect.closeTo(2.8, 6), onceUsd: expect.closeTo(0.05, 6), deploys: 56 });
     const advice = adviceOf({ where: { ms: { render: 0, boot: 0, fetch: 10 * MIN, packs: 0, outside: 0, idle: 0, failed: 0 }, usd: { render: 0, boot: 0, fetch: 0.1, packs: 0, outside: 0, idle: 0, failed: 0 } }, tails: [], fetched: [f("a", 6 * MIN), f("b", 4 * MIN)], bootsSeen: [], rows: [], sessions: 2 });
-    expect(advice).toEqual([{ kind: "fetch", title: "Files fetched: 52 GB, 10 min", why: "wan's 26.0 GB came twice. A 30 GB volume ($2.10/month) keeps them: it pays for itself at about 42 deploys a month.", save: null }]);
+    expect(advice).toEqual([{ kind: "fetch", title: "Files fetched: 48 GB, 10 min", why: "wan's 24.2 GB came twice. A 40 GB volume ($2.80/month) keeps them: it pays for itself at about 56 deploys a month.", save: null }]);
   });
 
   it("the boots when they are a good part of it, and the cheapest GPU per model; nothing when there is nothing to say", () => {
@@ -482,7 +484,8 @@ describe("the costs of a window", () => {
     expect(v.advice.map((a) => a.kind)).toEqual(["idle", "fetch"]);
     // the two sessions ended idle 10 and 13 min: at 5 min, 5 and 8 min less at $0.60/h
     expect(v.advice[0]!.save).toBeCloseTo((13 / 60) * 0.6, 9);
-    expect(v.advice[1]!.why).toMatch(/^wan's 26\.0 GB came twice\. A 30 GB volume \(\$2\.10\/month\)/);
+    // in GB of 2^30, as the session's tip says the same bytes (it read 26.0 here and 24.2 there)
+    expect(v.advice[1]!.why).toMatch(/^wan's 24\.2 GB came twice\. A 40 GB volume \(\$2\.80\/month\)/);
   });
 
   // RunPod's spending as rented.ts says it: this month's bill $1.50, the volumes' $0.20 in it, against the sessions' $0.90 counted

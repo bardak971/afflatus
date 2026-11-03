@@ -1,3 +1,4 @@
+import { nameKey } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { ModelInfo } from "@afflatus/core";
@@ -30,7 +31,6 @@ export interface PageCandidate extends ModelPage {
 
 const FOLDER = /^[\w-]{1,64}$/;
 /** A file as its page and words are kept: its name alone, in lower case (moved to another sub-folder, it keeps them). */
-export const nameOf = (file: string) => (file.split(/[\\/]/).pop() ?? file).toLowerCase();
 /** A page's address: http or https only, since it becomes a link the browser opens (a javascript: one would run). */
 export const webUrl = z.string().max(2000).refine((u) => /^https?:\/\/[^\s]+$/i.test(u), "that is not a web address");
 
@@ -63,7 +63,7 @@ const remember = async (db: Db, folder: string, name: string, page: ModelPage) =
 /** What the file's header gave as its fingerprint, when it was read and has one. The file is found by its path, else by its name. */
 const fingerprintOf = async (db: Db, folder: string, file: string): Promise<string | null> => {
   const rows = await db.selectFrom("model_info").select(["file", "info"]).where("folder", "=", folder).execute();
-  const row = rows.find((r) => r.file === file) ?? rows.find((r) => nameOf(r.file) === nameOf(file));
+  const row = rows.find((r) => r.file === file) ?? rows.find((r) => nameKey(r.file) === nameKey(file));
   return row ? (JSON.parse(row.info) as ModelInfo).fingerprint ?? null : null;
 };
 
@@ -75,7 +75,7 @@ const fingerprintOf = async (db: Db, folder: string, file: string): Promise<stri
  * or the site's file has this copy's very hash (podSources.ts): a name like pytorch_lora_weights.safetensors is many files.
  */
 export async function lookUpPage(db: Db, folder: string, file: string, o: { fresh?: boolean } = {}): Promise<{ page: ModelPage | null; candidates: PageCandidate[]; lookups: boolean }> {
-  const name = nameOf(file);
+  const name = nameKey(file);
   const page = await known(db, folder, name);
   if (page) return { page, candidates: [], lookups: true };
   const settings = await readSettings(db);
@@ -139,7 +139,7 @@ export function registerModelPages(app: FastifyInstance, s: Services): void {
   app.put<{ Params: { folder: string } }>("/api/models/:folder/page", async (req) => {
     const folder = folderOf(req.params.folder);
     const b = z.strictObject({ file: z.string().min(1).max(500), url: webUrl.nullable(), title: z.string().max(300).default("") }).parse(req.body);
-    const name = nameOf(b.file);
+    const name = nameKey(b.file);
     if (b.url === null) {
       await s.db.deleteFrom("model_pages").where("folder", "=", folder).where("name", "=", name).execute();
       return { page: null };
@@ -163,7 +163,7 @@ export async function wordsOf(db: Db, folder: string, names?: string[]): Promise
 
 /** The user's own words for a file, which come before any others; null or empty takes them away again. */
 export async function setOwnWords(db: Db, folder: string, file: string, words: string | null): Promise<Record<string, Words>> {
-  const name = nameOf(file);
+  const name = nameKey(file);
   const own = words?.trim() || null;
   await db
     .insertInto("model_words")
@@ -180,14 +180,14 @@ export async function setOwnWords(db: Db, folder: string, file: string, words: s
  */
 export async function findWords(s: Services, folder: string, files: string[]): Promise<{ items: Record<string, Words>; lookups: boolean }> {
   const settings = await readSettings(s.db);
-  const names = [...new Set(files.map(nameOf))];
+  const names = [...new Set(files.map(nameKey))];
   if (!settings.civitaiLookups) return { items: await wordsOf(s.db, folder, names), lookups: false };
   const asked = new Set((await s.db.selectFrom("model_words").select("name").where("folder", "=", folder).where("asked_at", "is not", null).execute()).map((r) => r.name));
   const info = await s.db.selectFrom("model_info").select(["file", "info"]).where("folder", "=", folder).execute();
   for (const file of files) {
-    const name = nameOf(file);
+    const name = nameKey(file);
     if (asked.has(name)) continue;
-    const row = info.find((r) => r.file === file) ?? info.find((r) => nameOf(r.file) === name);
+    const row = info.find((r) => r.file === file) ?? info.find((r) => nameKey(r.file) === name);
     // not read yet: its fingerprint is not known, it is asked the next time
     if (!row) continue;
     asked.add(name);

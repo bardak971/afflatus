@@ -1,4 +1,4 @@
-import { madeAroundRecording, modelOf, plannedSeconds, recordingSpecOf, secondsOf, type InputSpec, type LoraValue, type Recipe, type ReferenceRole, type ReferenceValue } from "@afflatus/core";
+import { madeAroundRecording, modelOf, modelStem, nameKey, plannedSeconds, recordingSpecOf, secondsOf, type InputSpec, type LoraValue, type Recipe, type ReferenceRole, type ReferenceValue } from "@afflatus/core";
 import { compose, emptyLook, type Look } from "./entities";
 import { madeIn } from "./provenance";
 import type { Services } from "./services";
@@ -59,10 +59,6 @@ export interface DesignerContext {
   seesPicture?: boolean;
 }
 
-/** A LoRA file's name as its words are filed under: lower case, without its sub-folder. */
-const nameOf = (file: string) => (file.split(/[\\/]/).pop() ?? file).toLowerCase();
-/** A LoRA file's name to say: without its folder and its extension. */
-const shortName = (file: string) => (file.split(/[\\/]/).pop() ?? file).replace(/\.[a-z]+$/i, "");
 
 /**
  * What the designer is told about a form, read from the database: who is in it, the picture it opens on,
@@ -88,7 +84,7 @@ export function designerContext(s: Services) {
     return {
       cast: words(["person", "place"]).map((w) => ({ name: w.from, words: w.text })),
       style: style ? { name: style.from, words: style.text } : undefined,
-      kitLoras: (added?.loras ?? []).map((l) => ({ name: shortName(l.file), from: l.from })),
+      kitLoras: (added?.loras ?? []).map((l) => ({ name: modelStem(l.file), from: l.from })),
       pictures: refs.length ? { first: source ? 2 : 1, introduced: specs.some((i) => i.type === "prompt" && i.holds === "subject") || (refSpec?.type === "references" && Boolean(refSpec.subjects)), list: refs.map((r) => ({ role: r.role, whose: whose.get(r.asset) ?? null })) } : undefined,
       voice: typeof voice === "string" && voice ? { whose: added?.voice ?? null } : undefined,
       // with references or a voice the model takes the reference way, which has no last frame (MiniMax H3); a model that
@@ -112,9 +108,9 @@ export function designerContext(s: Services) {
   async function triggersOf(files: string[]): Promise<(file: string) => string | undefined> {
     if (!files.length) return () => undefined;
     const info = await s.db.selectFrom("model_info").select(["file", "info"]).where("folder", "=", "loras").where("file", "in", files).execute();
-    const words = await s.db.selectFrom("model_words").select(["name", "own", "found"]).where("folder", "=", "loras").where("name", "in", files.map(nameOf)).execute();
+    const words = await s.db.selectFrom("model_words").select(["name", "own", "found"]).where("folder", "=", "loras").where("name", "in", files.map(nameKey)).execute();
     return (file) =>
-      words.find((w) => w.name === nameOf(file))?.own || (JSON.parse(info.find((x) => x.file === file)?.info ?? "{}") as { trigger?: string }).trigger || words.find((w) => w.name === nameOf(file))?.found || undefined;
+      words.find((w) => w.name === nameKey(file))?.own || (JSON.parse(info.find((x) => x.file === file)?.info ?? "{}") as { trigger?: string }).trigger || words.find((w) => w.name === nameKey(file))?.found || undefined;
   }
 
   /** The pictures of a form that have a story: the one it opens on, ends on or starts from. */
@@ -135,7 +131,7 @@ export function designerContext(s: Services) {
         what,
         steps: steps.map((x) => ({
           title: x.title, with: x.family, text: x.text, more: x.more,
-          loras: x.loras.map((l) => ({ name: shortName(l.file), trigger: trigger(l.file) })),
+          loras: x.loras.map((l) => ({ name: modelStem(l.file), trigger: trigger(l.file) })),
         })),
       });
     };
@@ -190,7 +186,7 @@ export function designerContext(s: Services) {
       kitLoras: kit.kitLoras,
       pictures: kit.pictures,
       voice: kit.voice,
-      loras: loras.filter((l) => l.weight !== 0).map((l) => ({ name: shortName(l.file), weight: l.weight, trigger: trigger(l.file) })),
+      loras: loras.filter((l) => l.weight !== 0).map((l) => ({ name: modelStem(l.file), weight: l.weight, trigger: trigger(l.file) })),
       snippets: ticked.map((r) => ({ name: r.name, text: String((JSON.parse(r.def) as { text?: string }).text ?? "") })).filter((x) => x.text.trim()),
       speaks: Boolean(recipe.traits?.sound),
       recording,

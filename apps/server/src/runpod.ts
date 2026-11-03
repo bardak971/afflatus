@@ -1,3 +1,4 @@
+import { diskPerHour } from "@afflatus/core";
 import { envSaid } from "./config";
 
 /**
@@ -102,12 +103,6 @@ export const COMFY_PORT = 8188;
  * exposed on a pod deployed with that image. An older one has nothing there, and nothing is said of it (podBoot.ts).
  */
 export const BOOT_PORT = 8189;
-/** What a running pod's own disk costs, USD per GB and month (RunPod's price for the volume disk of a running pod). */
-export const RUNNING_DISK_PER_GB_MONTH = 0.1;
-/** What a stopped pod's own disk costs, USD per GB and month (RunPod's price for the volume disk of a stopped pod). */
-export const STOPPED_DISK_PER_GB_MONTH = 0.2;
-/** The hours of a month RunPod's monthly prices of storage are billed over, by the hour (365 × 24 / 12). */
-export const HOURS_A_MONTH = 730;
 
 /**
  * What a running pod costs an hour: its GPU's price (RunPod's `cost`, the GPU alone) and its disks while it runs, the
@@ -115,7 +110,7 @@ export const HOURS_A_MONTH = 730;
  * RunPod's console says $0.61). 0 when RunPod says no price (a pod stopped).
  */
 export const runningRate = (gpuCost: number, containerGb: number, diskGb: number): number =>
-  gpuCost > 0 ? gpuCost + ((Math.max(0, containerGb) + Math.max(0, diskGb)) * RUNNING_DISK_PER_GB_MONTH) / HOURS_A_MONTH : 0;
+  gpuCost > 0 ? gpuCost + diskPerHour(Math.max(0, containerGb) + Math.max(0, diskGb)) : 0;
 
 /**
  * What a GPU deployed from Afflatus runs. "afflatus": ComfyUI, its Manager and the node pack (deploy/runpod), locked from

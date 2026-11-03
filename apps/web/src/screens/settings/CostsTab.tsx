@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
+import { dayStart } from "@afflatus/core";
 import { api, type CostsView } from "../../api";
 import { plural, usd } from "../../format";
 import { queryKeys } from "../../queryKeys";
@@ -22,8 +23,8 @@ function homeSaid(d: CostsView): string {
 
 /** The start of today, here: the day cap's day. */
 const today = () => {
-  const d = new Date();
-  return { from: new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(), to: d.getTime() };
+  const now = Date.now();
+  return { from: dayStart(now), to: now };
 };
 
 /**

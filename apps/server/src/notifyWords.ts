@@ -28,5 +28,3 @@ export function took(ms: number): string {
   return `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, "0")}`;
 }
 
-/** Dollars as a notice says them: cents below $10, whole dollars from $100. */
-export const dollars = (usd: number) => `$${usd < 10 ? usd.toFixed(2) : usd < 100 ? usd.toFixed(1) : Math.round(usd)}`;

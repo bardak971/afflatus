@@ -1,11 +1,11 @@
 import type { EventEmitter } from "node:events";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { modelOf, plural } from "@afflatus/core";
+import { modelOf, plural, usd } from "@afflatus/core";
 import { envSaid } from "./config";
 import { toRun, type Db } from "./db";
 import { httpError } from "./errors";
-import { dollars, machineSaid, took, type Notice } from "./notifyWords";
+import { machineSaid, took, type Notice } from "./notifyWords";
 import type { Registry } from "./registry";
 import { discordHookOk, readSettings, type NotifyKind, type NotifySettings } from "./settings";
 import type { Storage } from "./storage";
@@ -452,7 +452,7 @@ export class Notify {
       b.done ? `${plural(b.done, "render")} done` : null,
       b.failed.length ? `${b.failed.length} failed (${b.failed.slice(0, 5).join(", ")}${b.failed.length > 5 ? ", …" : ""})` : null,
       `in ${took(now - b.from)}`,
-      cost >= 0.005 ? `rented GPUs ${dollars(cost)}` : null,
+      cost >= 0.005 ? `rented GPUs ${usd(cost)}` : null,
     ].filter(Boolean);
     this.say("queueEmpty", { title: "Queue empty", body: parts.join(" · "), asset: b.last, key: String(now) });
   }

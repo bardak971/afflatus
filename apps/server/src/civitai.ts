@@ -1,4 +1,4 @@
-import { MODEL_EXT, modelStem, squash } from "@afflatus/core";
+import { civitaiKinds, MODEL_EXT, modelStem, squash } from "@afflatus/core";
 import { envSaid } from "./config";
 import { httpError } from "./errors";
 import { fetchPublic } from "./outbound";
@@ -36,15 +36,6 @@ const hostOf = (site: string) => {
   } catch {
     return site;
   }
-};
-
-/** What Civitai calls the kind of model that goes in each of ComfyUI's folders. */
-export const KINDS: Record<string, string[]> = {
-  checkpoints: ["Checkpoint"], diffusion_models: ["Checkpoint"], unet: ["Checkpoint"],
-  loras: ["LORA", "LoCon", "DoRA"], vae: ["VAE"], text_encoders: ["TextEncoder"], clip: ["TextEncoder"],
-  upscale_models: ["Upscaler"], controlnet: ["Controlnet"], embeddings: ["TextualInversion"],
-  // the Impact pack's detectors are Civitai's "Detection" models; its SAM files have no type of their own there
-  ultralytics: ["Detection"], sams: ["Other"],
 };
 
 export type ApiFile = { id?: number; name?: string; sizeKB?: number; type?: string; primary?: boolean; downloadUrl?: string; hashes?: { SHA256?: string } };
@@ -98,7 +89,7 @@ export async function findOnCivitai(file: string, folder: string | null, key: st
   const name = file.split(/[\\/]/).pop() ?? file;
   const words = wordsOf(name);
   const sites = civitaiSites();
-  const wanted = folder ? KINDS[folder] : undefined;
+  const wanted = folder ? civitaiKinds(folder) : undefined;
   const search = async (query: string) => {
     const answers = await Promise.all(sites.map(async (site) => {
       try {
@@ -117,7 +108,7 @@ export async function findOnCivitai(file: string, folder: string | null, key: st
   };
   let answers = await search(words.join(" ") || name);
   if (answers.every((a) => a.models === null)) throw httpError("Civitai did not answer.", 502);
-  const fitsOf = (m: ApiModel) => !wanted || wanted.includes(m.type ?? "");
+  const fitsOf = (m: ApiModel) => !wanted || (wanted as readonly string[]).includes(m.type ?? "");
   // a file's name says more than a model's: the model is found by its first words, then told apart by the rest
   for (const fewer of [3, 2, 1]) {
     if (answers.some((a) => a.models?.some(fitsOf)) || words.length <= fewer) continue;

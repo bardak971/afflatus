@@ -27,6 +27,7 @@ export * from "./settingsIndex";
 export * from "./assetRefs";
 export * from "./text";
 export * from "./volumePrice";
+export * from "./money";
 export * from "./gpuRank";
 export * from "./versions";
 export * from "./podSteps";

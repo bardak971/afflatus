@@ -4,7 +4,7 @@ import { ConfirmHost } from "../../src/Confirm";
 import { DeployHost, useDeployAgain } from "../../src/deploy";
 import { usd } from "../../src/format";
 import { loadConfirmDialog } from "../../src/lazyParts";
-import { diskPerHour } from "../../src/machines";
+import { diskPerHour } from "@afflatus/core";
 import { fakeApi } from "./fakeApi";
 import { draw } from "./render";
 

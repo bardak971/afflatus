@@ -1,4 +1,4 @@
-import { plural } from "@afflatus/core";
+import { GB, plural } from "@afflatus/core";
 import { z } from "zod";
 import { library } from "./modelLibrary";
 import { tool } from "./mcpTool";
@@ -9,7 +9,7 @@ import { tool } from "./mcpTool";
  * model file is on the never-list (mcpTool.ts NEVER["model-files"]).
  */
 
-const gbOf = (bytes: number | null) => (bytes === null ? null : Math.round((bytes / 2 ** 30) * 100) / 100);
+const gbOf = (bytes: number | null) => (bytes === null ? null : Math.round((bytes / GB) * 100) / 100);
 
 const modelFiles = tool({
   name: "model_files",

@@ -6,7 +6,7 @@ import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { Selectable } from "kysely";
 import { tensorsOf, architectureOf } from "@afflatus/comfy";
-import { baseName, fileKey, isModelFile, kindOfFolder, type InputSpec } from "@afflatus/core";
+import { baseName, fileKey, isModelFile, kindOfFolder, nameKey, type InputSpec } from "@afflatus/core";
 import { FAMILY_BASES } from "./browse";
 import { civitaiGet } from "./civitai";
 import { now, type Tables } from "./db";
@@ -16,7 +16,6 @@ import { asideRoot, erase, inBinOrAside, moveBack, moveNoClobber, moveOut, syste
 import { placesOf } from "./modelDownload";
 import { filesIn, HASHED_FOLDERS, identityOf, msOf, type Found } from "./modelHashes";
 import { insideDir, modelDirsSaid } from "./modelFiles";
-import { nameOf } from "./modelPages";
 import { setsWithFiles } from "./modelSets";
 import { chosenFiles, readUses, usedKey } from "./modelUses";
 import { presetsWithFiles } from "./presetFiles";
@@ -395,7 +394,7 @@ export async function library(s: Lib, machine?: string): Promise<Library> {
     // name: a shadowed one has only what its own bytes say (its uses by its hash, from files of it since gone)
     const byName = !f.shadowed;
     const info = byName ? infos.get(k) : undefined;
-    const page = byName ? pages.get(`${f.folder}|${nameOf(f.file)}`) : undefined;
+    const page = byName ? pages.get(`${f.folder}|${nameKey(f.file)}`) : undefined;
     const key = fileKey(f);
     // a file away is listed with the uses it had: its own, by its name
     const u = f.away ? null : usesOf({ key: byName ? usedKey(f) : "", sha256: h?.sha256 ?? null });

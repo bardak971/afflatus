@@ -1,4 +1,4 @@
-import { fileKey, graphFiles, parseInput, pickedFiles, type GraphFile, type InputSpec, type LoraValue } from "@afflatus/core";
+import { fileKey, graphFiles, parseInput, pathKey, pickedFiles, type GraphFile, type InputSpec, type LoraValue } from "@afflatus/core";
 import { now, type Db } from "./db";
 import type { Services } from "./services";
 
@@ -13,7 +13,7 @@ import type { Services } from "./services";
  * A use's file, by its folder and its name as ComfyUI lists it (its sub-folder too), lower case: two copies of a file in two
  * sub-folders are two files, each its own uses. (fileKey, a pod's and a preset's, leaves the sub-folder out.)
  */
-export const usedKey = (f: { folder: string; file: string }) => `${f.folder}|${f.file.replace(/\\/g, "/").toLowerCase()}`;
+export const usedKey = (f: { folder: string; file: string }) => `${f.folder}|${pathKey(f.file)}`;
 
 /** The settings key that says the backfill was done (its value: when). */
 const BACKFILLED = "modelUses.backfilled";

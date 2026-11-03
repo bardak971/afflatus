@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { link, lstat, mkdir, open, readdir, rename, rmdir, stat, statfs, unlink, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, join, parse, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, parse, resolve } from "node:path";
+import { isInside } from "./fsUtil";
 import { envSaid } from "./config";
 
 /**
@@ -133,11 +134,6 @@ export function binEntry(path: string, size: number, at = Date.now()): Buffer {
 /** The six letters a bin entry's pair is named by ($R and $I), as Windows makes them. */
 const binName = () => Array.from(randomBytes(6), (n) => "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[n % 36]).join("");
 
-/** Whether `p` is `dir` itself or inside it. */
-const within = (dir: string, p: string) => {
-  const back = relative(resolve(dir), resolve(p));
-  return back === "" || (!back.startsWith(`..${sep}`) && back !== ".." && !/^[a-z]:/i.test(back) && !back.startsWith(sep));
-};
 
 /**
  * The set-aside folder for a file of a model folder's directory `dir`: beside that directory (`models/.afflatus-set-aside`),
@@ -146,8 +142,8 @@ const within = (dir: string, p: string) => {
  */
 export function asideRoot(dir: string, modelDirs: readonly string[]): string | null {
   let up = dirname(resolve(dir));
-  while (modelDirs.some((d) => within(d, up)) && dirname(up) !== up) up = dirname(up);
-  return modelDirs.some((d) => within(d, up)) ? null : join(up, ASIDE_DIR);
+  while (modelDirs.some((d) => isInside(d, up)) && dirname(up) !== up) up = dirname(up);
+  return modelDirs.some((d) => isInside(d, up)) ? null : join(up, ASIDE_DIR);
 }
 
 /** A file in the way of a move: nothing is replaced, the caller picks another name or says so. */

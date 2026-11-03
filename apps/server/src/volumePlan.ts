@@ -1,11 +1,11 @@
 import { stat } from "node:fs/promises";
-import type { PresetFile } from "@afflatus/core";
+import { nameKey, pathKey, usdFor, volumeSizeFor, type PresetFile } from "@afflatus/core";
 import { notFound } from "./errors";
 import { setsWithFiles } from "./modelSets";
 import { estimateFiles, rangeOrGuess, type FilesEstimate, type MeasureKind } from "./podMeasures";
 import { localCopy } from "./podSources";
 import { licencesPending } from "./presetFiles";
-import { keptHoldings, lackingOn, missingOn, VOLUME_MAX_GB, VOLUME_MIN_GB } from "./rentedVolumes";
+import { keptHoldings, lackingOn, missingOn } from "./rentedVolumes";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
 
@@ -46,12 +46,10 @@ const MONTH_MS = 30 * 24 * 3_600_000;
 export async function sized(s: Services, files: PresetFile[]): Promise<PresetFile[]> {
   if (files.every((f) => f.size)) return files;
   const [rows, settings] = await Promise.all([s.db.selectFrom("model_hashes").select(["folder", "file", "size"]).execute().catch(() => []), readSettings(s.db)]);
-  const nameOf = (file: string) => (file.split(/[\\/]/).pop() ?? file).toLowerCase();
-  const pathOf = (file: string) => file.replace(/\\/g, "/").toLowerCase();
-  const byPath = new Map(rows.map((r) => [`${r.folder}|${pathOf(r.file)}`, Number(r.size)]));
+  const byPath = new Map(rows.map((r) => [`${r.folder}|${pathKey(r.file)}`, Number(r.size)]));
   const byName = new Map<string, number[]>();
   for (const r of rows) {
-    const key = `${r.folder}|${nameOf(r.file)}`;
+    const key = `${r.folder}|${nameKey(r.file)}`;
     byName.set(key, [...(byName.get(key) ?? []), Number(r.size)]);
   }
   const onDisk = async (f: PresetFile) => {
@@ -60,8 +58,8 @@ export async function sized(s: Services, files: PresetFile[]): Promise<PresetFil
   };
   return Promise.all(files.map(async (f) => {
     if (f.size) return f;
-    const named = byName.get(`${f.folder}|${nameOf(f.file)}`) ?? [];
-    const size = byPath.get(`${f.folder}|${pathOf(f.file)}`) ?? (named.length === 1 ? named[0] : undefined) ?? (await onDisk(f));
+    const named = byName.get(`${f.folder}|${nameKey(f.file)}`) ?? [];
+    const size = byPath.get(`${f.folder}|${pathKey(f.file)}`) ?? (named.length === 1 ? named[0] : undefined) ?? (await onDisk(f));
     return size ? { ...f, size } : f;
   }));
 }
@@ -76,9 +74,6 @@ async function fetchedAs(s: Services, files: PresetFile[]): Promise<Array<{ byte
   const kinds = await Promise.all(files.filter((f) => f.size).map(async (f) => ({ bytes: f.size!, kind: (await s.podFiles.about(f).catch(() => null))?.via ?? null })));
   return kinds.filter((k): k is { bytes: number; kind: Exclude<MeasureKind, "boot"> } => k.kind !== null);
 }
-
-/** The size a volume wants for these bytes: a quarter more, up to the next ten GB, within what RunPod takes. */
-export const sizeFor = (bytes: number) => Math.min(VOLUME_MAX_GB, Math.max(VOLUME_MIN_GB, Math.ceil((bytes * 1.25) / 1e9 / 10) * 10));
 
 export async function volumePlan(s: Services, setIds: string[] | null): Promise<VolumePlan> {
   const now = Date.now();
@@ -114,7 +109,7 @@ export async function volumePlan(s: Services, setIds: string[] | null): Promise<
   const fetch = kinds.length && rate !== null ? await estimateFiles(s.db, kinds, "SECURE", rate) : null;
   return {
     places, sets: chosen.map((x) => ({ id: x.id, name: x.name, bytes: x.files.reduce((n, f) => n + (f.size ?? 0), 0) })),
-    sizeGb: sizeFor(bytes), deploys: runs.size, rate, fetch,
+    sizeGb: volumeSizeFor(bytes), deploys: runs.size, rate, fetch,
   };
 }
 
@@ -144,7 +139,7 @@ export async function fillPlan(s: Services, volume: string, setId: string): Prom
   if (!found) return { gpu: null, missing, estimate: null, licences };
   const kinds = await fetchedAs(s, lacking);
   const [fetch, boot] = await Promise.all([estimateFiles(s.db, kinds, "SECURE", found.gpu.price), rangeOrGuess(s.db, "boot", "SECURE")]);
-  const usd = (ms: number) => (ms / 3_600_000) * found.gpu.price;
-  const estimate = { fastMs: fetch.fastMs + boot.low, slowMs: fetch.slowMs + boot.high, lowUsd: usd(fetch.fastMs + boot.low), highUsd: usd(fetch.slowMs + boot.high), guessed: fetch.guessed || boot.guessed };
+  const price = found.gpu.price;
+  const estimate = { fastMs: fetch.fastMs + boot.low, slowMs: fetch.slowMs + boot.high, lowUsd: usdFor(fetch.fastMs + boot.low, price), highUsd: usdFor(fetch.slowMs + boot.high, price), guessed: fetch.guessed || boot.guessed };
   return { gpu: { name: found.gpu.name, price: found.gpu.price }, missing, estimate, licences };
 }

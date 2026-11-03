@@ -7,7 +7,7 @@ import { ask } from "./Confirm";
 import { useSettings } from "./data";
 import { DEPLOYED_READS, huntReads } from "./deployReads";
 import { usd } from "./format";
-import { diskPerHour } from "./machines";
+import { diskPerHour } from "@afflatus/core";
 import { useSayFailed } from "./sayFailed";
 
 /**

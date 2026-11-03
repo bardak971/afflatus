@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { LATENT_GRID, type FrameGrid } from "@afflatus/core";
+import { LATENT_GRID, nameKey, type FrameGrid } from "@afflatus/core";
 import { api, type AssetDetail, type CommandEntry, type CommandEstimate, type Entity, type PromptHistoryItem, type FamilyInfo, type BrowseBases, type RecipeInfo, type SettingsPatch } from "../api";
 import { useAsset, useEntities, useFamilies, useRecipes, useSettings, useSetup, useStorage } from "../data";
 import { itemsWord } from "../assetCache";
@@ -32,7 +32,6 @@ import { pickedNow, usePickedCount } from "../findModels/store";
 import { useFormTarget } from "../formTarget";
 import { browseRows, browseValueRows, downloadRows, isLink, linkRows } from "./modelRows";
 import { parseBrowse, siteQuery } from "./browseSearch";
-import { nameOf } from "../fields/Loras";
 import { useDebounced } from "../hooks";
 import { isRenderSearch, parseSearch } from "./search";
 import { filterOf, keyRows, loosened, promptRows, resultSections, valueRows, type SearchData } from "./searchRows";
@@ -300,8 +299,8 @@ export function useBarData({ open, mode, text, line, ranks, picked, learn, found
   const card = useQuery({ queryKey: queryKeys.browse.link(linkQ), queryFn: () => api.browseLink(linkQ), enabled: Boolean(linkQ) && linkQ === linkTyped, staleTime: 5 * 60_000, retry: false });
   const modelUpdates = useQuery({ queryKey: queryKeys.modelUpdates(), queryFn: api.modelUpdates, enabled: searching && lookups, staleTime: 5 * 60_000 }).data;
   const newer = useMemo(() => {
-    const by = new Map((modelUpdates?.items ?? []).filter((u) => u.newer).map((u) => [nameOf(u.file), u]));
-    return (file: string) => by.get(nameOf(file));
+    const by = new Map((modelUpdates?.items ?? []).filter((u) => u.newer).map((u) => [nameKey(u.file), u]));
+    return (file: string) => by.get(nameKey(file));
   }, [modelUpdates]);
   const queueNames = useQueueOf((q) => (open && mode === "queue" ? q.machines : null));
 

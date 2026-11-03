@@ -5,11 +5,12 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { countFrames, frameAt, soundSlice } from "../src/cut";
 import { meansOf } from "../src/measure";
-import { localInputs, readAs, READ_AS, tools, videoFacts } from "../src/video";
+import { localInputs, readAs, READ_AS, tools } from "../src/ff";
+import { videoFacts } from "../src/video";
 import { FFMPEG_TIMEOUT, ffmpegMade, ffmpegThere } from "./clipKit";
 
 /**
- * Every run of ffmpeg and ffprobe on a kept file is held to the containers a kept file can be (video.ts localInputs, READ_AS
+ * Every run of ffmpeg and ffprobe on a kept file is held to the containers a kept file can be (ff.ts localInputs, READ_AS
  * stored), not only the upload's probe: a ComfyUI or pod take, a linked folder's file, is never probed as a stranger's, and a
  * file named `.mp4` that is a DASH manifest or an ffconcat list had every other run read the file it names, elsewhere on the
  * disk. Afflatus's own lists and sources name their format (`-f concat`, `-f lavfi`) and are left as they are. Skipped where

@@ -1,4 +1,4 @@
-import { isModelFile, USUAL_FOLDERS } from "@afflatus/core";
+import { canonicalFolder, folderOfCivitaiKind, isModelFile, LEGACY_FOLDER, USUAL_FOLDERS } from "@afflatus/core";
 import { civitaiGet, civitaiSites, pretendSites } from "./civitai";
 import { httpError } from "./errors";
 import { assertPublicUrl, fetchPublic } from "./outbound";
@@ -36,17 +36,13 @@ export interface LinkFound {
   why?: string;
 }
 
-const FOLDER_OF_KIND: Record<string, string> = {
-  Checkpoint: "checkpoints", LORA: "loras", LoCon: "loras", DoRA: "loras", VAE: "vae", TextEncoder: "text_encoders",
-  Upscaler: "upscale_models", Controlnet: "controlnet", TextualInversion: "embeddings",
-};
 /** Families whose "checkpoints" are the diffusion model alone: ComfyUI loads those from diffusion_models. */
 const ALONE = /flux|wan\b|wan ?\d|krea|minimax|(^|[^a-z0-9])h3([^a-z0-9]|$)|qwen|hunyuan|ltx|chroma|z.?image|lumina|hidream|cosmos|aura/i;
 /**
  * ComfyUI's folder names, as they appear in the path of a file on Hugging Face: the usual ones (latent_upscale_models left
  * out, as it was before they were shared) and the older names ComfyUI still reads, unet and clip.
  */
-const KNOWN_FOLDERS: readonly string[] = [...USUAL_FOLDERS.filter((f) => f !== "latent_upscale_models"), "unet", "clip"];
+const KNOWN_FOLDERS: readonly string[] = [...USUAL_FOLDERS.filter((f) => f !== "latent_upscale_models"), ...Object.keys(LEGACY_FOLDER)];
 
 type ApiFile = { name?: string; sizeKB?: number; type?: string; metadata?: { fp?: string | null; size?: string | null; format?: string | null } };
 type ApiVersion = { id: number; name?: string; baseModel?: string; modelId?: number; model?: { name?: string; type?: string }; files?: ApiFile[] };
@@ -61,13 +57,14 @@ const bad = (message: string) => httpError(message);
 export function folderFor(kind: string, base: string, name: string): { folder: string | null; why?: string } {
   const alone = kind === "Checkpoint" && ALONE.test(`${base} ${name}`);
   if (alone) return { folder: "diffusion_models", why: `Civitai calls it a checkpoint, but models for ${base || "this family"} are usually the diffusion model alone, which ComfyUI loads from diffusion_models. A full checkpoint goes in checkpoints.` };
-  return { folder: FOLDER_OF_KIND[kind] ?? null };
+  // core's one table, which the search by folder asks with too (a detector's link had no folder here)
+  return { folder: folderOfCivitaiKind(kind) };
 }
 
 /** The ComfyUI folder a file on Hugging Face goes in, by the folder names in its path ("split_files/vae/x" → vae). */
 export function folderOfPath(path: string): string | null {
   const folder = path.split("/").slice(0, -1).reverse().find((part) => KNOWN_FOLDERS.includes(part.toLowerCase()))?.toLowerCase() ?? null;
-  return folder === "unet" ? "diffusion_models" : folder === "clip" ? "text_encoders" : folder;
+  return folder === null ? null : canonicalFolder(folder);
 }
 
 /** One of the families' files as the folder guess knows it: the patterns its slot finds it by, and its ComfyUI folder. */

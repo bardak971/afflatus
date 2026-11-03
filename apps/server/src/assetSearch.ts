@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { sql, type Expression, type SqlBool } from "kysely";
 import { z } from "zod";
 import { describeRecipe, fuzzyFilter, pickedFiles } from "@afflatus/core";
+import { Kept } from "./kept";
 import { draftLabel, promptOf, recipeWords, shownNames } from "./autoName";
 import type { DbKind, Tables } from "./db";
 import { assetView, SPACE } from "./media";
@@ -162,7 +163,8 @@ class AssetSearch {
    * The searches ranked lately, by their filters and words: the next page of one (Load more, a scroll) and the count of its
    * unkept items read the ranking again instead of matching and ranking every hit once more. Dropped when the library changes.
    */
-  private readonly ranked = new Map<string, { at: number; rows: Promise<Ranked[]> }>();
+  // a failed search is not kept: the next one asks again
+  private readonly ranked = new Kept<Ranked[]>({ ttlMs: RANKED_MS, max: RANKED_KEPT });
   /** The model files and LoRAs, kept until the library changes (tallyModels). */
   private modelTally: ReturnType<AssetSearch["tallyModels"]> | null = null;
 
@@ -221,20 +223,12 @@ class AssetSearch {
    */
   private searched(filtered: Filtered, q: ListQuery): Promise<Ranked[]> {
     const key = JSON.stringify([q.q, q.model, q.lora, q.kind, q.bin, q.folder, q.project, q.kept, q.sound, q.since, q.family, q.draft]);
-    const had = this.ranked.get(key);
-    if (had && Date.now() - had.at < RANKED_MS) return had.rows;
-    const words = wordsOf(q.q ?? "");
-    const rows = (words.length && this.s.dbKind === "sqlite" ? this.byIndex(filtered, q, words) : this.byReading(filtered, q)).then((found) =>
-      found.map((r): Ranked => ({ id: r.id, created_at: r.created_at, countdown_from: r.countdown_from })),
-    );
-    if (this.ranked.size >= RANKED_KEPT) this.ranked.delete(this.ranked.keys().next().value!);
-    const mine = { at: Date.now(), rows };
-    this.ranked.set(key, mine);
-    // a failed search is not kept: the next one asks again
-    rows.catch(() => {
-      if (this.ranked.get(key) === mine) this.ranked.delete(key);
+    return this.ranked.get(key, () => {
+      const words = wordsOf(q.q ?? "");
+      return (words.length && this.s.dbKind === "sqlite" ? this.byIndex(filtered, q, words) : this.byReading(filtered, q)).then((found) =>
+        found.map((r): Ranked => ({ id: r.id, created_at: r.created_at, countdown_from: r.countdown_from })),
+      );
     });
-    return rows;
   }
 
   /**

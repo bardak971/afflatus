@@ -1,4 +1,4 @@
-import { plural } from "@afflatus/core";
+import { cents, plural, usd } from "@afflatus/core";
 import { VERSION } from "./config";
 import { DRAFT_TOOLS } from "./mcpDrafts";
 import { FORM_TOOLS } from "./mcpForms";
@@ -17,7 +17,6 @@ import { MODEL_FILE_TOOLS } from "./mcpModelFiles";
 import { TIMELINE_TOOLS } from "./mcpTimelines";
 import { tool, type Tool } from "./mcpTool";
 import { WORKFLOW_TOOLS } from "./mcpWorkflows";
-import { dollars } from "./notifyWords";
 import { readSettings } from "./settings";
 
 /**
@@ -45,7 +44,7 @@ const overview = tool({
     const machines = st.machines.map((m) => ({
       id: m.id, name: m.name, kind: m.rented ? "rented pod" : "ComfyUI",
       online: m.online, paused: m.paused, locked: m.locked, model: m.model,
-      ...(m.rented ? { pod: { status: m.rented.status, gpu: m.rented.gpu, usdPerHour: m.rented.rate, spentThisRun: Math.round(m.rented.spent * 100) / 100 } } : {}),
+      ...(m.rented ? { pod: { status: m.rented.status, gpu: m.rented.gpu, usdPerHour: m.rented.rate, spentThisRun: cents(m.rented.spent) } } : {}),
       running: runningOf(m.running as Parameters<typeof runningOf>[0]),
     }));
     const running = st.machines.filter((m) => m.running).length + (st.tool ? 1 : 0);
@@ -60,14 +59,14 @@ const overview = tool({
       },
       modelLoaded: st.model,
       rentedGpus: spending ? {
-        today: dollars(spending.today), month: dollars(spending.month),
-        caps: { day: spending.caps.day ? dollars(spending.caps.day) : "none", month: spending.caps.month ? dollars(spending.caps.month) : "none" },
-        balance: spending.balance === null ? null : dollars(spending.balance),
+        today: usd(spending.today), month: usd(spending.month),
+        caps: { day: spending.caps.day ? usd(spending.caps.day) : "none", month: spending.caps.month ? usd(spending.caps.month) : "none" },
+        balance: spending.balance === null ? null : usd(spending.balance),
       } : null,
       thisToken: {
         name: token.name, scopes: token.scopes,
         renders: `${rendersThisHour} of ${token.rendersPerHour} this hour`,
-        spend: token.scopes.includes("spend") ? `${dollars(spentThisMonth)} of ${dollars(token.spendCapCents / 100)} this month` : "Spend is not ticked: no rented GPU",
+        spend: token.scopes.includes("spend") ? `${usd(spentThisMonth)} of ${usd(token.spendCapCents / 100)} this month` : "Spend is not ticked: no rented GPU",
         ends: token.expiresAt ?? "never",
       },
     };

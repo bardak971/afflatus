@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
 import { access, constants, mkdir, open, realpath, rename, rm, stat, statfs } from "node:fs/promises";
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
-import { basename, dirname, isAbsolute, join, posix, relative, win32 } from "node:path";
+import { basename, dirname, isAbsolute, join, posix, win32 } from "node:path";
+import { otherName, SAFETENSORS } from "@afflatus/core";
 import { civitaiSites } from "./civitai";
+import { hashOf, isInside, sleep } from "./fsUtil";
 import { isNetworkPath } from "./linked";
 import { modelDirs } from "./modelFiles";
 import { cannotReach, failCode, fetchFailure, fetchPublic } from "./outbound";
@@ -200,24 +201,6 @@ export interface Parts {
   /** From what size on, and pieces of what size (the tests' small files). */
   from?: number;
   piece?: number;
-}
-
-const sleep =(ms: number, signal: AbortSignal) =>
-  new Promise<void>((resolve) => {
-    const timer = setTimeout(done, ms);
-    signal.addEventListener("abort", done, { once: true });
-    function done() {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", done);
-      resolve();
-    }
-  });
-
-/** The SHA-256 of a file on disk: for a .part whose last bytes did not all reach it. */
-async function hashOf(path: string, upTo: number) {
-  const hash = createHash("sha256");
-  if (upTo > 0) for await (const chunk of createReadStream(path, { end: upTo - 1 })) hash.update(chunk as Buffer);
-  return hash;
 }
 
 /**
@@ -602,8 +585,6 @@ async function inParts(o: FetchTo, p: Required<Pick<Parts, "connections" | "slot
   return { have, total, hash: hashed === have ? hash : await hashOf(part, have) };
 }
 
-const SAFETENSORS = /\.(safetensors|sft)$/i;
-
 /**
  * Whether a file starts as a safetensors file does: the length of its JSON header in 8 bytes (little-endian), then
  * the header's `{`, the header within the file. A page, an archive or another service's answer saved under a
@@ -633,11 +614,8 @@ const hostOf = (url: string) => {
 const dirOf = (path: string) => path.replace(/[\\/][^\\/]*$/, "");
 const mkdirFor = (path: string) => mkdir(dirOf(path), { recursive: true });
 
-/** Whether `path` is `root` itself or a place under it (both already real paths). */
-export const inside = (root: string, path: string) => {
-  const rel = relative(root, path);
-  return !rel.startsWith("..") && !isAbsolute(rel);
-};
+/** Whether `path` is `root` itself or a place under it (both already real paths): fsUtil's isInside. */
+export const inside = isInside;
 
 /**
  * Whether ComfyUI's address names this machine: then the folders it says are folders here. Only "localhost" or an
@@ -670,8 +648,6 @@ function unmapped(host: string): string {
   return [hi >> 8, hi & 255, lo >> 8, lo & 255].join(".");
 }
 
-/** ComfyUI's older names of two folders: a request may use either. */
-const OTHER_NAME: Record<string, string> = { unet: "diffusion_models", clip: "text_encoders", diffusion_models: "unet", text_encoders: "clip" };
 
 /**
  * The paths ComfyUI reads a model folder from, as it says them on /internal/folder_paths (extra_model_paths.yaml
@@ -729,7 +705,7 @@ export function comfyBase(paths: Record<string, string[]> | null, comfyDir: stri
  */
 export function placesOf(listed: string[], folder: string, base: string | null): Place[] {
   // the folder's other name (a download asked under "unet" takes models\diffusion_models second)
-  const older = OTHER_NAME[folder] ?? null;
+  const older = otherName(folder) ?? null;
   const named = (p: string, name: string) => {
     const sys = pathsOf(p);
     if (base) return sameKey(p) === sameKey(sys.join(base, "models", name));
@@ -826,7 +802,7 @@ export async function folderPlaces(paths: Record<string, string[]>, comfyUrl: st
 
 /** The paths ComfyUI lists for a folder, under its older name when it has none under this one. */
 export const listedFor = (paths: Record<string, string[]>, folder: string): string[] =>
-  paths[folder] ?? (OTHER_NAME[folder] ? paths[OTHER_NAME[folder]!] : undefined) ?? [];
+  paths[folder] ?? (otherName(folder) ? paths[otherName(folder)!] : undefined) ?? [];
 
 /**
  * The directory Afflatus downloads a model folder's files into, when it can write there itself: the place chosen for that

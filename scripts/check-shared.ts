@@ -4,7 +4,9 @@
  *   - a plural made inline (`=== 1 ? "" : "s"`, or "es"): format's `plural` (core's, for the server and the packages);
  *   - a failure banner made inline (`tone: "bad"` with an error's `.message`): sayFailed.ts's `useSayFailed` or `failedBanner`;
  *   - a list of model-file extensions in a pattern: core's modelFiles.ts (`MODEL_EXT`, `isModelFile`, `modelStem`);
- *   - a list of ComfyUI's usual model folders: core's modelFiles.ts (`USUAL_FOLDERS`, `FULL_MODEL_FOLDERS`).
+ *   - a list of ComfyUI's usual model folders: core's modelFiles.ts (`USUAL_FOLDERS`, `FULL_MODEL_FOLDERS`);
+ *   - a time priced at an hourly rate, or a month's or a day's start, by hand: core's money.ts (`usdFor`, `monthStart`, `dayStart`);
+ *   - a test for .safetensors that leaves .sft out: core's modelFiles.ts (`isSafetensors`, `SAFETENSORS`).
  * Only the sources are read (apps/<name>/src, packages/<name>/src, and the scripts that `pnpm check:*` and the rest run),
  * not the tests. `pnpm lint` from the repository root.
  *
@@ -57,6 +59,16 @@ const RULES: Array<{ test: RegExp; why: string; except?: RegExp }> = [
     why: "a list of the usual model folders: use USUAL_FOLDERS or FULL_MODEL_FOLDERS (core's modelFiles.ts)",
     except: /packages[\\/]core[\\/]src[\\/]modelFiles\.ts$/,
   },
+  // money (card #259): an hour's rate times a time, and the start of a month or a day, were each written a dozen times,
+  // and a month boundary written two ways is how a cap counts the wrong days
+  { test: /\/ ?(?:3_600_000|HOUR(?:_MS)?)\) ?\* ?[\w.!?]*(?:rate|price|Rate|Price)\b/, why: "a time priced by hand: use usdFor(ms, rate) (core's money.ts)", except: /packages[\\/]core[\\/]src[\\/]money\.ts$/ },
+  {
+    test: /new Date\([\w.]+getFullYear\(\), [\w.]+getMonth\(\)(?: \+ \d)?, (?:1|[\w.]+getDate\(\))\)/,
+    why: "the start of a month or a day made by hand: use monthStart or dayStart (core's money.ts)",
+    except: /packages[\\/]core[\\/]src[\\/]money\.ts$/,
+  },
+  // a safetensors test that leaves .sft out: the header read and the update check skipped Flux's .sft files (card #258)
+  { test: /\\\.safetensors\$\/i\.test/, why: "a safetensors test without .sft: use isSafetensors or SAFETENSORS (core's modelFiles.ts)" },
 ];
 
 /** What a source file writes by hand that a helper does, line by line. `file` is its path from the repository root. */

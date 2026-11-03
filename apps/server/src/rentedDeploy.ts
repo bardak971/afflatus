@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import { httpError } from "./errors";
 import { newToken } from "./lock-api";
 import { BOOT_PORT, COMFY_PORT, exposesComfy, imageFor, LOCK_ENV, noCapacity, POD_IMAGES, podMachineId, podUrl, RunpodError, RunpodShape, secretRef, WATCHDOG_ACTION_ENV, WATCHDOG_ENV, type GpuOffer, type NetworkVolume, type Pod, type PodSpec } from "./runpod";
-import type { PresetFile } from "@afflatus/core";
+import { VOLUME_MAX_GB, VOLUME_MIN_GB, type PresetFile } from "@afflatus/core";
 import { imagePublic } from "./podImage";
-import { inUseSaid, keptHoldings, noticeVolumes, mountedOn, usedBy, viewVolumes, VOLUME_MAX_GB, VOLUME_MIN_GB, type VolumeView } from "./rentedVolumes";
+import { inUseSaid, keptHoldings, noticeVolumes, mountedOn, usedBy, viewVolumes, type VolumeView } from "./rentedVolumes";
 import { MAX_MACHINES, readSettings, updateSettings, type DeployAsk, type Machine, type Settings } from "./settings";
 import { RentedFollow, secretOf } from "./rentedFollow";
 

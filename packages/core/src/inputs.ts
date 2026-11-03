@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { endsIn, MODEL_EXTS } from "./modelFiles";
+import { endsIn, MODEL_EXTS, nameKey } from "./modelFiles";
 import { withinPixels } from "./frame";
 import { gridAtOrBefore, type FrameGrid } from "./frameGrid";
 import { sigmaOfOldDenoise } from "./sigmas";
@@ -153,7 +153,7 @@ export interface AddedRow {
 }
 
 /** The same LoRA file, wherever the folder it is in and whichever slash: two loaders of it would put it on twice. */
-export const sameLora = (a: string, b: string) => (a.split(/[\\/]/).pop() ?? a).toLowerCase() === (b.split(/[\\/]/).pop() ?? b).toLowerCase();
+export const sameLora = (a: string, b: string) => nameKey(a) === nameKey(b);
 
 /**
  * The LoRAs a list's recipe adds itself with these values and the files its family uses, as the render puts them on: the
@@ -658,8 +658,7 @@ export function pickChoice(spec: ChoiceInput, offered: string[] | undefined): st
   if (Array.isArray(spec.options) || !offered?.length || offered.includes(spec.default)) return spec.default;
   // the same file kept in another folder ("MiniMaxH3/x.safetensors" saved, "x.safetensors" here): that one, before
   // any other (the first of the list would be some other model's file: an LTX audio VAE for H3's)
-  const name = (path: string) => path.split(/[\\/]/).pop()!.toLowerCase();
-  const same = offered.find((o) => name(o) === name(spec.default));
+  const same = offered.find((o) => nameKey(o) === nameKey(spec.default));
   if (same) return same;
   for (const source of spec.prefer ?? []) {
     const hit = offered.find((o) => new RegExp(source, "i").test(o));

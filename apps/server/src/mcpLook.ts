@@ -1,11 +1,11 @@
-import { plural } from "@afflatus/core";
+import { nameKey, plural } from "@afflatus/core";
 import { z } from "zod";
 import { withoutPaths } from "./downloads";
 import { httpError, notFound } from "./errors";
 import { scrubbed, secretsOf } from "./logScrub";
 import { machineName } from "./mcpForms";
 import { quoted, Rich, tool } from "./mcpTool";
-import { findWords, folderOf, known, lookUpPage, nameOf, setOwnWords, wordsOf } from "./modelPages";
+import { findWords, folderOf, known, lookUpPage, setOwnWords, wordsOf } from "./modelPages";
 import { promptHistory } from "./promptHistory";
 import { bootLogText, volumesOf } from "./rented-api";
 import { list as rendersList, summary as rendersSummary } from "./rendersRead";
@@ -220,9 +220,9 @@ const modelPage = tool({
   async run(a, ctx) {
     const { s } = ctx;
     const folder = folderOf(a.folder);
-    const name = nameOf(a.file);
+    const name = nameKey(a.file);
     const rows = await s.db.selectFrom("model_info").select(["file", "info"]).where("folder", "=", folder).execute();
-    const row = rows.find((r) => r.file === a.file) ?? rows.find((r) => nameOf(r.file) === name);
+    const row = rows.find((r) => r.file === a.file) ?? rows.find((r) => nameKey(r.file) === name);
     const { v: _v, ...header } = row ? (JSON.parse(row.info) as Record<string, unknown>) : {};
     let page: { page: unknown; candidates?: unknown[]; lookups?: boolean } = { page: await known(s.db, folder, name) };
     let looked: boolean | null = null;
@@ -251,7 +251,7 @@ const setModelWords = tool({
   input: { folder: modelFolder, file: modelFile, words: z.string().max(600).nullable() },
   async run(a, ctx) {
     const folder = folderOf(a.folder);
-    const name = nameOf(a.file);
+    const name = nameKey(a.file);
     const now = (await setOwnWords(ctx.s.db, folder, a.file, a.words))[name];
     ctx.said(now?.own ? `Set ${quoted(a.file)}'s own words: ${quoted(now.own)}` : `Took ${quoted(a.file)}'s own words away`);
     // the page's lists of words read again
