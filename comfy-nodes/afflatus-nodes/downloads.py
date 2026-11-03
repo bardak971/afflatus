@@ -24,7 +24,8 @@ without asking first):
   GET    /afflatus/download/<id>  → {state: downloading|done|error|stopped, bytes, total, error, note, expired}
   POST   /afflatus/download/<id>/url {url}  → a fresh signed link for a download whose link expired (`expired` true)
   DELETE /afflatus/download/<id>  → stops it, and removes its .part (`?keep=1`, 0.36.6: keeps it, for the next download of
-         that file to carry on from: Afflatus put it back in line, or ComfyUI restarts to load node packs)
+         that file to carry on from: Afflatus put it back in line, or ComfyUI restarts to load node packs; 0.49.7: answered
+         once its thread let go, LET_GO_S at most, so that a restart asked right after finds the .part cut back)
   GET    /afflatus/disk  → {free, total, downloading}: the bytes of the disk the model folders are on (0.19.0)
   POST   /afflatus/models/remove {folder, filename}  → {removed}: a model file taken off the disk, to make room (0.19.0)
   GET    /afflatus/models/list  → {files: [{folder, path, bytes, modified}]}: every model file of the models folder, with its
@@ -46,6 +47,11 @@ The connections are shared by every download of this ComfyUI (two files at once 
 failure that passes, or a source that stops answering parts (carried on over one connection) lose no more than the
 pieces under way. A sha256 Afflatus says (Civitai lists it) is checked before the file is named, read as the pieces
 come.
+
+A file asked for with a sha256 that is in the folder already (0.49.7) is not answered "there already" (409): something
+else put it there unchecked (Impact Subpack's installer fetched the YOLO pickles from Hugging Face's main on every pod
+before Afflatus's checked fetch, card #265). Its bytes are read: the download is done at once when they are the ones its
+source lists; else the file is removed (a pickle with other bytes is never left for ComfyUI to load) and fetched as any.
 """
 
 import asyncio
@@ -83,6 +89,9 @@ NOT_MODELS = {"custom_nodes", "configs"}
 KEEP_S = 3600
 # Afflatus runs two of its downloads at a time (downloads.ts AT_ONCE): more here would only be someone else's
 MAX_JOBS = 2
+# how long a stop asked to keep its .part waits for its thread to let go before it answers: the pieces over several
+# connections are cut back to the .part only then, and ComfyUI restarting first (node packs) lost them all (card #265)
+LET_GO_S = 20
 # a .part not written to for this long belongs to no download under way: one cut short by ComfyUI stopping
 STALE_PART_S = 3600
 # a .part with no download's id (Afflatus's own, on a ComfyUI on its machine) is kept for its next try to carry on from, and
@@ -376,6 +385,10 @@ class Job:
         # its thread runs (run sets it false as it ends); a stop asked to keep its .part (stop)
         self.alive = True
         self.keep = False
+        # a file of its name was in the folder when it was asked for (with a sha256 only): checked before anything is fetched
+        self.there = False
+        # and its bytes were the ones its source lists: nothing fetched
+        self.found = False
 
     @property
     def part(self):
@@ -388,7 +401,11 @@ class Job:
         return self.part + "s"
 
     def view(self):
-        return {"state": self.state, "bytes": self.bytes, "total": self.total, "error": self.error, "note": self.note, "expired": self.expired}
+        view = {"state": self.state, "bytes": self.bytes, "total": self.total, "error": self.error, "note": self.note, "expired": self.expired}
+        # done without fetching a byte: the file was there, its bytes the ones its source lists (_checked_there)
+        if self.found:
+            view["there"] = True
+        return view
 
     def renew(self, url):
         """A fresh link for a download whose link expired: it carries on from the byte it had."""
@@ -738,12 +755,41 @@ def _in_parts(job, have, opener, attempts, backoff, chunk, timeout, renew_wait, 
     return have, digest[0] if have == job.total else None
 
 
-def _sha256_of(path):
+def _sha256_of(path, moved=None):
     sha = hashlib.sha256()
     with open(path, "rb") as f:
         for block in iter(lambda: f.read(8 << 20), b""):
             sha.update(block)
+            if moved:
+                moved(len(block))
     return sha.hexdigest()
+
+
+def _checked_there(job):
+    """The file in the folder when it was asked for with a sha256: True when its bytes are those its source lists (nothing
+    to fetch). Else it is removed, before anything else, so that ComfyUI never loads it, and the file is fetched as any."""
+    try:
+        size = os.path.getsize(job.path)
+    except OSError:
+        # gone meanwhile: fetched as any
+        return False
+    job.note = "Checking the file that is there against the sha256 its source lists."
+    job.bytes = 0
+    if not job.declared or size == job.declared:
+
+        def moved(n):
+            job.bytes += n
+
+        if _sha256_of(job.path, moved) == job.sha256:
+            job.total = job.bytes = size
+            return True
+    job.bytes = 0
+    try:
+        os.remove(job.path)
+    except OSError as e:
+        raise Refused(f"a file of that name is in the folder with other bytes than its source lists, and it could not be removed ({e.strerror or e})")
+    job.note = "The file that was there is not the one its source lists: removed, and fetched again."
+    return False
 
 
 def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeout=60, renew_wait=RENEW_WAIT_S,
@@ -762,6 +808,11 @@ def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeou
     try:
         _remove(part)
         _remove(job.parts)
+        if job.there and job.sha256 and _checked_there(job):
+            job.found = True
+            job.state = "done"
+            job.note = None
+            return
         os.makedirs(os.path.dirname(job.path), exist_ok=True)
         have = _taken_over(job)
         job.bytes = have
@@ -950,17 +1001,20 @@ def register(routes, web, folder_paths):
         except Refused as e:
             return web.Response(status=400, text=str(e))
         forget()
-        if os.path.exists(path) or any(j.path == path and j.state == "downloading" for j in jobs.values()):
+        job = Job(body["url"], path, body.get("total") or 0, body.get("sha256"))
+        # a file there asked for with the bytes it must have is checked against them (run, _checked_there): one put there
+        # unchecked was taken as Afflatus's own. Without a sha256 there is nothing to check it by: there already
+        job.there = os.path.exists(path)
+        if (job.there and not job.sha256) or any(j.path == path and j.state == "downloading" for j in jobs.values()):
             return web.Response(status=409, text="that file is there already, or being downloaded")
         if sum(j.state == "downloading" for j in jobs.values()) >= MAX_JOBS:
             return web.Response(status=429, text=f"{MAX_JOBS} downloads are under way already")
-        total = body.get("total") or 0
-        # a disk without the room is said now, not once it is full: beside what the downloads under way still write
-        if isinstance(total, (int, float)) and total > 0:
+        # a disk without the room is said now, not once it is full: beside what the downloads under way still write (a file
+        # there, checked, may need none; run says it if it does)
+        if job.total and not job.there:
             free = await asyncio.to_thread(lambda: shutil.disk_usage(root).free) - reserved()
-            if free < total:
-                return web.Response(status=507, text=f"the disk has {max(0, free)} bytes free, the file is {int(total)}")
-        job = Job(body["url"], path, total, body.get("sha256"))
+            if free < job.total:
+                return web.Response(status=507, text=f"the disk has {max(0, free)} bytes free, the file is {int(job.total)}")
         job.reserved = lambda: reserved(job)
         job.busy_parts = lambda: {j.part for j in jobs.values() if j is not job and j.alive}
         jobs[job.id] = job
@@ -994,8 +1048,14 @@ def register(routes, web, folder_paths):
         job = jobs.get(request.match_info.get("id", ""))
         if job is None:
             return web.Response(status=404)
-        job.stop(keep=request.query.get("keep") == "1")
-        return web.json_response({"ok": True})
+        keep = request.query.get("keep") == "1"
+        job.stop(keep=keep)
+        # a kept .part is what the next download carries on from: answered once the thread has cut it back (the pieces over
+        # several connections), so that ComfyUI's restart asked right after does not lose them
+        ends = time.monotonic() + LET_GO_S
+        while keep and job.alive and time.monotonic() < ends:
+            await asyncio.sleep(0.05)
+        return web.json_response({"ok": True, "let_go": not job.alive})
 
     @routes.get("/afflatus/disk")
     async def _afflatus_disk(request):

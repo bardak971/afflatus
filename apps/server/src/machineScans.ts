@@ -83,12 +83,22 @@ function pickedFor(recipe: Pick<Recipe<any>, "inputs" | "needs">, input: Record<
 const slotFilesOf = (slots: Array<{ id: string; file?: string | null }>): Record<string, string> =>
   Object.fromEntries(slots.flatMap((x) => (x.file ? [[x.id, x.file]] : [])));
 
-/** A file a job loads, with where it can be had when that is known: its family's download, its imported workflow's address. */
-function withUrl(recipe: Pick<Recipe<any>, "files">, slots: ReadonlyArray<{ id: string; get?: { file: string; url: string } }>, f: Pick<GraphFile, "file" | "folder" | "slot">): { file: string; folder: string; url?: string } {
+/** A family slot's download, as the files a job uses carry it: its address, and the bytes it must have when the family says them. */
+type SlotGet = { file: string; url: string; sha256?: string };
+/** A model file a job uses: where it can be had, and (a family's download) the sha256 the pod's node pack checks it against. */
+type UsedFile = { file: string; folder: string; url?: string; sha256?: string };
+const fromGet = (get: SlotGet) => ({ url: get.url, ...(get.sha256 ? { sha256: get.sha256 } : {}) });
+
+/**
+ * A file a job loads, with where it can be had when that is known: its family's download (with its sha256: the YOLO pickles'
+ * was dropped here, card #265), its imported workflow's address.
+ */
+function withUrl(recipe: Pick<Recipe<any>, "files">, slots: ReadonlyArray<{ id: string; get?: SlotGet }>, f: Pick<GraphFile, "file" | "folder" | "slot">): UsedFile {
   // a family's official file picked in a form (SDXL's base checkpoint, which no slot loads: it is picked per render) is had
   // from the family's download all the same
   const get = slots.find((s) => s.id === f.slot)?.get ?? slots.find((s) => s.get?.file === f.file)?.get;
-  const url = get && get.file === f.file ? get.url : recipe.files?.find((x) => x.file === f.file && x.url)?.url;
+  if (get && get.file === f.file) return { file: f.file, folder: f.folder, ...fromGet(get) };
+  const url = recipe.files?.find((x) => x.file === f.file && x.url)?.url;
   return { file: f.file, folder: f.folder, ...(url ? { url } : {}) };
 }
 
@@ -101,11 +111,11 @@ function withUrl(recipe: Pick<Recipe<any>, "files">, slots: ReadonlyArray<{ id: 
  */
 export function filesUsed(
   recipe: Pick<Recipe<any>, "family" | "inputs" | "needs" | "needsWith"> & Partial<Pick<Recipe<any>, "files" | "unneeded">>, input: Record<string, unknown>, scan: Scan | null,
-  slots: Array<{ id: string; folder: string; optional?: boolean; get?: { file: string; url: string } }>, loaded?: Pick<Loaded, "files"> | null,
-): Array<{ file: string; folder: string; url?: string }> {
+  slots: Array<{ id: string; folder: string; optional?: boolean; get?: SlotGet }>, loaded?: Pick<Loaded, "files"> | null,
+): UsedFile[] {
   // a file nobody has (missingSlotFile) is not one to list: the job cannot be sent it
   if (loaded) return filesOfLoaded(loaded, slots, recipe);
-  const out: Array<{ file: string; folder: string; url?: string }> = filesAsked(recipe, input).map(({ file, folder }) => ({ file, folder }));
+  const out: UsedFile[] = filesAsked(recipe, input).map(({ file, folder }) => ({ file, folder }));
   const found = scan?.families.find((f) => f.id === recipe.family)?.slots ?? [];
   const asks = recipe.needsWith?.(input, slotFilesOf(found)) ?? [];
   const needs = neededSlots(recipe, input);
@@ -113,7 +123,7 @@ export function filesUsed(
     // a slot the job's own pick fills is that file, asked above
     if ((slot.optional && !needs.includes(slot.id) && !asks.includes(slot.id)) || pickedFor(recipe, input, slot, slots)) continue;
     const file = slot.get?.file ?? found.find((x) => x.id === slot.id)?.file;
-    if (file) out.push({ file, folder: slot.folder, ...(slot.get && slot.get.file === file ? { url: slot.get.url } : {}) });
+    if (file) out.push({ file, folder: slot.folder, ...(slot.get && slot.get.file === file ? fromGet(slot.get) : {}) });
   }
   return out.filter((f, i) => out.findIndex((g) => g.file === f.file && g.folder === f.folder) === i);
 }
@@ -121,7 +131,7 @@ export function filesUsed(
 /** What keeps a job off a machine: its family switched off there, and the files it lacks there (with where to get each, when known). */
 export interface Lack {
   off: boolean;
-  files: Array<{ file: string; folder: string; url?: string }>;
+  files: UsedFile[];
   /**
    * What it lacks there can all be sent to it: its files, and the node packs (known ones, `packs`) of the node types it
    * lacks; with them there, it runs (nothing else refused, no other input with nothing to pick). A rented pod can be sent
@@ -171,10 +181,10 @@ export function lackOn(
   if (status?.ready && on && !asked.length && !lacking.length) return null;
   // a family file the job's own pick fills is not asked for as the family's usual file (a pod would fetch a model it never uses)
   const files = [
-    ...slots.filter((x) => status?.missingSlots.includes(x.id) && x.get && !pickedFor(recipe, input, x, slots)).map((x) => ({ file: x.get!.file, folder: x.folder, url: x.get!.url })),
+    ...slots.filter((x) => status?.missingSlots.includes(x.id) && x.get && !pickedFor(recipe, input, x, slots)).map((x) => ({ file: x.get!.file, folder: x.folder, ...fromGet(x.get!) })),
     ...(status?.missing ?? []).flatMap((m) => (m.folder ? [{ file: m.file, folder: m.folder, ...(m.url ? { url: m.url } : {}) }] : [])),
     ...asked.map(({ file, folder }) => withUrl(recipe, slots, { file, folder })),
-    ...lacking.flatMap((x) => (x.get ? [{ file: x.get.file, folder: x.folder, url: x.get.url }] : [])),
+    ...lacking.flatMap((x) => (x.get ? [{ file: x.get.file, folder: x.folder, ...fromGet(x.get) }] : [])),
   ];
   const unique = files.filter((f, i) => files.findIndex((g) => g.file === f.file && g.folder === f.folder) === i);
   // with these files there it runs: a family file missing is one of them (its usual file) or the file of an input that
@@ -219,7 +229,7 @@ export function toolLackOn(loaded: Loaded, slots: ReadonlyArray<{ id: string; la
 }
 
 /** The files a job loads, with where to get each, as a pod that has none of them needs them (the Deploy dialog, the hunt). */
-export const filesOfLoaded = (loaded: Pick<Loaded, "files">, slots: ReadonlyArray<{ id: string; get?: { file: string; url: string } }>, recipe: Partial<Pick<Recipe<any>, "files">> = {}) =>
+export const filesOfLoaded = (loaded: Pick<Loaded, "files">, slots: ReadonlyArray<{ id: string; get?: SlotGet }>, recipe: Partial<Pick<Recipe<any>, "files">> = {}) =>
   loaded.files.filter((f) => !isMissingSlotFile(f.file)).map((f) => withUrl(recipe, slots, f));
 
 /**

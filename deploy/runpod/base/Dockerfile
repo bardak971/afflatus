@@ -161,6 +161,21 @@ RUN set -e; cd /opt/packs; \
     git -C ComfyUI-Impact-Pack fetch -q --depth 1 origin "${IMPACT_COMMIT}" && git -C ComfyUI-Impact-Pack checkout -q FETCH_HEAD; \
     echo ComfyUI-Impact-Pack >> /opt/packs/BUILT_IN
 
+# Its Subpack, for the YOLO detectors (UltralyticsDetectorProvider: Face refine's face and person finders, the Klein and SDXL
+# face passes), built in at its 1.3.5 commit: ComfyUI-Manager installed it on every pod that ran a face pass, and its
+# install.py fetched face_yolov8m.pt, hand_yolov8s.pt and person_yolov8m-seg.pt from Hugging Face's main itself, unchecked.
+# Those are pickles Ultralytics loads with weights_only=False: Afflatus's own fetch of them, checked against their sha256
+# (the jobs send them, detector.ts), then found them there and the job used the unchecked ones (2026-11-03 pod check, card
+# #265); and Manager pip-installed its list unhashed. Its list is in the lock; its install.py is not run, and the
+# skip_download_model it reads beside the packs' folders (where /opt/packs is, the packs linked from custom_nodes) holds
+# it back should anything run it
+ARG SUBPACK_COMMIT=50c7b71a6a224734cc9b21963c6d1926816a97f1
+RUN set -e; cd /opt/packs; \
+    git init -q ComfyUI-Impact-Subpack && git -C ComfyUI-Impact-Subpack remote add origin https://github.com/ltdrdata/ComfyUI-Impact-Subpack; \
+    git -C ComfyUI-Impact-Subpack fetch -q --depth 1 origin "${SUBPACK_COMMIT}" && git -C ComfyUI-Impact-Subpack checkout -q FETCH_HEAD; \
+    echo ComfyUI-Impact-Subpack >> /opt/packs/BUILT_IN; \
+    touch /opt/packs/skip_download_model
+
 # every pip run after this one holds torch to the image's build: ComfyUI-Manager's installs of node packs too (a pack's
 # requirement that pulls another torch would swap the CUDA one for one that does not run here)
 ENV PIP_CONSTRAINT=/constraints.txt

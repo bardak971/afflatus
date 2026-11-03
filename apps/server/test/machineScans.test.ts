@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
 import { parseInput } from "@afflatus/core";
-import { recipes, sdxlTextToPicture } from "@afflatus/recipes";
+import { families, recipes, sdxlTextToPicture } from "@afflatus/recipes";
 import { familyOn, filesAsked, filesUsed, lackOn, mergeScans } from "../src/machineScans";
 import type { Machine } from "../src/settings";
 
@@ -92,6 +92,21 @@ describe("lackOn", () => {
     expect(filesUsed({ family: "h3", inputs: [] } as never, {}, here, [vae])).toEqual([{ file: "vae_int8.safetensors", folder: "vae", url: vae.get.url }]);
     // a slot with no download known is this PC's file, sent from here
     expect(filesUsed({ family: "h3", inputs: [] } as never, {}, here, [{ ...vae, get: undefined }])).toEqual([{ file: "vae_fp16.safetensors", folder: "vae" }]);
+  });
+
+  it("carries a family file's sha256 with its download, for the pod's node pack to check it against (the YOLO pickles, card #265)", () => {
+    const face = families.flatMap((f) => f.slots).find((x) => x.get?.file === "bbox/face_yolov8m.pt")!;
+    const slot = { id: "faceDetector", label: face.label, folder: face.folder, hint: face.hint, optional: false, get: face.get! };
+    const sha256 = face.get!.sha256;
+    expect(sha256).toMatch(/^[0-9a-f]{64}$/);
+    const want = { file: slot.get.file, folder: "ultralytics", url: slot.get.url, sha256 };
+    // its slot (the graph could not be built), and a file its graph loads
+    expect(filesUsed({ family: "klein", inputs: [] } as never, {}, null, [slot])).toEqual([want]);
+    expect(filesUsed({ family: "klein", inputs: [] } as never, {}, null, [slot], { files: [{ file: slot.get.file, folder: "ultralytics", slot: "faceDetector" }] } as never)).toEqual([want]);
+    // what a machine lacks of it
+    const status = { ...recipe("klein-t2p", false, {}), missingSlots: ["faceDetector"] };
+    const here = { ...scan([status]), families: [{ id: "klein", slots: [{ ...slot, file: null, choices: [], auto: null, chosen: false }] }] } as Scan;
+    expect(lackOn({ id: "klein-t2p", family: "klein", inputs: [] } as never, {}, here, { families: {} }, machine("b"), () => "klein")?.files).toEqual([want]);
   });
 
   it("names the node packs a machine lacks when it knows every one: a pod can be sent them too", () => {

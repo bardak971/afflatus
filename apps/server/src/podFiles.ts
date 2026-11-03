@@ -54,6 +54,8 @@ export interface PodFileWant {
   folder: string;
   /** Where it is had, when the caller knows (a job's missing file, a preset's or a set's file). */
   url?: string;
+  /** The bytes the file at `url` must have, when the caller knows (a family's download: machineScans.ts filesUsed). */
+  sha256?: string;
   civitai?: PresetFile["civitai"];
   /** Bytes, when known. */
   size?: number;
@@ -438,9 +440,19 @@ export class PodFiles {
     this.landings.set(machine, timer);
   }
 
-  /** Everything the pod is getting put back in line: its ComfyUI restarts, and its downloads and uploads live in its process. */
-  private requeueFetching(machine: string): void {
-    for (const e of this.pods.get(machine)?.values() ?? []) if (e.state === "fetching") this.requeue(e);
+  /**
+   * Everything the pod is getting put back in line: its ComfyUI restarts, and its downloads and uploads live in its process.
+   * Done once the pack has let go of each download, its .part cut back and kept: the restart asked at once after the stops
+   * lost the pieces it had over several connections, and z_image_turbo came again from its first byte (card #265).
+   */
+  private async requeueFetching(machine: string): Promise<void> {
+    const stopped: string[] = [];
+    for (const e of this.pods.get(machine)?.values() ?? []) {
+      if (e.state !== "fetching") continue;
+      if (e.downloadId) stopped.push(e.downloadId);
+      this.requeue(e);
+    }
+    await Promise.all(stopped.map((id) => this.d.downloads.letGo(id)));
   }
 
   /**
@@ -545,6 +557,7 @@ export class PodFiles {
       if (!e) {
         e = { file: f.file, folder: f.folder, state: "next", nextAt: Date.now(), tier: o.tier, bytes: 0, total: f.size ?? 0, jobs: [], needAt: o.tier === "need" ? ++this.seq : Infinity };
         if (f.url) e.url = f.url;
+        if (f.url && f.sha256) e.sha256 = f.sha256;
         if (f.civitai) e.civitai = f.civitai;
         pod.set(key, e);
         changed = true;
@@ -559,6 +572,7 @@ export class PodFiles {
       // (one left out at the deploy stays out)
       if ((f.url || f.civitai) && !e.url && !e.civitai) {
         if (f.url) e.url = f.url;
+        if (f.url && f.sha256) e.sha256 = f.sha256;
         if (f.civitai) e.civitai = f.civitai;
         if (!e.total && f.size) e.total = f.size;
         if (e.state === "failed" && e.error === NO_SOURCE) {
@@ -720,9 +734,9 @@ export class PodFiles {
   private sourceOf(f: PodFileWant, live: boolean): Promise<PodSource | null> {
     // the source given is part of the key: a set's Civitai version is not taken for a job's file with none; and what is
     // known only is not taken for what a site was asked
-    const key = `${keyOf(f.folder, f.file)}|${f.url ?? ""}|${f.civitai?.version ?? ""}|${live ? "live" : "known"}`;
+    const key = `${keyOf(f.folder, f.file)}|${f.url ?? ""}|${f.url ? (f.sha256 ?? "") : ""}|${f.civitai?.version ?? ""}|${live ? "live" : "known"}`;
     // a lookup that failed (the database) is not kept: asked again next time, not taken for "no source" a minute long
-    return this.sources.get(key, () => podSource(this.d.lookup, { file: f.file, folder: f.folder, ...(f.url ? { url: f.url } : {}), ...(f.civitai ? { civitai: f.civitai } : {}) }, { live })).catch(() => null);
+    return this.sources.get(key, () => podSource(this.d.lookup, { file: f.file, folder: f.folder, ...(f.url ? { url: f.url, ...(f.sha256 ? { sha256: f.sha256 } : {}) } : {}), ...(f.civitai ? { civitai: f.civitai } : {}) }, { live })).catch(() => null);
   }
 
   private readonly ranges = new Kept<Range | null>({ ttlMs: KEEP_MS });
@@ -967,8 +981,10 @@ export class PodFiles {
     this.moved(e, v.bytes);
     e.bytes = v.bytes;
     if (v.total) e.total = v.total;
+    // one the pack found there, checked against its sha256 (Download's `there`), was not fetched: no speed of it, and never
+    // deleted to make room as one Afflatus brought
     if (v.status === "done") {
-      void this.ready(machine, e);
+      void this.ready(machine, e, !v.there);
       return true;
     }
     // the pack has a file of that name, or is getting one: its own list says which

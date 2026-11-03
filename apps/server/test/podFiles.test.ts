@@ -211,6 +211,18 @@ describe("a rented pod's model files", () => {
     for (const f of fetched) expect(Date.parse(f.ended_at)).toBeGreaterThan(Date.parse(f.started_at));
   });
 
+  it("that the pod's node pack finds there with the sha256 asked are ready, never kept as a fetch nor deleted to make room (pack 0.49.7, card #265)", async () => {
+    pod.packVersion = "0.49.7";
+    files.measuredFrom = 1;
+    writeFileSync(join(disk, "loras", "there.safetensors"), FILE);
+    files.want("pod", [{ file: "there.safetensors", folder: "loras", url: `${siteUrl}/files/there.safetensors`, sha256: sha(FILE) }], { tier: "need" });
+    await settle("pod", "there.safetensors");
+    expect(files.view("pod")[0]!.state).toBe("ready");
+    expect(pod.packAsked).toEqual([expect.objectContaining({ sha256: sha(FILE).toLowerCase() })]);
+    expect(await t.services.db.selectFrom("pod_measures").selectAll().execute()).toEqual([]);
+    expect(await t.services.db.selectFrom("pod_fetches").selectAll().execute()).toEqual([]);
+  });
+
   it("fail, and their job with them, when the site gives no link of its own: a pod cannot be sent the file through Afflatus", async () => {
     files.want("pod", [{ file: "b.safetensors", folder: "loras", url: `${siteUrl}/nolink/b.safetensors` }], { tier: "need", job: "j1" });
     await settle("pod", "b.safetensors");
@@ -614,6 +626,24 @@ describe("where a pod's file comes from", () => {
     expect(await podSource(lookup(), { file: "none.safetensors", folder: "loras" })).toBeNull();
   });
 
+  // the 0.1.52 pod check (card #265): the address a Deploy tick or a job's file carries was taken before the family's slot,
+  // and the YOLO pickles went to the pod with no sha256 to check them against
+  it("of a family's own file at a given address carries the slot's sha256, an address kept from before its pin taken at the pin", async () => {
+    const face = families.flatMap((f) => f.slots).find((x) => x.get?.file === "bbox/face_yolov8m.pt")!.get!;
+    expect(face.sha256).toMatch(/^[0-9a-f]{64}$/);
+    const checked = { kind: "url", url: face.url, sha256: face.sha256 };
+    const l = lookup({ families: () => families });
+    expect(await podSource(l, { file: face.file, folder: "ultralytics", url: face.url })).toEqual(checked);
+    expect(await podSource(l, { file: "face_yolov8m.pt", folder: "ultralytics", url: "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt" })).toEqual(checked);
+    // a preset that names it at its address
+    const preset = lookup({ families: () => families, presets: async () => [{ files: [{ file: face.file, folder: "ultralytics", url: face.url }] }] });
+    expect(await podSource(preset, { file: face.file, folder: "ultralytics" })).toEqual(checked);
+    // a file of that name elsewhere is not the family's: nothing said of its bytes
+    expect(await podSource(l, { file: "face_yolov8m.pt", folder: "ultralytics", url: "https://huggingface.co/someone/else/resolve/main/face_yolov8m.pt" })).toEqual({ kind: "url", url: "https://huggingface.co/someone/else/resolve/main/face_yolov8m.pt" });
+    // the caller's own
+    expect(await podSource(lookup(), { file: "a.pt", folder: "ultralytics", url: "https://huggingface.co/o/r/resolve/main/a.pt", sha256: "a".repeat(64) })).toEqual({ kind: "url", url: "https://huggingface.co/o/r/resolve/main/a.pt", sha256: "a".repeat(64) });
+  });
+
   // card #105: a pod had no site for it (the re-check series put it there by hand)
   it("knows where LTX 2.5's dev transformer is had: its family's Hugging Face address", async () => {
     const file = "ltx-2.5-22b-dev-transformer-comfy-int8-convrot.safetensors";
@@ -991,6 +1021,37 @@ describe("a rented pod's node packs", () => {
       expect(pf.holding("pod")).toBe(false);
       expect(pm.reboots).toBe(1);
     } finally {
+      await pm.close();
+    }
+  }, 20_000);
+
+  // the 0.1.52 pod check (card #265): the restart was asked at once after the stops, before the pack had cut the pieces it
+  // had over several connections back to the .part, and a 7.2 GB file came again from its first byte
+  it("restart ComfyUI only once the pack has let go of the files under way, their bytes kept to carry on from", async () => {
+    const catalog = Object.fromEntries(Object.entries(referenceCatalog()).filter(([n]) => !nodesOfPack("comfyui-impact-pack").includes(n)));
+    const pm = await startFakeComfy({ catalog, models: { loras: [] }, folderPaths: { loras: [join(disk, "loras")] }, hideFolderPaths: true, manager: true, afterReboot: { DetailerForEach: { input: { required: {} }, output: [], output_name: [], name: "DetailerForEach", category: "x" } } as never });
+    pm.packVersion = "0.49.7";
+    pm.letGoMs = 300;
+    const comfy = new Comfy(pm.url, t.services.registry);
+    const pf = new PodFiles({
+      db: t.services.db, downloads: t.services.downloads, comfyOf: async () => comfy, cloudOf: async () => "SECURE", alive: () => true, busy: () => false,
+      lookup: { db: t.services.db, presets: async () => [], families: () => [], comfyDir: async () => home },
+      settings: async () => ({ civitaiKey: "", downloadModels: true, civitaiLookups: true }),
+    });
+    pf.packRetryMs = 10;
+    try {
+      pf.want("pod", [{ file: "big.safetensors", folder: "loras", url: `${siteUrl}/files/slow-big.safetensors` }], { tier: "need", job: "j0" });
+      await until(async () => (await pf.tick(), pf.view("pod")[0]!.bytes > 0));
+      const from = pm.calls.length;
+      pf.wantPacks("pod", ["comfyui-impact-pack"], "j1");
+      await until(async () => (await pf.tick(), pm.reboots === 1));
+      const after = pm.calls.slice(from);
+      const letGo = after.findIndex((c) => c.startsWith("let go "));
+      expect(letGo).toBeGreaterThanOrEqual(0);
+      expect(letGo).toBeLessThan(after.indexOf("POST /v2/manager/reboot"));
+      expect(pf.view("pod")[0]!.state).toBe("next");
+    } finally {
+      for (const d of t.services.downloads.list()) t.services.downloads.stop(d.id);
       await pm.close();
     }
   }, 20_000);
