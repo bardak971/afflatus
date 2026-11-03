@@ -9,7 +9,7 @@ import { isNever, quoted, tool, type Tool } from "../src/mcpTool";
 import { McpTokens, type McpToken } from "../src/mcpTokens";
 import { TOOLS } from "../src/mcpTools";
 import { fold } from "../src/renders";
-import { pruneJobs } from "../src/tidy";
+import { pruneJobs, pruneTokenJobs } from "../src/tidy";
 import { unwrittenOf } from "../src/unwrittenDrafts";
 import { pageOf } from "../src/whatsOpen";
 import { makeApp, type TestApp } from "./helpers";
@@ -403,10 +403,13 @@ describe("the limits", () => {
     ] as never).execute();
     await t.db.insertInto("render_stats").values([stat("p1", "rp-c", end, 6_000), stat("h1", "home", end, 60_000)] as never).execute();
     expect(await tokens.spentThisMonth(view.id)).toBeCloseTo(((6_000 + 4 * 60_000) / 3_600_000) * 2, 6);
-    const starts = asked.filter((q) => /from "jobs"/.test(q.sql) && /"started_at" >=/.test(q.sql));
-    expect(starts.length).toBe(1);
-    expect(starts[0]!.parameters).toContain("rp-c");
-    expect(starts[0]!.parameters).not.toContain("home");
+    // the starts read from jobs, and from the token's dismissed jobs (card #268): each once, of the rented machine only
+    for (const table of ["jobs", "mcp_token_jobs"]) {
+      const starts = asked.filter((q) => new RegExp(`^select [^(]* from "${table}"`).test(q.sql) && /"started_at" >=/.test(q.sql));
+      expect(starts.length).toBe(1);
+      expect(starts[0]!.parameters).toContain("rp-c");
+      expect(starts[0]!.parameters).not.toContain("home");
+    }
   });
 
   // the 2026-11-02 review (M3): a render history of 1 day folded away the rows a token's month was counted from, and it
@@ -440,6 +443,46 @@ describe("the limits", () => {
     // the user's own jobs as old go as before
     await t.db.insertInto("jobs").values(job("users-old", null as never, end, { machine_id: "rp-c", started_at: iso(end - 60_000), finished_at: iso(end) }) as never).execute();
     expect(await pruneJobs(t.db, 1, 1, now)).toBe(1);
+  });
+
+  // the 0.9.1 release review (card #268): Dismiss deleted the jobs rows both limits were counted from, so a token (the MCP
+  // dismiss tool) or the user tidying the Queue took its work out of its renders an hour and its spend this month
+  it("keeps counting a token's renders an hour and its month once its jobs are dismissed", async () => {
+    const today = new Date();
+    const now = new Date(today.getFullYear(), today.getMonth(), 20, 12).getTime();
+    const tokens = new McpTokens(t.db, { now: () => now });
+    const { view } = await tokens.make({ name: "x", scopes: ["look", "make", "spend"] });
+    // the user's $2/h pod, its idle stop never; on it, ten minutes ago, a 6-minute render; before it, a 30-minute model load
+    await t.db.insertInto("rent_sessions").values({ id: "s4", machine_id: "rp-d", pod: "d", rate: 2, started_at: iso(now - 86_400_000), ended_at: null, seen_at: null, gpu: "NVIDIA H100", up_at: null, idle_minutes: 0 } as never).execute();
+    const end = now - 10 * 60_000;
+    await t.db.insertInto("jobs").values([
+      job("dismissed-render", view.id, end - 6 * 60_000, { machine_id: "rp-d", started_at: iso(end - 6 * 60_000), finished_at: iso(end) }),
+      job("dismissed-load", view.id, end - 40 * 60_000, { warm: 1, machine_id: "rp-d", started_at: iso(end - 40 * 60_000), finished_at: iso(end - 10 * 60_000) }),
+    ] as never).execute();
+    await t.db.insertInto("render_stats").values({
+      id: "dismissed-render", owner_id: "local", recipe_id: "sdxl.text-to-picture", family: "sdxl", model: "m", model_file: "m.safetensors", time_key: "", kind: "image", width: 1, height: 1, duration_ms: null, steps: 1, status: "done",
+      whole: 1, cold: 0, waited_ms: 0, total_ms: 6 * 60_000, load_ms: 0, sample_ms: 6 * 60_000, refine_ms: 0, finish_ms: 0, step_ms: null, expected_ms: null, vram_peak: null, heat_peak: null, asset_id: null,
+      created_at: iso(end), started_at: iso(end - 6 * 60_000), work: null, machine_id: "rp-d", gpu: null,
+    } as never).execute();
+    const before = { hour: await tokens.rendersThisHour(view.id), spent: await tokens.spentThisMonth(view.id) };
+    expect(before.hour).toBe(2);
+    expect(before.spent).toBeCloseTo(2 * (36 / 60), 6);
+    // both taken off the Queue, as the MCP dismiss tool and the Queue's Dismiss do (queue.dismissAll)
+    expect(await t.services.queue.dismissAll(["dismissed-render", "dismissed-load"])).toBe(2);
+    expect(await t.db.selectFrom("jobs").select("id").where("mcp_token_id", "=", view.id).execute()).toEqual([]);
+    expect(await tokens.rendersThisHour(view.id)).toBe(before.hour);
+    expect(await tokens.spentThisMonth(view.id)).toBeCloseTo(before.spent, 6);
+    const listed = (await tokens.list()).find((x) => x.id === view.id)!;
+    expect([listed.rendersThisHour, listed.spentThisMonth]).toEqual([before.hour, expect.closeTo(before.spent, 6)]);
+    // its render row folded away as well: the dismissed render is counted by its own start and end
+    expect(await fold(t.db, 1, now + 2 * 86_400_000)).toBe(1);
+    expect(await tokens.spentThisMonth(view.id)).toBeCloseTo(before.spent, 6);
+    // a user's job dismissed is not kept; the token's go as its jobs on the list do, after 32 days
+    await t.db.insertInto("jobs").values(job("users", null as never, end, { machine_id: "rp-d", started_at: iso(end - 60_000), finished_at: iso(end) }) as never).execute();
+    expect(await t.services.queue.dismissAll(["users"])).toBe(1);
+    expect(await t.db.selectFrom("mcp_token_jobs").select("id").orderBy("id").execute()).toEqual([{ id: "dismissed-load" }, { id: "dismissed-render" }]);
+    expect(await pruneTokenJobs(t.db, now)).toBe(0);
+    expect(await pruneTokenJobs(t.db, now + 33 * 86_400_000)).toBe(2);
   });
 });
 

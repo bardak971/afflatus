@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import type { ExpressionBuilder } from "kysely";
 import { monthStart, plural, runCost, usd, usdFor } from "@afflatus/core";
 import { sha256 } from "./access";
 import { csvOf, utc } from "./csv";
@@ -158,6 +159,8 @@ export class McpTokens {
     const ids = rows.map((r) => r.id);
     const hour = await this.db.selectFrom("jobs").select(["mcp_token_id"]).select((eb) => eb.fn.countAll<number>().as("n"))
       .where("mcp_token_id", "in", ids).where("created_at", ">=", this.iso(t - HOUR)).groupBy("mcp_token_id").execute();
+    const hourOff = await this.db.selectFrom("mcp_token_jobs").select(["mcp_token_id"]).select((eb) => eb.fn.countAll<number>().as("n"))
+      .where("mcp_token_id", "in", ids).where("created_at", ">=", this.iso(t - HOUR)).where(offTheList).groupBy("mcp_token_id").execute();
     const working = await this.db.selectFrom("jobs").select(["mcp_token_id"]).select((eb) => eb.fn.countAll<number>().as("n"))
       .where("mcp_token_id", "in", ids).where("status", "in", ["queued", "running"]).groupBy("mcp_token_id").execute();
     const spent = await this.spentThisMonthOf(ids);
@@ -165,7 +168,7 @@ export class McpTokens {
     return rows.map((r) => {
       const v = viewOf(r);
       const state = v.revokedAt ? "revoked" : v.expiresAt && Date.parse(v.expiresAt) <= t ? "ended" : v.lastUsedAt && t - Date.parse(v.lastUsedAt) < LIVE_MS ? "live" : "idle";
-      return { ...v, state, rendersThisHour: count(hour, r.id), spentThisMonth: spent.get(r.id) ?? 0, working: count(working, r.id) };
+      return { ...v, state, rendersThisHour: count(hour, r.id) + count(hourOff, r.id), spentThisMonth: spent.get(r.id) ?? 0, working: count(working, r.id) };
     });
   }
 
@@ -258,11 +261,14 @@ export class McpTokens {
 
   // ---------------------------------------------------------------- the limits
 
-  /** Its renders sent in the last hour, its model loads among them (each holds a machine as a render does). */
+  /** Its renders sent in the last hour, its model loads among them (each holds a machine as a render does), dismissed ones too. */
   async rendersThisHour(id: string): Promise<number> {
+    const since = this.iso(this.now() - HOUR);
     const row = await this.db.selectFrom("jobs").select((eb) => eb.fn.countAll<number>().as("n"))
-      .where("mcp_token_id", "=", id).where("created_at", ">=", this.iso(this.now() - HOUR)).executeTakeFirstOrThrow();
-    return Number(row.n);
+      .where("mcp_token_id", "=", id).where("created_at", ">=", since).executeTakeFirstOrThrow();
+    const off = await this.db.selectFrom("mcp_token_jobs").select((eb) => eb.fn.countAll<number>().as("n"))
+      .where("mcp_token_id", "=", id).where("created_at", ">=", since).where(offTheList).executeTakeFirstOrThrow();
+    return Number(row.n) + Number(off.n);
   }
 
   /**
@@ -292,14 +298,26 @@ export class McpTokens {
     // its work on machines: its renders as Costs counts them, and its model loads (load_model), which hold a pod as long.
     // A job whose render row is gone (the hourly fold keeps renderHistoryDays of them one by one, which may be fewer than
     // the month's) is counted by its own start and end: a token's jobs of the month are kept (tidy.ts pruneJobs), so its
-    // spend is never forgotten by a shorter history, whoever set it (the 2026-11-02 review, M3)
-    const renders = await this.db.selectFrom("render_stats").innerJoin("jobs", "jobs.id", "render_stats.id")
-      .select(["jobs.id", "jobs.mcp_token_id", "render_stats.total_ms", "render_stats.machine_id", "render_stats.created_at", "render_stats.started_at"])
-      .where("jobs.mcp_token_id", "in", ids).where("render_stats.created_at", ">=", from).execute();
-    const loads = await this.db.selectFrom("jobs").select(["id", "mcp_token_id", "machine_id", "started_at", "finished_at"])
-      .where("mcp_token_id", "in", ids).where("machine_id", "is not", null).where("started_at", "is not", null).where("finished_at", ">=", from)
-      .where((eb) => eb.or([eb("warm", "=", 1), eb.not(eb.exists(eb.selectFrom("render_stats").select("render_stats.id").whereRef("render_stats.id", "=", "jobs.id")))]))
-      .execute();
+    // spend is never forgotten by a shorter history, whoever set it (the 2026-11-02 review, M3); nor by Dismiss, which
+    // deletes the rows: a token's are read from mcp_token_jobs once off the list, as from jobs before (card #268)
+    const renders = [
+      ...(await this.db.selectFrom("render_stats").innerJoin("jobs", "jobs.id", "render_stats.id")
+        .select(["jobs.id", "jobs.mcp_token_id", "render_stats.total_ms", "render_stats.machine_id", "render_stats.created_at", "render_stats.started_at"])
+        .where("jobs.mcp_token_id", "in", ids).where("render_stats.created_at", ">=", from).execute()),
+      ...(await this.db.selectFrom("render_stats").innerJoin("mcp_token_jobs", "mcp_token_jobs.id", "render_stats.id")
+        .select(["mcp_token_jobs.id", "mcp_token_jobs.mcp_token_id", "render_stats.total_ms", "render_stats.machine_id", "render_stats.created_at", "render_stats.started_at"])
+        .where("mcp_token_jobs.mcp_token_id", "in", ids).where("render_stats.created_at", ">=", from).where(offTheList).execute()),
+    ];
+    const loads = [
+      ...(await this.db.selectFrom("jobs").select(["id", "mcp_token_id", "machine_id", "started_at", "finished_at"])
+        .where("mcp_token_id", "in", ids).where("machine_id", "is not", null).where("started_at", "is not", null).where("finished_at", ">=", from)
+        .where((eb) => eb.or([eb("warm", "=", 1), eb.not(eb.exists(eb.selectFrom("render_stats").select("render_stats.id").whereRef("render_stats.id", "=", "jobs.id")))]))
+        .execute()),
+      ...(await this.db.selectFrom("mcp_token_jobs").select(["id", "mcp_token_id", "machine_id", "started_at", "finished_at"])
+        .where("mcp_token_id", "in", ids).where("machine_id", "is not", null).where("started_at", "is not", null).where("finished_at", ">=", from).where(offTheList)
+        .where((eb) => eb.or([eb("warm", "=", 1), eb.not(eb.exists(eb.selectFrom("render_stats").select("render_stats.id").whereRef("render_stats.id", "=", "mcp_token_jobs.id")))]))
+        .execute()),
+    ];
     const work = [
       ...renders.map((r) => {
         const start = r.started_at ? Date.parse(r.started_at) : Date.parse(r.created_at) - r.total_ms;
@@ -319,7 +337,12 @@ export class McpTokens {
     const rented = [...new Set(sessions.map((x) => x.machine_id))];
     if (!rented.length) return out;
     const startsOf = new Map<string, Array<{ id: string; at: number }>>();
-    for (const j of await this.db.selectFrom("jobs").select(["id", "machine_id", "started_at"]).where("machine_id", "in", rented).where("started_at", ">=", from).execute()) {
+    const starts = [
+      ...(await this.db.selectFrom("jobs").select(["id", "machine_id", "started_at"]).where("machine_id", "in", rented).where("started_at", ">=", from).execute()),
+      // a token's jobs dismissed: their start still ends the idle time the work before them left the pod
+      ...(await this.db.selectFrom("mcp_token_jobs").select(["id", "machine_id", "started_at"]).where("machine_id", "in", rented).where("started_at", ">=", from).where(offTheList).execute()),
+    ];
+    for (const j of starts) {
       const at = j.started_at ? Date.parse(j.started_at) : NaN;
       if (!j.machine_id || !Number.isFinite(at)) continue;
       let list = startsOf.get(j.machine_id);
@@ -369,6 +392,12 @@ export interface SpendSaid {
   /** What this call adds. */
   adds: { what: string; usd: number };
 }
+
+/**
+ * A token's job dismissed, as mcp_token_jobs keeps it, whose row is gone from jobs: one copied but kept on the list (a job
+ * queued behind it in between) is counted once, from jobs.
+ */
+const offTheList = (eb: ExpressionBuilder<Tables, "mcp_token_jobs">) => eb.not(eb.exists(eb.selectFrom("jobs").select("jobs.id").whereRef("jobs.id", "=", "mcp_token_jobs.id")));
 
 /** The parts of a spend in a line: "Committed: $0.25, the next hour of "A" (up). This call adds $0.90: …". */
 export function spendSaid(said: SpendSaid): string {

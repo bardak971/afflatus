@@ -157,6 +157,16 @@ export async function pruneJobs(db: Db, days: number, renderDays: number, at = D
   return n;
 }
 
+/**
+ * An MCP token's dismissed jobs (queueBulk.ts dismissAll) let go once its limits no longer read them: as long as its jobs
+ * still on the list are kept (TOKEN_JOB_DAYS), whatever the job history says. Returns how many went.
+ */
+export async function pruneTokenJobs(db: Db, at = Date.now()): Promise<number> {
+  const from = new Date(at - TOKEN_JOB_DAYS * DAY_MS).toISOString();
+  const gone = await db.deleteFrom("mcp_token_jobs").where((eb) => eb.or([eb("finished_at", "<", from), eb.and([eb("finished_at", "is", null), eb("created_at", "<", from)])])).executeTakeFirst();
+  return Number(gone.numDeletedRows);
+}
+
 /** How long finished jobs are kept (Settings › Storage): `jobHistoryDays`, and the Render times' own days, which keep their failures. */
 export interface TidyKeep { jobDays: number; renderDays: number }
 
@@ -167,6 +177,7 @@ export interface TidyKeep { jobDays: number; renderDays: number }
 export async function tidyDb(db: Db, keep: TidyKeep, at = Date.now()): Promise<number> {
   // deleted first: a job deleted is one less resume to cut
   const pruned = await pruneJobs(db, keep.jobDays, keep.renderDays, at);
+  await pruneTokenJobs(db, at);
   await slimFinished(db, at);
   await optimizeSearch(db);
   await dropGoneMachines(db);

@@ -379,7 +379,7 @@ const dataDir = join(root, process.env.DEMO_DATA ?? "data-demo");
 mkdirSync(dataDir, { recursive: true });
 const db = openSqlite(takeOver(dataDir));
 await migrate(db);
-await writeSettings(db, { comfyUrl: fake.url, llm: { baseUrl: llmUrl, model: "pretend-designer", apiKey: "", vision: false } });
+await writeSettings(db, { comfyUrl: fake.url, llms: [{ id: "main", baseUrl: llmUrl, model: "pretend-designer", apiKey: "", vision: false }], designerLlm: "main" });
 // named as a user names them ("Studio PC"), rather than by the pretend ComfyUI's port, one machine alone too
 const names = ["Studio PC", "Second GPU", "Garage PC", "Cloud", "Office PC", "Laptop", "Rack 1", "Rack 2"];
 await writeSettings(db, { machines: [fake, ...others].map((f, i) => ({ id: `m${i + 1}`, name: names[i]!, url: f.url, dir: i === 0 && folderPaths ? demoComfy : "", takes: "all" as const })) });
