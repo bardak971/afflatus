@@ -25,6 +25,21 @@ describe("the shared helpers' guard", () => {
     expect(why("apps/web/src/x.tsx", "say({ tone: \"bad\", title: \"Nothing to render\" });")).toEqual([]);
   });
 
+  it("refuses money made by hand: a time priced at a rate, a month's or a day's start, outside core's money.ts", () => {
+    expect(why("apps/server/src/x.ts", "const usd = (ms / 3_600_000) * rate;")).toEqual(["a time priced by hand"]);
+    expect(why("apps/web/src/x.tsx", "{usd((s.parts.outside / HOUR) * s.rate, true)}")).toEqual(["a time priced by hand"]);
+    expect(why("apps/web/src/x.tsx", "const at = new Date(Math.floor(now / HOUR) * HOUR);")).toEqual([]);
+    expect(why("apps/server/src/x.ts", "const month = new Date(d.getFullYear(), d.getMonth(), 1).getTime();")).toEqual(["the start of a month or a day made by hand"]);
+    expect(why("apps/server/src/x.ts", "const end = new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();")).toEqual(["the start of a month or a day made by hand"]);
+    expect(why("apps/web/src/x.tsx", "return { from: new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() };")).toEqual(["the start of a month or a day made by hand"]);
+    expect(why("packages/core/src/money.ts", "  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();")).toEqual([]);
+  });
+
+  it("refuses a safetensors test that leaves .sft out", () => {
+    expect(why("apps/server/src/x.ts", "if (!/\\.safetensors$/i.test(file)) return null;")).toEqual(["a safetensors test without .sft"]);
+    expect(why("apps/server/src/x.ts", "if (!isSafetensors(file)) return null;")).toEqual([]);
+  });
+
   it("refuses a list of model-file extensions outside core's modelFiles.ts", () => {
     const line = "const MODEL_FILE = /\\.(safetensors|ckpt|gguf|sft|pt|pth)$/i;";
     expect(why("packages/core/src/warm.ts", line)).toEqual(["a list of model-file extensions"]);

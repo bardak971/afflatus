@@ -1,4 +1,4 @@
-import { fileKey, volumePerMonth, type PresetFile } from "@afflatus/core";
+import { canonicalFolder, cents, fileKey, volumePerMonth, type PresetFile } from "@afflatus/core";
 import type { Comfy } from "./comfy";
 import type { Db } from "./db";
 import { fileName } from "./media";
@@ -68,10 +68,6 @@ export interface Storage {
   unused: Array<{ id: string; name: string; perMonth: number; usedAt: string | null }>;
 }
 
-/** The sizes RunPod takes for a volume, GB. */
-export const VOLUME_MIN_GB = 10;
-export const VOLUME_MAX_GB = 4096;
-
 const podOn = (p: Pod, machines: readonly Machine[]): PodOn => ({ pod: p.id, name: machines.find((m) => m.rented?.pod === p.id)?.name ?? p.name, status: p.status });
 
 /**
@@ -98,7 +94,7 @@ export function viewVolumes(volumes: readonly NetworkVolume[], pods: readonly Po
     // never seen used: counted from when Afflatus first saw it (a volume made elsewhere, or before)
     const since = Date.parse(usedAt ?? k?.noticedAt ?? new Date(now).toISOString());
     return {
-      ...v, usedBy, mountedOn: on, perMonth: Math.round(volumePerMonth(v.size) * 100) / 100,
+      ...v, usedBy, mountedOn: on, perMonth: cents(volumePerMonth(v.size)),
       holds: k?.keys && k.seenAt && k.seenBy ? { count: k.keys.size, seenAt: k.seenAt, seenBy: k.seenBy } : null,
       usedAt, unused: !usedBy && unusedDays > 0 && now - since >= unusedDays * 86_400_000, lastFill: k?.fill ?? null,
       listed: k?.listing && k.seenAt ? { bytes: k.listing.reduce((n, f) => n + (f.bytes ?? 0), 0), at: k.seenAt } : null,
@@ -145,8 +141,6 @@ const keyOf = (folder: string, file: string) => fileKey({ folder, file: fileName
 /** Where ComfyUI's models are on a volume, as Afflatus's pod image lays it out (deploy/runpod/start.sh: /workspace/comfyui). */
 export const MODELS_PREFIX = "comfyui/models/";
 
-/** The directories ComfyUI reads for another model folder: a file in models/unet is a diffusion model to a Model set. */
-const DIR_FOLDER: Readonly<Record<string, string>> = { unet: "diffusion_models", clip: "text_encoders" };
 
 /**
  * A model file of a volume as its Files list it and as it is kept (volume_files.listing): its path on the volume (`key`,
@@ -162,8 +156,8 @@ export interface KeptFile {
   comfy: string | null;
 }
 
-/** The model folder a file of a volume belongs to, as Model sets name them: ComfyUI's own when the pod said it. */
-export const folderOf = (f: Pick<KeptFile, "folder" | "comfy">) => f.comfy ?? DIR_FOLDER[f.folder] ?? f.folder;
+/** The model folder a file of a volume belongs to, as Model sets name them: ComfyUI's own when the pod said it, else its directory's (models/unet holds diffusion models). */
+export const folderOf = (f: Pick<KeptFile, "folder" | "comfy">) => f.comfy ?? canonicalFolder(f.folder);
 
 /** The models folder as the pod's node pack lists it (0.21.0 on), as a volume's files. */
 export function podListing(files: ReadonlyArray<{ folder: string; path: string; bytes: number; modified: number }>): KeptFile[] {

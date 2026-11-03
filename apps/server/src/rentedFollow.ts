@@ -2,14 +2,14 @@ import { randomUUID } from "node:crypto";
 import { httpError } from "./errors";
 import { BOOT_PORT, RunpodError, tokenSecret, type Pod } from "./runpod";
 import type { Comfy } from "./comfy";
-import { stepSaid, type PresetFile } from "@afflatus/core";
+import { stepSaid, usd, type PresetFile } from "@afflatus/core";
 import { recordMeasure } from "./podMeasures";
 import { bootPacks, type BootLog } from "./podBoot";
 import { imageLayers, type ImageLayer } from "./podImage";
 import { pullKept, pullOf } from "./podPull";
 import { SEARCHED_FOLDERS } from "./modelSets";
 import { noteFill, recordHoldings } from "./rentedVolumes";
-import { dollars, machineSaid } from "./notifyWords";
+import { machineSaid } from "./notifyWords";
 import { machinesSetAside, readSettings, updateSettings, type Machine, type MachineSetAside, type Settings } from "./settings";
 import { resetRun, type RentedView, type Seen } from "./rentedModel";
 import { capReached, HOUR, RentedBilling } from "./rentedBilling";
@@ -1245,7 +1245,7 @@ export class RentedFollow extends RentedBilling {
       cut: `its fill was cut short: ${s.cutWhy ?? "it stopped moving"}`,
     };
     const cost = await this.lastRunCost(m);
-    this.tell("podStopped", { title: `${machineSaid(m)} ${action === "terminate" ? "terminated" : "stopped"}`, body: `Why: ${because[why]}.${cost !== null ? ` This run: ${dollars(cost)}.` : ""}`, key: `${m.id}:${why}` });
+    this.tell("podStopped", { title: `${machineSaid(m)} ${action === "terminate" ? "terminated" : "stopped"}`, body: `Why: ${because[why]}.${cost !== null ? ` This run: ${usd(cost)}.` : ""}`, key: `${m.id}:${why}` });
   }
 
   /**

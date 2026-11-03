@@ -346,9 +346,9 @@ describe("a deploy's files", () => {
     expect(view.jobs.count).toBe(2);
     expect(view.jobs.files).toEqual([expect.objectContaining({ file: CHECKPOINT, folder: "checkpoints", via: "upload", size: 120_000, jobs: 2, first: true })]);
     expect(view.set).toEqual([expect.objectContaining({ file: "style.safetensors", via: "hf", size: 300, off: false })]);
-    // nothing measured yet: the page says time and price are not known
-    expect(view.speeds).toEqual({ hf: null, civitai: null, url: null, upload: null });
-    expect(view.boot).toBeNull();
+    // nothing measured yet: each source's usual range, said as a guess (deploy.test has the measured side)
+    for (const kind of ["hf", "civitai", "url", "upload"]) expect(view.speeds[kind]).toMatchObject({ count: 0, guessed: true });
+    expect(view.boot).toMatchObject({ count: 0, guessed: true });
   });
 
   it("are handed to the pod at its first answer, the ones left out never fetched, and its boot time kept", async () => {

@@ -1,4 +1,5 @@
 import { open, stat } from "node:fs/promises";
+import { sleep } from "./fsUtil";
 import type { ComfyClient } from "@afflatus/comfy";
 
 /**
@@ -123,7 +124,8 @@ export async function uploadFile(o: UploadOptions): Promise<void> {
       if (s) bytes = s.bytes;
       fails = bytes > before ? 0 : fails + 1;
       if (fails >= attempts) throw new Error(`The upload failed ${attempts} times in a row (${why})`);
-      await new Promise((r) => setTimeout(r, backoff * 2 ** (fails - 1)));
+      // a Stop ends the wait: a stopped upload sat out its backoff, up to 16 s
+      await sleep(backoff * 2 ** (fails - 1), o.signal);
     }
   } catch (err) {
     void o.client.raw(at, { method: "DELETE", signal: AbortSignal.timeout(10_000) }).catch(() => {});

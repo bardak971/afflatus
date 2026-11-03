@@ -1,4 +1,4 @@
-import { baseLabel, checkModelSet, graphFiles, setPlaces, type BuiltGraph, type Family, type InputSpec, type ModelInfo, type Recipe, type SetFinding, type SetLook } from "@afflatus/core";
+import { baseLabel, checkModelSet, graphFiles, pathKey, setPlaces, type BuiltGraph, type Family, type InputSpec, type ModelInfo, type Recipe, type SetFinding, type SetLook } from "@afflatus/core";
 import type { Db } from "./db";
 
 /**
@@ -8,7 +8,7 @@ import type { Db } from "./db";
  */
 
 /** A file's path as a folder's lists and the hashes both give it: forward slashes, lower case. */
-const key = (folder: string, file: string) => `${folder}|${file.replace(/\\/g, "/").toLowerCase()}`;
+const key = (folder: string, file: string) => `${folder}|${pathKey(file)}`;
 
 /** What is known of the files of these folders, read in two statements. */
 export async function setLook(db: Db, folders: string[]): Promise<SetLook> {

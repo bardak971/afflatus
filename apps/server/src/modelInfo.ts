@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { ComfyUnreachable, modelInfoFrom, type ModelInfo } from "@afflatus/comfy";
-import { MODEL_INFO_VERSION } from "@afflatus/core";
+import { isSafetensors, MODEL_INFO_VERSION, pathKey } from "@afflatus/core";
 import { now } from "./db";
 import { httpError } from "./errors";
 import { modelDirs, readLocalHeader } from "./modelFiles";
@@ -77,7 +77,7 @@ export function registerModelInfo(app: FastifyInstance, s: Services): void {
     // a file only another machine lists (a pod's) is read there: grouped as the user's own, it said nothing (card #139)
     const from = new Map<string, Comfy>();
     try {
-      files = (await (await s.comfy()).client.models(folder)).filter((f) => /\.safetensors$/i.test(f));
+      files = (await (await s.comfy()).client.models(folder)).filter(isSafetensors);
     } catch {
       // ComfyUI is away or has no such folder: what is already known is still an answer
     }
@@ -87,7 +87,7 @@ export function registerModelInfo(app: FastifyInstance, s: Services): void {
       if (!scan?.comfy.online) continue;
       const theirs = Object.keys(filesOn([{ machine, scan }], (id) => s.registry.recipe(id))[folder] ?? {});
       for (const f of theirs) {
-        if (!/\.safetensors$/i.test(f) || files?.includes(f) || from.has(f)) continue;
+        if (!isSafetensors(f) || files?.includes(f) || from.has(f)) continue;
         from.set(f, comfy);
       }
     }
@@ -111,10 +111,9 @@ export function registerModelInfo(app: FastifyInstance, s: Services): void {
     // what Civitai gave as its base model, by its hash: finer than the header's, and the only word of a file that says none
     const sites = await s.db.selectFrom("model_hashes").select(["file", "civitai_base"]).where("folder", "=", folder).where("civitai_base", "is not", null).where("civitai_base", "!=", "").execute();
     if (sites.length) {
-      const path = (file: string) => file.replace(/\\/g, "/").toLowerCase();
-      const byPath = new Map(sites.map((r) => [path(r.file), r.civitai_base!]));
+      const byPath = new Map(sites.map((r) => [pathKey(r.file), r.civitai_base!]));
       for (const file of new Set([...Object.keys(items), ...(files ?? [])])) {
-        const base = byPath.get(path(file));
+        const base = byPath.get(pathKey(file));
         const merged = base ? withSite(items[file], base) : undefined;
         if (merged) items[file] = merged;
       }

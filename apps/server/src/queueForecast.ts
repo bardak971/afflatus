@@ -1,4 +1,5 @@
 import type { BuiltGraph, Recipe } from "@afflatus/core";
+import { Kept as KeptReads } from "./kept";
 import type { Db } from "./db";
 import { familyReads, machinePaces, rates, statRows, type FamilyReads, type StatRows } from "./forecast";
 import type { JobRow, Usual } from "./queueModel";
@@ -33,25 +34,11 @@ interface Kept {
   at: number;
   by: Map<string, Promise<Expected>>;
   usual: Promise<Usual> | null;
-  rows: Map<string, Promise<StatRows>>;
-  /** The family reads (familyReads), by what each is and its arguments. */
-  family: Map<string, Promise<unknown>>;
+  /** Each model file's rows, and the family reads (familyReads) by what each is and its arguments; one that failed is read again. */
+  rows: KeptReads<StatRows>;
+  family: KeptReads<unknown>;
 }
-const keptAt = (mark: string, at: number): Kept => ({ mark, at, by: new Map(), usual: null, rows: new Map(), family: new Map() });
-
-/** A read kept under its key; one that failed is read again at the next ask. */
-function keptRead<T>(kept: Map<string, Promise<unknown>>, key: string, read: () => Promise<T>): Promise<T> {
-  let got = kept.get(key) as Promise<T> | undefined;
-  if (!got) {
-    const value = read();
-    got = value;
-    kept.set(key, value);
-    value.catch(() => {
-      if (kept.get(key) === value) kept.delete(key);
-    });
-  }
-  return got;
-}
+const keptAt = (mark: string, at: number): Kept => ({ mark, at, by: new Map(), usual: null, rows: new KeptReads(), family: new KeptReads() });
 
 export class Forecasts {
   constructor(private readonly deps: ForecastDeps) {}
@@ -118,7 +105,7 @@ export class Forecasts {
 
   /** A model's past renders (forecast.ts statRows), read once while the record stays as it is: every waiting job on every machine reads them. */
   async statRows(modelFile: string): Promise<StatRows> {
-    return keptRead((await this.forecasts()).rows, modelFile, () => statRows(this.deps.db, modelFile));
+    return (await this.forecasts()).rows.get(modelFile, () => statRows(this.deps.db, modelFile));
   }
 
   /**
@@ -126,9 +113,9 @@ export class Forecasts {
    * are: every waiting job of a model with few renders of its own asked them again, on every machine, 190 times a pass.
    */
   readonly familyReads: FamilyReads = {
-    rows: async (family, modelFile) => keptRead((await this.forecasts()).family, ["rows", family, modelFile].join("\u0001"), () => familyReads(this.deps.db).rows(family, modelFile)),
-    warmLoads: async (family, machine) => keptRead((await this.forecasts()).family, ["warm", family, machine ?? ""].join("\u0001"), () => familyReads(this.deps.db).warmLoads(family, machine)),
-    coldLoads: async (family, machine) => keptRead((await this.forecasts()).family, ["cold", family ?? "", machine ?? ""].join("\u0001"), () => familyReads(this.deps.db).coldLoads(family, machine)),
+    rows: async (family, modelFile) => (await this.forecasts()).family.get(["rows", family, modelFile].join("\u0001"), () => familyReads(this.deps.db).rows(family, modelFile)) as ReturnType<ReturnType<typeof familyReads>["rows"]>,
+    warmLoads: async (family, machine) => (await this.forecasts()).family.get(["warm", family, machine ?? ""].join("\u0001"), () => familyReads(this.deps.db).warmLoads(family, machine)) as ReturnType<ReturnType<typeof familyReads>["warmLoads"]>,
+    coldLoads: async (family, machine) => (await this.forecasts()).family.get(["cold", family ?? "", machine ?? ""].join("\u0001"), () => familyReads(this.deps.db).coldLoads(family, machine)) as ReturnType<ReturnType<typeof familyReads>["coldLoads"]>,
   };
 
   /**
@@ -136,9 +123,10 @@ export class Forecasts {
    * graphs, and each one rebuilt every waiting job's graph (402 builds at 380 waiting, the 2026-10-22 review, N-1). Dropped
    * after FORECASTS_MS for what else moves a graph (a ComfyUI back with other nodes or files).
    */
-  private graphs: { at: number; by: Map<string, Promise<BuiltGraph | null>> } = { at: 0, by: new Map() };
-  builds(): Map<string, Promise<BuiltGraph | null>> {
-    if (Date.now() - this.graphs.at > FORECASTS_MS) this.graphs = { at: Date.now(), by: new Map() };
+  private graphs: { at: number; by: KeptReads<BuiltGraph | null> } = { at: 0, by: new KeptReads({ keepFailures: true }) };
+  builds(): KeptReads<BuiltGraph | null> {
+    // a form that fails to build fails the same way again until its ComfyUI changes: that is kept too
+    if (Date.now() - this.graphs.at > FORECASTS_MS) this.graphs = { at: Date.now(), by: new KeptReads({ keepFailures: true }) };
     return this.graphs.by;
   }
 

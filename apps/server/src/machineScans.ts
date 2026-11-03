@@ -187,8 +187,7 @@ export function lackOn(
   const filled = new Set(wanted.map((w) => w.input));
   const slotFilled = (id: string) => slots.some((x) => x.id === id && (x.get || pickedFor(recipe, input, x, slots))) || recipe.inputs.some((i) => i.type === "model" && i.slot === id && filled.has(i.id));
   // the node types it lacks, each of a pack Afflatus knows (its own pack is never missing on a pod: the image has it)
-  const packs = [...new Set((status?.missingNodes ?? []).map((n) => packOfNode(n)))];
-  const knownPacks = packs.every((p) => p && !p.own) ? packs.map((p) => p!.name) : null;
+  const knownPacks = knownPacksOf(status?.missingNodes ?? []);
   // a file of its own (an imported workflow's) whose model folder is not known cannot be sent: it is not among the files
   const sendable = Boolean(status) && !off && (unique.length > 0 || Boolean(knownPacks?.length)) && knownPacks !== null && !status!.problems.length
     && status!.missing.every((m) => m.folder)
@@ -215,13 +214,11 @@ export function toolLackOn(loaded: Loaded, slots: ReadonlyArray<{ id: string; la
   const files = absent.filter((f) => !isMissingSlotFile(f.file)).map((f) => withUrl({}, slots, f));
   // the node types it lacks there, each of a pack Afflatus knows and can install (as a render's: lackOn)
   const missing = loaded.missingNodes ?? [];
-  const packs = [...new Set(missing.map((n) => packOfNode(n)))];
-  const knownPacks = packs.every((p) => p && !p.own) ? packs.map((p) => p!.name) : null;
+  const knownPacks = knownPacksOf(missing);
   if (!gap && !files.length && !missing.length) return null;
-  const unknown = missing.filter((n) => packOfNode(n)?.own !== false);
   const why = gap
     ? `no ${gap.slot === "rife" ? "RIFE model" : gap.slot === "upscaleModel" ? "upscale model" : (slots.find((x) => x.id === gap.slot)?.label ?? "model file")} to send it: none in this PC's models/${gap.folder} either`
-    : knownPacks === null ? `its ComfyUI lacks ${unknown.slice(0, 3).join(", ")}${unknown.length > 3 ? "…" : ""}, of no node pack Afflatus can install` : null;
+    : knownPacks === null ? lacksUnknown(missing) : null;
   return { off: false, files, sendable: !why, ...(knownPacks?.length ? { packs: knownPacks } : {}), ...(why ? { why } : {}) };
 }
 
@@ -244,8 +241,7 @@ function lackOfGraph(
   const files = loaded.absent.filter((f) => !isMissingSlotFile(f.file)).map((f) => withUrl(recipe, slots, f));
   // the node types its own graph uses there (an option's pack too), else its plain form's as the scan read them
   const missingNodes = loaded.missingNodes ?? status?.missingNodes ?? [];
-  const packs = [...new Set(missingNodes.map((n) => packOfNode(n)))];
-  const knownPacks = packs.every((p) => p && !p.own) ? packs.map((p) => p!.name) : null;
+  const knownPacks = knownPacksOf(missingNodes);
   // its graph refused there for another reason than a node or a file: kept off it, with the build's words
   if (loaded.refused) return { off, files: [], sendable: false, why: `it cannot be built there: ${loaded.refused.slice(0, 200)}` };
   // an input with nothing to pick there is filled by a file it asks for, which is then among the graph's files
@@ -261,15 +257,27 @@ function lackOfGraph(
 }
 
 /**
+ * The node packs that bring these missing node types, each a pack Afflatus knows and can install (its own pack is never
+ * missing on a pod: the image has it); null when one of them is of no such pack. Written three times over, as it was.
+ */
+function knownPacksOf(missingNodes: readonly string[]): string[] | null {
+  const packs = [...new Set(missingNodes.map((n) => packOfNode(n)))];
+  return packs.every((p) => p && !p.own) ? packs.map((p) => p!.name) : null;
+}
+
+/** What a machine lacks of no pack Afflatus can install, its first three said. */
+function lacksUnknown(missingNodes: readonly string[]): string {
+  const unknown = missingNodes.filter((n) => packOfNode(n)?.own !== false);
+  return `its ComfyUI lacks ${unknown.slice(0, 3).join(", ")}${unknown.length > 3 ? "…" : ""}, of no node pack Afflatus can install`;
+}
+
+/**
  * Why a job cannot be sent to a machine to get what it lacks there, in a few words: the queue says it beside the job (a
  * pod that would not take one said only "waits for" the paused PC, and nobody could tell what kept it off the pod).
  */
 function unsendable(status: RecipeStatus | undefined, knownPacks: string[] | null, filled: Set<string>, slotFilled: (id: string) => boolean): string {
   if (!status) return "its ComfyUI was not read yet";
-  if (knownPacks === null) {
-    const unknown = status.missingNodes.filter((n) => packOfNode(n)?.own !== false);
-    return `its ComfyUI lacks ${unknown.slice(0, 3).join(", ")}${unknown.length > 3 ? "…" : ""}, of no node pack Afflatus can install`;
-  }
+  if (knownPacks === null) return lacksUnknown(status.missingNodes);
   if (status.problems.length) return `its ComfyUI refuses it: ${status.problems[0]}`;
   const noFolder = status.missing.find((m) => !m.folder);
   if (noFolder) return `${noFolder.file} has no model folder Afflatus knows`;

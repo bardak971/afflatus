@@ -3,7 +3,7 @@ import { fileKey, type PresetFile } from "@afflatus/core";
 import { filesOfLoaded, filesUsed, toolSlots } from "./machineScans";
 import type { JobRow } from "./queueModel";
 import { filesOf, parseSetDef } from "./modelSets";
-import { measuredRange, type MeasureKind, type Range } from "./podMeasures";
+import { rangeOrGuess, speedsOrGuess, type MeasureKind, type Range } from "./podMeasures";
 import { acceptLicences, presetsWithFiles } from "./presetFiles";
 import { readJson } from "./queueModel";
 import { needsComfy } from "./queueOffline";
@@ -16,7 +16,7 @@ import { OWNER } from "./db";
  * What the Deploy dialog's Models part shows before anything is deployed: the files the waiting jobs would need on a pod
  * that has none of them (a deployed pod starts with ComfyUI and the built-in packs only), the picked Model set's files,
  * where each comes from and how large it is, and the speeds and boot times measured on earlier deploys, from which the
- * page says the time and the price, or that they are not known yet.
+ * page says the time and the price: a guess where a source or the boot was never measured, said as one.
  */
 
 type Via = "hf" | "civitai" | "url" | "upload" | null;
@@ -35,9 +35,9 @@ export interface DeployModelsView {
    * that licence, whichever way the file was picked (the jobs', the set's, one added).
    */
   licences: Array<{ id: string; name: string; licence: string; keys: string[] }>;
-  /** What earlier deploys measured: bytes a second per source, ms for a boot; null where nothing was measured. */
-  speeds: Record<Exclude<MeasureKind, "boot">, Range | null>;
-  boot: Range | null;
+  /** What earlier deploys measured: bytes a second per source, ms for a boot; `guessed` where nothing was, its usual range. */
+  speeds: Record<Exclude<MeasureKind, "boot">, Range & { guessed: boolean }>;
+  boot: Range & { guessed: boolean };
 }
 
 /**
@@ -106,6 +106,6 @@ export async function deployModels(s: Services, o: { cloud: string; set: string 
     if (p.licence && !settings.acceptedPresets.includes(p.id)) licences.push({ id: p.id, name: p.name, licence: p.licence.name, keys: p.files.map(fileKey) });
   }
   const cloud = o.cloud || null;
-  const [hf, civitai, url, upload, boot] = await Promise.all((["hf", "civitai", "url", "upload", "boot"] as const).map((k) => measuredRange(s.db, k, cloud)));
-  return { jobs: { count: may.length, files: [...counted.values()] }, set, licences, speeds: { hf: hf!, civitai: civitai!, url: url!, upload: upload! }, boot: boot! };
+  const [speeds, boot] = await Promise.all([speedsOrGuess(s.db, cloud), rangeOrGuess(s.db, "boot", cloud)]);
+  return { jobs: { count: may.length, files: [...counted.values()] }, set, licences, speeds, boot };
 }

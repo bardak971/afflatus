@@ -382,11 +382,15 @@ export interface SetSearch {
   files: Array<{ file: string; folder: string; size?: number; via: FileVia | null }>;
 }
 
-/** The slowest and fastest of what earlier deploys measured: bytes a second for a source, ms for a boot. */
+/**
+ * The slowest and fastest of what earlier deploys measured: bytes a second for a source, ms for a boot. `guessed`: never
+ * measured yet, the usual range (the server's GUESSED), said as a guess.
+ */
 export interface MeasuredRange {
   low: number;
   high: number;
   count: number;
+  guessed: boolean;
 }
 
 /** A model file a deploy may bring onto its pod. */
@@ -406,8 +410,8 @@ export interface DeployModels {
   set: Array<DeployFile & { preset?: { id: string; name: string }; off: boolean }> | null;
   /** Presets under a licence not accepted yet, with their files (fileKey): a deploy bringing one asks for it. */
   licences: Array<{ id: string; name: string; licence: string; keys: string[] }>;
-  speeds: Record<FileVia, MeasuredRange | null>;
-  boot: MeasuredRange | null;
+  speeds: Record<FileVia, MeasuredRange>;
+  boot: MeasuredRange;
 }
 
 /** Find models (the server's browse.ts): where a browsed file comes from. */

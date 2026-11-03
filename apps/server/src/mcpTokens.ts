@@ -1,10 +1,9 @@
 import { randomBytes } from "node:crypto";
-import { plural } from "@afflatus/core";
+import { monthStart, plural, runCost, usd, usdFor } from "@afflatus/core";
 import { sha256 } from "./access";
 import { csvOf, utc } from "./csv";
 import { newId, OWNER, type Db, type Tables } from "./db";
 import { httpError, notFound } from "./errors";
-import { dollars } from "./notifyWords";
 
 /**
  * The personal tokens an MCP client drives Afflatus with (/mcp, mcp.ts), made in Settings › Agents (MCP) and shown
@@ -280,15 +279,15 @@ export class McpTokens {
   private async spentThisMonthOf(ids: string[]): Promise<Map<string, number>> {
     const out = new Map<string, number>();
     if (!ids.length) return out;
-    const d = new Date(this.now());
-    const from = this.iso(new Date(d.getFullYear(), d.getMonth(), 1).getTime());
     const now = this.now();
+    const monthFrom = monthStart(now);
+    const from = this.iso(monthFrom);
     const runs = await this.db.selectFrom("rent_sessions").select(["id", "mcp_token_id", "rate", "started_at", "ended_at"])
       .where("mcp_token_id", "in", ids).where((eb) => eb.or([eb("ended_at", "is", null), eb("ended_at", ">=", from)])).execute();
+    // each run as the caps count it (rentedBilling's runCost), over this month
     for (const r of runs) {
-      const start = Math.max(Date.parse(r.started_at), Date.parse(from));
-      const end = Math.min(r.ended_at ? Date.parse(r.ended_at) : now, now);
-      if (end > start) out.set(r.mcp_token_id!, (out.get(r.mcp_token_id!) ?? 0) + ((end - start) / HOUR) * r.rate);
+      const cost = runCost(Date.parse(r.started_at), r.ended_at ? Date.parse(r.ended_at) : now, r.rate, monthFrom, now);
+      if (cost > 0) out.set(r.mcp_token_id!, (out.get(r.mcp_token_id!) ?? 0) + cost);
     }
     // its work on machines: its renders as Costs counts them, and its model loads (load_model), which hold a pod as long.
     // A job whose render row is gone (the hourly fold keeps renderHistoryDays of them one by one, which may be fewer than
@@ -337,7 +336,7 @@ export class McpTokens {
       const next = nextStart(startsOf.get(w.machine!) ?? [], w.start, w.id);
       const stop = Math.min(next, s.ended_at ? Date.parse(s.ended_at) : now, now, w.end + (s.idle_minutes ?? 0) * 60_000);
       const tail = (s.idle_minutes ?? 0) > 0 ? Math.max(0, stop - w.end) : 0;
-      out.set(w.token!, (out.get(w.token!) ?? 0) + ((w.end - w.start + tail) / HOUR) * s.rate);
+      out.set(w.token!, (out.get(w.token!) ?? 0) + usdFor(w.end - w.start + tail, s.rate));
     }
     return out;
   }
@@ -351,15 +350,15 @@ export class McpTokens {
   }
 
   /**
-   * Whether this token may spend `usd` more on rented GPUs: Spend ticked, and this month's spend and that under its own cap.
-   * The app's own caps (rentCaps) still hold over every token; this is one more, of the token's. `said`: what `usd` is made
+   * Whether this token may spend `more` dollars on rented GPUs: Spend ticked, and this month's spend and that under its own cap.
+   * The app's own caps (rentCaps) still hold over every token; this is one more, of the token's. `said`: what `more` is made
    * of, named in the refusal, so that an agent (and the user reading the token's activity) sees the sum the cap was asked.
    */
-  async maySpend(t: McpToken, usd: number, said?: SpendSaid): Promise<void> {
+  async maySpend(t: McpToken, more: number, said?: SpendSaid): Promise<void> {
     if (!t.scopes.includes("spend")) throw refusal("This token cannot spend on rented GPUs: tick Spend on it in Settings › Agents (MCP).");
     const spent = await this.spentThisMonth(t.id);
     const cap = t.spendCapCents / 100;
-    if (spent + usd > cap) throw refusal(`This token's cap is ${dollars(cap)} a month on rented GPUs, and it has spent ${dollars(spent)} this month${said ? `. ${spendSaid(said)}: ${dollars(spent + usd)} in all, past the cap. Raise it` : ": raise it"} in Settings › Agents (MCP).`);
+    if (spent + more > cap) throw refusal(`This token's cap is ${usd(cap)} a month on rented GPUs, and it has spent ${usd(spent)} this month${said ? `. ${spendSaid(said)}: ${usd(spent + more)} in all, past the cap. Raise it` : ": raise it"} in Settings › Agents (MCP).`);
   }
 }
 
@@ -374,8 +373,8 @@ export interface SpendSaid {
 /** The parts of a spend in a line: "Committed: $0.25, the next hour of "A" (up). This call adds $0.90: …". */
 export function spendSaid(said: SpendSaid): string {
   const committed = said.committed.filter((c) => c.usd > 0);
-  const ahead = committed.length ? `Committed: ${committed.map((c) => `${dollars(c.usd)}, ${c.what}`).join("; ")}` : "Nothing else committed";
-  return `${ahead}. This call adds ${dollars(said.adds.usd)}: ${said.adds.what}`;
+  const ahead = committed.length ? `Committed: ${committed.map((c) => `${usd(c.usd)}, ${c.what}`).join("; ")}` : "Nothing else committed";
+  return `${ahead}. This call adds ${usd(said.adds.usd)}: ${said.adds.what}`;
 }
 
 /** The first of a machine's job starts (sorted) after `after` that is not `but`'s own; Infinity when none came after it. */

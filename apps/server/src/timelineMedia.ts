@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { stat } from "node:fs/promises";
+import { Kept } from "./kept";
+import { readJson } from "./queueModel";
 import { frameName, nameOf } from "./autoName";
 import { CutError, filmStrip, frameAt, KEYFRAME_STRIP_MS, linesOf, pausesOf, peekAt, soundSlice, wholeGainOf } from "./cut";
 import { colourNudge, MATCH, type FrameMeans, type Means, type Measure, measureOf, meansAlong, meansWithin, MOTION_RATE, scenesOf, takeMeasures } from "./measure";
@@ -166,9 +168,9 @@ export class TimelineMedia {
       const { steps, aside } = await keptOf(tx);
       const states = steps.filter((s) => turns.includes(s.timeline_id)).map((s) => {
         const kept = JSON.parse(s.snapshot) as { timeline?: { source?: string | null; recordings?: string | null }; takes?: unknown };
-        return { s, kept, pools: [kept.takes, parseJson(kept.timeline?.source), parseJson(kept.timeline?.recordings)] };
+        return { s, kept, pools: [kept.takes, readJson<unknown>(kept.timeline?.source, undefined), readJson<unknown>(kept.timeline?.recordings, undefined)] };
       });
-      const parked = aside.filter((a) => turns.includes(a.id)).map((a) => ({ a, pools: [undefined, parseJson(a.source), parseJson(a.recordings)] }));
+      const parked = aside.filter((a) => turns.includes(a.id)).map((a) => ({ a, pools: [undefined, readJson<unknown>(a.source, undefined), readJson<unknown>(a.recordings, undefined)] }));
       for (const { pools } of [...states, ...parked]) for (const t of takesIn(pools)) if (t.asset_id === assetId && typeof t.id === "string") tails.set(t.id, Number(t.tail_ms) || 0);
       /** Its takes in one place made right as the ones on its clips: true when one changed. */
       const fix = (pool: unknown, trims: boolean) => {
@@ -260,15 +262,10 @@ export class TimelineMedia {
   }
 
   /** Work under way by what it makes: what is asked for again before it is done waits for the same run. */
-  private readonly underWay = new Map<string, Promise<unknown>>();
+  private readonly underWay = new Kept<unknown>({ whileRunning: true });
 
   private once<T>(key: string, work: () => Promise<T>): Promise<T> {
-    let got = this.underWay.get(key) as Promise<T> | undefined;
-    if (!got) {
-      got = work().finally(() => this.underWay.delete(key));
-      this.underWay.set(key, got);
-    }
-    return got;
+    return this.underWay.get(key, work) as Promise<T>;
   }
 
   private async stripOf(assetId: string, opts: { frames?: number; height?: number; fromMs?: number; toMs?: number }): Promise<Uint8Array> {
@@ -559,7 +556,7 @@ export class TimelineMedia {
 
   /** A video measured all at once (measureTogether): waited for, so that what it keeps is read back rather than measured again beside it. */
   private async measuring(assetId: string): Promise<void> {
-    await this.underWay.get(`together:${assetId}`)?.catch(() => {});
+    await this.underWay.peek(`together:${assetId}`)?.catch(() => {});
   }
 
   /** What is not kept yet of a video: its motion, its track's film strip, its colour along it (what the background measure makes, precompute.ts). */
@@ -585,16 +582,6 @@ export class TimelineMedia {
     const video = await this.core.assetRow(assetId);
     if (!video || video.kind !== "video") throw notFound("this video");
     return peekAt(await this.source(video), extOf(video.mime), atMs, height);
-  }
-}
-
-/** A JSON column's value, or undefined when there is none or it is not JSON. */
-function parseJson(text: string | null | undefined): unknown {
-  if (!text) return undefined;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return undefined;
   }
 }
 

@@ -1,3 +1,4 @@
+import { nameKey } from "@afflatus/core";
 import { envSaid } from "./config";
 import { pretendSites, wordsOf } from "./civitai";
 import { fetchPublic } from "./outbound";
@@ -49,7 +50,7 @@ export function forgetHuggingFace(): void {
  * file's name, and any others that say which model it is for (a loader's "type", the name of the model).
  */
 export async function findOnHuggingFace(file: string, hints: string[] = []): Promise<{ items: HuggingFaceFound[]; answered: boolean }> {
-  const name = (file.split(/[\\/]/).pop() ?? file).toLowerCase();
+  const name = nameKey(file);
   // where a pretend Civitai stands in (the tests, the demo), the real Hugging Face is not asked either
   if (pretendSites() && !envSaid.huggingfaceUrl()) return { items: [], answered: false };
   if (!official || Date.now() - official.at > KEEP_MS) {

@@ -1,9 +1,8 @@
 import { httpError } from "./errors";
-import { HOURS_A_MONTH, STOPPED_DISK_PER_GB_MONTH, type BillRecord, type VolumeBill } from "./runpod";
-import { gpuKey, LEARNED_RENDERS, volumePerMonth } from "@afflatus/core";
+import type { BillRecord, VolumeBill } from "./runpod";
+import { dayStart, gpuKey, HOURS_A_MONTH, LEARNED_RENDERS, monthStart, runCost, STOPPED_DISK_PER_GB_MONTH, usd, usdFor, volumePerMonth } from "@afflatus/core";
 import { gpuPaces } from "./forecast";
 import { keptHoldings, noticeVolumes, viewVolumes, type Storage } from "./rentedVolumes";
-import { dollars } from "./notifyWords";
 import { readSettings, type Machine } from "./settings";
 import { RentedCore } from "./rentedModel";
 
@@ -85,15 +84,6 @@ const UNKNOWN_RENDER_MS = 30 * 60_000;
 export function runwayNeed(o: { renderMs: number | null; fetchMs: number; sure: boolean }): number {
   const render = o.renderMs === null ? UNKNOWN_RENDER_MS : o.renderMs * (o.sure ? 1 : UNSURE_FORECAST);
   return (Number.isFinite(o.fetchMs) ? Math.max(0, o.fetchMs) : 0) + render;
-}
-/**
- * What a run (its start and end, ms, at `rate` an hour) cost over its part from `from` to `to` (ms), as Afflatus counts it:
- * 0 when they do not overlap or a time could not be read. The batch notice, the 7-day pace and the caps all count by it.
- */
-function runCost(start: number, end: number, rate: number, from: number, to = Infinity): number {
-  const a = Math.max(from, start);
-  const b = Math.min(to, end);
-  return Number.isFinite(a) && Number.isFinite(b) && b > a ? ((b - a) / HOUR) * rate : 0;
 }
 /**
  * The share of a record of RunPod's bill (an hour of a pod) that falls between two moments (ms), by its time: a record
@@ -200,8 +190,8 @@ export class RentedBilling extends RentedCore {
     }
     if (this.lowTold) return;
     this.lowTold = true;
-    const said = line > LOW_LINE ? `, a day at this pace (the last week's pods ${dollars(pace.pods)}, storage ${dollars(pace.storage)})` : "";
-    this.tell("balanceLow", { title: `RunPod balance low: ${dollars(balance)}`, body: `Under ${dollars(line)}${said}. At $0 RunPod stops every pod, a render under way too.`, key: "balance" });
+    const said = line > LOW_LINE ? `, a day at this pace (the last week's pods ${usd(pace.pods)}, storage ${usd(pace.storage)})` : "";
+    this.tell("balanceLow", { title: `RunPod balance low: ${usd(balance)}`, body: `Under ${usd(line)}${said}. At $0 RunPod stops every pod, a render under way too.`, key: "balance" });
   }
 
   /**
@@ -228,7 +218,7 @@ export class RentedBilling extends RentedCore {
     for (const r of reached) {
       if (r.cap <= 0 || r.spent < r.cap || this.capsTold.has(r.key)) continue;
       this.capsTold.add(r.key);
-      this.tell("capReached", { title: `${r.said} cap reached: ${dollars(r.spent)} of ${dollars(r.cap)}`, body: `The rented GPUs stop once their render ends, and Start is refused until the cap is raised or the period ends.${r.also}`, key: r.key });
+      this.tell("capReached", { title: `${r.said} cap reached: ${usd(r.spent)} of ${usd(r.cap)}`, body: `The rented GPUs stop once their render ends, and Start is refused until the cap is raised or the period ends.${r.also}`, key: r.key });
     }
   }
 
@@ -237,7 +227,7 @@ export class RentedBilling extends RentedCore {
     const r = await this.db.selectFrom("rent_sessions").select(["started_at", "ended_at", "rate"]).where("machine_id", "=", m.id).orderBy("started_at", "desc").executeTakeFirst();
     if (!r) return null;
     const end = r.ended_at ? Date.parse(r.ended_at) : this.now();
-    return Math.max(0, ((end - Date.parse(r.started_at)) / HOUR) * r.rate);
+    return Math.max(0, usdFor(end - Date.parse(r.started_at), r.rate));
   }
 
   /** What the rented GPUs cost between two moments (ms), as Afflatus counts it (rent_sessions): a batch of renders' notice says it. */
@@ -267,8 +257,7 @@ export class RentedBilling extends RentedCore {
    */
   async billedIn(times: readonly number[], step: number): Promise<Array<number | null>> {
     const key = (await readSettings(this.db)).runpodKey;
-    const d = new Date(this.now());
-    const month = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+    const month = monthStart(this.now());
     const records = key ? await this.bill(key, month) : null;
     if (!records) return times.map(() => null);
     return times.map((t) => (t < month ? null : records.reduce((n, r) => n + r.amount * shareIn(r, t, t + step), 0)));
@@ -356,9 +345,8 @@ export class RentedBilling extends RentedCore {
    * month cap is everything RunPod bills, so the month has the stopped disks and the network volumes' bill too.
    */
   protected async spent(): Promise<{ today: number; month: number; monthVolumes: number | null; billed: boolean }> {
-    const d = new Date(this.now());
-    const today = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-    const month = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+    const today = dayStart(this.now());
+    const month = monthStart(this.now());
     const counted = await this.counted(month, today);
     const key = (await readSettings(this.db)).runpodKey;
     const records = key ? await this.bill(key, month) : null;
@@ -392,7 +380,7 @@ export class RentedBilling extends RentedCore {
     const cap = (await readSettings(this.db)).rentCaps.month;
     if (cap <= 0) return;
     const spent = await this.spent();
-    if (spent.month >= cap) throw httpError(`This month's cap is reached (${dollars(spent.month)} of ${dollars(cap)}), and a network volume bills every month: raise the cap in Settings › Costs first.`, 409);
+    if (spent.month >= cap) throw httpError(`This month's cap is reached (${usd(spent.month)} of ${usd(cap)}), and a network volume bills every month: raise the cap in Settings › Costs first.`, 409);
   }
 
   /** Whether a spending cap is reached now: a deploy and a Start are refused, and the GPU hunt ends (hunt.ts). */
@@ -403,16 +391,16 @@ export class RentedBilling extends RentedCore {
   }
 
   /**
-   * Why the app's caps have no room for `usd` more today and this month (a pod's first hour, for an MCP token's deploy or
+   * Why the app's caps have no room for `more` dollars today and this month (a pod's first hour, for an MCP token's deploy or
    * Start: mcpMachines.ts), or null when they have. Stricter than `capped`, which only asks whether a cap is reached already.
    */
-  async noRoomFor(usd: number): Promise<string | null> {
+  async noRoomFor(more: number): Promise<string | null> {
     const caps = (await readSettings(this.db)).rentCaps;
     if (caps.day <= 0 && caps.month <= 0) return null;
     const spent = await this.spent();
     // the sum it was asked, said whole: what is spent, what more, and where that comes to
-    if (caps.day > 0 && spent.today + usd > caps.day) return `today's cap is ${dollars(caps.day)}, ${dollars(spent.today)} is spent today, and ${dollars(usd)} more makes ${dollars(spent.today + usd)}`;
-    if (caps.month > 0 && spent.month + usd > caps.month) return `this month's cap is ${dollars(caps.month)}, ${dollars(spent.month)} is spent this month, and ${dollars(usd)} more makes ${dollars(spent.month + usd)}`;
+    if (caps.day > 0 && spent.today + more > caps.day) return `today's cap is ${usd(caps.day)}, ${usd(spent.today)} is spent today, and ${usd(more)} more makes ${usd(spent.today + more)}`;
+    if (caps.month > 0 && spent.month + more > caps.month) return `this month's cap is ${usd(caps.month)}, ${usd(spent.month)} is spent this month, and ${usd(more)} more makes ${usd(spent.month + more)}`;
     return null;
   }
 
@@ -446,8 +434,7 @@ export class RentedBilling extends RentedCore {
 
   /** Storage as RunPod says it now: its volumes, its pods' disks and their bills this month. */
   private async readStorage(key: string): Promise<Storage | null> {
-    const d = new Date(this.now());
-    const month = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+    const month = monthStart(this.now());
     const client = this.client(key);
     const [volumes, pods, volumeBills, podBills] = await Promise.all([
       client.volumes().catch(() => null),

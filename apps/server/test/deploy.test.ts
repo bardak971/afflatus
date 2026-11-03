@@ -228,6 +228,19 @@ describe("a deploy", () => {
     expect(est.slowMs).toBeCloseTo(90_000 + (200_000 / (40 * 2 ** 20)) * 1000, 0);
   });
 
+  it("gives Deploy each source's guess where none was measured, as a fill's plan times it", async () => {
+    // Deploy was sent null there and said "time and price not known yet", where a fill and the queue guessed
+    const view = async () => (await get(t.app, "/api/runpod/deploy/models?cloud=SECURE")).json() as { speeds: Record<string, { low: number; high: number; guessed: boolean }>; boot: { guessed: boolean } };
+    const before = await view();
+    expect(before.speeds.civitai).toMatchObject({ low: 20 * 2 ** 20, high: 60 * 2 ** 20, guessed: true });
+    expect(before.boot).toMatchObject({ guessed: true });
+    for (const mbps of [40, 80]) await recordMeasure(t.db, { kind: "civitai", cloud: "SECURE", bytes: MEASURED_FROM * 10, ms: ((MEASURED_FROM * 10) / (mbps * 2 ** 20)) * 1000 });
+    const after = await view();
+    expect(after.speeds.civitai).toMatchObject({ guessed: false, count: 2 });
+    expect(after.speeds.civitai!.low).toBeCloseTo(40 * 2 ** 20, -3);
+    expect(after.speeds.hf).toMatchObject({ guessed: true });
+  });
+
   it("fills a volume from a set: the cheapest GPU there, no render given to it, terminated once its files are in", async () => {
     // lookups off, as before 0.8.4's default: the file goes up from this PC rather than from its address (card #166)
     await t.app.inject({ method: "PUT", url: "/api/settings", payload: { downloadModels: true, civitaiLookups: false } });

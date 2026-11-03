@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { USUAL_FOLDERS, isModelFile } from "@afflatus/core";
+import { USUAL_FOLDERS, isModelFile, isSafetensors, SAFETENSORS_HEADER_MOST } from "@afflatus/core";
 import { useRef, useState, type DragEvent } from "react";
 import { api, type ModelLibrary } from "../../api";
 import { plural, size } from "../../format";
@@ -16,14 +16,11 @@ interface Adding {
   why?: string;
 }
 
-/** The biggest header read in the page to tell a file's kind: a safetensors header is small, one that says more is not one. */
-const HEADER_MOST = 8 * 2 ** 20;
-
-/** A .safetensors file's header (its tensors' names and shapes), read from its first bytes; null when it has none to read. */
+/** A safetensors file's header (its tensors' names and shapes), read from its first bytes; null when it has none to read. */
 async function headerOf(file: File): Promise<Record<string, unknown> | null> {
-  if (!/\.safetensors$/i.test(file.name) || file.size < 8) return null;
+  if (!isSafetensors(file.name) || file.size < 8) return null;
   const n = Number(new DataView(await file.slice(0, 8).arrayBuffer()).getBigUint64(0, true));
-  if (!(n > 0 && n <= HEADER_MOST && n + 8 <= file.size)) return null;
+  if (!(n > 0 && n <= SAFETENSORS_HEADER_MOST && n + 8 <= file.size)) return null;
   try {
     return JSON.parse(await file.slice(8, 8 + n).text()) as Record<string, unknown>;
   } catch {
