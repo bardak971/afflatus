@@ -1,4 +1,5 @@
-import { LIMITS, plural, presetFileSchema, provenanceSchema, type InputSpec, type LoraValue, type Recipe, type ReferenceRole, type ReferenceValue } from "@afflatus/core";
+import { LIMITS, plural, type InputSpec, type LoraValue, type Recipe, type ReferenceRole, type ReferenceValue } from "@afflatus/core";
+import { presetFileSchema, provenanceSchema } from "@afflatus/core/presetSchemas";
 import { familyById, recipes } from "@afflatus/recipes";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";

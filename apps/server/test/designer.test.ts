@@ -580,7 +580,7 @@ describe("a clip of a timeline", () => {
     const before = (await get(t.app, `/api/timelines/${tl.id}`)).json().undo;
     await t.app.inject({ method: "PATCH", url: `/api/clips/${clip}`, payload: { chat: [{ role: "user", content: "write this one" }] } });
     const now = (await get(t.app, `/api/timelines/${tl.id}`)).json();
-    expect(now.clips[0].chat).toEqual([{ role: "user", content: "write this one" }]);
+    expect((await get(t.app, `/api/clips/${clip}/chat`)).json().chat).toEqual([{ role: "user", content: "write this one" }]);
     // what is said to the designer is not a step to undo
     expect(now.undo).toBe(before);
   });

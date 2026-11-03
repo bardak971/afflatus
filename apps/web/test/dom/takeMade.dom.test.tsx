@@ -32,10 +32,10 @@ const made = (form: Record<string, unknown>): TakeMade => ({ recipe: recipe.id, 
 const t1 = take("t1", made({ description: "zz-test: a person walks in", start: "pic-fabien", seed: 11 }));
 const t2 = take("t2", made({ description: "zz-test: a person walks in", start: "pic-girl", references: [{ asset: "ref-girl", role: "person" }], seed: 22 }));
 
-function inspector(stored: Record<string, unknown>, plays: Take = t2) {
+function inspector(stored: Record<string, unknown>, plays: Take = t2, takes: Take[] = [t1, t2]) {
   fakeApi.on("GET /recipes", { families: [], recipes: [recipe] });
   useParts.setState({ open: { inputs: true, takes: true } });
-  const clip = { id: "c", kind: "video", recipe: recipe.id, joined: "cut", join: null, atMs: 0, lengthMs: 5000, inputs: stored, music: null, take: plays, takes: [t1, t2], sound: "own", volume: 100, pictures: [], pinMirror: [] } as unknown as Clip;
+  const clip = { id: "c", kind: "video", recipe: recipe.id, joined: "cut", join: null, atMs: 0, lengthMs: 5000, inputs: stored, music: null, take: plays, takes, sound: "own", volume: 100, pictures: [], pinMirror: [] } as unknown as Clip;
   const tl = { id: "zz-test-made", name: "zz-test made with", clips: [clip], durationMs: 5000, music: null, source: null, recordings: [] } as unknown as Timeline;
   const patches: ClipPatch[] = [];
   const inputs: Array<Record<string, unknown>> = [];
@@ -80,6 +80,18 @@ describe("a take shows what it was made with", () => {
   it("says nothing in Inputs when the take that plays was made with the form", () => {
     inspector({ description: "zz-test: a person walks in", start: "pic-fabien" }, t1);
     expect(screen.queryByText("The take that plays was made with other inputs")).toBeNull();
+  });
+});
+
+describe("what the takes were made with, read for the clip shown (card #242)", () => {
+  it("is read for the clip once, the timeline's answer leaving it out, and said as before", async () => {
+    const bare = (x: Take) => { const { made: _, ...rest } = x; return rest as Take; };
+    fakeApi.on("GET /clips/:id/made", { takes: { t1: t1.made, t2: t2.made } });
+    const plain = [bare(t1), bare(t2)];
+    inspector({ description: "zz-test: a person walks in", start: "pic-fabien" }, plain[1], plain);
+    expect(await screen.findByText("The take that plays was made with other inputs")).toBeTruthy();
+    expect(within(row(2)).getByText("first frame and 1 reference differ")).toBeTruthy();
+    expect(fakeApi.calls("GET", "/clips/c/made")).toHaveLength(1);
   });
 });
 

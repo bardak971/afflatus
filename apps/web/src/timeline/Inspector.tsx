@@ -26,6 +26,7 @@ import { LookTable } from "./inspector/look";
 import { Slide } from "./inspector/parts";
 import { Duration, PinnedFrames, TakeList, takeDiff, type FormNow } from "./inspector/takes";
 import { diffWords, differs, settingsPatch } from "./madeWith";
+import { useClipMade } from "./clipMade";
 import { ask } from "../Confirm";
 import { voiceInput, voiceOf } from "./track/RecordingBand";
 import { queryKeys } from "../queryKeys";
@@ -35,7 +36,7 @@ import { useSayFailed } from "../sayFailed";
 /** Where how many takes a render makes is remembered, per browser. */
 const TAKES_KEY = "afflatus.timeline.takes";
 
-export function Inspector({ timeline, clip, index, recipes, stored, whole, why, takesMs, takesOn, busy, error, onInputs, onRecipe, onPatch, onRender, onMenu, onRemoveTake, onStop, onPreview, onDesigner, designer, writing, writeError, onWriteBetween, onClose, onSelectClip, onOpen, fromSource, fromRecording }: {
+export function Inspector({ timeline, clip: given, index, recipes, stored, whole, why, takesMs, takesOn, busy, error, onInputs, onRecipe, onPatch, onRender, onMenu, onRemoveTake, onStop, onPreview, onDesigner, designer, writing, writeError, onWriteBetween, onClose, onSelectClip, onOpen, fromSource, fromRecording }: {
   timeline: Timeline;
   clip: Clip;
   index: number;
@@ -85,6 +86,8 @@ export function Inspector({ timeline, clip, index, recipes, stored, whole, why, 
   /** A Lip sync clip made from a recording: its Recording chapter (In / Out of the recording). */
   fromRecording?: ClipRecording;
 }) {
+  // with what each take was made with, read for this clip alone (card #242)
+  const clip = useClipMade(given);
   const panelWidth = useColumnWidth();
   const all = useRecipes();
   const setup = useSetup();

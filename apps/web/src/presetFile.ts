@@ -1,5 +1,6 @@
 import { api, type Entity, type PresetDef } from "./api";
-import { readPresetFile, slug as coreSlug } from "@afflatus/core";
+import { slug as coreSlug } from "@afflatus/core";
+import { readPresetFile } from "@afflatus/core/presetSchemas";
 import { saveJson } from "./download";
 
 /**

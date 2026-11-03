@@ -8,7 +8,7 @@ import { api, type Job, type MachineState, type QueueStatus, type RunningJob } f
 import { useAsset, useProjects, useQueue, useSettings } from "./data";
 import { Keys } from "./Keys";
 import { BAR_DEFAULT } from "./keys/barDefault";
-import { DownloadsChip } from "./DownloadsLine";
+import { DownloadsChip } from "./DownloadsChip";
 import { elapsed, gb, phaseLabel, plural, timeLeft, when } from "./format";
 import { StripModel, StripPlace, stripGhost } from "./ModelLoad";
 import { LoadPanelHost } from "./loadPanelHost";

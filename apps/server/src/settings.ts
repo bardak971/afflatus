@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { LIMITS, presetFileSchema, sigmaOfOldDenoise } from "@afflatus/core";
+import { LIMITS, sigmaOfOldDenoise } from "@afflatus/core";
+import { presetFileSchema } from "@afflatus/core/presetSchemas";
 import { envSaid } from "./config";
 import type { Db } from "./db";
 import { httpError } from "./errors";

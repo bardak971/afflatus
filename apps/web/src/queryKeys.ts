@@ -211,6 +211,10 @@ export const queryKeys = {
    * How a clip's takes meet the clips around it. Two readings share the ["joins", clip] start: every take of the clip
    * against its neighbours (the inspector, the clip's figures), and the take it plays (Needs attention).
    */
+  /** What a clip's takes were made with (card #242), by the takes it has: a take's never changes, a new take is a new key. */
+  clipMade: (clip: Pick<Clip, "id" | "takes">) => ["clip-made", clip.id, clip.takes.map((t) => t.id).join(",")] as const,
+  /** A clip's conversation with the designer: read as the designer opens on it. */
+  clipChat: (clip: string) => ["clip-chat", clip] as const,
   joins: {
     around: (clip: Pick<Clip, "id" | "takes">, before: Pick<Clip, "take" | "still"> | undefined, after: Pick<Clip, "take" | "still"> | undefined) =>
       ["joins", clip.id, clip.takes.map((t) => `${t.id}:${t.startMs}:${t.endMs}`).join(","), before?.take?.id ?? before?.still?.id ?? "-", after?.take?.id ?? after?.still?.id ?? "-"] as const,

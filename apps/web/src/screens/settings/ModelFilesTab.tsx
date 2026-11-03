@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fileKey } from "@afflatus/core";
 import { ChevronRight, Plus } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import { api, type ModelFile, type ModelLibrary } from "../../api";
 import { useRecipes } from "../../data";
@@ -9,6 +9,7 @@ import { openFindModels, thisPcTarget } from "../../findModels/store";
 import { dayOf, plural, size, when } from "../../format";
 import { queryKeys } from "../../queryKeys";
 import { useSayFailed } from "../../sayFailed";
+import { useNow } from "../../hooks";
 import { useBanners } from "../../store";
 import { Button, Checkbox, Chip, CloseButton, cx, Empty, Failed, Help, SearchField, Segmented, Spinner, TwoStep } from "../../ui";
 import { ModelFileDetail, Picture } from "./ModelFileDetail";
@@ -91,9 +92,37 @@ export function ModelFilesTab() {
   const empty = useMutation({ mutationFn: api.emptyModelFiles, onSuccess: (r) => useBanners.getState().push({ id: `model-files:${Date.now()}`, tone: "good", title: `Erased for good · ${plural(r.erased, "file")} · ${size(r.bytes)}` }), onError: said("Could not empty them"), onSettled: () => { setEmptying(false); readAgain(); } });
 
   const l = lib.data;
-  const now = Date.now();
-  const rows = useMemo(() => (l ? shown(l, f, now) : []), [l, f, now]);
+  // "now" for the days since a file was used, moved on once a minute: read at every draw, the rows and the figures were
+  // worked out again on every click and key (card #244). The filters are applied a moment after what is typed shows.
+  const now = useNow(60_000);
+  const shownBy = useDeferredValue(f);
+  const rows = useMemo(() => (l ? shown(l, shownBy, now) : []), [l, shownBy, now]);
   const figs = useMemo(() => (l ? figures(l, f.family, now) : null), [l, f.family, now]);
+  // what each row is handed is the same from one draw to the next, so that a click draws again the row it changes only
+  const order = useRef<string[]>([]);
+  const putBack = useRef<(id: string) => void>(() => {});
+  const toggle = useCallback((id: string, shift: boolean) => {
+    // the range's other end read now: React may run the update below after `last` is this row already
+    const from = last.current;
+    setSel((s) => {
+      const next = new Set(s);
+      const at = order.current;
+      if (shift && from && at.includes(from) && at.includes(id)) {
+        const [i, j] = [at.indexOf(from), at.indexOf(id)].sort((a, b) => a - b);
+        const on = !s.has(id);
+        for (const x of at.slice(i!, j! + 1)) if (on) next.add(x); else next.delete(x);
+      } else if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    last.current = id;
+  }, []);
+  const askDelete = useCallback((x: ModelFile) => setAsking([x]), []);
+  const putBackOne = useCallback((id: string) => putBack.current(id), []);
+  // and the rows as a whole, the same while what is typed waits for the filter: a key then draws the search field alone
+  const rowsDrawn = useMemo(() => (l ? rows.map((x) => (
+    <FileRow key={x.id} x={x} selected={sel.has(x.id)} isOpen={open === x.id} ro={l.readOnly} since={l.since} now={now} lib={open === x.id ? l : null} onToggle={toggle} onOpen={setOpen} onDelete={askDelete} onPutBack={putBackOne} />
+  )) : null), [l, rows, sel, open, now, toggle, askDelete, putBackOne]);
   const listed = useComfyListed();
   const scroller = useRef<HTMLDivElement>(null);
   // a file's detail opens under its row: brought into the area whole, the row with it, when it would open below its edge
@@ -109,6 +138,8 @@ export function ModelFilesTab() {
   // no file at all on this PC: one line and its way forward, not figures, filters and a selection of nothing (card #179)
   const none = !ro && !l.files.length;
   const live = rows.filter((x) => !x.removed);
+  order.current = live.map((x) => x.id);
+  putBack.current = (id) => back.mutate({ ids: [id] });
   const picked = l.files.filter((x) => sel.has(x.id) && !x.removed);
   const pickedBytes = picked.reduce((n, x) => n + (x.size ?? 0), 0);
   // what Delete will ask about: a preset's or a set's file of which no copy stays (DeleteDialog's own rule)
@@ -120,22 +151,6 @@ export function ModelFilesTab() {
   const counts = Object.fromEntries(KINDS.map((k) => [k, l.files.filter((x) => !x.removed && x.kind === k && (!f.family || x.families.includes(f.family))).length]));
   const day = (iso: string) => dayOf(iso, now);
 
-  const toggle = (id: string, shift: boolean) => {
-    const order = live.map((x) => x.id);
-    // the range's other end read now: React may run the update below after `last` is this row already
-    const from = last.current;
-    setSel((s) => {
-      const next = new Set(s);
-      if (shift && from && order.includes(from) && order.includes(id)) {
-        const [i, j] = [order.indexOf(from), order.indexOf(id)].sort((a, b) => a - b);
-        const on = !s.has(id);
-        for (const x of order.slice(i!, j! + 1)) if (on) next.add(x); else next.delete(x);
-      } else if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-    last.current = id;
-  };
   const sortBy = (key: SortKey) => set({ sort: f.sort.key === key ? { key, down: !f.sort.down } : { key, down: !["name", "kind", "base"].includes(key) } });
   const head = (key: SortKey, label: string, cls = "", tip?: string) => (
     <button type="button" onClick={() => sortBy(key)} data-tip={tip} className={cx("truncate text-left text-meta font-bold tracking-label uppercase hover:text-ink", f.sort.key === key ? "text-ink" : "text-ink-3", cls)}>
@@ -246,57 +261,7 @@ export function ModelFilesTab() {
             <span className={cx(MID, "text-meta font-bold tracking-label text-ink-3 uppercase")}>Needed by</span>
             <span />
           </div>
-          {rows.map((x) => {
-            const ls = lastSaid(x, l.since, day, (iso) => when(iso, now));
-            const isOpen = open === x.id;
-            const gone = Boolean(x.removed);
-            return (
-              <div key={x.id} data-open={isOpen || undefined} className="border-b border-line/60 last:border-b-0">
-                {/* reached by Tab and opened by Enter or Space as by a click (card #178: a keyboard could not open a file's detail) */}
-                <div
-                  role="row" tabIndex={0} aria-expanded={isOpen} aria-label={nameOf(x)}
-                  onClick={(e) => (e.shiftKey && !ro && !gone ? toggle(x.id, true) : setOpen(isOpen ? null : x.id))}
-                  onKeyDown={(e) => {
-                    if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
-                    e.preventDefault();
-                    setOpen(isOpen ? null : x.id);
-                  }}
-                  className={cx(GRID, OFFSCREEN, "min-h-[52px] cursor-pointer px-[18px] py-1.5 outline-none hover:bg-hover focus-visible:inset-ring-2 focus-visible:inset-ring-accent/50", sel.has(x.id) && "bg-accent-wash/40", isOpen && "bg-raised", gone && "opacity-60")}
-                >
-                  <span onClickCapture={(e) => { e.stopPropagation(); if (!ro && !gone) toggle(x.id, e.shiftKey); }}>
-                    <Checkbox checked={sel.has(x.id)} disabled={ro || gone} label={`Select ${nameOf(x)}`} onChange={() => {}} />
-                  </span>
-                  <Picture f={x} small />
-                  <span className="flex min-w-0 flex-col">
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <span className="truncate font-semibold">{nameOf(x)}</span>
-                      {x.version && x.name && <span className="shrink-0 truncate text-xs text-ink-3">{x.version}</span>}
-                      {gone && <Chip size="xs" tone="good">{x.removed!.place === "bin" ? "in the bin" : "set aside"}</Chip>}
-                      {!gone && x.copies.length > 0 && <Chip size="xs" tone="attention" tip={`The same model in another file: ${x.copies.map((c) => placeOfId(c)).join(", ")}`}>copy</Chip>}
-                      {!gone && x.also.length > 0 && <Chip size="xs" tip={`The same file on disk, also seen as ${x.also.map((a) => `${a.folder}/${a.file}`).join(", ")}: not a copy (a folder extra_model_paths.yaml lists twice)`}>{x.also.length + 1} places</Chip>}
-                      {!gone && x.match === "pending" && !ro && <Chip size="xs" tip="Not hashed yet: its Civitai or Hugging Face match comes once it is">hashing…</Chip>}
-                      {!gone && x.match === "none" && <Chip size="xs" tip="No match on Civitai or Hugging Face">no match</Chip>}
-                    </span>
-                    <span className="truncate font-mono text-xs text-ink-3" data-tip={`${x.folder}/${x.file}`}>{x.folder}/{x.file}</span>
-                  </span>
-                  <span className="flex min-w-0 flex-col text-body"><span className="truncate">{x.kind}</span><span className="hidden truncate text-xs text-ink-3 @max-[1240px]:block">{x.base ?? "—"}</span></span>
-                  <span className={cx(WIDE, "truncate text-body text-ink-2")}>{x.base ?? "—"}</span>
-                  <span className="text-right font-mono text-xs">{x.size === null ? "—" : size(x.size)}</span>
-                  <span className={cx(MID, "text-body text-ink-2")}>{x.mtime ? day(new Date(x.mtime).toISOString()) : "—"}</span>
-                  <span className="text-right font-mono text-xs" data-tip={x.approx ? "≈: some counted from a job made before Afflatus kept each job's files" : undefined}>{x.uses ? `${x.approx ? "≈" : ""}${x.uses}` : <span className="text-ink-3">0</span>}</span>
-                  <span className={cx("truncate text-body", ls.idle && "text-attention-ink")} data-tip={ls.tip}>
-                    {gone ? <Button size="sm" onClick={(e) => { e.stopPropagation(); back.mutate({ ids: [x.removed!.id] }); }}>Put back</Button> : ls.text}
-                  </span>
-                  <span className={cx(WIDE, "font-mono text-xs text-ink-2")}>{x.takes ? plural(x.takes, "take") : <span className="text-ink-3">—</span>}</span>
-                  <span className={cx(MID, "flex min-w-0 gap-1")}>
-                    {x.needs.length ? <NeedChips f={x} /> : <span className="text-xs text-ink-3">—</span>}
-                  </span>
-                  <ChevronRight size={14} className={cx("text-ink-3 transition-transform", isOpen && "rotate-90")} />
-                </div>
-                {isOpen && <ModelFileDetail f={x} lib={l} onDelete={() => setAsking([x])} onPutBack={() => back.mutate({ ids: [x.removed!.id] })} />}
-              </div>
-            );
-          })}
+          {rowsDrawn}
           {!rows.length && (
             <div className="p-[18px]">
               <Empty title="No file matches" action={<Button size="sm" onClick={() => { go("/settings/model-files"); setF({ ...NO_FILTER, sort: f.sort }); }}>Clear filters</Button>}>
@@ -316,6 +281,72 @@ export function ModelFilesTab() {
     </div>
   );
 }
+
+/** A file's row, drawn again only when its file, its box or its detail change (card #244: some 470 rows were drawn again on every click and key). */
+const FileRow = memo(function FileRow({ x, selected, isOpen, ro, since, now, lib, onToggle, onOpen, onDelete, onPutBack }: {
+  x: ModelFile;
+  selected: boolean;
+  isOpen: boolean;
+  ro: boolean;
+  since: string | null;
+  now: number;
+  /** The library, for its detail: only while it is open. */
+  lib: ModelLibrary | null;
+  onToggle(id: string, shift: boolean): void;
+  onOpen(id: string | null): void;
+  onDelete(x: ModelFile): void;
+  onPutBack(id: string): void;
+}) {
+  const day = (iso: string) => dayOf(iso, now);
+  const ls = lastSaid(x, since, day, (iso) => when(iso, now));
+  const gone = Boolean(x.removed);
+  return (
+    <div key={x.id} data-open={isOpen || undefined} className="border-b border-line/60 last:border-b-0">
+      {/* reached by Tab and opened by Enter or Space as by a click (card #178: a keyboard could not open a file's detail) */}
+      <div
+        role="row" tabIndex={0} aria-expanded={isOpen} aria-label={nameOf(x)}
+        onClick={(e) => (e.shiftKey && !ro && !gone ? onToggle(x.id, true) : onOpen(isOpen ? null : x.id))}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
+          e.preventDefault();
+          onOpen(isOpen ? null : x.id);
+        }}
+        className={cx(GRID, OFFSCREEN, "min-h-[52px] cursor-pointer px-[18px] py-1.5 outline-none hover:bg-hover focus-visible:inset-ring-2 focus-visible:inset-ring-accent/50", selected && "bg-accent-wash/40", isOpen && "bg-raised", gone && "opacity-60")}
+      >
+        <span onClickCapture={(e) => { e.stopPropagation(); if (!ro && !gone) onToggle(x.id, e.shiftKey); }}>
+          <Checkbox checked={selected} disabled={ro || gone} label={`Select ${nameOf(x)}`} onChange={() => {}} />
+        </span>
+        <Picture f={x} small />
+        <span className="flex min-w-0 flex-col">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate font-semibold">{nameOf(x)}</span>
+            {x.version && x.name && <span className="shrink-0 truncate text-xs text-ink-3">{x.version}</span>}
+            {gone && <Chip size="xs" tone="good">{x.removed!.place === "bin" ? "in the bin" : "set aside"}</Chip>}
+            {!gone && x.copies.length > 0 && <Chip size="xs" tone="attention" tip={`The same model in another file: ${x.copies.map((c) => placeOfId(c)).join(", ")}`}>copy</Chip>}
+            {!gone && x.also.length > 0 && <Chip size="xs" tip={`The same file on disk, also seen as ${x.also.map((a) => `${a.folder}/${a.file}`).join(", ")}: not a copy (a folder extra_model_paths.yaml lists twice)`}>{x.also.length + 1} places</Chip>}
+            {!gone && x.match === "pending" && !ro && <Chip size="xs" tip="Not hashed yet: its Civitai or Hugging Face match comes once it is">hashing…</Chip>}
+            {!gone && x.match === "none" && <Chip size="xs" tip="No match on Civitai or Hugging Face">no match</Chip>}
+          </span>
+          <span className="truncate font-mono text-xs text-ink-3" data-tip={`${x.folder}/${x.file}`}>{x.folder}/{x.file}</span>
+        </span>
+        <span className="flex min-w-0 flex-col text-body"><span className="truncate">{x.kind}</span><span className="hidden truncate text-xs text-ink-3 @max-[1240px]:block">{x.base ?? "—"}</span></span>
+        <span className={cx(WIDE, "truncate text-body text-ink-2")}>{x.base ?? "—"}</span>
+        <span className="text-right font-mono text-xs">{x.size === null ? "—" : size(x.size)}</span>
+        <span className={cx(MID, "text-body text-ink-2")}>{x.mtime ? day(new Date(x.mtime).toISOString()) : "—"}</span>
+        <span className="text-right font-mono text-xs" data-tip={x.approx ? "≈: some counted from a job made before Afflatus kept each job's files" : undefined}>{x.uses ? `${x.approx ? "≈" : ""}${x.uses}` : <span className="text-ink-3">0</span>}</span>
+        <span className={cx("truncate text-body", ls.idle && "text-attention-ink")} data-tip={ls.tip}>
+          {gone ? <Button size="sm" onClick={(e) => { e.stopPropagation(); onPutBack(x.removed!.id); }}>Put back</Button> : ls.text}
+        </span>
+        <span className={cx(WIDE, "font-mono text-xs text-ink-2")}>{x.takes ? plural(x.takes, "take") : <span className="text-ink-3">—</span>}</span>
+        <span className={cx(MID, "flex min-w-0 gap-1")}>
+          {x.needs.length ? <NeedChips f={x} /> : <span className="text-xs text-ink-3">—</span>}
+        </span>
+        <ChevronRight size={14} className={cx("text-ink-3 transition-transform", isOpen && "rotate-90")} />
+      </div>
+      {isOpen && lib && <ModelFileDetail f={x} lib={lib} onDelete={() => onDelete(x)} onPutBack={() => onPutBack(x.removed!.id)} />}
+    </div>
+  );
+});
 
 /** One of the figures on top, with what it selects or shows. */
 function Figure({ big, said, acts = [], tone }: { big: string; said: ReactNode; acts?: Array<{ label: string; on(): void; off?: boolean }>; tone?: "attention" }) {

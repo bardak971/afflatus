@@ -5,7 +5,7 @@ import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 export type { ModelInfo };
 import type { Advice, DeployOverhead, FillPlan, FormPacks, SetFinding, GpuOffer, HuntAsk, HuntView, HistoryPage, NetworkVolume, VolumeFilesView, VolumePlan, Job, QueueAnswer, QueuePart, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RedeployOffer, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
 import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
-import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch, FaceRoute } from "./api/types/timeline";
+import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch, FaceRoute, TakeMade } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView, type PresetFile } from "./api/types/designer";
 import type { DeployAsk, FfmpegGetView, Health, FinishRedo, FinishSettings, MachineProbe, McpActivity, McpScope, McpStart, McpToken, SessionState, Settings, SettingsPatch, SignedDevices } from "./api/types/settings";
 import { signedOut } from "./access/signedOut";
@@ -802,6 +802,10 @@ export const api = {
   /** The music ducked under speech: its gain along the timeline, as the export applies it (null: no music, or not ducked). */
   duck: (timeline: string) => call<{ curve: { rate: number; gains: number[] } | null }>("GET", `/timelines/${timeline}/duck`),
   /** How smoothly each take of a clip meets its neighbours: ×1 = like the clip's own motion, higher = a catch; null where there is no neighbour. */
+  /** What each take of a clip was made with, by take id: the timeline's answer leaves it out (card #242). */
+  clipMade: (clip: string, o?: Asked) => call<{ takes: Record<string, TakeMade | null> }>("GET", `/clips/${clip}/made`, undefined, o?.signal),
+  /** A clip's conversation with the designer, read as the designer opens on it. */
+  clipChat: (clip: string, o?: Asked) => call<{ chat: unknown[] }>("GET", `/clips/${clip}/chat`, undefined, o?.signal),
   joins: (clip: string) => call<{ items: Array<{ take: string; in: number | null; out: number | null }> }>("GET", `/clips/${clip}/joins`),
   /** What each H3 clip with a person's picture does with it, by clip id (card #223). */
   faceRoutes: (timeline: string) => call<{ clips: Record<string, FaceRoute> }>("GET", `/timelines/${timeline}/face`),

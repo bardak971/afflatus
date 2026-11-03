@@ -133,7 +133,7 @@ describe("Krea 2 · Face refine", () => {
     const { built, graph } = build({ person });
     const [detailer] = of(graph, "DetailerForEach");
     expect(detailer).toBeDefined();
-    expect(detailer!.inputs).toMatchObject({ steps: 20, cfg: 5, sampler_name: "euler", scheduler: "simple", denoise: 0.35, guide_size: 1024, guide_size_for: false, noise_mask: true });
+    expect(detailer!.inputs).toMatchObject({ steps: 6, cfg: 5, sampler_name: "euler", scheduler: "simple", denoise: 0.35, guide_size: 1024, guide_size_for: false, noise_mask: true });
     // after the picture is decoded, before it is shown
     expect(node(graph, detailer!.inputs.image).class_type).toBe("VAEDecode");
     expect(node(graph, of(graph, "PreviewImage")[0]!.inputs.images)).toBe(detailer);
@@ -148,7 +148,7 @@ describe("Krea 2 · Face refine", () => {
     expect(positive.class_type).toBe("ReferenceLatent");
     expect(node(graph, node(graph, node(graph, positive.inputs.latent).inputs.pixels).inputs.image).inputs.image).toBe("nicolas.png");
     // a face too large, or none, and the pass samples nothing: its steps are not shown until it does, and its job says so
-    expect(built.passes!.at(-1)).toEqual({ node: expect.any(String), steps: 20, unsampled: expect.stringContaining(`Face refine left the face as drawn: it redraws a face under ${SMALL_FACE_PX} px tall`) });
+    expect(built.passes!.at(-1)).toEqual({ node: expect.any(String), steps: 6, unsampled: expect.stringContaining(`Face refine left the face as drawn: it redraws a face under ${SMALL_FACE_PX} px tall`) });
     expect(built.loads).toEqual(expect.arrayContaining(["diffusion_models/flux-2-klein-base-4b.safetensors", "ultralytics/bbox/face_yolov8m.pt"]));
   });
 

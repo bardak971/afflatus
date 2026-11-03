@@ -309,10 +309,14 @@ describe.skipIf(!ffmpegThere)("a timeline", { timeout: FFMPEG_TIMEOUT }, () => {
     const clip = (await call("POST", `/api/timelines/${tl.id}/clips`, { recipe: "h3.video" })).clip as string;
     const before = (await view(tl.id)).undo;
     await call("PATCH", `/api/clips/${clip}`, { designer: { llm: "big", instruction: "film" }, chat: [{ role: "user", content: "a walk" }] });
-    expect((await view(tl.id)).clips[0]).toMatchObject({ designer: { llm: "big", instruction: "film" }, chat: [{ role: "user", content: "a walk" }] });
+    expect((await view(tl.id)).clips[0]).toMatchObject({ designer: { llm: "big", instruction: "film" } });
+    // the conversation is read with the designer, not with the timeline (card #242)
+    expect((await view(tl.id)).clips[0].chat).toBeUndefined();
+    expect((await get(s.t.app, `/api/clips/${clip}/chat`)).json()).toEqual({ chat: [{ role: "user", content: "a walk" }] });
     // starting over empties the conversation and keeps what it is held with
     await call("PATCH", `/api/clips/${clip}`, { chat: [] });
-    expect((await view(tl.id)).clips[0]).toMatchObject({ designer: { llm: "big", instruction: "film" }, chat: [] });
+    expect((await view(tl.id)).clips[0]).toMatchObject({ designer: { llm: "big", instruction: "film" } });
+    expect((await get(s.t.app, `/api/clips/${clip}/chat`)).json()).toEqual({ chat: [] });
     expect((await view(tl.id)).undo).toBe(before);
   });
 

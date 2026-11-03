@@ -5,7 +5,8 @@
   "license": "AGPL-3.0-only",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./presetSchemas": "./src/presetSchemas.ts"
   },
   "dependencies": {
     "zod": "^4.6.7"

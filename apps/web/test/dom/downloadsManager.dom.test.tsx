@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { Download, FolderPlaces } from "../../src/api";
-import { DownloadsCard, DownloadsChip } from "../../src/DownloadsLine";
+import { DownloadsChip } from "../../src/DownloadsChip";
+import { DownloadsCard } from "../../src/DownloadsLine";
 import { GetFile } from "../../src/GetFile";
 import { fakeApi } from "./fakeApi";
 import { draw } from "./render";
@@ -92,7 +93,7 @@ describe("the downloads manager", () => {
     const { user } = draw(<DownloadsChip />);
     const chip = await screen.findByRole("button", { name: /2 ↓ · 3 waiting/ });
     await user.click(chip);
-    const pop = within(screen.getByRole("dialog", { name: "Downloads" }));
+    const pop = within(await screen.findByRole("dialog", { name: "Downloads" }));
     expect(pop.getByText("Downloads · on this PC")).toBeTruthy();
     expect(pop.getByText("Under way")).toBeTruthy();
     expect(pop.getByText(/into models\\diffusion_models/)).toBeTruthy();

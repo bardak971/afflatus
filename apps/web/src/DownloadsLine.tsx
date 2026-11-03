@@ -1,21 +1,21 @@
-import { useContext, useMemo, useRef, useState } from "react";
+import { useContext, useState, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown, Download as DownloadIcon, GripVertical } from "lucide-react";
 import { Link } from "wouter";
 import { api, type Download } from "./api";
 import { ContextMenu, menuAt } from "./ContextMenu";
 import { useQueue, useSettings } from "./data";
-import { coming, inLine, lineOfFile, linesOf, msFor, startsIn, type Line } from "./downloadLine";
+import { fetching, nameOf, useLines } from "./DownloadsChip";
+import { coming, inLine, lineOfFile, msFor, startsIn, type Line } from "./downloadLine";
 import { FileWhere } from "./FileWhere";
-import { est, fileLabel, hourMinute, leftWords, ordinal, size } from "./format";
-import { useNow } from "./hooks";
+import { est, hourMinute, leftWords, ordinal, size } from "./format";
 import { machineName } from "./machines";
 import { Popover } from "./Popover";
 import { queryKeys } from "./queryKeys";
 import { useSayFailed } from "./sayFailed";
 import { settingHref } from "./screens/settings/settingsIndex";
 import { CloseButton, cx } from "./ui";
-import { DownloadTo, useDownloads } from "./useGetFile";
+import { DownloadTo } from "./useGetFile";
 
 /** A download's note while it tries again after a failure (modelDownload.ts onRetry): said in the warning colour. */
 const RETRYING = /trying again|starting over|may fail/i;
@@ -25,16 +25,6 @@ const RETRYING = /trying again|starting over|may fail/i;
  * The status bar's chip opens it as a popover; Settings › Models has it as a card under Model sets, with what was done
  * today and what failed. One list for both (LineList), read through downloadLine.ts, as each file's own state (FileState).
  */
-
-/** Every ComfyUI's line, read again every half minute for "today" and the times. */
-export function useLines() {
-  const items = useDownloads().data?.items;
-  const settings = useSettings().data;
-  const first = settings?.machines[0]?.id;
-  const now = useNow(30_000);
-  const lines = useMemo(() => linesOf(items ?? [], first, now), [items, first, now]);
-  return { lines, first };
-}
 
 /** What a ComfyUI is called in the line's head: "this PC" for one running here, else its name. */
 function useWhere() {
@@ -54,11 +44,6 @@ function leftSaid(line: Line): string {
   return [line.left ? `${line.unsized ? "over " : ""}${size(line.left)} left` : "", end ? `done ~${end}` : ""].filter(Boolean).join(" · ");
 }
 
-/** What is under way and still fetching: one whole, ComfyUI listing it, is shown but not counted. */
-const fetching = (line: Line) => line.under.filter((d) => d.status !== "saving");
-
-/** The file's name, without its sub-folders. */
-const nameOf = (d: Download) => fileLabel(d.file);
 /** What it is, when the title says more than its file's name (a Civitai model's name). */
 const whatOf = (d: Download) => (d.title && d.title !== nameOf(d) && d.title !== d.file ? d.title : null);
 
@@ -205,55 +190,20 @@ export function LineList({ line, full, head }: { line: Line; full?: boolean; hea
   );
 }
 
-/**
- * The status bar's chip: "2 ↓ · 8 waiting" with a ring of the first file's share (one file alone: its name and share), and
- * the line as a popover, one group per ComfyUI with several. Nothing while nothing comes.
- */
-export function DownloadsChip({ className }: { className?: string }) {
-  const { lines } = useLines();
+/** The status bar chip's popover (DownloadsChip.tsx): the line, one group per ComfyUI with several. `rows`: the files it lists. */
+export function DownloadsPopover({ anchor, busy, rows, onClose }: { anchor: RefObject<HTMLButtonElement | null>; busy: Line[]; rows: number; onClose(): void }) {
   const where = useWhere();
-  const anchor = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  const busy = lines.filter((l) => l.under.length || l.next.length);
-  // whole and being listed by ComfyUI: no longer counted as coming (the line says them until they are listed)
-  const under = busy.flatMap(fetching);
-  const next = busy.flatMap((l) => l.next);
-  if (!under.length && !next.length) return null;
-  const lead = under[0];
-  const share = lead?.total ? Math.min(1, lead.bytes / lead.total) : 0;
-  const alone = under.length === 1 && !next.length ? lead! : null;
+  const next = busy.reduce((n, l) => n + l.next.length, 0);
   return (
-    <>
-      <button
-        ref={anchor}
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        data-tip="Model files coming into ComfyUI: they go on if this page is closed. Click for the line, its order and what is left."
-        className={cx("inline-flex h-6 min-w-0 shrink-0 items-center gap-1.5 rounded-chip border border-accent bg-raised px-2 text-xs text-ink hover:bg-hover", className)}
-      >
-        <span aria-hidden className="size-3 shrink-0 rounded-full" style={{ background: `conic-gradient(var(--color-accent) 0 ${share * 100}%, var(--color-line-strong) ${share * 100}% 100%)` }} />
-        {alone ? (
-          <>
-            <span className="truncate">{nameOf(alone)}</span>
-            {alone.total > 0 && <span className="shrink-0 font-mono">{Math.floor(share * 100)} %</span>}
-          </>
-        ) : (
-          <span className="whitespace-nowrap">{under.length} ↓{next.length > 0 && <span className="text-ink-3"> · {next.length} waiting</span>}</span>
-        )}
-      </button>
-      {open && (
-        <Popover anchor={anchor} onClose={() => setOpen(false)} label="Downloads" width={560} height={Math.min(620, 140 + (under.length + Math.min(next.length, SHOWN.pop)) * 56)}>
-          <div className="min-h-0 overflow-y-auto">
-            {busy.map((l, i) => (
-              <div key={l.machine ?? "first"} className={cx(i > 0 && "border-t border-line-strong")}>
-                <LineList line={l} head={i === 0 ? `Downloads · on ${where(l.machine)}` : `On ${where(l.machine)}`} />
-              </div>
-            ))}
+    <Popover anchor={anchor} onClose={onClose} label="Downloads" width={560} height={Math.min(620, 140 + (rows - next + Math.min(next, SHOWN.pop)) * 56)}>
+      <div className="min-h-0 overflow-y-auto">
+        {busy.map((l, i) => (
+          <div key={l.machine ?? "first"} className={cx(i > 0 && "border-t border-line-strong")}>
+            <LineList line={l} head={i === 0 ? `Downloads · on ${where(l.machine)}` : `On ${where(l.machine)}`} />
           </div>
-        </Popover>
-      )}
-    </>
+        ))}
+      </div>
+    </Popover>
   );
 }
 

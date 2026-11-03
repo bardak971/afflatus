@@ -6,6 +6,7 @@ import { Kysely, PostgresDialect, SqliteAdapter, SqliteDialect, sql, type Dialec
 import { Migrator } from "kysely/migration";
 import pg from "pg";
 import { envSaid, type Config } from "./config";
+import { writeCounter } from "./dbWrites";
 import { migrations } from "./migrations";
 import { JOURNAL_LIMIT, WorkerSqliteDriver } from "./sqliteWorker";
 
@@ -516,7 +517,7 @@ export function openDb(config: Config): { db: Db; kind: DbKind } {
     // a bigint column (a file's size, a render's work) comes back as a number, as SQLite's does, not as a string
     const types = { getTypeParser: ((oid: number, format?: "text" | "binary") => (oid === pg.types.builtins.INT8 ? (v: string) => Number(v) : pg.types.getTypeParser(oid, format as "text"))) as typeof pg.types.getTypeParser };
     const pool = new pg.Pool({ connectionString: config.databaseUrl, max: 5, types });
-    return { db: new Kysely<Tables>({ dialect: new PostgresDialect({ pool }) }), kind: "postgres" };
+    return { db: new Kysely<Tables>({ dialect: new PostgresDialect({ pool }), plugins: [writeCounter] }), kind: "postgres" };
   }
   mkdirSync(config.dataDir, { recursive: true });
   return { db: openSqlite(takeOver(config.dataDir)), kind: "sqlite" };
@@ -545,9 +546,9 @@ export function openSqlite(file: string, opts: { worker?: boolean; inline?: bool
     sqlite.exec("PRAGMA journal_mode = WAL");
     sqlite.exec(`PRAGMA journal_size_limit = ${JOURNAL_LIMIT}`);
     sqlite.exec("PRAGMA foreign_keys = ON");
-    return new Kysely<Tables>({ dialect: new TransactionalSqlite({ database: forKysely(sqlite) }) });
+    return new Kysely<Tables>({ dialect: new TransactionalSqlite({ database: forKysely(sqlite) }), plugins: [writeCounter] });
   }
-  return new Kysely<Tables>({ dialect: new WorkerSqlite(file) });
+  return new Kysely<Tables>({ dialect: new WorkerSqlite(file), plugins: [writeCounter] });
 }
 
 /**
