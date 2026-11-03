@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
-import { useQueryClient } from "@tanstack/react-query";
 import { Film, FileDown, ImagePlus, Music, Workflow } from "lucide-react";
 import { api, type Asset, type Embedded } from "./api";
 import { fileKind, workflowFile, zonesFor, type Kind, type Zone } from "./dropZones";
@@ -8,7 +7,9 @@ import { useLeave } from "./leave";
 import { openFolderId, useHandover } from "./store";
 import { projectForNew } from "./project";
 import { cx } from "./ui";
-import { queryKeys } from "./queryKeys";
+import { useTimelineOf } from "./actions";
+import { useTimelines } from "./data";
+import type { TimelineOf } from "./timelineOf";
 
 // PNG info opens the first time a file is dropped on it
 const PngInfo = lazy(() => import("./PngInfo").then((m) => ({ default: m.PngInfo })));
@@ -25,7 +26,8 @@ export function DropTrayBody({ kind }: { kind: Kind | null }) {
   const [said, setSaid] = useState<{ text: string; bad?: boolean; busy?: boolean } | null>(null);
   const [found, setFound] = useState<{ file: File; data: Embedded } | null>(null);
   const [path, go] = useLocation();
-  const client = useQueryClient();
+  const timelines = useTimelines();
+  const addAll = useTimelineOf((v: TimelineOf) => v);
   const hand = useHandover((h) => h.set);
   // the tray pops up from the bottom and the line that says what happened comes in as a toast; both fade as a still copy
   // when they go, the drop itself never waiting on it
@@ -100,18 +102,14 @@ export function DropTrayBody({ kind }: { kind: Kind | null }) {
         if (!good.length) return setSaid({ text: "A timeline takes images, videos and audio files.", bad: true });
         setSaid({ text: "Adding…", busy: true });
         const { added, failed } = await bringIn(good, "Adding");
-        let ok = 0;
-        for (const a of added) {
-          try {
-            if (a.kind === "audio") await api.editTimeline(timeline, { music: { asset: a.id } });
-            else await api.addClip(timeline, { asset: a.id, ...(a.kind === "image" ? { as: "still" as const } : {}) });
-            ok++;
-          } catch (err) {
-            failed.push(`${a.name || a.id}: ${(err as Error).message}`);
-          }
+        // put on it the one way every place does (useTimelineOf): videos as clips, pictures as stills, a sound as its
+        // music, and the timeline remembered as the last one added to; one refused does not stop the others
+        let refused = 0;
+        const into = { id: timeline, name: timelines.data?.items.find((t) => t.id === timeline)?.name ?? "the timeline" };
+        if (added.length) {
+          await addAll.mutateAsync({ assets: added, into, refused: (a, err) => { refused++; failed.push(`${a.name || a.id}: ${err.message}`); } });
         }
-        await client.invalidateQueries({ queryKey: queryKeys.timelines.all() });
-        outcome(good.length, ok, failed, "added", "Added to the timeline.");
+        outcome(good.length, added.length - refused, failed, "added", "Added to the timeline.");
       }
     } catch (err) {
       fail(err);

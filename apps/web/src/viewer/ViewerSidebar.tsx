@@ -112,7 +112,7 @@ function Sent({ title, text, folded }: { title: string; text: string; folded?: b
 }
 
 /** One thing to do with the item: a word, its key. Pressed: it is on (Kept, Trim). A long label wraps to a second line rather than being cut ("Reuse · new seed", "Remove background"). */
-function Act({ icon, label, k, pressed, done, onClick, disabled, title, wide, more }: { icon?: LucideIcon; label: string; k?: ReactNode; pressed?: boolean; done?: boolean; onClick(e: React.MouseEvent<HTMLButtonElement>): void; disabled?: boolean; title?: string; wide?: boolean; more?: boolean }) {
+function Act({ icon, label, k, pressed, done, onClick, disabled, title, more }: { icon?: LucideIcon; label: string; k?: ReactNode; pressed?: boolean; done?: boolean; onClick(e: React.MouseEvent<HTMLButtonElement>): void; disabled?: boolean; title?: string; more?: boolean }) {
   // just queued: a check and the ok look for a moment (itemActions.tsx `done`)
   const Icon = done ? Check : icon;
   return (
@@ -126,7 +126,6 @@ function Act({ icon, label, k, pressed, done, onClick, disabled, title, wide, mo
         // a neutral focus ring: on a button that can be on (Compare, Trim), the accent ring read as "still on" once left
         "flex min-h-[38px] min-w-0 items-center gap-2 rounded-control border px-2.5 py-1 text-left text-body font-semibold hover:bg-hover focus-visible:outline-ink-3 disabled:cursor-not-allowed disabled:opacity-50",
         done ? "m-ok border-good/50 bg-good/15 text-good" : pressed ? "border-accent bg-accent-wash text-accent" : "border-line bg-raised text-ink hover:border-line-strong",
-        wide && "col-span-2",
       )}
     >
       {Icon && <Icon size={14} aria-hidden className={cx("shrink-0", done ? "text-good" : pressed ? "text-accent" : "text-ink-2")} />}

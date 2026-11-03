@@ -1,10 +1,11 @@
 import { useRef, useState } from "react";
 import { Link } from "wouter";
 import { Server } from "lucide-react";
-import { formModelInput, modelName, roughly } from "@afflatus/core";
+import { formModelInput, modelName } from "@afflatus/core";
 import type { api, MachineState, RecipeInfo } from "./api";
 import { useQueue } from "./data";
 import { useDraftMachine } from "./draftMachine";
+import { est } from "./format";
 import { useLoadChoices } from "./loadChoices";
 import { machineLabel, machineState, severalMachines } from "./machines";
 import { Popover } from "./Popover";
@@ -145,7 +146,7 @@ function MachinePick({ pickKey, of, msOn, file, why, note, small, off }: {
               const on = m ? picked?.id === m.id : !picked;
               const holds = Boolean(m && file && m.model && m.model.toLowerCase() === file);
               const ms = msOn(m);
-              const time = ms ? `~${roughly(ms)}` : "";
+              const time = est(ms);
               return (
                 <button
                   key={m?.id ?? "auto"}

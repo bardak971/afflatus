@@ -42,16 +42,13 @@ const GROUP_GAP = 16;
  * in are drawn, with a screen's margin each way (virtual.ts): the grid holds every page read, thousands of
  * items, at the cost of a screen or three of tiles. The box keeps the height of every row.
  */
-export function JustifiedRows({ places, rowHeight, className, under = 0, rows }: {
+export function JustifiedRows({ places, rowHeight, rows }: {
   places: Placed[];
   rowHeight: number;
-  className?: string;
-  /** Room under every tile, in pixels, for a line its render draws there (the media shelf's captions); the shapes are the tiles' own. */
-  under?: number;
   /** Only this many rows are drawn, the places past them left out (the loading placeholders fill a screen, no more). */
   rows?: number;
 }) {
-  return <GroupedRows groups={[{ key: "", places }]} rowHeight={rowHeight} className={className} under={under} rows={rows} />;
+  return <GroupedRows groups={[{ key: "", places }]} rowHeight={rowHeight} rows={rows} />;
 }
 
 /**
@@ -59,11 +56,9 @@ export function JustifiedRows({ places, rowHeight, className, under = 0, rows }:
  * seen, as their rows are (hundreds of days, by day, are a few sections drawn). A section is placed absolutely at its
  * place, its heading one line high.
  */
-export function GroupedRows({ groups, rowHeight, className, under = 0, rows: most }: {
+export function GroupedRows({ groups, rowHeight, rows: most }: {
   groups: Group[];
   rowHeight: number;
-  className?: string;
-  under?: number;
   rows?: number;
 }) {
   const box = useRef<HTMLDivElement>(null);
@@ -80,9 +75,9 @@ export function GroupedRows({ groups, rowHeight, className, under = 0, rows: mos
   const shapes = groups.map((g) => `${g.head ? `${g.key}:` : ""}${g.places.map((p) => p.aspect).join()}`).join("|");
   // where each section and each tile goes: worked out again only when the shapes, the width or the size change
   const laid = useMemo(
-    () => layGroups(groups.map((g) => ({ rows: justify(g.places.map((p) => p.aspect), width, rowHeight, GAP).slice(0, most), head: g.head ? HEAD : 0 })), { gap: GAP, under, headGap: HEAD_GAP, groupGap: GROUP_GAP }),
+    () => layGroups(groups.map((g) => ({ rows: justify(g.places.map((p) => p.aspect), width, rowHeight, GAP).slice(0, most), head: g.head ? HEAD : 0 })), { gap: GAP, headGap: HEAD_GAP, groupGap: GROUP_GAP }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- groups is worked out from shapes, listed instead
-    [shapes, width, rowHeight, under, most],
+    [shapes, width, rowHeight, most],
   );
   // the same tiles laid out again because the list changed (one binned or moved out, a new render first), at the same
   // width: each glides to its new place for a moment instead of every row jumping at once, so the eye can follow where
@@ -114,7 +109,7 @@ export function GroupedRows({ groups, rowHeight, className, under = 0, rows: mos
   });
   // one box, every tile placed in it: a tile keeps its element when a new item pushes it to another row (no image read again)
   return (
-    <div ref={box} className={cx("relative min-w-0", className)} style={{ height: laid.height }} {...handlers}>
+    <div ref={box} className="relative min-w-0" style={{ height: laid.height }} {...handlers}>
       {drawn.map(({ group, items }) => {
         const g = groups[group]!;
         const at = laid.groups[group]!;

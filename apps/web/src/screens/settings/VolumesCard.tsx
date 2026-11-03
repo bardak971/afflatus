@@ -82,9 +82,9 @@ export function VolumesCard() {
 }
 
 /** A small rounded label, as the app's chips: a data center, a set's state, a GPU in stock. */
-function Chip({ children, tone = "plain", tip }: { children: ReactNode; tone?: "plain" | "good" | "warn"; tip?: string }) {
+function Chip({ children, tip }: { children: ReactNode; tip?: string }) {
   return (
-    <span data-tip={tip} className={cx("inline-flex h-[22px] shrink-0 items-center gap-1 rounded-md px-2 text-meta whitespace-nowrap", tone === "good" ? "bg-good/12 text-good" : tone === "warn" ? "bg-warn-wash text-warn-ink" : "bg-raised text-ink-2")}>
+    <span data-tip={tip} className="inline-flex h-[22px] shrink-0 items-center gap-1 rounded-md bg-raised px-2 text-meta whitespace-nowrap text-ink-2">
       {children}
     </span>
   );

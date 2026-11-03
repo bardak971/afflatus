@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Clapperboard, Gauge, Link2, Pause, Play, Repeat, Scissors, Split, ZoomIn, ZoomOut } from "lucide-react";
 import { stripUrl, type Asset } from "./api";
 import { clock, plural } from "./format";
 import { Kbd } from "./Keys";
 import { Select } from "./Select";
-import { Button, CloseButton, cx } from "./ui";
+import { Button, CloseButton } from "./ui";
 import { useSettled } from "./hooks";
 import { frameSpan, stepFrames } from "./frameStep";
 import { stamp, STRIP_FRAMES, type Range } from "./trim/range";
@@ -58,16 +58,10 @@ export function RangeFrames({ asset, range }: { asset: Asset; range: Range }) {
  * to the range (useTrimKeys). The In and Out handles take the arrows too, a frame at a time (Shift: ten). Its parts are
  * in trim/: the strips (Strip), the playhead's loop (useFrameLoop), the frame under the mouse (usePeek), the wheel's zoom.
  */
-export function Trim({ asset, player, busy, initial, actions, compact, onCopy, onSplit, onRemove, onSlow, onBetween, onExtendHere, onRange, scenes, onEveryScene, onClose }: {
+export function Trim({ asset, player, busy, onCopy, onSplit, onRemove, onSlow, onBetween, onExtendHere, onRange, scenes, onEveryScene, onClose }: {
   asset: Asset;
   player: RefObject<HTMLVideoElement | null>;
   busy?: boolean;
-  /** The range to start on (a timeline clip: what plays of its take); the whole video otherwise. */
-  initial?: Range;
-  /** A host's own action row (the timeline's), in place of the library's. */
-  actions?(ctx: { range: Range; at: number; crf: number; whole: boolean }): ReactNode;
-  /** Less tall, where the video above needs the room (the timeline). */
-  compact?: boolean;
   onCopy?(range: Range, crf: number): void;
   onSplit?(range: Range, crf: number): void;
   onRemove?(range: Range, crf: number): void;
@@ -87,7 +81,7 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
   const duration = asset.durationMs ?? 0;
   const fps = asset.fps && asset.fps > 0 ? asset.fps : 24;
   const frameMs = 1000 / fps;
-  const [range, setRange] = useState<Range>(initial ? { startMs: Math.max(0, initial.startMs), endMs: Math.min(duration, initial.endMs) } : { startMs: 0, endMs: duration });
+  const [range, setRange] = useState<Range>({ startMs: 0, endMs: duration });
   const [at, setAt] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [looping, setLooping] = useState(false);
@@ -168,14 +162,14 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
   /** One strip: the whole video, or the part zoomed into. */
   const bar = (win: Range, kind: "whole" | "zoom", src: string, tall: boolean) => (
     <Strip
-      key={kind} assetId={asset.id} win={win} kind={kind} src={src} tall={tall} compact={compact} range={range} at={at} zoom={zoom} settledZoom={settledZoom}
+      key={kind} assetId={asset.id} win={win} kind={kind} src={src} tall={tall} range={range} at={at} zoom={zoom} settledZoom={settledZoom}
       scenes={scenes} hover={hover} peek={peek} dragging={dragging} duration={duration} frameMs={frameMs} player={player}
       moveIn={moveIn} moveOut={moveOut} showFrom={showFrom} setHover={setHover} placed={(el) => { wheelTargets.current[kind] = el; }}
     />
   );
 
   return (
-    <div ref={root} className={cx("flex w-full shrink-0 flex-col rounded-xl border border-line-strong bg-panel", compact ? "gap-1.5 p-2" : "gap-2 p-3")} onClick={(e) => e.stopPropagation()}>
+    <div ref={root} className="flex w-full shrink-0 flex-col gap-2 rounded-xl border border-line-strong bg-panel p-3" onClick={(e) => e.stopPropagation()}>
       <div className="flex items-center gap-2 text-xs text-ink-2">
         <Scissors size={14} className="text-accent" />
         <span className="font-semibold text-ink">Trim</span>
@@ -210,7 +204,7 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
           {/* one label whether zoomed or not, so that the row does not move when it is pressed */}
           <Button size="sm" tone={zoom ? "primary" : "plain"} aria-pressed={Boolean(zoom)} onClick={() => zoomTo(zoom ? null : roomy(range))} data-tip={zoom ? "Back to the whole video" : "Zoom into the range: a second strip, down to one tile per frame. The mouse wheel on a strip zooms too."}>{zoom ? <ZoomOut size={13} /> : <ZoomIn size={13} />} Zoom <Kbd>Z</Kbd></Button>
         </div>
-        {!actions && (onBetween || onExtendHere) && (
+        {(onBetween || onExtendHere) && (
           <>
             <span className="grow" />
             <div role="group" aria-label="New clip" className="flex items-center gap-1">
@@ -221,15 +215,6 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
         )}
       </div>
 
-      {actions ? (
-        <div className="flex flex-wrap items-center gap-1.5 border-t border-line pt-2">
-          {actions({ range, at, crf: crfN, whole })}
-          <span className="grow" />
-          <div className="w-44">
-            <Select size="sm" className="h-8" label="Quality of the cut" value={crf} onChange={choose} options={CRFS} />
-          </div>
-        </div>
-      ) : (
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-line pt-2">
         <div role="group" aria-label="Cut and scenes" className="flex items-center gap-1">
           <CutButtons what="video" busy={Boolean(busy)} whole={whole} edge={range.startMs <= 0 || range.endMs >= duration} onCopy={() => onCopy?.(range, crfN)} onSplit={() => onSplit?.(range, crfN)} onRemove={() => onRemove?.(range, crfN)} />
@@ -247,7 +232,6 @@ export function Trim({ asset, player, busy, initial, actions, compact, onCopy, o
           </div>
         )}
       </div>
-      )}
     </div>
   );
 }

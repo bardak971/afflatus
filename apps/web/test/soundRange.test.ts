@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { pausesIn } from "../src/pauses";
-import { firstPart } from "../src/SoundRange";
+import { firstPart, pausesOfSound } from "../src/SoundRange";
 
 describe("a part of a sound", () => {
-  it("finds the pauses: a quarter second at least well under the loud parts, the sound's quiet ends included", () => {
-    // ten samples a second: quiet 0.3 s, words, a 0.5 s pause, words, a 0.2 s dip (too short), words, quiet to the end
-    const db = [-70, -70, -70, -12, -10, -14, -60, -60, -60, -60, -60, -11, -13, -60, -60, -12, -10, -65, -65, -65];
-    expect(pausesIn(db)).toEqual([{ from: 0, to: 3 }, { from: 6, to: 11 }, { from: 17, to: 20 }]);
+  it("snaps to the pauses the server cuts recordings at, not to its own reading of the loudness", () => {
+    // GET /assets/:id/pauses, in seconds: the very marks a recording dropped on a timeline is cut into clips at
+    expect(pausesOfSound({ pauses: [{ start: 0, end: 0.31 }, { start: 2.4, end: 2.95 }] })).toEqual([{ from: 0, to: 0.31 }, { from: 2.4, to: 2.95 }]);
+    // not read (yet, or the sound could not be): nothing to snap to
+    expect(pausesOfSound(undefined)).toEqual([]);
   });
 
   it("starts with the whole sound when it fits, else up to the last pause that fits", () => {

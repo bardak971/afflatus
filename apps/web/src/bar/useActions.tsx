@@ -25,7 +25,6 @@ import { atTop } from "../screens/queue/order";
 import { settingHref } from "../screens/settings/settingsIndex";
 import { useQueueOf } from "../screens/studio/queueOf";
 import { useSayFailed } from "../sayFailed";
-import { copyText } from "../secureContext";
 import { useBanners, useHandover, useOpenDraft, useStudio } from "../store";
 import { openKeys } from "../keys/search";
 import { NO_ASSET, useItemActions } from "../useItemActions";
@@ -35,7 +34,7 @@ import { pageLabel, type SettingCtx } from "./settingsRegistry";
 import { commandActions } from "./actions/commands";
 import { searchValueActions } from "./actions/search";
 import { whereAsk, whereQuery } from "./actions/models";
-import type { Action, BarCtx, FolderEntry, RenderTimeline, TimelineAim, TimelineEntry } from "./actions/ctx";
+import { copySaid, type Action, type BarCtx, type FolderEntry, type RenderTimeline, type TimelineAim, type TimelineEntry } from "./actions/ctx";
 import { historyActions, kitActions, personActions } from "./actions/kit";
 import { jobActions } from "./actions/queue";
 import { renderActions } from "./actions/renders";
@@ -249,7 +248,7 @@ export function useBarActions({ subject, about, aim, settingCtx, onCopied, flash
         return jobActions(x, it);
       case "calc": {
         const c = it.card!;
-        return [{ label: `Copy ${c.copy}`, icon: <Copy size={14} />, stay: true, run: () => copyText(c.copy).then(() => onCopied(c.copy), () => onCopied("")) }];
+        return [{ label: `Copy ${c.copy}`, icon: <Copy size={14} />, stay: true, run: () => copySaid({ onCopied }, c.copy, c.copy) }];
       }
       case "history":
         return historyActions(x, it.history!);

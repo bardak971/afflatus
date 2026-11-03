@@ -14,7 +14,7 @@ import { cx } from "./ui";
  * that moment (to play from), a drag draws a new stretch from it. `quiet`: the knobs show on hover, focus or a drag
  * only (always on a touch screen).
  */
-export function RangeSlider({ from, to, min, max, step = 1, gap, most, snapAt, track: drawn, onPick, quiet, onChange, onCommit, label, format, className }: {
+export function RangeSlider({ from, to, min, max, step = 1, gap, most, snapAt, track: drawn, onPick, quiet, onChange, onCommit, label, format }: {
   from: number;
   to: number;
   min: number;
@@ -37,7 +37,6 @@ export function RangeSlider({ from, to, min, max, step = 1, gap, most, snapAt, t
   label: string;
   /** How a value is written in the bubble and for screen readers. */
   format?(value: number): string;
-  className?: string;
 }) {
   const track = useRef<HTMLSpanElement>(null);
   // the knob being dragged, and the pair while it moves
@@ -150,7 +149,7 @@ export function RangeSlider({ from, to, min, max, step = 1, gap, most, snapAt, t
   };
 
   return (
-    <span className={cx("flex min-w-0 items-center", className)}>
+    <span className="flex min-w-0 items-center">
       <span
         ref={track}
         onPointerDown={(e) => {

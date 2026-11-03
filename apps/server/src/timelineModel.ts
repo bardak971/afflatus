@@ -1,5 +1,5 @@
 import type { EventEmitter } from "node:events";
-import { chunkAtOrAfter, clipMusicOf, follows, joinFade as fadeOf, landsOn, LATENT_FPS, latentClockOf, plannedSeconds, transitionOf, windowPlaysSeconds, type ClipMusic, type JoinTake, type Recipe, type Transition } from "@afflatus/core";
+import { chunkAtOrAfter, clipMusicOf, follows, joinFade as fadeOf, landsOn, LATENT_FPS, formGap, latentClockOf, plannedClipMs, transitionOf, type ClipMusic, type JoinTake, type Recipe, type Transition } from "@afflatus/core";
 import type { Db, Tables } from "./db";
 import type { Registry } from "./registry";
 import type { Storage } from "./storage";
@@ -189,31 +189,18 @@ export const visible = (t: Taken) => {
 export const lengthOf = (p: Placed) => (p.clip.kind === "still" ? (p.still ? p.clip.still_ms : 0) : p.active ? visible(p.active).end - visible(p.active).start : 0);
 /**
  * How long a clip is drawn in the editor: what it plays, or, with nothing to play yet, the length its form asks for (five
- * seconds when it says none, one at least). The same sum as the editor's layout (apps/web/src/timeline/model.ts), so the
- * command bar says the length the editor's header does.
+ * seconds when it says none, one at least). Core's plannedClipMs, the editor's layout's own sum, so the command bar says
+ * the length the editor's header does.
  */
 export const plannedLengthOf = (p: Placed, recipe: Recipe<any> | undefined, hiddenMs = 0) => {
   const plays = lengthOf(p);
   if (plays > 0) return plays;
   // `hiddenMs`: what its take will hide of its end (a window run past a part kept removed: SourcePlan.hidden)
-  // a window of a source plays what it shows of it, its carried frames not counted twice (windowPlaysSeconds)
-  const inputs = JSON.parse(p.clip.inputs) as Record<string, unknown>;
-  return Math.max(1000, ((recipe ? windowPlaysSeconds(recipe, inputs, p.clip.joined) ?? plannedSeconds(recipe.inputs, inputs) : null) ?? 5) * 1000 - hiddenMs);
+  return plannedClipMs(recipe, JSON.parse(p.clip.inputs) as Record<string, unknown>, p.clip.joined, hiddenMs);
 };
 
-/**
- * A video clip's form filled enough to render, as the editor's ready() reads it: its texts written, its pictures chosen,
- * an opening picture that the clip before gives not asked for. Whether ComfyUI and the model files are there is not said here.
- */
-export function formFilled(recipe: Recipe<any>, inputs: Record<string, unknown>, from: { carries: boolean; afterStill: boolean }): boolean {
-  for (const i of recipe.inputs) {
-    if (i.type === "prompt" && ((!i.optional && i.default === undefined) || i.example) && !String(inputs[i.id] ?? "").trim()) return false;
-    const given = from.carries && i.type === "image" && ((i.role === "start" && (recipe.traits?.continues === "frame" || from.afterStill)) || Boolean(i.opensOnly));
-    if (i.type === "image" && !i.optional && !inputs[i.id] && !given) return false;
-    if (i.type === "clip" && i.role === "source" && !i.optional && !inputs[i.id]) return false;
-  }
-  return true;
-}
+/** A video clip's form filled enough to render, as the editor's ready() reads it: core's formGap finds nothing missing. */
+export const formFilled = (recipe: Recipe<any>, inputs: Record<string, unknown>, from: { carries: boolean; afterStill: boolean }): boolean => formGap(recipe, inputs, from) === null;
 /** What a take that opens on a still says it carried on from. */
 export const stillRef = (assetId: string) => `still:${assetId}`;
 

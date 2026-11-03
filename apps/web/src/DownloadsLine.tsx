@@ -209,7 +209,7 @@ export function LineList({ line, full, head }: { line: Line; full?: boolean; hea
  * The status bar's chip: "2 ↓ · 8 waiting" with a ring of the first file's share (one file alone: its name and share), and
  * the line as a popover, one group per ComfyUI with several. Nothing while nothing comes.
  */
-export function DownloadsChip({ className }: { className?: string }) {
+export function DownloadsChip() {
   const { lines } = useLines();
   const where = useWhere();
   const anchor = useRef<HTMLButtonElement>(null);
@@ -230,7 +230,7 @@ export function DownloadsChip({ className }: { className?: string }) {
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         data-tip="Model files coming into ComfyUI: they go on if this page is closed. Click for the line, its order and what is left."
-        className={cx("inline-flex h-6 min-w-0 shrink-0 items-center gap-1.5 rounded-chip border border-accent bg-raised px-2 text-xs text-ink hover:bg-hover", className)}
+        className="inline-flex h-6 min-w-0 shrink-0 items-center gap-1.5 rounded-chip border border-accent bg-raised px-2 text-xs text-ink hover:bg-hover"
       >
         <span aria-hidden className="size-3 shrink-0 rounded-full" style={{ background: `conic-gradient(var(--color-accent) 0 ${share * 100}%, var(--color-line-strong) ${share * 100}% 100%)` }} />
         {alone ? (
@@ -319,7 +319,7 @@ export function usePlaces() {
  * places, a menu of them all, the choice kept for that folder on that ComfyUI (card #59). Nothing for a ComfyUI that does
  * not say its folders.
  */
-export function GoesTo({ folder, className }: { folder: string; className?: string }) {
+export function GoesTo({ folder }: { folder: string }) {
   const machine = useContext(DownloadTo);
   const places = usePlaces();
   const client = useQueryClient();
@@ -339,7 +339,7 @@ export function GoesTo({ folder, className }: { folder: string; className?: stri
   const said = <span className="truncate font-mono">→ {f.goes}</span>;
   if (!several) {
     const tip = f.fixed && f.places.length > 1 ? "Where the file goes on disk. Downloads reach this ComfyUI through ComfyUI-Manager or an older Afflatus node pack, which cannot be told another of its places." : "Where the file goes on disk";
-    return <span className={cx("inline-flex min-w-0 items-center text-xs text-ink-3", className)} data-tip={tip}>{said}</span>;
+    return <span className="inline-flex min-w-0 items-center text-xs text-ink-3" data-tip={tip}>{said}</span>;
   }
   const current = f.chosen ?? f.places.find((p) => p.shown === f.goes)?.path;
   return (
@@ -347,7 +347,7 @@ export function GoesTo({ folder, className }: { folder: string; className?: stri
       <button
         type="button"
         onClick={(e) => setAt(menuAt(e, e.currentTarget))}
-        className={cx("inline-flex min-w-0 items-center gap-0.5 rounded-control text-xs text-ink-3 hover:text-ink", className)}
+        className="inline-flex min-w-0 items-center gap-0.5 rounded-control text-xs text-ink-3 hover:text-ink"
         data-tip={`ComfyUI reads ${folder} from ${f.places.length} places: choose where downloads go. Kept for ${folder} on this ComfyUI (Settings › Models).`}
       >
         {said}

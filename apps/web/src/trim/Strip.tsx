@@ -15,13 +15,12 @@ export interface Hover {
  * on it where they fall in its window; a press moves the playhead, the handles drag (and take the arrows), and the frame
  * under the mouse is shown above it. What it changes is Trim's (`range`, the playhead, `hover`): two strips share it.
  */
-export function Strip({ assetId, win, kind, src, tall, compact, range, at, zoom, settledZoom, scenes, hover, peek, dragging, duration, frameMs, player, moveIn, moveOut, showFrom, setHover, placed }: {
+export function Strip({ assetId, win, kind, src, tall, range, at, zoom, settledZoom, scenes, hover, peek, dragging, duration, frameMs, player, moveIn, moveOut, showFrom, setHover, placed }: {
   assetId: string;
   win: Range;
   kind: "whole" | "zoom";
   src: string;
   tall: boolean;
-  compact?: boolean;
   range: Range;
   at: number;
   zoom: Range | null;
@@ -83,7 +82,7 @@ export function Strip({ assetId, win, kind, src, tall, compact, range, at, zoom,
   return (
     <div
       data-bar={kind}
-      className={cx("relative w-full cursor-crosshair touch-none rounded-lg bg-raised select-none", compact ? (tall ? "h-11" : "h-8") : tall ? "h-16" : "h-12")}
+      className={cx("relative w-full cursor-crosshair touch-none rounded-lg bg-raised select-none", tall ? "h-16" : "h-12")}
       onPointerDown={(e) => {
         // a press anywhere but on a handle moves the playhead there
         if ((e.target as HTMLElement).closest("[role=slider]")) return;

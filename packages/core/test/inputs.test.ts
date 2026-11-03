@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isShown, parseInput, pickChoice, RANDOM_SEED, schemaFor, type InputSpec } from "../src";
+import { formGap, isShown, parseInput, pickChoice, plannedClipMs, plannedSeconds, RANDOM_SEED, schemaFor, type InputSpec } from "../src";
 
 const specs: InputSpec[] = [
   { id: "prompt", type: "prompt", label: "Tags", style: "tags" },
@@ -144,5 +144,51 @@ describe("a form refused by its schema", () => {
     expect(refusal({ description: "A boat.", source: "a1", steps: 90 })?.message).toMatch(/^Steps: too big/);
     expect(refusal({ description: "A boat.", source: "a1", nope: 1 })?.message).toBe('the form has no "nope"');
     expect(refusal({ description: "A boat.", source: "a1" })).toBeNull();
+  });
+});
+
+describe("how long a clip not rendered yet will be (card #260)", () => {
+  // a Video with audio form: its own Duration, and the recording it plays over (internal: a timeline sets it, card #72)
+  const overRecording = [
+    { id: "description", type: "prompt", label: "What happens" },
+    { id: "seconds", type: "number", label: "Duration", default: 8, min: 1, max: 15 },
+    { id: "recording", type: "audio", label: "Recording", role: "sound", internal: true, window: { start: "recordingStart", seconds: "recordingSeconds", fits: { frames: 241, fps: 24, pad: 0.25, min: 1 } } },
+  ] as unknown as InputSpec[];
+
+  it("is the recording's part under a recording, whatever the clip's own Duration says, in the form as on the server", () => {
+    const values = { seconds: 8, recording: "zz-test-recording", recordingStart: 4, recordingSeconds: 3 };
+    expect(plannedSeconds(overRecording, values)).toBe(3);
+    // the form checks the sound cues against the clip the part makes (its pad), not against the 8 s Duration (the
+    // page's own copy put the Duration first: a cue at 5 s passed there, and the render refused it)
+    expect(plannedSeconds(overRecording, values, { fitted: true })).toBeCloseTo(3.25, 5);
+    // no recording laid on it: its own Duration
+    expect(plannedSeconds(overRecording, { seconds: 8 }, { fitted: true })).toBe(8);
+  });
+
+  it("is drawn on the timeline at that length, five seconds when the form says none, less what its take hides", () => {
+    const recipe = { inputs: overRecording };
+    expect(plannedClipMs(recipe, { seconds: 8, recording: "zz-test-recording", recordingSeconds: 3 }, undefined)).toBe(3000);
+    expect(plannedClipMs(recipe, { seconds: 8 }, undefined, 500)).toBe(7500);
+    expect(plannedClipMs(undefined, {}, undefined)).toBe(5000);
+    expect(plannedClipMs(recipe, { seconds: 1 }, undefined, 900)).toBe(1000);
+  });
+});
+
+describe("a clip's form filled enough to render (card #260)", () => {
+  const motion = {
+    inputs: [
+      { id: "description", type: "prompt", label: "What happens" },
+      { id: "picture", type: "image", label: "Start picture", role: "start" },
+      { id: "source", type: "clip", label: "Driving video", role: "source", frames: [0] },
+    ] as unknown as InputSpec[],
+    traits: { continues: "frame" as const },
+  };
+
+  it("says what is missing first, in the editor's words, and nothing once it is filled", () => {
+    expect(formGap(motion, {}, { carries: false, afterStill: false })).toBe("Write what happens first.");
+    expect(formGap(motion, { description: "zz-test" }, { carries: false, afterStill: false })).toBe("Choose the start picture first.");
+    // the clip before gives its opening picture
+    expect(formGap(motion, { description: "zz-test" }, { carries: true, afterStill: false })).toBe("It has no driving video: drop one on the Source lane under the track.");
+    expect(formGap(motion, { description: "zz-test", picture: "p1", source: { asset: "v1" } }, { carries: false, afterStill: false })).toBeNull();
   });
 });

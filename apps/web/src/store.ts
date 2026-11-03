@@ -28,16 +28,6 @@ export type BrowserTicks = Partial<Record<NotifyKind, boolean>>;
 type NotifyState = { browser: BrowserTicks; banner: boolean };
 
 /**
- * This browser's notices from before they were per kind (version 0): "after each render" was a render done or failed,
- * "when the queue is empty" the queue's own; carried over, so that nobody loses their choice.
- */
-export function notifyMigrate(old: unknown, version: number): NotifyState {
-  const o = (old && typeof old === "object" ? old : {}) as Partial<NotifyState> & { whenEmpty?: boolean; eachRender?: boolean };
-  if (version >= 1) return { browser: o.browser ?? {}, banner: o.banner ?? true };
-  return { banner: o.banner ?? true, browser: { renderDone: Boolean(o.eachRender), renderFailed: Boolean(o.eachRender), queueEmpty: Boolean(o.whenEmpty) } };
-}
-
-/**
  * What this browser should tell you about, with a notification of its own (the server's notices, per kind: nothing more
  * leaves the computer), and whether the app's own banner says when renders finish while another screen is open (`banner`;
  * failures are always said). Kept per browser: a notification is shown by the browser that asked for it.
@@ -49,7 +39,8 @@ export const useNotify = create<NotifyState & { set(patch: { browser?: BrowserTi
       banner: true,
       set: (patch) => set((s) => ({ ...(patch.banner === undefined ? {} : { banner: patch.banner }), ...(patch.browser ? { browser: { ...s.browser, ...patch.browser } } : {}) })),
     }),
-    { name: "afflatus.notify", version: 1, migrate: notifyMigrate },
+    // what was saved, as it is: a store left at another version would be dropped without a migrate
+    { name: "afflatus.notify", version: 1, migrate: (saved) => saved as never },
   ),
 );
 
@@ -153,10 +144,11 @@ export const useOpenDraft = create<{ id: string | null; under?: ProjectChoice; l
 
 /**
  * Whether forms explain their settings in full, a line under each control, or keep the explanations
- * behind a small ? that tells on hover. On at first: a form explains itself until it is known.
+ * behind a small ? that tells on hover. Off at first: the explanations wait behind the ?.
  */
-export const useExplain = create<{ on: boolean; set(on: boolean): void }>()(// version 1: the explanations start folded behind the ? (they started open before: that stored value is dropped)
-persist((set) => ({ on: false, set: (on) => set({ on }) }), { name: "afflatus.explain", version: 1, migrate: () => ({ on: false }) }));
+export const useExplain = create<{ on: boolean; set(on: boolean): void }>()(
+  persist((set) => ({ on: false, set: (on) => set({ on }) }), { name: "afflatus.explain", version: 1, migrate: (saved) => saved as never }),
+);
 
 /** How wide the side panel that holds a form is, in pixels: dragged by its edge, remembered. */
 export const PANEL = { least: 380, most: 720, usual: 440 };
@@ -174,8 +166,6 @@ export const usePanelWidth = create<{ width: number; set(width: number): void }>
  * shapes): at 380 they broke onto a second one.
  */
 export const EDITOR_COLUMN = { least: 320, most: 720, usual: 420 };
-/** The usual width before it was 420: a column left at it (never dragged) takes the new one. */
-const OLD_USUAL = 380;
 export const useEditorColumn = create<{ width: number; folded: boolean; set(width: number): void; fold(folded: boolean): void }>()(
   persist(
     (set) => ({
@@ -187,10 +177,7 @@ export const useEditorColumn = create<{ width: number; folded: boolean; set(widt
     {
       name: "afflatus.editor-column",
       version: 1,
-      migrate: (saved, version) => {
-        const s = (saved ?? {}) as { width?: number; folded?: boolean };
-        return version < 1 && s.width === OLD_USUAL ? { ...s, width: EDITOR_COLUMN.usual } : s;
-      },
+      migrate: (saved) => saved as never,
     },
   ),
 );
@@ -228,10 +215,8 @@ export const useStudio = create<{
 }>()(
   persist((set) => ({ form: true, folded: false, size: "M", displays: {}, groupBy: "none", timelineSort: "recent", timelineSize: "M", scope: "draft", place: { type: "all" }, set: (patch) => set(patch) }), {
     name: "afflatus.studio",
-    // version 1: the form starts open until folded once. A browser that used the Studio before knows where Create is: it
-    // counts as folded, and opens as it did
     version: 1,
-    migrate: (saved) => ({ ...(saved as object), folded: true }) as never,
+    migrate: (saved) => saved as never,
   }),
 );
 // The address says whether the form is open when the app is loaded ("/create" open, "/" closed), over what was

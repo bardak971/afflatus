@@ -1,4 +1,4 @@
-import { plural, type InputSpec, type Recipe } from "@afflatus/core";
+import { BATCH, plural, type InputSpec, type Recipe } from "@afflatus/core";
 import { guessModel, type Bindings, type Inspection } from "@afflatus/workflows";
 import { z } from "zod";
 import { itemEmbedded } from "./embedded-api";
@@ -226,7 +226,7 @@ const runWorkflow = tool({
   input: {
     workflow: z.string().min(1).describe("The workflow's form id (list_workflows), its slug, or its title."),
     values: z.record(z.string(), z.unknown()).optional().describe("Its inputs by id."),
-    takes: z.number().int().min(1).max(8).optional().describe("How many takes (1–8); 1 when left out."),
+    takes: z.number().int().min(BATCH.least).max(BATCH.most).optional().describe(`How many takes (${BATCH.least}–${BATCH.most}); 1 when left out.`),
     machine: z.string().optional().describe("A machine's id or name (overview); left out, the queue picks among those this token may use."),
     label: z.string().max(200).optional(),
   },

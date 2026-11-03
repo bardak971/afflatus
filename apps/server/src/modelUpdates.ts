@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import type { FastifyInstance } from "fastify";
-import { z } from "zod";
 import type { ModelInfo } from "@afflatus/core";
 import { civitaiGet } from "./civitai";
 import { now, type Tables } from "./db";
@@ -263,12 +262,5 @@ export function registerModelUpdates(app: FastifyInstance, s: Services, updates:
   app.post("/api/models/hashes/run", async () => {
     void s.hashes.run();
     return s.hashes.status();
-  });
-  /** A file's row forgotten: it is matched again at the next check (after the user replaced it, say). */
-  app.delete("/api/models/updates/:folder", async (req) => {
-    const { folder } = z.object({ folder: z.enum(UPDATE_FOLDERS) }).parse(req.params);
-    const { file } = z.object({ file: z.string().min(1).max(400) }).parse(req.query);
-    await s.db.deleteFrom("model_updates").where("folder", "=", folder).where("name", "=", fileName(file)).execute();
-    return { ok: true };
   });
 }

@@ -304,7 +304,7 @@ async function fileOne(
   // kept as ComfyUI made it. A clip continued in the latent once had 36 ms cut out of its sound where its run-up ends (a
   // near-silent token measured 2026-10-04, before the seam decode): the sound then ran 36 ms ahead of its picture past the
   // join and ended in silence, heard at every join, with no hole left to close (measured 2026-10-21 on Timeline 24 and a
-  // zz-test Swap motion: ComfyUI's file in step with its source, the stored take 42 ms off)
+  // zz-test swap of a source: ComfyUI's file in step with its source, the stored take 42 ms off)
   const id = newId();
   const key = `assets/${id.slice(0, 2)}/${id}.${ext}`;
   const rawKey = rawBytes && side.raw ? `assets/${id.slice(0, 2)}/${id}.raw.${extOf(mimeOfFile(side.raw.filename))}` : null;

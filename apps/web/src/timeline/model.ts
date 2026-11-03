@@ -1,4 +1,4 @@
-import { FRAME_SLACK_MS, plannedSeconds, REMOVED_RECIPES, windowPlaysSeconds } from "@afflatus/core";
+import { FRAME_SLACK_MS, plannedClipMs, REMOVED_RECIPES } from "@afflatus/core";
 import type { Asset, Clip, ClipPatch, RecipeInfo, Take } from "../api";
 import { clock } from "../format";
 
@@ -40,15 +40,6 @@ export interface Slot {
 }
 
 /**
- * How long a clip that is not rendered yet will be: the length its form asks for (or its window's), or five seconds; less
- * what its take will hide of its end (`hiddenMs`: a window run past a part kept removed).
- */
-function plannedMs(clip: Clip, recipe: RecipeInfo | undefined): number {
-  // a window of a source plays what it shows of it, its carried frames not counted twice (windowPlaysSeconds)
-  return Math.max(1000, ((recipe ? windowPlaysSeconds(recipe, clip.inputs, clip.joined) ?? plannedSeconds(recipe.inputs, clip.inputs) : null) ?? 5) * 1000 - (clip.hiddenMs ?? 0));
-}
-
-/**
  * The clips side by side, each as wide as it is long. `stretch` replaces the length of one clip while
  * its edge is being dragged.
  */
@@ -56,7 +47,7 @@ export function layout(clips: Clip[], pps: number, recipes: RecipeInfo[], stretc
   let at = 0;
   return clips.map((clip, index) => {
     const planned = clip.lengthMs <= 0;
-    const lengthMs = stretch?.clip === clip.id ? stretch.lengthMs : planned ? plannedMs(clip, recipes.find((r) => r.id === clip.recipe)) : clip.lengthMs;
+    const lengthMs = stretch?.clip === clip.id ? stretch.lengthMs : planned ? plannedClipMs(recipes.find((r) => r.id === clip.recipe), clip.inputs, clip.joined, clip.hiddenMs ?? 0) : clip.lengthMs;
     const slot = { clip, index, startMs: at, lengthMs, left: PAD + (at / 1000) * pps, width: (lengthMs / 1000) * pps, planned };
     at += lengthMs;
     return slot;

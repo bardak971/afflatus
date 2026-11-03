@@ -2,7 +2,7 @@ import { useExplain } from "./store";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Film, ImagePlus, Music, Upload } from "lucide-react";
-import { CUE_MAX_SECONDS, type ClipValue, type CueValue, type ReferenceRole, type ReferenceValue } from "@afflatus/core";
+import { CUE_MAX_SECONDS, exactSoundPart, soundPartOf, type ClipValue, type CueValue, type ReferenceRole, type ReferenceValue } from "@afflatus/core";
 import { Select } from "./Select";
 import { api, thumbUrl, type Asset } from "./api";
 import { Dialog, DialogHead } from "./Dialog";
@@ -602,8 +602,7 @@ export function SoundField({ label, note, optional, value, onChange, part, cast 
   // the cast's sample is sent with the part set on the person, when one is
   const asked = part ? (fromCast?.part ?? { start: part.start, seconds: part.seconds }) : null;
   // the part as it will be cut: from where it was asked as long as two seconds are left, ending where the sound ends
-  const from = asked ? (total === null ? asked.start : Math.max(0, Math.min(asked.start, total - 2))) : 0;
-  const lasts = asked ? (total === null ? asked.seconds : Math.max(0.1, Math.min(asked.seconds, total - from))) : 0;
+  const { start: from, seconds: lasts } = asked ? soundPartOf(asked.start, asked.seconds, total) : { start: 0, seconds: 0 };
   // a part moved on the cast's sample makes it the form's own, with that part: this render only, the person keeps theirs
   const setPart = (start: number, seconds: number) => {
     if (fromCast) onChange(fromCast.asset);
@@ -718,8 +717,7 @@ function CueRow({ index, cue, clipSeconds, onChange, onRemove }: { index: number
   const total = asset.data?.durationMs ? asset.data.durationMs / 1000 : null;
   const name = `Sound cue ${index + 1}`;
   // the part as the server cuts it: from where it was asked, ending where the sound ends
-  const from = total === null ? cue.start : Math.max(0, Math.min(cue.start, total - 0.05));
-  const lasts = total === null ? cue.seconds : Math.max(0.05, Math.min(cue.seconds, total - from));
+  const { start: from, seconds: lasts } = exactSoundPart(cue.start, cue.seconds, total);
   const most = Math.min(CUE_MAX_SECONDS, total ?? CUE_MAX_SECONDS);
   const setPart = (start: number, seconds: number) => onChange({ ...cue, start, seconds });
   // a sound added with all of it asked: its own length once known, so that its ends say what is used

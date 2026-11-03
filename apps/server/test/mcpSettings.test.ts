@@ -65,7 +65,7 @@ describe("every setting is said", () => {
 describe("read_settings", () => {
   it("says each setting with its value and \"?\" text; one with its schema; secrets said set, never read back", async () => {
     await updateSettings(t.db, () => ({
-      runpodKey: "rpa_SECRET_runpod_0123456789", civitaiKey: "SECRET_civitai_key", huggingFaceToken: "hf_SECRET_token", runpodS3User: "user_SECRET", runpodS3Secret: "SECRET_s3",
+      runpodKey: "rpa_SECRET_runpod_0123456789", civitaiKey: "SECRET_civitai_key", huggingFaceToken: "hf_SECRET_token", runpodS3Secret: "SECRET_s3",
       llms: [{ id: "main", baseUrl: "http://127.0.0.1:1234/v1", model: "qwen", apiKey: "sk-SECRET-llm" }],
       notify: { telegramToken: "123456789:AAE_SECRET_0123456789abcdef", telegramChat: "@SECRET_chat", discordWebhook: "https://discord.com/api/webhooks/1/SECRET" },
     }));

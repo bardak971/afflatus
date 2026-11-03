@@ -19,7 +19,7 @@ const SHORTEST = 8;
 /** Every secret the settings hold, by value: the sites' keys, Telegram's and Discord's, the LLMs' keys and each machine's lock token. */
 export function secretsOf(settings: Settings): string[] {
   const all = [
-    settings.civitaiKey, settings.huggingFaceToken, settings.runpodKey, settings.runpodS3User, settings.runpodS3Secret,
+    settings.civitaiKey, settings.huggingFaceToken, settings.runpodKey, settings.runpodS3Secret,
     settings.notify.telegramToken, settings.notify.discordWebhook,
     ...settings.llms.map((l) => l.apiKey),
     ...settings.machines.map((m) => m.token),

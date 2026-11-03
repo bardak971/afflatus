@@ -3,7 +3,7 @@ import { cx } from "../ui";
 import { useCopied } from "../hooks";
 
 /** The seed a render went out with, as a small button that copies it: "Copied" for a moment once it is on the clipboard. */
-export function SeedButton({ seed, className }: { seed: number; className?: string }) {
+export function SeedButton({ seed }: { seed: number }) {
   const { copied, copy: copyIt } = useCopied();
   const copy = () => copyIt(String(seed));
   return (
@@ -12,7 +12,7 @@ export function SeedButton({ seed, className }: { seed: number; className?: stri
       onClick={copy}
       data-tip="Copy the seed"
       aria-label={`Copy the seed ${seed}`}
-      className={cx("inline-flex max-w-full cursor-copy items-center gap-1 rounded-md border border-line-strong bg-raised px-1.5 font-mono text-meta leading-[18px] text-ink hover:bg-hover", className)}
+      className="inline-flex max-w-full cursor-copy items-center gap-1 rounded-md border border-line-strong bg-raised px-1.5 font-mono text-meta leading-[18px] text-ink hover:bg-hover"
     >
       {/* both laid in one cell: the button keeps its width while it says "Copied" */}
       <span className="grid">

@@ -87,15 +87,11 @@ describe("newer versions on Civitai", () => {
     // the setting for the daily check is kept
     await t.app.inject({ method: "PUT", url: "/api/settings", payload: { updateChecks: true } });
     expect((await get(t.app, "/api/settings")).json().updateChecks).toBe(true);
-    // a file's row forgotten by name; without a name there is nothing to forget, and that is said rather than failed
-    expect((await t.app.inject({ method: "DELETE", url: "/api/models/updates/loras" })).statusCode).toBe(400);
-    expect((await t.app.inject({ method: "DELETE", url: "/api/models/updates/loras?file=Soft_Light.safetensors" })).statusCode).toBe(200);
-    expect((await get(t.app, "/api/models/updates")).json().items).toEqual([]);
   });
 });
 
 describe("a check that does not go through", () => {
-  it("is said on the report until one does, and logged when it was the daily one; a folder that holds no versions is refused", async () => {
+  it("is said on the report until one does, and logged when it was the daily one", async () => {
     await t.app.inject({ method: "PUT", url: "/api/settings", payload: { civitaiLookups: true, updateChecks: true } });
     const comfy = t.services.comfy;
     t.services.comfy = async () => {
@@ -106,8 +102,6 @@ describe("a check that does not go through", () => {
     t.services.comfy = comfy;
     expect((await post(t.app, "/api/models/updates/check", {})).json().error).toBeNull();
     expect((await get(t.app, "/api/models/updates")).json().error).toBeNull();
-    expect((await t.app.inject({ method: "DELETE", url: "/api/models/updates/x%20y?file=x.safetensors" })).statusCode).toBe(400);
-    expect((await t.app.inject({ method: "DELETE", url: "/api/models/updates/vae?file=x.safetensors" })).statusCode).toBe(400);
   });
 });
 

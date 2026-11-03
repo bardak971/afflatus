@@ -13,6 +13,7 @@ export * from "./presets";
 export * from "./packs";
 export * from "./seed";
 export * from "./limits";
+export * from "./machineRules";
 export * from "./joins";
 export * from "./transitions";
 export * from "./sourceWindows";

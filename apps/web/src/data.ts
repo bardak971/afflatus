@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { keepPreviousData, useInfiniteQuery, useQuery, type InfiniteData, type QueryClient } from "@tanstack/react-query";
 import { api, type Asset, type HistoryPage, type Timeline, type TimesPeriod, type TimesWindow } from "./api";
 import { mergeTop } from "./assetCache";
-import { familyOnFor } from "./machines";
+import { familyOnFor } from "@afflatus/core";
 import { withFreshHead } from "./screens/queue/historyHead";
 import { useProject } from "./project";
 import { queryKeys } from "./queryKeys";

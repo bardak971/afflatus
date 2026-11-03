@@ -4,7 +4,7 @@ import { api, type Clip, type Timeline } from "../../api";
 import type { Clock } from "../clock";
 import type { Slot } from "../model";
 import { motionOf } from "../measures";
-import { pausesIn } from "../../pauses";
+import { pausesIn } from "@afflatus/core";
 import { queryKeys } from "../../queryKeys";
 
 /** How much moves along a video and how loud it is, as the server measures it. */
@@ -114,12 +114,12 @@ function motionAlong(s: Slot, m: Motion | undefined): ClipMotion {
     }
     curve = smooth.map((v) => v / peak);
   }
-  // pauses: stretches of at least a quarter second well under the loud parts, between sounds (not the clip's silent ends)
+  // pauses (core pausesIn, the one rule the server cuts by), between sounds: not the clip's silent ends
   const pauses: number[] = [];
   if (m.sound && m.sound.length && s.clip.sound === "own") {
     const to = Math.min(m.sound.length - 1, Math.ceil(take.endMs / step));
     const db = m.sound.slice(from, to + 1);
-    for (const p of pausesIn(db)) if (p.from > 0 && p.to < db.length) pauses.push(s.clip.atMs + ((from + (p.from + p.to) / 2) * step - take.startMs));
+    for (const p of pausesIn(db, m.rate)) if (p.from > 0 && p.to < db.length) pauses.push(s.clip.atMs + ((from + (p.from + p.to) / 2) * step - take.startMs));
   }
   return { slot: s, curve, quiet, pauses };
 }

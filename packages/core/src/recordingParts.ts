@@ -33,6 +33,66 @@ export interface RecordingPart {
 /** Where a part ended: in a pause, at a lyric line's end, at the quietest moment of its window, or at the length asked. */
 export type CutOn = "pause" | "line" | "quiet" | "length";
 
+/**
+ * What a pause in a sound is, everywhere it is looked for (card #260): quiet for at least `leastS` seconds, quiet being
+ * `quietDb` under the sound's loudest, so that a take recorded quietly has pauses too and a room's hum is still quiet.
+ * The server reads it off the samples with ffmpeg (where recordings are cut into clips, and how long a part's sound stays
+ * quiet after it); the page reads it off the loudness it is sent (pausesIn).
+ */
+export const PAUSE = { quietDb: 30, leastS: 0.2 } as const;
+
+/**
+ * How far the loudest tenth of a second's RMS level sits under the sound's peak (ffmpeg's max_volume), for speech: a
+ * pause read off the loudness (pausesIn) is then the one the server reads off the samples.
+ */
+const RMS_UNDER_PEAK_DB = 10;
+
+/**
+ * The pauses in a sound's loudness (`db`, `rate` samples a second, RMS levels as the server measures them): runs of
+ * PAUSE.leastS at least (`leastS` when a caller wants longer ones) under PAUSE.quietDb from its loudest, never louder than
+ * -25 dB. The loudest is the loudest tenth of the samples, so one shout does not make the rest pauses. As samples, `from`
+ * the first quiet one, `to` the first loud one after (the sound's length when it ends quiet).
+ */
+export function pausesIn(db: readonly number[], rate: number, leastS: number = PAUSE.leastS): Array<{ from: number; to: number }> {
+  if (!db.length) return [];
+  const loud = [...db].sort((a, b) => a - b)[Math.floor(db.length * 0.9)] ?? 0;
+  const threshold = Math.min(loud + RMS_UNDER_PEAK_DB - PAUSE.quietDb, -25);
+  // a sample spans 1/rate s: a run of that many samples is quiet that long, give or take a sample at each end
+  const min = Math.max(1, Math.ceil(leastS * rate - 1e-9));
+  const out: Array<{ from: number; to: number }> = [];
+  let run = -1;
+  for (let k = 0; k <= db.length; k++) {
+    const low = k < db.length && db[k]! < threshold;
+    if (low && run < 0) run = k;
+    if (!low && run >= 0) {
+      if (k - run >= min) out.push({ from: run, to: k });
+      run = -1;
+    }
+  }
+  return out;
+}
+
+/**
+ * The part of a sound that is used, given how long the sound is (`total` seconds, null when not known): from where it was
+ * asked as long as two seconds are left after it, ending where the sound ends when that comes first. The server cuts a
+ * voice's part so (soundPart), and its field shows it so (card #260).
+ */
+export function soundPartOf(start: number, seconds: number, total: number | null): { start: number; seconds: number } {
+  if (total === null) return { start: Math.max(0, start), seconds };
+  const from = Math.max(0, Math.min(start, total - 2));
+  return { start: from, seconds: Math.max(0.1, Math.min(seconds, total - from)) };
+}
+
+/**
+ * The part of a sound as it was asked (a sound cue: a clap of half a second, its part from 0.3 s), the start never moved back
+ * for two seconds after it as soundPartOf does for a voice; it ends where the sound ends when that comes first.
+ */
+export function exactSoundPart(start: number, seconds: number, total: number | null): { start: number; seconds: number } {
+  if (total === null) return { start: Math.max(0, start), seconds };
+  const from = Math.max(0, Math.min(start, total - 0.05));
+  return { start: from, seconds: Math.max(0.05, Math.min(seconds, total - from)) };
+}
+
 /** The window a recording is cut in as it is dropped: the length asked ± 1.5 s. */
 export const CUT_WINDOW = 1.5;
 /** The widest window the recording's panel takes: past it, a clip's length is anything its model holds. */

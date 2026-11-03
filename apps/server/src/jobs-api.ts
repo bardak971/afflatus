@@ -1,4 +1,4 @@
-import { expandWildcards, movedSeed, typedSeed, type InputSpec, type Recipe } from "@afflatus/core";
+import { BATCH, expandWildcards, movedSeed, typedSeed, type InputSpec, type Recipe } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { compose, lookSchema, withMentions, type Look } from "./entities";
@@ -17,7 +17,7 @@ export const jobBody = z.strictObject({
   input: z.record(z.string(), z.unknown()),
   label: z.string().max(200).optional(),
   /** "Make 4 pictures": the same job this many times. Each draws its own seed when the seed is random. */
-  count: z.number().int().min(1).max(8).default(1),
+  count: z.number().int().min(BATCH.least).max(BATCH.most).default(1),
   /** A typed seed that moves: each copy takes the next seed up or down from the one sent (the form's "+1" / "−1"). */
   seedMode: z.enum(["up", "down"]).optional(),
   /** Who is in it and how it looks: worked into the form before it is queued. */
@@ -199,10 +199,6 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
   app.post<{ Params: { id: string } }>("/api/jobs/:id/retry", async (req) => {
     const body = z.strictObject({ input: z.record(z.string(), z.unknown()).optional() }).parse(req.body ?? {});
     return { id: await s.queue.again(req.params.id, body.input) };
-  });
-  app.delete<{ Params: { id: string } }>("/api/jobs/:id", async (req) => {
-    if (!(await s.queue.dismiss(req.params.id))) throw notFound("a finished job");
-    return { ok: true };
   });
 
   /** Every waiting job cancelled in one request ("Cancel all waiting"); with `ids`, only those of them that still wait. The running job goes on. */

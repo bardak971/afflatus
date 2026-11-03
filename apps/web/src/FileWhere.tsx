@@ -4,7 +4,7 @@ import { api } from "./api";
 import { useCopied } from "./hooks";
 import { queryKeys } from "./queryKeys";
 import { useSayFailed } from "./sayFailed";
-import { cx, IconButton } from "./ui";
+import { IconButton } from "./ui";
 
 /** A path that wraps after its separators, at a folder, rather than in the middle of a name. */
 const wrapped = (path: string) => path.split(/(?<=[\\/])/).flatMap((part, i) => (i ? [<wbr key={i} />, part] : [part]));
@@ -29,7 +29,7 @@ function PlaceLine({ text, onShow, busy }: { text: string; onShow?: () => void; 
  * are copied then. The page never sends a path: Show in folder names the file and which of its places, the server finds it.
  * Find models › Yours, Settings › Models' files and a finished download's line all show it.
  */
-export function FileWhere({ folder, file, machine, className }: { folder: string; file: string; machine?: string; className?: string }) {
+export function FileWhere({ folder, file, machine }: { folder: string; file: string; machine?: string }) {
   const where = useQuery({
     queryKey: queryKeys.modelFileWhere(folder, file, machine),
     queryFn: ({ signal }) => api.modelFileWhere({ folder, file, ...(machine ? { machine } : {}) }, { signal }),
@@ -40,7 +40,7 @@ export function FileWhere({ folder, file, machine, className }: { folder: string
   const d = where.data;
   if (!d) return null;
   return (
-    <span className={cx("flex min-w-0 flex-col", className)}>
+    <span className="flex min-w-0 flex-col">
       {d.places.length
         ? d.places.map((p, i) => <PlaceLine key={p.path} text={p.path} busy={show.isPending} onShow={d.reveal ? () => show.mutate(i) : undefined} />)
         : <PlaceLine text={`${folder}/${file}`} />}

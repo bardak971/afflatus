@@ -3,9 +3,9 @@ import { fileUrl, type Asset, type CommandEntry } from "../../api";
 import type { MenuItem } from "../../ContextMenu";
 import { formPlaces } from "../../formTarget";
 import { placeMenu } from "../../itemActions";
-import { copyPicture, copyText } from "../../secureContext";
+import { copyPicture } from "../../secureContext";
 import { askViewer } from "../../viewer/ask";
-import type { Action, BarCtx } from "./ctx";
+import { copySaid, type Action, type BarCtx } from "./ctx";
 
 /** A submenu of the app's own menus, laid flat: "Timeline › Add to Harbor walk". */
 function flatten(items: MenuItem[], path = ""): Action[] {
@@ -34,9 +34,9 @@ function subjectActions(x: BarCtx, a: Asset, project: string | null): Action[] {
     open: () => setViewing(a),
     trim: openWith("trim"),
     details: openWith("details"),
-    "copy-seed": () => item.seed !== null && copyText(String(item.seed)).then(() => x.onCopied(`the seed ${item.seed}`), () => x.onCopied("")),
-    "copy-prompt": () => item.prompt && copyText(item.prompt).then(() => x.onCopied("the prompt"), () => x.onCopied("")),
-    ...(item.runs["copy-image"] ? { "copy-image": () => void copyPicture(fileUrl(a.id)).then(() => x.onCopied("the picture"), () => x.onCopied("")) } : {}),
+    "copy-seed": () => item.seed !== null && copySaid(x, `the seed ${item.seed}`, String(item.seed)),
+    "copy-prompt": () => item.prompt && copySaid(x, "the prompt", item.prompt),
+    ...(item.runs["copy-image"] ? { "copy-image": () => void copySaid(x, "the picture", copyPicture(fileUrl(a.id))) } : {}),
   }, { "save-frame": "the first frame" });
   const places = formPlaces(x.formTarget, a);
   const own: MenuItem[] = [

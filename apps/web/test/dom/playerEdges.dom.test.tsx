@@ -34,7 +34,7 @@ describe("the timeline's player, drawn", () => {
 describe("the audio player, drawn", () => {
   it("is no longer the one that plays once it is gone from the screen (W-14)", async () => {
     vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(() => Promise.resolve());
-    const { container, unmount } = draw(<AudioPlayer src="/zz-test.mp3" name="zz-test sound" />);
+    const { container, unmount } = draw(<AudioPlayer asset="zz-test-sound" name="zz-test sound" />);
     const el = container.querySelector("audio")!;
     fireEvent.click(screen.getByRole("button", { name: "Play" }));
     unmount();

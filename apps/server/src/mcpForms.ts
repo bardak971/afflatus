@@ -1,4 +1,4 @@
-import { formDefaults, madeAroundRecording, plural, sentForm, type InputSpec, type Recipe } from "@afflatus/core";
+import { BATCH, formDefaults, madeAroundRecording, plural, sentForm, type InputSpec, type Recipe } from "@afflatus/core";
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
 import { z } from "zod";
 import { OWNER } from "./db";
@@ -282,7 +282,7 @@ const estimate = tool({
   scope: "look",
   title: "Estimate",
   description: "What rendering a draft as it stands (or a form with values) would take, as Generate says it: the time from the user's own past renders on each machine this token may use (each take with the model load, which the batch pays once: loadMs), what it would cost on a rented pod, and the model set check (files that do not go together; a mix that gives black frames is refused at Render). Null times: nothing like it was rendered here yet.",
-  input: { ...formArgs, takes: z.number().int().min(1).max(8).optional().describe("How many takes (1–8); a draft's own batch when left out."), machine: z.string().optional().describe("A machine's id (overview); left out, the queue picks.") },
+  input: { ...formArgs, takes: z.number().int().min(BATCH.least).max(BATCH.most).optional().describe(`How many takes (${BATCH.least}–${BATCH.most}); a draft's own batch when left out.`), machine: z.string().optional().describe("A machine's id (overview); left out, the queue picks.") },
   async run(args, ctx) {
     const { s } = ctx;
     const at = await seen(s);

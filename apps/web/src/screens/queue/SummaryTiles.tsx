@@ -120,8 +120,8 @@ export function SummaryTiles({ d }: { d: TimesSummary }) {
           subTip="Length of all clips made · GPU time of the video models per second of clip"
           delta={change(t.videoMs, prior?.videoMs)} deltaTip={prior ? `${vs}: ${maybe(prior.videoMs)}` : undefined}
         >
-          {/* the length made per stretch; a server from before it was sent has the count of videos instead */}
-          <Spark values={d.finished.videoMs ?? d.finished.videos} color="var(--color-good)" />
+          {/* the length made per stretch */}
+          <Spark values={d.finished.videoMs} color="var(--color-good)" />
         </Headline>
       </div>
       <div className="grid grid-cols-4 overflow-hidden rounded-2xl border border-line bg-panel xl:grid-cols-7">

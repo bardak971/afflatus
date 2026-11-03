@@ -1,5 +1,5 @@
 import { setTimeout as sleep } from "node:timers/promises";
-import { notFilled, plural, verb, type Recipe } from "@afflatus/core";
+import { BATCH, notFilled, plural, verb, type Recipe } from "@afflatus/core";
 import { z } from "zod";
 import type { Tables } from "./db";
 import { compose, lookSchema, withMentions, type Look } from "./entities";
@@ -383,7 +383,7 @@ const render = tool({
   description: "Render a draft as it stands (or a form with values): N takes, on a machine or wherever the queue would end it first. The same path as Create's Render, with the same refusals (an unfilled input, files that give black frames). The token's renders-an-hour limit holds; a rented pod needs Spend (a token without it never lands on one, picked or pinned) and stays within the token's spend cap, its waiting and running work counted. Answers the job ids (job, queue_status follow them) and what it may cost; a client that follows MCP Tasks gets that answer as a task, with each job's end, and has nothing to wait for (job's wait is for the others). Render a draft when the user should be able to open and change what made the take in Create (new_draft, edit_draft); a form with values leaves no draft. A video comes out on the model's own frame count, a little off the seconds asked (H3's 6 s: 5.875 s): not a failure.",
   input: {
     ...formArgs,
-    takes: z.number().int().min(1).max(8).optional().describe("How many takes (1–8); a draft's own batch when left out."),
+    takes: z.number().int().min(BATCH.least).max(BATCH.most).optional().describe(`How many takes (${BATCH.least}–${BATCH.most}); a draft's own batch when left out.`),
     machine: z.string().optional().describe("A machine's id or name (overview); left out, the queue picks among those this token may use."),
     label: z.string().max(200).optional(),
   },

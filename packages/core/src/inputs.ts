@@ -550,7 +550,7 @@ function schemaOf(spec: InputSpec): z.ZodType {
     }
     case "model": {
       // with a slot behind it, leaving it out means the slot's file; so does an empty pick (the form's, its folder holding
-      // nothing yet): a Swap motion's first window was refused for the ControlNet only its later windows take
+      // nothing yet): a source's first window was refused for a ControlNet only its later windows took
       const s: z.ZodType = spec.slot ? z.preprocess((v) => (v === "" ? undefined : v), z.string().min(1).optional()) : spec.default ? z.string().min(1).default(spec.default) : z.string().min(1);
       // OWN_MODEL only where the input offers it: elsewhere it is no file, and reached the loader to fail the job at its
       // submit (a pod's boot paid), as SeedVR2's or the latent upscaler's set to it by an agent
@@ -733,18 +733,41 @@ export function secondsOf(specs: InputSpec[], values: Record<string, unknown>): 
  * How long a clip of this form will be before it is rendered, in seconds: its length input, else the part of a video or a
  * sound it is made from (a Motion transfer window's driving video, a Lip sync clip's recording), which sets its length.
  * Null when neither says. A window carrying on from the clip before plays a few frames less than its part; close enough
- * to place a clip not made yet.
+ * to place a clip not made yet. `fitted`: a part as the clip made around it holds it (partFit: the frames it pads it with,
+ * on its model's frame grid), what the form checks its sound cues against; the editor and the server place clips by the
+ * part itself. One rule for the form, the editor and the server (card #260).
  */
-export function plannedSeconds(specs: InputSpec[], values: Record<string, unknown>): number | null {
+export function plannedSeconds(specs: InputSpec[], values: Record<string, unknown>, opts: { fitted?: boolean } = {}): number | null {
+  const fitted = (spec: InputSpec, part: number) => (opts.fitted && (spec.type === "clip" || spec.type === "audio") && spec.window?.fits ? partFit(spec.window.fits, specs, values).clip(part) : part);
   // under a recording it plays over (card #72), the part sets the clip's length, whatever its own Duration says
   const recording = recordingSpecOf(specs);
   const part = recording && values[recording.id] ? Number(values[recording.window.seconds]) : NaN;
-  if (Number.isFinite(part) && part > 0) return part;
+  if (recording && Number.isFinite(part) && part > 0) return fitted(recording, part);
   const own = secondsOf(specs, values);
   if (own !== null) return own;
   for (const i of specs) {
     const part = (i.type === "clip" || i.type === "audio") && i.window ? Number(values[i.window.seconds]) : NaN;
-    if (Number.isFinite(part) && part > 0) return part;
+    if (Number.isFinite(part) && part > 0) return fitted(i, part);
+  }
+  return null;
+}
+
+/**
+ * Why a video clip's form is not filled enough to render, or null when it is: a text not written, a picture not chosen,
+ * a source video not dropped. An opening picture the clip before gives (`carries`: it picks up from that clip's last
+ * frame, or opens on the still before it, `afterStill`) is not asked for, nor one only a clip that opens needs. Whether
+ * ComfyUI and the model files are there is not said here. One rule for the editor's ready() and the server's "ready to
+ * render" (card #260).
+ */
+export function formGap(recipe: { inputs: readonly InputSpec[]; traits?: { continues?: string | false } | null }, values: Record<string, unknown>, from: { carries: boolean; afterStill: boolean }): string | null {
+  for (const i of recipe.inputs) {
+    if (i.type === "prompt" && ((!i.optional && i.default === undefined) || i.example) && !String(values[i.id] ?? "").trim()) return `Write ${i.label.toLowerCase()} first.`;
+    // a clip that picks up from the last frame of the one before, or opens on the picture before it, needs no opening picture
+    // of its own; nor one whose picture only a clip that opens needs (Motion transfer after a swap)
+    const given = from.carries && i.type === "image" && ((i.role === "start" && (recipe.traits?.continues === "frame" || from.afterStill)) || Boolean(i.opensOnly));
+    if (i.type === "image" && !i.optional && !values[i.id] && !given) return `Choose the ${i.label.toLowerCase()} first.`;
+    // a source video (Motion transfer's driving video) comes from the timeline's source lane
+    if (i.type === "clip" && i.role === "source" && !i.optional && !values[i.id]) return `It has no ${i.label.toLowerCase()}: drop one on the Source lane under the track.`;
   }
   return null;
 }

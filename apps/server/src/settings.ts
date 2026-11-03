@@ -4,6 +4,7 @@ import { LIMITS, presetFileSchema, sigmaOfOldDenoise } from "@afflatus/core";
 import { envSaid } from "./config";
 import type { Db } from "./db";
 import { httpError } from "./errors";
+import { isNetworkPath } from "./linked";
 import { oneAtATime } from "./keyedLock";
 import { tokenSecret } from "./runpod";
 
@@ -248,13 +249,19 @@ const accessSchema = z.object({
 });
 export type AccessSettings = z.infer<typeof accessSchema>;
 
+/**
+ * A ComfyUI folder on this computer, never one on a network share (card #249): the server reads it at every check (its
+ * Python's ffmpeg, its model folders), and on Windows each read signs in to the share as the account Afflatus runs as.
+ */
+const comfyFolder = z.string().max(400).refine((dir) => !isNetworkPath(dir), "A ComfyUI folder on a network share (\\\\server\\share) is not read: mount the share as a folder of this computer first, then use that folder.").default("");
+
 export const machineSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]{1,24}$/, "a machine id is lower-case letters, digits and dashes"),
   /** What the user calls it ("Studio PC", "Second GPU"); empty: its address is shown. */
   name: z.string().trim().max(40).default(""),
   url: httpUrl,
   /** Its ComfyUI folder on this computer, when they share a disk (the node pack is written there); empty otherwise. */
-  dir: z.string().max(400).default(""),
+  dir: comfyFolder,
   /**
    * The address its folder was emptied at by hand (Settings): no folder is looked for there again (services.ts comfyFolder,
    * at each start), or the node pack would be written back into a ComfyUI the user said is not on this disk. Another
@@ -302,7 +309,7 @@ export const settingsSchema = z.object({
    * folder of ComfyUI Desktop and of --base-directory), when they share a disk.
    * Lets Afflatus put a workflow where ComfyUI's page opens it straight away. Empty when ComfyUI is elsewhere.
    */
-  comfyDir: z.string().max(400).default(""),
+  comfyDir: comfyFolder,
   /** ComfyUI's models are unloaded after this many minutes without a render. 0: never, they stay until something else needs the room. */
   unloadAfterMinutes: z.number().min(0).max(24 * 60).default(0),
   /** The language models of the prompt designer. None = the designer is off. */
@@ -340,10 +347,9 @@ export const settingsSchema = z.object({
   /** The RunPod API key, for rented machines (runpod.ts): a secret, never given to the page. */
   runpodKey: z.string().default(""),
   /**
-   * RunPod's S3 API key (RunPod â€º Settings â€º S3 API Keys), for the volume viewer (runpodS3.ts): its access key, the RunPod
-   * user's id, shown; and its secret, never given to the page. Not the API key above.
+   * RunPod's S3 API key's secret (RunPod › Settings › S3 API Keys), for the volume viewer (runpodS3.ts), never given to
+   * the page; its access key is the account's own id, which RunPod says (volumeFiles.ts s3Facts). Not the API key above.
    */
-  runpodS3User: z.string().trim().max(120).default(""),
   runpodS3Secret: z.string().trim().max(200).default(""),
   /** What the rented GPUs may cost, in USD, today and this month (rented.ts); 0: no cap. At a cap the running render ends, then they stop. */
   rentCaps: z.object({ day: z.number().min(0).max(100_000).default(0), month: z.number().min(0).max(1_000_000).default(0) }).default({ day: 0, month: 0 }),
@@ -461,17 +467,14 @@ export function readSettings(db: Db): Promise<Settings> {
 
 async function load(db: Db): Promise<Settings> {
   const rows = await db.selectFrom("settings").select(["key", "value"]).execute();
-  const raw: Record<string, unknown> = {};
+  const rest: Record<string, unknown> = {};
   for (const r of rows) {
     try {
-      raw[r.key] = JSON.parse(r.value);
+      rest[r.key] = JSON.parse(r.value);
     } catch {
       // a value that isn't JSON falls back to its default
     }
   }
-  // before there was a list, there was one model under "llm": it is the first of the list
-  const { llm: one, ...rest } = raw;
-  if (rest.llms === undefined && one && typeof one === "object" && (one as { baseUrl?: string }).baseUrl) rest.llms = [{ id: "main", ...one }];
   rest.finish = finishNow(rest.finish);
   // a list of machines never written is an install from before there could be several (or none): its ComfyUI is the first
   // machine. One written, even empty (a new install's, seedNewInstall; every machine removed), is the list as it is
@@ -636,7 +639,7 @@ export async function seedNewInstall(db: Db): Promise<void> {
   await written(db, { machines: [], allFamilies: true, firstLaunch: "pending", rentCaps: { day: 5, month: 25 } });
 }
 
-const KEYS = [...Object.keys(settingsSchema.shape), "llm"];
+const KEYS = Object.keys(settingsSchema.shape);
 
 /** The scheme, host and port of an address; the text itself when it is not an address. */
 function originOf(url: string): string {
@@ -666,9 +669,9 @@ function keptToken(stored: Machine | undefined, url: unknown): string {
 }
 
 /**
- * Merges a partial update, validates the whole, stores only the keys that were sent. One write at a time: a list sent
- * the short way ("llm") or a key kept from before is worked out from the settings as they are, and a write landing
- * between that reading and the writing was undone by it.
+ * Merges a partial update, validates the whole, stores only the keys that were sent. One write at a time: a key kept
+ * from before is worked out from the settings as they are, and a write landing between that reading and the writing was
+ * undone by it.
  */
 export function writeSettings(db: Db, patch: unknown): Promise<Settings> {
   return oneAtATime(db, "settings", () => written(db, patch, true));
@@ -702,17 +705,10 @@ async function written(db: Db, patch: unknown, fromPage = false, forget = ""): P
   if (fromPage) delete sent.leftSecrets;
   if (fromPage) delete sent.pendingDeploys;
   const current = await readSettings(db);
-  // "llm" changes the model in use (or makes the first one): the short way, for one model
-  if (sent.llm && typeof sent.llm === "object") {
-    const used = llmInUse(current);
-    const asked = sent.llm as { baseUrl?: unknown; apiKey?: unknown };
-    const next = { ...(used ?? { id: "main" }), ...asked, ...(asked.apiKey === undefined ? { apiKey: keptKey(used, asked.baseUrl) } : {}) };
-    sent.llms = used ? current.llms.map((l) => (l.id === used.id ? next : l)) : [...current.llms, next];
-  } else if (Array.isArray(sent.llms)) {
+  if (Array.isArray(sent.llms)) {
     // a key that is not sent again stays, as long as the model still points at the same server: the browser is never given it back to send
     sent.llms = (sent.llms as Array<{ id?: string; baseUrl?: unknown; apiKey?: string }>).map((l) => (l.apiKey === undefined ? { ...l, apiKey: keptKey(current.llms.find((c) => c.id === l.id), l.baseUrl) } : l));
   }
-  delete sent.llm;
   // the machines whose folder this write empties on purpose: the Connection card's folder saved empty (`comfyDir`), or a
   // machine's own sent with `clearDir`. Any other empty folder is not taken as the user's word (see `dirCleared` below)
   const byHand = new Set<unknown>();
@@ -949,7 +945,6 @@ export function publicSettings(s: Settings, here: (url: string) => boolean = () 
     hasCivitaiKey: Boolean(s.civitaiKey),
     hasHuggingFaceToken: Boolean(s.huggingFaceToken),
     hasRunpodKey: Boolean(s.runpodKey),
-    runpodS3User: s.runpodS3User,
     hasRunpodS3Secret: Boolean(s.runpodS3Secret),
     rentCaps: s.rentCaps,
     costs: s.costs,

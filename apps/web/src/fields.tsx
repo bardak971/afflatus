@@ -1,5 +1,5 @@
 import { useId } from "react";
-import { addedRows, pickChoice, RANDOM_SEED, partFit, secondsOf, type PartFit, type ClipValue, type CueValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
+import { addedRows, pickChoice, RANDOM_SEED, partFit, plannedSeconds, type PartFit, type ClipValue, type CueValue, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import type { FamilyInfo } from "./api";
 import { useCastPictures, useCastVoice } from "./castPictures";
 import { FileSelect, FOLDER_OF, ModelField } from "./fields/FileSelect";
@@ -47,22 +47,6 @@ function partProps(w: { start: string; seconds: string; fits?: PartFit } | undef
       onValue(w.seconds, seconds);
     },
   };
-}
-
-/**
- * How long the clip these values make will be, its own part (after the frames of a clip before), when the form says: its
- * length, else what the part of the sound or the source it is made around makes (a lip sync's recording, a swap's window).
- */
-function clipSecondsOf(specs: InputSpec[] | undefined, values: Record<string, unknown> | undefined): number | null {
-  if (!specs || !values) return null;
-  const own = secondsOf(specs, values);
-  if (own !== null) return own;
-  for (const i of specs) {
-    if ((i.type !== "audio" && i.type !== "clip") || !i.window?.fits || !values[i.id]) continue;
-    const part = Number(values[i.window.seconds]);
-    if (Number.isFinite(part) && part > 0) return partFit(i.window.fits, specs, values).clip(part);
-  }
-  return null;
 }
 
 export function Field({ spec, value, values, specs, options, setup, family, model, onChange, onValue, main, bare, standard }: {
@@ -214,7 +198,7 @@ export function Field({ spec, value, values, specs, options, setup, family, mode
       );
 
     case "cues":
-      return <CuesField label={spec.label} note={spec.note} max={spec.max} value={(value as CueValue[] | undefined) ?? []} onChange={onChange} clipSeconds={clipSecondsOf(specs, values)} />;
+      return <CuesField label={spec.label} note={spec.note} max={spec.max} value={(value as CueValue[] | undefined) ?? []} onChange={onChange} clipSeconds={specs && values ? plannedSeconds(specs, values, { fitted: true }) : null} />;
 
     case "clip":
       return (

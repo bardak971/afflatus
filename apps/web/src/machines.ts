@@ -1,5 +1,5 @@
 import type { MachineState, PodFile, QueueStatus, RentedState } from "./api";
-import { stepSaid } from "@afflatus/core";
+import { hasOutsideWork, POD_BOOT_LIMIT_MIN, stepSaid } from "@afflatus/core";
 import { gb, minutesSaid, plural, usd } from "./format";
 
 /** Several ComfyUIs (Settings › ComfyUI): how a machine is named on screen, and what the screens read of them. */
@@ -11,7 +11,7 @@ export type MachineWord = "rendering" | "busy outside Afflatus" | "getting files
 export const OUTSIDE_TIP = "ComfyUI is running work queued from elsewhere (its own page, another tool); Afflatus sends nothing there until it is done.";
 
 /** Whether a machine's ComfyUI has work queued from outside Afflatus (its own page, another tool), running or waiting. */
-export const busyOutside = (m: { outside?: MachineState["outside"] }): boolean => Boolean(m.outside && m.outside.running + m.outside.pending > 0);
+export const busyOutside = (m: { outside?: MachineState["outside"] }): boolean => hasOutsideWork(m.outside);
 
 /** That work in a few words: "1 prompt running, 2 queued in ComfyUI"; null when it has none. */
 export function outsideSaid(m: { outside?: MachineState["outside"] }): string | null {
@@ -144,20 +144,11 @@ export function machineUnloadBlock(m: { online: boolean | null; running: unknown
   return null;
 }
 
-/**
- * Whether a family is on for one machine: switched there by hand, else by the switch of every machine, else on with
- * `all` (a new install's rule: the switch says "I want it"), else by its files there. The server's rule (machineScans.ts
- * familyOn): what the queue sends a machine is what this says.
- */
-export function familyOnFor(own: Readonly<Record<string, boolean>>, said: Readonly<Record<string, boolean>>, family: string, found: boolean, all = false): boolean {
-  return own[family] ?? said[family] ?? (all || found);
-}
-
 /** Where a deployed pod's first start is (the server's podBoot.ts bootOf). */
 export type RentedBoot = NonNullable<RentedState["boot"]>;
 
-/** How long a deployed pod may take to answer before Afflatus terminates it (the server's DEPLOYED_BOOT_LIMIT_MS). */
-export const BOOT_LIMIT_MIN = 20;
+/** How long a deployed pod may take to answer before Afflatus terminates it (the server's rule, core's). */
+const BOOT_LIMIT_MIN = POD_BOOT_LIMIT_MIN.deployed;
 
 /** A pod's running time, as its boot and its run say it, to the second under an hour: "31s", "2m 14s", "1h 05m". */
 export function clock(ms: number): string {

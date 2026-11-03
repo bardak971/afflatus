@@ -1,5 +1,5 @@
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { api } from "../api";
+import { api, type Folder } from "../api";
 import { findAsset } from "../assetCache";
 import { changeAssets } from "../assetChange";
 import { bringFiles } from "../bringFiles";
@@ -229,13 +229,16 @@ export function useTreeActions() {
       }
     },
     /**
-     * A folder asked a name for, inside a folder, at the top of a project (in its root) or of the Inbox. Answers whether
-     * one was made. `typed`: the name already given (the command bar's "new folder <name>"), not asked again.
+     * A folder asked a name for, inside a folder, at the top of a project (in its root) or of the Inbox. Answers the folder
+     * made, or null. `typed`: the name already given (the command bar's "new folder <name>"), not asked again; `yes`: the
+     * button's word where more follows (an item's menu moves the item into it).
      */
-    async newFolder(where: { name: string; parent: string | null; project: string | null; typed?: string }) {
-      const name = where.typed || (await askText({ title: `New folder in ${where.name}`, value: "", placeholder: "Folder name", yes: "Create" }));
-      if (!name) return false;
-      return run(`${name} could not be made`, () => api.createFolder(name, where.parent, where.parent ? undefined : where.project));
+    async newFolder(where: { name: string; parent: string | null; project: string | null; typed?: string; yes?: string }): Promise<Folder | null> {
+      const name = (where.typed || (await askText({ title: `New folder in ${where.name}`, value: "", placeholder: "Folder name", yes: where.yes ?? "Create" })))?.trim();
+      if (!name) return null;
+      let made: Folder | null = null;
+      await run(`${name} could not be made`, async () => { made = await api.createFolder(name, where.parent, where.parent ? undefined : where.project); });
+      return made;
     },
     /**
      * Where something brought in to a project, the Inbox or a folder lands: the folder itself, the project's
@@ -297,7 +300,7 @@ export function useTreeActions() {
     async relink(r: Row) {
       const id = r.id;
       if (!id) return;
-      const path = await askText({ title: `Link ${r.label} again`, value: r.path ?? "", placeholder: "Where the folder is now, for example D:\images\shoots", yes: "Link again" });
+      const path = await askText({ title: `Link ${r.label} again`, value: r.path ?? "", placeholder: "Where the folder is now, for example D:\\images\\shoots", yes: "Link again" });
       if (!path) return;
       if (await run(`${r.label} could not be linked again`, () => api.relinkFolder(id, path))) {
         say({ id: `tree-relink:${Date.now()}`, tone: "good", title: `${r.label} linked again`, text: "Its files kept their places in your timelines and folders.", href: "/", go: "Open the Studio" });

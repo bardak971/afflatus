@@ -1,6 +1,6 @@
 import { carriedOf } from "@afflatus/core";
 import type { Clip, RecipeInfo, Timeline } from "../api";
-import { clock, plural, seconds } from "../format";
+import { clock, plural, seconds, verb } from "../format";
 import { recordingInput } from "./track/RecordingBand";
 import { madeFromSource, windowed } from "./track/SourceLane";
 
@@ -25,7 +25,7 @@ export function removalAsk(t: Timeline, recipes: RecipeInfo[], ids: string[], o:
     const name = `“${run.name}”`;
     const span = (cs: Clip[]) => seconds(run.span(cs.at(-1)!).to - run.span(cs[0]!).from);
     if (lead.length) {
-      lines.push(`${clipsSaid(lead, number)} ${lead.length > 1 ? "are" : "is"} the first of ${name}: In moves to ${at(run.span(kept[0]!).from)}, past ${lead.length > 1 ? "their" : "its"} ${span(lead)}.${run.kind === "source" && t.source?.pick ? " Who the swap replaces is clicked again on the new first frame." : ""}`);
+      lines.push(`${clipsSaid(lead, number)} ${verb(lead.length, "is", "are")} the first of ${name}: In moves to ${at(run.span(kept[0]!).from)}, past ${lead.length > 1 ? "their" : "its"} ${span(lead)}.${run.kind === "source" && t.source?.pick ? " Who the swap replaces is clicked again on the new first frame." : ""}`);
       // the clip first now opens it as the first removed did: its take, made carrying on from them, opens on their frames
       if (kept[0]!.take && kept[0]!.joined === "continue") lines.push(carriesOn(number(kept[0]!.id), number(lead.at(-1)!.id)));
     }
@@ -44,7 +44,7 @@ export function removalAsk(t: Timeline, recipes: RecipeInfo[], ids: string[], o:
       if (after.take && after.joined === "continue") lines.push(carriesOn(n, number(block.at(-1)!.id)));
       k = end;
     }
-    if (tail.length) lines.push(`${clipsSaid(tail, number)} ${tail.length > 1 ? "are" : "is"} the last of ${name}: Out moves to ${at(run.span(kept.at(-1)!).to)}, before ${tail.length > 1 ? "their" : "its"} ${span(tail)}. Set aside with ${tail.length > 1 ? "their" : "its"} takes, ${tail.length > 1 ? "they come" : "it comes"} back when Out is moved out again.`);
+    if (tail.length) lines.push(`${clipsSaid(tail, number)} ${verb(tail.length, "is", "are")} the last of ${name}: Out moves to ${at(run.span(kept.at(-1)!).to)}, before ${tail.length > 1 ? "their" : "its"} ${span(tail)}. Set aside with ${tail.length > 1 ? "their" : "its"} takes, ${tail.length > 1 ? "they come" : "it comes"} back when Out is moved out again.`);
   }
   if (!lines.length) return null;
   return {

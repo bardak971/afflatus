@@ -44,47 +44,40 @@ export function StageStrip({ job, className }: { job: Pick<RunningJob, "id" | "s
   );
 }
 
-export function LivePreview({ job, className, sound, volume }: {
+export function LivePreview({ job, className, sound }: {
   job: Pick<RunningJob, "id" | "previewSeq" | "previewMime">;
   className?: string;
   /** With its sound and a volume over it, where there is room to watch it; a click pauses or plays it. */
   sound?: boolean;
-  /**
-   * Its loudness set by the screen it is shown on (0 to 1, 0 = muted), as the timeline's own volume slider: then
-   * that screen's controls are the ones, and a click pauses or plays it.
-   */
-  volume?: number;
 }) {
   const live = useLiveSound();
   const heard = { volume: live.volume, muted: live.heardJob !== job.id };
   if (job.previewSeq <= 0) return null;
   const src = previewUrl(job.id, job.previewSeq);
-  const ruled = sound && volume !== undefined;
   if (job.previewMime?.startsWith("video/")) {
-    // where there is room to watch it with its sound: the app's volume over it, in place of the browser's controls
-    const own = sound && !ruled;
     const video = (
       <video
         // a new clip each step: the key starts the player again from its first frame
         key={job.previewSeq}
-        // the new player takes the sound as it was left on the one before it (or as the screen it is on says)
+        // the new player takes the sound as it was left on the one before it
         ref={(el) => {
           if (!el || !sound) return;
-          el.muted = ruled ? volume === 0 : heard.muted;
-          el.volume = ruled ? Math.max(0, Math.min(1, volume)) : heard.volume;
+          el.muted = heard.muted;
+          el.volume = heard.volume;
         }}
         src={src}
         autoPlay
         loop
-        muted={!sound || (ruled ? volume === 0 : heard.muted)}
+        muted={!sound || heard.muted}
         playsInline
         // full screen pauses and plays it by this mark
         data-live={sound ? "" : undefined}
         onClick={sound ? (e) => void (e.currentTarget.paused ? e.currentTarget.play().catch(() => {}) : e.currentTarget.pause()) : undefined}
-        className={own ? "h-full w-auto max-w-full rounded-[inherit] object-contain" : className}
+        className={sound ? "h-full w-auto max-w-full rounded-[inherit] object-contain" : className}
       />
     );
-    if (!own) return video;
+    if (!sound) return video;
+    // where there is room to watch it with its sound: the app's volume over it, in place of the browser's controls
     return (
       <div className={cx("relative inline-flex justify-center", className)}>
         {video}

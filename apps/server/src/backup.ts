@@ -36,8 +36,6 @@ const SECRET_SETTINGS: Record<string, (value: unknown) => unknown> = {
   huggingFaceToken: () => "",
   runpodKey: () => "",
   runpodS3Secret: () => "",
-  // the one model from before there was a list ("llm"), and the list
-  llm: (v) => (v && typeof v === "object" ? { ...v, apiKey: "" } : v),
   llms: (v) => (Array.isArray(v) ? v.map((l) => (l && typeof l === "object" ? { ...l, apiKey: "" } : l)) : v),
   machines: (v) => (Array.isArray(v) ? v.map((m) => (m && typeof m === "object" ? { ...m, token: "" } : m)) : v),
   notify: (v) => (v && typeof v === "object" ? { ...v, telegramToken: "", discordWebhook: "" } : v),

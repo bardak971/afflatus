@@ -88,7 +88,7 @@ const tiles = {
 };
 const times: TimesSummary = {
   period: "week", from: now - 7 * 86_400_000, to: now, step: 86_400_000, times: [], buckets: [], keepDays: 30, since: null, spanMs: 7 * 86_400_000, tiles,
-  finished: { images: [], videos: [], bad: [] }, phases: { loading: [], sampling: [], refining: [], finishing: [] },
+  finished: { images: [], videos: [], bad: [], videoMs: [] }, phases: { loading: [], sampling: [], refining: [], finishing: [] },
   wait: { usual: [], slow: [] }, gpu: { vram: [], heat: [] }, models: [],
 };
 

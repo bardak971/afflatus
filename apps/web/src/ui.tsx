@@ -200,14 +200,13 @@ export function AutoText({ value, className, rows = 2, ...rest }: Omit<TextareaH
  * A number to type: what is written is taken when the box is left or Enter is pressed, brought back
  * within its limits and onto its steps. A comma works as a decimal point.
  */
-export function NumberBox({ value, min, max, step = 1, unit, label, id, onCommit, className }: {
+export function NumberBox({ value, min, max, step = 1, unit, label, onCommit, className }: {
   value: number;
   min: number;
   max: number;
   step?: number;
   unit?: string;
   label: string;
-  id?: string;
   onCommit(value: number): void;
   className?: string;
 }) {
@@ -231,7 +230,6 @@ export function NumberBox({ value, min, max, step = 1, unit, label, id, onCommit
   return (
     <span className={cx("inline-flex items-baseline gap-1 font-mono text-ink-2", className)}>
       <input
-        id={id}
         aria-label={label}
         inputMode="decimal"
         value={text ?? value.toFixed(decimals)}
@@ -313,10 +311,10 @@ export function Help({ text, title, className, inside }: { text: string; title?:
 }
 
 /** A control's explanation: a line while forms explain themselves, else a ? that tells on hover. Nothing when there is nothing to say. */
-export function Note({ text, className }: { text?: string; className?: string }) {
+export function Note({ text }: { text?: string }) {
   const on = useExplain((s) => s.on);
   if (!text) return null;
-  return on ? <span className={cx("text-xs text-ink-2", className)}>{text}</span> : <Help text={text} className={className} />;
+  return on ? <span className="text-xs text-ink-2">{text}</span> : <Help text={text} />;
 }
 
 /**
@@ -615,12 +613,9 @@ export function ScrollColumn({ className, children }: { className?: string; chil
   );
 }
 
-/**
- * A heading inside a page or a panel, in two levels: a section (small capitals, quiet: MODEL, NEEDS A LOOK · 3) and a
- * group within it (sentence case, a step stronger than the text: After sampling). Two looks only, so that the levels read.
- */
-export function SectionTitle({ level = "section", className, children }: { level?: "section" | "group"; className?: string; children: ReactNode }) {
-  return <div className={cx(level === "section" ? "text-meta font-semibold tracking-label text-ink-3 uppercase" : "text-body font-semibold text-ink-2", className)}>{children}</div>;
+/** A heading inside a page or a panel: a section, in small capitals and quiet (MODEL, NEEDS A LOOK · 3). */
+export function SectionTitle({ className, children }: { className?: string; children: ReactNode }) {
+  return <div className={cx("text-meta font-semibold tracking-label text-ink-3 uppercase", className)}>{children}</div>;
 }
 
 /**
@@ -698,12 +693,10 @@ export function Spinner({ size = 12, tone = "accent", className }: { size?: numb
 
 /**
  * The app's progress bar (0–100), in the progress style this browser chose (progress/Progress.tsx). `steps`: the render's
- * step count, for the ticks of Steps; `loading`: a render with no figure yet (the model loading); `meter`: a gauge, not a
- * progress (a GPU's load), which never glides nor ticks.
+ * step count, for the ticks of Steps; `loading`: a render with no figure yet (the model loading).
  */
-export function Bar({ value, tone = "accent", steps, loading, meter }: { value: number; tone?: "accent" | "picture" | "warn"; steps?: number; loading?: boolean; meter?: boolean }) {
-  const color = tone === "accent" ? "bg-accent" : tone === "warn" ? "bg-warn" : "bg-picture";
-  return <Progress value={value / 100} tone={color} steps={steps} loading={loading} meter={meter} className="h-1.5" />;
+export function Bar({ value, steps, loading }: { value: number; steps?: number; loading?: boolean }) {
+  return <Progress value={value / 100} steps={steps} loading={loading} className="h-1.5" />;
 }
 
 /** Shown where a list has nothing in it yet: says what will appear and how to get it there. `help`: the why and the how, behind a "?" beside the title. */
@@ -746,22 +739,20 @@ export function Failed({ what, error, inline, polite, children }: { what: string
  * A button that asks once more before it does something that cannot simply be undone: pressed, it
  * becomes a word about what happens, the button that does it, and a way back. Left alone for a few
  * seconds, it folds back, unless it `stay`s (a delete: the question waits for an answer rather than
- * quietly giving up); Cancel and Escape always fold it. Without `label` it is the small icon button (a bin unless `icon` says
- * otherwise), named by `title`. With `open`, the asking is held from outside (a menu item asked it): only
+ * quietly giving up); Cancel and Escape always fold it. Without `label` it is the small icon button (a bin), named by
+ * `title`. With `open`, the asking is held from outside (a menu item asked it): only
  * the two buttons show while it is true, and `onCancel` folds it back.
  */
-export function TwoStep({ label, icon, title, note, yes, cancel = "Cancel", onYes, onAsk, onCancel, open, disabled, busy, tone, stay = tone === "danger", className }: {
+export function TwoStep({ label, title, note, yes, onYes, onAsk, onCancel, open, disabled, busy, tone, stay = tone === "danger" }: {
   /** What the button says before it asks; left out, a small icon button. */
   label?: ReactNode;
   /** "danger" for what erases for good (emptying the bin, forgetting every render time): it looks it before it asks. */
   tone?: "danger";
-  icon?: ReactNode;
   title: string;
   /** What happens, in a few words, shown beside the two buttons. */
   note?: string;
   /** What the button that goes ahead says. */
   yes: ReactNode;
-  cancel?: string;
   onYes(): void;
   /** Something to do as it starts asking (clear what an earlier go left on screen). */
   onAsk?(): void;
@@ -772,7 +763,6 @@ export function TwoStep({ label, icon, title, note, yes, cancel = "Cancel", onYe
   onCancel?(): void;
   disabled?: boolean;
   busy?: boolean;
-  className?: string;
 }) {
   const [own, setOwn] = useState(false);
   const asking = open ?? own;
@@ -798,7 +788,7 @@ export function TwoStep({ label, icon, title, note, yes, cancel = "Cancel", onYe
         {note && <span className="text-xs text-ink-2">{note}</span>}
         {/* the focus on Cancel: an Enter pressed twice by habit does not go ahead */}
         <Button size="sm" tone="danger" disabled={busy} onClick={() => { setAsking(false); onYes(); }}>{yes}</Button>
-        <Button size="sm" tone="quiet" autoFocus onClick={() => setAsking(false)}>{cancel}</Button>
+        <Button size="sm" tone="quiet" autoFocus onClick={() => setAsking(false)}>Cancel</Button>
       </span>
     );
   }
@@ -809,14 +799,13 @@ export function TwoStep({ label, icon, title, note, yes, cancel = "Cancel", onYe
   };
   if (label === undefined) {
     return (
-      <button type="button" aria-label={title} data-tip={title} disabled={disabled} onClick={ask} className={cx("flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40", className)}>
-        {icon ?? <Trash2 size={14} />}
+      <button type="button" aria-label={title} data-tip={title} disabled={disabled} onClick={ask} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink disabled:opacity-40">
+        <Trash2 size={14} />
       </button>
     );
   }
   return (
-    <Button size="sm" tone={tone} data-tip={title} disabled={disabled} onClick={ask} className={className}>
-      {icon}
+    <Button size="sm" tone={tone} data-tip={title} disabled={disabled} onClick={ask}>
       {label}
     </Button>
   );

@@ -43,12 +43,13 @@ export const LEAN_MOTION = "transition-[scale,border-color,background-color,colo
 
 /**
  * A place that takes library items of some kinds (and, when `file` is given, a file from the
- * computer). `wanted` is true while such an item is being dragged anywhere; `over` while it is above
+ * computer). `take` gets the first item dropped, and every one of a drag of several for a place that
+ * holds more than one. `wanted` is true while such an item is being dragged anywhere; `over` while it is above
  * this place. `zone` is the border and the wash to draw for both. `lean` is the same for a drop box of
  * the form, which draws its own edges: dashed while something it takes is dragged, solid with the wash and
  * a little larger under the pointer (with LEAN_MOTION); nothing otherwise, its own resting edge then.
  */
-export function useDropZone(types: string[], take: (id: string) => void, file?: (file: File) => void) {
+export function useDropZone(types: string[], take: (id: string, ids: string[]) => void, file?: (file: File) => void) {
   const [over, setOver] = useState(false);
   const wanted = useDragged((s) => types.some((t) => s.types.includes(t)));
   const fits = (e: DragEvent) => types.some((t) => e.dataTransfer.types.includes(t)) || (Boolean(file) && e.dataTransfer.types.includes("Files"));
@@ -78,8 +79,8 @@ export function useDropZone(types: string[], take: (id: string) => void, file?: 
         if (dropped) file?.(dropped);
         else {
           // several ticked items dragged together: a place for one takes the first
-          const id = e.dataTransfer.getData(DRAG_TYPE).split(",")[0];
-          if (id) take(id);
+          const ids = e.dataTransfer.getData(DRAG_TYPE).split(",").filter(Boolean);
+          if (ids[0]) take(ids[0], ids);
         }
       },
     },

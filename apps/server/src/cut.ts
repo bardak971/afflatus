@@ -1,6 +1,6 @@
 import { execFile, type ExecFileException } from "node:child_process";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { FRAME_SLACK_MS } from "@afflatus/core";
+import { exactSoundPart, FRAME_SLACK_MS, PAUSE, soundPartOf } from "@afflatus/core";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { factsOf, ffmpegMajor, ffmpegSaid, localInputs, readAs, tools, type ProbeInfo, type VideoFacts } from "./video";
@@ -195,7 +195,7 @@ export async function referenceClip(source: Media, ext: string, opts: { seconds:
     let hasSound = false;
     if (audio) {
       const report = (await ffRun(tools.ffmpeg, ["-hide_banner", "-i", out, "-af", "volumedetect", "-f", "null", "-"], { timeout: 60_000 })).stderr;
-      hasSound = Number(/max_volume:\s*(-?[\d.]+) dB/.exec(report)?.[1] ?? -99) > -45;
+      hasSound = peakOf(report) > -45;
     }
     const size = (await must(tools.ffprobe, ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", out])).trim().split(",").map(Number);
     return { bytes: new Uint8Array(await readFile(out)), hasSound, width: size[0] || 0, height: size[1] || 0, frames: await countFrames(out) };
@@ -535,23 +535,6 @@ export async function markedVideoFile(source: Media, ext: string): Promise<{ fil
   }
 }
 
-/** The part of a sound that is used, given how long the sound is: see soundPart. */
-export function partOf(start: number, seconds: number, total: number | null): { start: number; seconds: number } {
-  if (total === null) return { start: Math.max(0, start), seconds };
-  const from = Math.max(0, Math.min(start, total - 2));
-  return { start: from, seconds: Math.max(0.1, Math.min(seconds, total - from)) };
-}
-
-/**
- * The part of a sound as it was asked (a sound cue: a clap of half a second, its part from 0.3 s), the start never moved back
- * for two seconds after it as partOf does for a voice; it ends where the sound ends when that comes first.
- */
-export function exactPart(start: number, seconds: number, total: number | null): { start: number; seconds: number } {
-  if (total === null) return { start: Math.max(0, start), seconds };
-  const from = Math.max(0, Math.min(start, total - 0.05));
-  return { start: from, seconds: Math.max(0.05, Math.min(seconds, total - from)) };
-}
-
 /**
  * A part of a sound (or of a video's sound) as a sound of its own: from `start` seconds, `seconds` long.
  * The start is where it was asked, as long as two seconds are left after it; the part ends where the
@@ -565,13 +548,13 @@ export function exactPart(start: number, seconds: number, total: number | null):
  * `goesOn`: the next clip carries the sound on from where this clip stops, so the `after` seconds are the sound itself, not
  * faded out (a song never pauses: faded, every join of its clips fell silent, then sang that tail again).
  * `evenKey` names the sound given as bytes (its asset), so that its whole gain is measured once (wholeGain); `unmeasured` is
- * told when its loudness could not be measured, the part then left at its own level. `exact`: the part as asked (exactPart).
+ * told when its loudness could not be measured, the part then left at its own level. `exact`: the part as asked (exactSoundPart).
  */
 export async function soundPart(source: Media, ext: string, opts: { start: number; seconds: number; durationMs?: number | null; even?: boolean; evenWhole?: boolean; after?: number; goesOn?: boolean; evenKey?: string; unmeasured?: () => void; exact?: boolean }): Promise<Uint8Array> {
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "part.wav");
-    const { start, seconds } = (opts.exact ? exactPart : partOf)(opts.start, opts.seconds, opts.durationMs ? opts.durationMs / 1000 : null);
+    const { start, seconds } = (opts.exact ? exactSoundPart : soundPartOf)(opts.start, opts.seconds, opts.durationMs ? opts.durationMs / 1000 : null);
     const after = Math.max(0, opts.after ?? 0);
     const gain = !opts.even ? 0 : opts.evenWhole ? await wholeGain(input, source, opts.evenKey) : await evenGain(input, { start, seconds });
     // unmeasured, the part keeps its own level: said, for a clip of a recording then sounds louder or quieter than the others
@@ -603,18 +586,24 @@ export async function recordingWav(input: string, out: string, trim?: { from: nu
   await must(tools.ffmpeg, readAs("recording", ["-y", "-loglevel", "error", "-i", input, ...cut, "-vn", "-ar", "48000", "-c:a", "pcm_s16le", out]));
 }
 
+/** The loudest sample of what ffmpeg's volumedetect read, in dB; NaN when it read none. */
+const peakOf = (report: string) => Number(/max_volume:\s*(-?[\d.]+) dB/.exec(report)?.[1] ?? NaN);
+
+/** ffmpeg's silencedetect for core's PAUSE under a sound whose loudest sample is `loud` dB. */
+const silenceAt = (loud: number) => `silencedetect=noise=${(loud - PAUSE.quietDb).toFixed(1)}dB:d=${PAUSE.leastS}`;
+
 /**
- * The pauses of a whole sound (a voice recording to cut into Lip sync clips), in seconds: quiet for at least 0.2 s, quiet
- * being 30 dB under its loudest, as quietAfter reads it, so a recording made quietly has pauses too.
+ * The pauses of a whole sound (a voice recording to cut into Lip sync clips), in seconds, as core's PAUSE says what one is
+ * (quiet for at least 0.2 s, 30 dB under its loudest), the rule quietAfter and the page's marks keep to.
  */
 export async function pausesOf(source: Media, ext: string): Promise<Array<{ start: number; end: number }>> {
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     // read whole or not at all: the pauses are kept beside the sound for good (TimelineMedia.pauses), so a failed or
     // timed-out read (its report cut short, or none) would cut every recording of it at the most a clip takes
-    const loud = Number(/max_volume:\s*(-?[\d.]+) dB/.exec(await reportOf(["-i", input, "-vn", "-af", "volumedetect"], true))?.[1] ?? NaN);
+    const loud = peakOf(await reportOf(["-i", input, "-vn", "-af", "volumedetect"], true));
     if (!Number.isFinite(loud)) throw new CutError("ffmpeg found no sound to read in this file");
-    const said = await reportOf(["-i", input, "-vn", "-af", `silencedetect=noise=${(loud - 30).toFixed(1)}dB:d=0.2`], true);
+    const said = await reportOf(["-i", input, "-vn", "-af", silenceAt(loud)], true);
     const starts = [...said.matchAll(/silence_start:\s*(-?[\d.]+)/g)].map((m) => Math.max(0, Number(m[1])));
     const ends = [...said.matchAll(/silence_end:\s*(-?[\d.]+)/g)].map((m) => Number(m[1]));
     // a pause still open at the end of the sound has no end said: it runs to the end, which is no place to cut
@@ -722,13 +711,13 @@ async function wholeGain(input: string, source: Media, evenKey?: string): Promis
 }
 
 /**
- * How long the sound stays quiet right after a part (0 to `most` seconds): quiet is 30 dB under the part's loudest, so a
- * take recorded quietly has pauses too, and a room's hum is still quiet.
+ * How long the sound stays quiet right after a part (0 to `most` seconds): a pause as core's PAUSE says (quiet against the
+ * part's loudest, so a take recorded quietly has pauses too, and a room's hum is still quiet).
  */
 async function quietAfter(input: string, start: number, seconds: number, most: number): Promise<number> {
-  const loud = Number(/max_volume:\s*(-?[\d.]+) dB/.exec(await reportOf(["-ss", start.toFixed(3), "-t", seconds.toFixed(3), "-i", input, "-vn", "-af", "volumedetect"]))?.[1] ?? NaN);
+  const loud = peakOf(await reportOf(["-ss", start.toFixed(3), "-t", seconds.toFixed(3), "-i", input, "-vn", "-af", "volumedetect"]));
   if (!Number.isFinite(loud)) return 0;
-  const said = await reportOf(["-ss", (start + seconds).toFixed(3), "-t", most.toFixed(3), "-i", input, "-vn", "-af", `silencedetect=noise=${(loud - 30).toFixed(1)}dB:d=0.1`]);
+  const said = await reportOf(["-ss", (start + seconds).toFixed(3), "-t", most.toFixed(3), "-i", input, "-vn", "-af", silenceAt(loud)]);
   const began = Number(/silence_start:\s*(-?[\d.]+)/.exec(said)?.[1] ?? NaN);
   // quiet from the part's very end, or not at all: speech that goes on and then pauses is no pause to end on
   if (!Number.isFinite(began) || began > 0.05) return 0;

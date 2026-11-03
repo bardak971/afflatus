@@ -7,6 +7,7 @@ import { machineLabel } from "../machines";
 import { useSettings } from "../data";
 import { queryKeys } from "../queryKeys";
 import { cx } from "../ui";
+import { verb } from "../format";
 
 /**
  * What the form says under an option whose node pack the machine it renders on lacks (the owner, 2026-10-20): that it is
@@ -34,7 +35,7 @@ function said(n: FormPackNote, where: string, rule: FormPacks["rule"]): { text: 
     return { text: `Needs ${what}, and ${n.why ?? "it cannot be installed"}: it cannot render on ${where}.`, warn: true };
   }
   const how = rule === "ask" ? `the queue asks to install ${it}` : `${it} is installed on first use`;
-  if (n.has?.length) return { text: `Needs ${what}: ${n.has.join(", ")} ${n.has.length > 1 ? "have" : "has"} it; on ${where} ${how}.`, warn: false };
+  if (n.has?.length) return { text: `Needs ${what}: ${n.has.join(", ")} ${verb(n.has.length, "has", "have")} it; on ${where} ${how}.`, warn: false };
   return { text: rule === "ask" ? `Needs ${what}: the queue asks to install ${it} on ${where}.` : `Needs ${what}: installed on ${where} on first use.`, warn: false };
 }
 
