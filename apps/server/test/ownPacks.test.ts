@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { missingNodesSaid, packCommit } from "@afflatus/core";
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Downloads } from "../src/downloads";
@@ -383,15 +386,20 @@ describe("a pack ComfyUI-Manager cannot find in its list", () => {
 });
 
 describe("the version a pack is installed at", () => {
-  it("is the Registry's latest, or its repository's head for Krea2Edit, whose 2.0 the Registry does not have (card #219)", async () => {
+  it("is the Registry's latest; Krea2Edit, whose 2.0 the Registry does not have, is never asked at its repository's head (the 2026-11-02 review, M6)", async () => {
     const stub = stubComfy();
     const packs = new PodPacks({ comfyOf: async () => stub.comfy, busy: () => true });
     packs.want("pod", ["comfyui-krea2edit", "comfyui-impact-pack"], "job-1");
     await settle(packs, "pod", 1);
-    expect(stub.asked).toEqual([
-      { id: "comfyui-krea2edit", version: "nightly", selected_version: "nightly" },
-      { id: "comfyui-impact-pack", version: "latest", selected_version: "latest" },
-    ]);
+    expect(stub.asked).toEqual([{ id: "comfyui-impact-pack", version: "latest", selected_version: "latest" }]);
+    // failed with the commit to clone by hand, the one the pod image builds in
+    const krea = packs.view("pod").find((e) => e.name === "comfyui-krea2edit")!;
+    expect(krea.state).toBe("failed");
+    expect(krea.error).toMatch(/git clone https:\/\/github\.com\/lbouaraba\/comfyui-krea2edit custom_nodes\/comfyui-krea2edit, then git -C custom_nodes\/comfyui-krea2edit checkout [0-9a-f]{40}/);
+    expect(krea.error).toContain(packCommit("comfyui-krea2edit")!);
+    const base = readFileSync(join(__dirname, "..", "..", "..", "deploy", "runpod", "base", "Dockerfile"), "utf8");
+    expect(base).toContain(`ARG KREA2EDIT_COMMIT=${packCommit("comfyui-krea2edit")}`);
+    expect(missingNodesSaid(["Krea2EditModelPatch"])).toContain(`checkout ${packCommit("comfyui-krea2edit")}`);
   });
 });
 

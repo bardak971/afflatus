@@ -173,7 +173,8 @@ export async function podSource(l: SourceLookup, want: { file: string; folder: s
   }
   for (const family of l.families()) {
     const slot = family.slots.find((x) => x.folder === want.folder && x.get && nameOf(x.get.file) === name);
-    if (slot?.get) return { kind: "url", url: slot.get.url };
+    // with the bytes it must have, when the family says them (every pickle): the pod's node pack checks the file against them
+    if (slot?.get) return { kind: "url", url: slot.get.url, ...(slot.get.sha256 ? { sha256: slot.get.sha256 } : {}) };
   }
   const path = await localCopy(await l.comfyDir(), want.folder, want.file);
   if (path) return (await sameBytes(l, want, path, Boolean(o.live))) ?? { kind: "upload", path };

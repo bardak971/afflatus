@@ -12,23 +12,26 @@ interface NodePack {
   /** Afflatus's own: written into custom_nodes from Settings → ComfyUI. */
   own?: boolean;
   /**
-   * Installed at its repository's head (Manager's "nightly"), not the Registry's latest: the Registry is behind the version
-   * the forms are built for (Krea2Edit: 1.2.3 there on 2026-11-02, where the person reference needs 2.0's ref_position).
+   * Never installed through ComfyUI-Manager: the Registry is behind the version the forms are built for (Krea2Edit: 1.2.3
+   * there on 2026-11-03, where the person reference needs 2.0's ref_position), and its repository's head (Manager's
+   * "nightly") is whatever its one author, or whoever takes the account, pushes last: code in ComfyUI on every machine that
+   * asks for it (the 2026-11-02 review, M6). Built into the pod image at this commit, read before it was taken; anywhere
+   * else, cloned by hand at it (cloneAt).
    */
-  nightly?: true;
+  commit?: string;
   nodes: string[];
 }
 
 const NODE_PACKS: NodePack[] = [
   {
     name: "afflatus-nodes", repo: "https://github.com/bardak971/afflatus/tree/main/comfy-nodes/afflatus-nodes", own: true,
-    // every node the pack registers (a test reads them from its files): the deprecated ones too (AfflatusH3TailGuide,
-    // MiniMaxH3AppendContinuation, AfflatusSwapMatch), which no form uses, so that an imported graph naming one is told to
-    // install this pack, as long as the pack keeps it for those graphs
+    // every node the pack registers (a test reads them from its files): the deprecated one too (AfflatusSwapMatch), which
+    // no form uses, so that an imported graph naming it is told to install this pack, as long as the pack keeps it for those
+    // graphs
     nodes: [
-      "AfflatusSaveH3Latent", "AfflatusLoadH3Latent", "AfflatusNormalizeH3Latent", "AfflatusTrimH3Latent", "AfflatusH3TailGuide", "AfflatusH3LatentHeadGuide", "AfflatusH3LatentLanding", "AfflatusH3SeamLatent", "AfflatusH3RunUpMatch", "AfflatusH3RunAnchor",
-      "MiniMaxH3GuidedContinuationWindow", "MiniMaxH3LatentTailGuide", "MiniMaxH3AppendContinuation", "AfflatusFaceMatch", "AfflatusFaceAt", "AfflatusFaceCrop", "AfflatusFaceFrame", "AfflatusFaceBackdrop", "AfflatusH3AudioLock",
-      "AfflatusSwapMask", "AfflatusSwapMaskPreview", "AfflatusSwapPaste", "AfflatusSwapMatch", "AfflatusColorFollow", "AfflatusMatchPicture", "AfflatusRoomTone", "AfflatusFreeTextEncoder",
+      "AfflatusSaveH3Latent", "AfflatusLoadH3Latent", "AfflatusNormalizeH3Latent", "AfflatusTrimH3Latent", "AfflatusH3LatentHeadGuide", "AfflatusH3LatentLanding", "AfflatusH3SeamLatent", "AfflatusH3RunUpMatch", "AfflatusH3RunAnchor",
+      "MiniMaxH3GuidedContinuationWindow", "MiniMaxH3LatentTailGuide", "AfflatusFaceMatch", "AfflatusFaceAt", "AfflatusFaceCrop", "AfflatusFaceFrame", "AfflatusFaceBackdrop", "AfflatusH3AudioLock",
+      "AfflatusSwapMask", "AfflatusSwapMaskPreview", "AfflatusSwapPaste", "AfflatusSwapMatch", "AfflatusColorFollow", "AfflatusRoomTone", "AfflatusFreeTextEncoder",
       "AfflatusH3ReferencePrompt", "AfflatusH3ReferenceLatents", "AfflatusFaceMaskStride", "AfflatusFaceDetailKeep", "AfflatusH3InjectRegion",
       "AfflatusSaveLTXLatent", "AfflatusLoadLTXLatent", "AfflatusTrimLTXLatent", "AfflatusLTXContinuation", "AfflatusLTXSeamLatent",
     ],
@@ -51,7 +54,8 @@ const NODE_PACKS: NodePack[] = [
   { name: "ltx2.5-msr", repo: "https://github.com/liconstudio/ComfyUI-LTX2.5-MSR", nodes: ["ComfyUILTX25MSRICLoRALoader", "ComfyUILTX25MSRMultiReferenceGuide"] },
   { name: "comfyui_controlnet_aux", repo: "https://github.com/Fannovel16/comfyui_controlnet_aux", nodes: ["DepthAnythingV2Preprocessor", "DWPreprocessor", "AIO_Preprocessor"] },
   // Krea 2's person reference: the Identity Edit LoRA's own patch (the person's picture as reference tokens) and grounded encode
-  { name: "comfyui-krea2edit", repo: "https://github.com/lbouaraba/comfyui-krea2edit", nightly: true, nodes: ["Krea2EditModelPatch", "Krea2EditGroundedEncode"] },
+  // 2.0.0 (2026-10-16): the pod image builds it in at this commit (deploy/runpod/base/Dockerfile's KREA2EDIT_COMMIT)
+  { name: "comfyui-krea2edit", repo: "https://github.com/lbouaraba/comfyui-krea2edit", commit: "13ef60f20828949becada815d3cbc371eb5ccaab", nodes: ["Krea2EditModelPatch", "Krea2EditGroundedEncode"] },
 ];
 
 /**
@@ -114,8 +118,17 @@ export const nodesOfPack = (name: string): string[] => packNamed(name)?.nodes ??
 export const beyondPack = (message: string): Error => Object.assign(new Error(message), { beyondPack: true as const });
 export const isBeyondPack = (err: unknown): boolean => Boolean((err as { beyondPack?: unknown } | null)?.beyondPack);
 
-/** The version ComfyUI-Manager is asked to install a pack at: the Registry's latest, or its repository's head for one ahead of it. */
-export const packVersion = (name: string): "latest" | "nightly" => (packNamed(name)?.nightly ? "nightly" : "latest");
+/** The commit a pack is held at (`commit`), for one ComfyUI-Manager is never asked for; null otherwise. */
+export const packCommit = (name: string): string | null => packNamed(name)?.commit ?? null;
+
+/**
+ * How a pack held at a commit (`commit`) is had by hand, in ComfyUI's folder: the words to say where ComfyUI-Manager is not
+ * asked for it. Null for one ComfyUI-Manager installs.
+ */
+export const cloneAt = (name: string): string | null => {
+  const p = packNamed(name);
+  return p?.commit ? `git clone ${p.repo} custom_nodes/${p.name}, then git -C custom_nodes/${p.name} checkout ${p.commit}` : null;
+};
 
 /** The repository a known pack is cloned from by hand, when ComfyUI-Manager cannot install it; null for one not known. */
 export const repoOfPack = (name: string): string | null => packNamed(name)?.repo ?? null;
@@ -135,7 +148,9 @@ export function missingNodesSaid(missing: string[], version?: string | null): st
   const loose = missing.filter((n) => !packOfNode(n) && !isCoreNode(n));
   const said = packs.map((p) => (p.own
     ? `Afflatus's own node pack (afflatus-nodes): Settings → ComfyUI writes it into ComfyUI's custom_nodes folder, or unpack the copy offered there`
-    : `the node pack ${p.name}: in ComfyUI-Manager, Custom Nodes Manager → search "${p.name}" → Install, or clone ${p.repo} into ComfyUI's custom_nodes folder`));
+    : p.commit
+      ? `the node pack ${p.name}, at the commit Afflatus is built against (the Comfy Registry's is older, its repository's head is not checked): in ComfyUI's folder, ${cloneAt(p.name)}`
+      : `the node pack ${p.name}: in ComfyUI-Manager, Custom Nodes Manager → search "${p.name}" → Install, or clone ${p.repo} into ComfyUI's custom_nodes folder`));
   const since = comfySince(core);
   const yours = version && /^v?\d/.test(version) ? ` (this one is ${version.replace(/^v?/, "v")})` : "";
   const parts = [

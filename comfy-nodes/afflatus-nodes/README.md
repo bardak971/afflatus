@@ -12,7 +12,6 @@ colour and voice at the join).
 | Afflatus: Load H3 Latent | Reads such a file back, from an upload or the input folder. |
 | Afflatus: Normalize H3 Latent | Rounds a sampled window's audio to its own frame boundary, so the window is a valid clip to continue from. |
 | Afflatus: Trim H3 Latent | Keeps a latent's first frames (a count on the 17k + 5 grid), video and audio: a clip handed over before its end is continued from there. |
-| Afflatus: H3 Tail Guide | The clip before's tail as the frame-zero guide: its last decoded frames re-encoded by the VAE for the picture, its exact latent for the sound. Without frames, the exact latent tail guide. Deprecated: Afflatus no longer uses it; kept for graphs that name it. |
 | Afflatus: H3 Latent Head Guide | Anchors the clip after's first tokens at the end of the window: the clip lands exactly where the clip after begins. |
 | Afflatus: H3 Latent Landing | The same from where any of the clip after's 17-frame chunks begins: a clip lands inside another, on time. |
 | Afflatus: H3 Seam Latent | A continuation's new tokens after the clip before's own last ones, to decode the two as one piece: the join then matches the whole chain decoded at once. |
@@ -33,17 +32,16 @@ colour and voice at the join).
 | Afflatus: Face Detail Keep | Brings refined frames' own detail finer than a pixel or so (skin grain, pores) back to the strength the sampled frames had there, twice as strong at most, none of the sampled frames' detail laid on them: Face refine's likeness, as sharp as the sample (0.49.1). |
 | Afflatus: H3 Inject Region | Encodes only the region where frames differ from the ones decoded from an H3 latent (with a margin, on the latent grid) and puts those tokens into the latent in place, every other token and the sound as they were: a take's kept latent after Face refine, without encoding the whole clip again (0.49.0). |
 | Afflatus: Follow Colours | Brings each frame's colours to a reference video's at the same moment (Lab mean and spread), both averaged over a stretch of frames first, never across a cut: a slow drift is followed, no flicker is added. |
-| Afflatus: Match Picture Colours | Brings a picture's brightness and colour to a frame's by one transform (Lab mean and spread), the spread moved by at most half again and the tint by at most 12 levels, so a face stays a face: Afflatus gives an H3 continuation its person's reference picture in the light of the frame it carries on from (0.48.0). |
 | Afflatus: Room Tone | Lays a faint noise (-50 dBFS) into a sound's stretches of exact digital silence, 20 ms or more, and leaves the rest as it is: for the copy of a sound LTX 2.3 is pinned to, which faded the picture to black over exact silence. |
 | Afflatus: Swap Colour Match (H3) | Passes the swap's render through unchanged. Deprecated (0.31.0): its colour match washed the redrawn wall white and was taken out of Swap character; kept for graphs that name it. |
 | MiniMax H3 Guided Continuation Window | Allocates the continuation target: a hidden overlap of the previous latent's tail plus the new frames. |
 | MiniMax H3 Latent Tail Guide | Conditions the target on the previous latent's tail, video and audio, with no VAE round trip. |
-| MiniMax H3 Append Continuation | Drops the hidden overlap and appends only the new tokens to the previous latent. Deprecated (0.11.2): Afflatus joins with Seam Latent instead; kept for graphs that name it. |
 
-The last three are the MIT-licensed continuation nodes of ttulttul's
+The last two are the MIT-licensed continuation nodes of ttulttul's
 [ComfyUI-Minimax-H3-Continuation](https://github.com/ttulttul/ComfyUI-Minimax-H3-Continuation), vendored
-with two small changes (a guarded import: a ComfyUI too old for them says "update ComfyUI" rather than
-failing with an ImportError; Append Continuation marked deprecated); their licence is in `LICENSE-continuation`.
+with one small change (a guarded import: a ComfyUI too old for them says "update ComfyUI" rather than
+failing with an ImportError) and without their Append Continuation (Afflatus joins with Seam Latent; gone since 0.49.4).
+Their licence is in `LICENSE-continuation`.
 
 ## Routes on ComfyUI's server
 
@@ -89,6 +87,11 @@ With the pack loaded, ComfyUI answers:
   `AFFLATUS_TOKEN=<token>` locks it from its start. **To take the lock off by hand,** delete `afflatus-lock.json`, or
   start ComfyUI with `AFFLATUS_LOCK=off`. A ComfyUI locked so whose lock cannot be put in front of its server (an
   aiohttp or ComfyUI change) stops at its start rather than run open, and says the same two ways out (0.20.0).
+  With "No token needed from this PC" on, only a browser's page of this computer gets in without the token (ComfyUI's
+  own, the address bar, Afflatus's); another program here sends the key written at each ComfyUI start in
+  `afflatus-local.key`, in the user folder, as a Bearer token (0.49.4). It is unsafe with any tunnel or port forward to
+  that ComfyUI. The login cookie is Secure over https (a proxy's in front too), made with random keys kept in
+  `afflatus-logins.json`; the one a pasted token gives lasts 30 days and ends at any sign-out in Afflatus (0.49.4).
 - `POST /afflatus/logins` (0.42.0): the logins still good. A login opened from Afflatus (Open ComfyUI) belongs to the
   Afflatus sign-in that asked for it; Afflatus names the ones still good with each login code, on each sign-out and every
   minute, so signing a device out of Afflatus, Sign out everywhere or a new password ends its ComfyUI login too. A login
@@ -121,12 +124,11 @@ sharper than the tail it copies, and a chain compounded it), Run Anchor holds it
 drift each continuation adds, which matching the clip before alone lets build up), and Seam Latent puts the clip before's last tokens in front of the new ones so that the two decode as one piece:
 the join plays as a plain cut. A constant cost whatever the length of the timeline. A clip put between two
 others also gets the clip after's latent, anchored at the window's end by the Head Guide, or by Landing when
-it lands further into that clip. Append Continuation is included for workflows that want one cumulative
-latent; Afflatus does not use it.
+it lands further into that clip.
 
 Which guide, the form's "Continue from": **Auto** is the exact latent (ttulttul's Latent Tail Guide), decoded
 as one piece with the clip before; **Frames** pins the clip before's last frames and sound, re-encoded, as
 ComfyUI alone does it. Measured on chains of continuations: a chain guided by re-encoded frames loses fine
 detail at every clip (it copies a softened picture), while the exact latent keeps it. The hybrid guide
-(Afflatus's H3 Tail Guide: frames for the picture, latent for the sound) was Auto for a while and is no longer
-offered.
+(Afflatus's H3 Tail Guide: frames for the picture, latent for the sound) was Auto for a while, then
+deprecated, and is gone since 0.49.4.

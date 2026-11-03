@@ -2,7 +2,7 @@ import { frameOf, gridNearest, LATENT_GRID, type FrameGrid, type PromptLine, QUO
 import { defineFamily } from "@afflatus/core";
 import { SEEDVR_SLOTS } from "../video/upscale";
 import { RIFE_GET } from "../shared/finish";
-import { FACE_DETECTOR_SLOT } from "../shared/detector";
+import { ADETAILER, FACE_DETECTOR_SLOT } from "../shared/detector";
 import { H3_GUIDE, H3_LIPSYNC_GUIDE, H3_OVER_GUIDE } from "./guide";
 
 /** Where ComfyUI's own templates fetch MiniMax H3's files from. */
@@ -138,12 +138,13 @@ export const h3 = defineFamily({
     {
       id: "faceSeg", label: "Person detector (Face refine)", folder: "ultralytics", detect: ["person_yolov8m-seg", "person_yolo.*seg"], optional: true,
       hint: "Optional, for Face refine, 55 MB: where no face is found (turned away, small), the person's head is found from their outline. In ComfyUI's models/ultralytics/segm folder.",
-      get: { file: "segm/person_yolov8m-seg.pt", url: "https://huggingface.co/Bingsu/adetailer/resolve/main/person_yolov8m-seg.pt" },
+      get: { file: "segm/person_yolov8m-seg.pt", url: `${ADETAILER}/person_yolov8m-seg.pt`, sha256: "c8ab26f517173b1fe8342d336a09f443eb61cb08dcbfc78d53fff4c2547ae81e" },
     },
     {
       id: "faceSam", label: "SAM ViT-B (Face refine)", folder: "sams", detect: ["sam_vit_b"], optional: true,
       hint: "Optional, for Face refine, 375 MB: the redrawn face is pasted over the face's own outline rather than its box. In ComfyUI's models/sams folder (needs the Impact Pack).",
-      get: { file: "sam_vit_b_01ec64.pth", url: "https://huggingface.co/ybelkada/segment-anything/resolve/main/checkpoints/sam_vit_b_01ec64.pth" },
+      // Meta's SAM ViT-B, a pickle too: at a commit, with its hash (the one Meta published)
+      get: { file: "sam_vit_b_01ec64.pth", url: "https://huggingface.co/ybelkada/segment-anything/resolve/7790786db131bcdc639f24a915d9f2c331d843ee/checkpoints/sam_vit_b_01ec64.pth", sha256: "ec2df62732614e57411cdcf32a23ffdf28910380d03139ee0f4fcbe91eb8c912" },
     },
     ...SEEDVR_SLOTS,
   ],
