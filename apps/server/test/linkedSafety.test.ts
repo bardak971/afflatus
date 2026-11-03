@@ -175,7 +175,7 @@ describe("a linked folder read when the disk misbehaves", () => {
     // a database on disk, opened again by a second start as Afflatus's own is
     const data = mkdtempSync(join(tmpdir(), "afflatus-crash-"));
     const file = join(data, "afflatus.db");
-    const first = await makeApp({ db: openSqlite(file, { inline: true }), dir: join(data, "files") });
+    const first = await makeApp({ db: openSqlite(file), dir: join(data, "files") });
     const root = (await post(first.app, "/api/folders/link", { path: dir, name: "Shoots" })).json() as { id: string };
     const one = (await first.db.selectFrom("assets").selectAll().where("name", "=", "one.png").executeTakeFirstOrThrow());
     const bytes = readFileSync(join(dir, "one.png"));
@@ -186,7 +186,7 @@ describe("a linked folder read when the disk misbehaves", () => {
     await first.app.close();
     await first.services.close();
     // started again over what the first one left, its folder read again: the file is in the bin, never forgotten
-    const again = await makeApp({ db: openSqlite(file, { inline: true }), dir: join(data, "files") });
+    const again = await makeApp({ db: openSqlite(file), dir: join(data, "files") });
     try {
       expect((await post(again.app, `/api/folders/${root.id}/scan`, {})).statusCode).toBe(200);
       const row = await again.db.selectFrom("assets").selectAll().where("id", "=", one.id).executeTakeFirstOrThrow();

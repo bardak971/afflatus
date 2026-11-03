@@ -1,13 +1,11 @@
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { openSqlite } from "../src/db";
 import { get, makeApp, type TestApp } from "./helpers";
 import { makePng } from "@afflatus/comfy/testing";
 
 let t: TestApp;
 beforeEach(async () => {
-  // on this thread, not in the worker: the tests count the statements a route prepares, with a spy on node:sqlite here
-  t = await makeApp({ db: openSqlite(":memory:", { inline: true }) });
+  t = await makeApp();
 });
 afterEach(async () => {
   await t.close();

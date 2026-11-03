@@ -18,7 +18,7 @@ const said: string[] = [];
 const prepare = DatabaseSync.prototype.prepare;
 
 beforeAll(async () => {
-  db = openSqlite(":memory:", { inline: true });
+  db = openSqlite(":memory:");
   await migrate(db);
   const at = now();
   const job = (status: string, i: number) => ({
@@ -66,7 +66,7 @@ describe("the jobs still to run", () => {
   });
 
   it("have an index that migration 0086 makes and takes back", async () => {
-    const other = openSqlite(":memory:", { inline: true });
+    const other = openSqlite(":memory:");
     const named = async () => (await sql<{ name: string }>`select name from sqlite_master where type = 'index' and name = 'jobs_to_run'`.execute(other)).rows.length;
     await migrate(other);
     expect(await named()).toBe(1);

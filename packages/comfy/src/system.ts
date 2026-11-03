@@ -2,7 +2,7 @@ import type { ComfyStatus } from "./client";
 
 /**
  * Load of the machine ComfyUI runs on, for the monitor bar. ComfyUI itself only reports memory
- * (/system_stats). CPU, GPU load, temperature and disks come from a monitor extension when one is
+ * (/system_stats). CPU, GPU load and temperature come from a monitor extension when one is
  * installed: it broadcasts a snapshot on the websocket about once a second, so listening costs nothing.
  * Every field but the GPU memory is optional: the bar shows what it has.
  */
@@ -13,9 +13,6 @@ export interface SystemLoad {
   /** Percent. */
   cpu?: number;
   ram?: { used: number; total: number; percent: number };
-  /** Percent. */
-  swap?: number;
-  disks: Array<{ path: string; percent: number; readMbS?: number; writeMbS?: number }>;
   gpus: Array<{ name: string; load?: number; temperature?: number; vramUsed: number; vramTotal: number; vramPercent: number }>;
 }
 
@@ -42,11 +39,6 @@ function fromDasiwa(d: Rec): SystemLoad {
     source: "dasiwa" as const,
     cpu: num(d.cpu_percent),
     ram: memory(d.ram),
-    swap: num(rec(d.swap).percent),
-    disks: list(d.disks).flatMap((x) => {
-      const percent = num(x.percent);
-      return percent === undefined ? [] : [defined({ path: String(x.path ?? ""), percent, readMbS: num(x.read_mb_s), writeMbS: num(x.write_mb_s) })];
-    }),
     gpus: list(d.gpus).map((g) => {
       const vramUsed = num(g.memory_used) ?? 0;
       const vramTotal = num(g.memory_total) ?? 0;
@@ -62,13 +54,11 @@ function fromDasiwa(d: Rec): SystemLoad {
 function fromCrystools(d: Rec): SystemLoad {
   const ramUsed = num(d.ram_used);
   const ramTotal = num(d.ram_total);
-  const hdd = num(d.hdd_used_percent);
   return defined({
     at: Date.now(),
     source: "crystools" as const,
     cpu: num(d.cpu_utilization),
     ram: ramUsed !== undefined && ramTotal ? { used: ramUsed, total: ramTotal, percent: num(d.ram_used_percent) ?? pct(ramUsed, ramTotal) } : undefined,
-    disks: hdd === undefined ? [] : [{ path: "", percent: hdd }],
     gpus: list(d.gpus).map((g, i) => {
       const vramUsed = num(g.vram_used) ?? 0;
       const vramTotal = num(g.vram_total) ?? 0;
@@ -92,7 +82,7 @@ export function systemLoadFromStatus(s: ComfyStatus): SystemLoad {
   const used = Math.max(0, s.vramTotal - s.vramFree);
   const ramUsed = s.ramTotal && s.ramFree !== undefined ? Math.max(0, s.ramTotal - s.ramFree) : undefined;
   return {
-    at: Date.now(), source: "comfyui", disks: [],
+    at: Date.now(), source: "comfyui",
     gpus: s.vramTotal ? [{ name: s.device, vramUsed: used, vramTotal: s.vramTotal, vramPercent: pct(used, s.vramTotal) }] : [],
     ...(ramUsed !== undefined ? { ram: { used: ramUsed, total: s.ramTotal!, percent: pct(ramUsed, s.ramTotal) } } : {}),
   };

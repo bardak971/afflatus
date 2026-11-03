@@ -3,20 +3,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FakeComfy } from "@afflatus/comfy/testing";
-import { newId, openSqlite, OWNER } from "../src/db";
+import { newId, OWNER } from "../src/db";
 import { LocalStorage } from "../src/storage";
 import { BIN_MS, sweep } from "../src/sweep";
 import { complete, get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 /**
- * Two requests at once on the same thing. With the database in its worker thread, another request runs between any two
- * statements of a route: what a route reads and then writes from must not be changed in between, or one of the two
- * changes is lost. Each test fires the two together, with the worker on whatever the default, and checks both landed.
+ * Two requests at once on the same thing. Another request can run at any await of a route: what a route reads and then
+ * writes from must not be changed in between, or one of the two changes is lost. Each test fires the two together and
+ * checks both landed.
  */
 
 let t: TestApp;
 beforeEach(async () => {
-  t = await makeApp({ db: openSqlite(":memory:", { worker: true }) });
+  t = await makeApp();
 });
 afterEach(() => t.close());
 
@@ -184,7 +184,7 @@ describe("a render's end", () => {
   beforeEach(async () => {
     fake = await makeFake();
     await t.close();
-    t = await makeApp({ db: openSqlite(":memory:", { worker: true }), comfyUrl: fake.url });
+    t = await makeApp({ comfyUrl: fake.url });
     await t.services.queue.start();
   });
   afterEach(async () => {

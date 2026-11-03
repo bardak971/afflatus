@@ -35,8 +35,8 @@ const STOP_WAIT_MS = 3_000;
  * The hashing itself, in a worker thread: SHA-256 over a model file on the server's own thread kept it 46 to 50 % busy and
  * every request 10 to 15 ms late while a pass ran (the 2026-10-15 performance review). One file at a time: `{ path }`
  * starts one, `{ pause }` and `{ resume }` hold it while this computer renders; it says `{ bytes }` as it reads and
- * `{ sha256 }` (null: the file could not be read) at the end. A string run with `eval`, as sqliteWorker.ts's is, so that
- * the same source works under tsx, vitest and the release's single bundled file.
+ * `{ sha256 }` (null: the file could not be read) at the end. A string run with `eval`, so that the same
+ * source works under tsx, vitest and the release's single bundled file.
  */
 const HASHER = String.raw`
 const { parentPort } = require("node:worker_threads");

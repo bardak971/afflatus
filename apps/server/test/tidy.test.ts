@@ -3,14 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "kysely";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { migrate, newId, OWNER, openSqlite, type Db } from "../src/db";
+import { JOURNAL_LIMIT, migrate, newId, OWNER, openSqlite, type Db } from "../src/db";
 import { dropGoneMachines, writeSettings } from "../src/settings";
-import { JOURNAL_LIMIT } from "../src/sqliteWorker";
 import { optimizeSearch, pruneJobs, RESUME_KEPT_MS, slimFinished, tidyDb } from "../src/tidy";
 
 let db: Db;
 beforeEach(async () => {
-  db = openSqlite(":memory:", { inline: true });
+  db = openSqlite(":memory:");
   await migrate(db);
 });
 afterEach(async () => {
@@ -240,15 +239,13 @@ describe("the queue's notes of machines", () => {
 });
 
 describe("the WAL file", () => {
-  it("is cut back to JOURNAL_LIMIT after a checkpoint, on this thread and in the worker", async () => {
+  it("is cut back to JOURNAL_LIMIT after a checkpoint", async () => {
     const dir = mkdtempSync(join(tmpdir(), "afflatus-wal-"));
     try {
-      for (const opts of [{ inline: true }, { worker: true }]) {
-        const file = openSqlite(join(dir, `zz-test-${opts.inline ? "inline" : "worker"}.db`), opts);
-        const limit = (await sql<{ journal_size_limit: number }>`pragma journal_size_limit`.execute(file)).rows[0]!.journal_size_limit;
-        expect(limit).toBe(JOURNAL_LIMIT);
-        await file.destroy();
-      }
+      const file = openSqlite(join(dir, "zz-test.db"));
+      const limit = (await sql<{ journal_size_limit: number }>`pragma journal_size_limit`.execute(file)).rows[0]!.journal_size_limit;
+      expect(limit).toBe(JOURNAL_LIMIT);
+      await file.destroy();
       expect(JOURNAL_LIMIT).toBe(16 * 1024 * 1024);
     } finally {
       rmSync(dir, { recursive: true, force: true });
