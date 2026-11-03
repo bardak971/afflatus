@@ -17,7 +17,7 @@ import { sdxl } from "./sdxl/family";
 import { sdxlTextToPicture } from "./sdxl/text-to-picture";
 import { sdxlFixFace, sdxlOutpaint, sdxlPaintOver, sdxlRedraw, sdxlSharper } from "./sdxl/tools";
 import { qwen, qwenEdit, qwenFixFace, qwenOutpaint, qwenPaintOver, qwenPicture, qwenRedraw, qwenSharper } from "./qwen";
-import { qwen21, qwen21Edit, qwen21MotionPicture, qwen21Picture } from "./qwen21";
+import { qwen21, qwen21Edit, qwen21FixFace, qwen21MotionPicture, qwen21Outpaint, qwen21PaintOver, qwen21Picture, qwen21Redraw, qwen21Sharper } from "./qwen21";
 import { scail } from "./scail/family";
 import { scailMotion, scailMotion24 } from "./scail/motion";
 import { removeBackground, seedvrPicture, tools } from "./tools";
@@ -34,7 +34,7 @@ export const recipes: Recipe<any>[] = [
   krea2Picture, krea2Redraw, krea2PaintOver, krea2Outpaint, krea2Sharper, krea2FixFace,
   fluxPicture, fluxEdit, fluxRedraw, fluxPaintOver, fluxOutpaint, fluxSharper, fluxFixFace,
   qwenPicture, qwenEdit, qwenRedraw, qwenPaintOver, qwenOutpaint, qwenSharper, qwenFixFace,
-  qwen21Picture, qwen21Edit, qwen21MotionPicture,
+  qwen21Picture, qwen21Edit, qwen21Redraw, qwen21PaintOver, qwen21Outpaint, qwen21Sharper, qwen21FixFace, qwen21MotionPicture,
   zimagePicture, zimageRedraw, zimagePaintOver, zimageOutpaint, zimageSharper, zimageFixFace,
   h3Video,
   h3LipSync,

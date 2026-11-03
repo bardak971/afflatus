@@ -1,4 +1,5 @@
-import { defineFamily, defineRecipe, GraphBuilder, REFERENCE_ROLES, roundTo, type InputSpec, type LoraValue, type Ref, type ReferenceValue, type SizeValue } from "@afflatus/core";
+import { defineFamily, defineRecipe, GraphBuilder, REFERENCE_ROLES, roundTo, type InputSpec, type LoraValue, type Ref, type ReferenceValue } from "@afflatus/core";
+import { flowRecipes, type FlowSpec } from "../flow/recipes";
 import { pictureForm } from "../shared/pictureForm";
 import { loadUnet, unetNodes } from "../shared/unet";
 import { qwen21Lint } from "../shared/lint";
@@ -80,7 +81,6 @@ interface Qwen21Base {
   cacheDtype: string;
   seed: number;
 }
-interface Qwen21Picture extends Qwen21Base { prompt: string; size: SizeValue }
 interface Qwen21Edit extends Qwen21Base { source: string; prompt: string; references: ReferenceValue[]; resolution: number }
 interface Qwen21MotionPicture extends Qwen21Base { source: string; people: ReferenceValue[]; scene: string; relight: boolean; replace: string; relit: string; resolution: number }
 
@@ -122,60 +122,68 @@ const NODES = (input: Qwen21Base) => [...unetNodes(input.model), "QwenImage21Cac
 const QWEN21_DROPS = { shift: "ComfyUI's Qwen Image 2.1 templates set no shift: the model samples at its own" };
 const files = { unet: "qwen_image_2.1_int8_convrot.safetensors", clip: "qwen3vl_8b_int8_convrot.safetensors", vae: "qwen_image_2.1_vae_bf16.safetensors" };
 
-export const qwen21Picture = pictureForm("txt2img", defineRecipe<Qwen21Picture>({
-  id: "qwen21.text-to-picture",
+/**
+ * Qwen Image 2.1 said the way the other picture models are (see FlowSpec, card #275), so that it has their operations:
+ * txt2img with hires fix and the detail boost, img2img, inpaint, outpaint, upscale 2x and face refine. As ComfyUI's
+ * template builds it: the prompt and the negative read by TextEncodeQwenImage21 with the VAE, the model through its cache,
+ * an EmptyLatentImage on a grid of 32, up to the 2K sizes its authors list, no shift. Edit and the motion picture read
+ * pictures with the encoder and stay written by hand below.
+ */
+export const qwen21Spec: FlowSpec = {
   family: "qwen21",
-  version: 1,
-  title: "txt2img",
-  summary: "Text to image with Qwen Image 2.1: natural-language prompts, legible text, up to 2K.",
-  output: "image",
-  inputs: [
-    model,
-    { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: "A photograph of a small bakery at dawn, a chalkboard by the door that reads \"FRESH BREAD\", warm light from the windows on wet cobblestones." },
-    {
-      // up to the 2K sizes Qwen's authors list, the largest of which (2400 × 1792) has just over 4.3 megapixels
-      id: "size", type: "size", label: "Size", default: "tall", grid: 32, min: 256, max: 2752, maxPixels: 4.31e6, perModel: true,
-      shapes: [
-        { id: "tall", label: "Portrait", width: 896, height: 1152 },
-        { id: "square", label: "Square", width: 1024, height: 1024 },
-        { id: "wide", label: "Landscape", width: 1152, height: 896 },
-        { id: "tall-9-16", label: "Portrait 9:16", width: 768, height: 1376 },
-        { id: "wide-16-9", label: "Landscape 16:9", width: 1376, height: 768 },
-        { id: "square-2k", label: "Square 2K", width: 2048, height: 2048 },
-        { id: "tall-2k", label: "Portrait 3:4 2K", width: 1792, height: 2400 },
-        { id: "wide-2k", label: "Landscape 4:3 2K", width: 2400, height: 1792 },
-        { id: "tall-2-3-2k", label: "Portrait 2:3 2K", width: 1696, height: 2528 },
-        { id: "wide-3-2-2k", label: "Landscape 3:2 2K", width: 2528, height: 1696 },
-        { id: "tall-9-16-2k", label: "Portrait 9:16 2K", width: 1536, height: 2752 },
-        { id: "wide-16-9-2k", label: "Landscape 16:9 2K", width: 2752, height: 1536 },
-      ],
-    },
-    ...sampling,
-  ],
-  nodes: (input) => [...NODES(input), "EmptyLatentImage"],
-  optionalNodes: ["LoraLoaderModelOnly"],
-  build(input, ctx) {
-    const g = new GraphBuilder();
-    const k = load(g, input, ctx);
-    const size = { width: roundTo(input.size.width, 32), height: roundTo(input.size.height, 32) };
-    const read = g.add("TextEncodeQwenImage21", { clip: k.clip, prompt: input.prompt, negative_prompt: input.negative, resolution: 1024, vae: k.vae });
-    g.phase("sampling");
-    const sampled = g.out("KSampler", {
-      model: k.model, positive: [read, 0], negative: [read, 1], latent_image: g.out("EmptyLatentImage", { width: size.width, height: size.height, batch_size: 1 }), seed: ctx.seed,
-      steps: input.steps, cfg: input.cfg, sampler_name: input.sampler, scheduler: input.scheduler, denoise: 1,
-    });
-    g.phase("decoding");
-    const out = g.add("PreviewImage", { images: g.out("VAEDecode", { samples: sampled, vae: k.vae }) });
-    return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: input.steps, passes: [{ node: sampled[0], steps: input.steps }], loads: k.loads };
+  model,
+  encoder: {
+    nodes: ["CLIPLoader"],
+    load: (g, slots) => g.out("CLIPLoader", { clip_name: slots.clip, type: "qwen_image", device: "default" }),
+    files: (slots) => [`text_encoders/${slots.clip}`],
   },
-  variants: [
-    { name: "from words, as ComfyUI's template", input: { prompt: "a" }, slots: files },
-    { name: "2K, a LoRA, a negative prompt with a CFG, the cache in int8", input: { prompt: "a", size: { width: 2048, height: 2048 }, negative: "blurry", cfg: 2.5, cacheDtype: "int8", loras: [{ file: "l.safetensors", weight: 0.8 }] }, slots: files },
+  text: {
+    nodes: ["TextEncodeQwenImage21"],
+    encode: (g, k, prompt, negative) => {
+      const read = g.add("TextEncodeQwenImage21", { clip: k.clip, prompt, negative_prompt: negative, resolution: 1024, vae: k.vae });
+      return { positive: [read, 0], negative: [read, 1] };
+    },
+  },
+  patch: { nodes: ["QwenImage21Cache"], put: (g, m, input) => g.out("QwenImage21Cache", { model: m, device: "auto", dtype: (input as Partial<Qwen21Base>).cacheDtype ?? "default" }) },
+  // no shift row (its inputs have none): the model samples at its own, which is not known here
+  shift: { node: "ModelSamplingAuraFlow", default: 0, note: "" },
+  negative: { default: "", note: "unused at CFG 1, which is the model's own setting; raise the CFG scale for it to act", empty: "encode" },
+  sampling: { steps: 40, stepsNote: "about 40 with euler, as Qwen's authors give; ComfyUI's template starts at 25", cfg: 1, cfgNote: "1 is the model's own setting", sampler: "euler", scheduler: "simple" },
+  inputs: sampling,
+  latent: "EmptyLatentImage",
+  grid: 32,
+  // up to the 2K sizes Qwen's authors list, the largest of which (2400 × 1792) has just over 4.3 megapixels
+  maxSize: 2752,
+  maxPixels: 4.31e6,
+  shapes: [
+    { id: "tall", label: "Portrait", width: 896, height: 1152 },
+    { id: "square", label: "Square", width: 1024, height: 1024 },
+    { id: "wide", label: "Landscape", width: 1152, height: 896 },
+    { id: "tall-9-16", label: "Portrait 9:16", width: 768, height: 1376 },
+    { id: "wide-16-9", label: "Landscape 16:9", width: 1376, height: 768 },
+    { id: "square-2k", label: "Square 2K", width: 2048, height: 2048 },
+    { id: "tall-2k", label: "Portrait 3:4 2K", width: 1792, height: 2400 },
+    { id: "wide-2k", label: "Landscape 4:3 2K", width: 2400, height: 1792 },
+    { id: "tall-2-3-2k", label: "Portrait 2:3 2K", width: 1696, height: 2528 },
+    { id: "wide-3-2-2k", label: "Landscape 3:2 2K", width: 2528, height: 1696 },
+    { id: "tall-9-16-2k", label: "Portrait 9:16 2K", width: 1536, height: 2752 },
+    { id: "wide-16-9-2k", label: "Landscape 16:9 2K", width: 2752, height: 1536 },
   ],
-}), {
-  ...QWEN21_DROPS,
-  ...Object.fromEntries(["detail", "detailStrength", "detailMethod", "detailStart", "detailEnd", "hires", "hiresScale", "hiresUpscaler", "hiresDenoise", "hiresSteps", "hiresSampler", "hiresScheduler", "tiles", "tileSize", "tileOverlap"].map((id) => [id, "written from ComfyUI's template, which has no second pass"])),
-});
+  megapixels: 1.6,
+  placeholder: "A photograph of a small bakery at dawn, a chalkboard by the door that reads \"FRESH BREAD\", warm light from the windows on wet cobblestones.",
+  pictureSummary: "Text to image with Qwen Image 2.1: natural-language prompts, legible text, up to 2K, with optional hires fix.",
+  drops: QWEN21_DROPS,
+  files,
+  fineTune: "someone_qwen21.safetensors",
+};
+
+const made = flowRecipes(qwen21Spec);
+export const qwen21Picture = made.picture;
+export const qwen21Redraw = made.redraw;
+export const qwen21PaintOver = made.paintOver;
+export const qwen21Outpaint = made.outpaint;
+export const qwen21Sharper = made.sharper;
+export const qwen21FixFace = made.fixFace;
 
 /** How many pictures the model reads next to the instruction: the one that is edited and nine more. */
 const EDIT_IMAGES = 10;

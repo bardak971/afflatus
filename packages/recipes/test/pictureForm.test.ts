@@ -48,7 +48,7 @@ describe("picture forms laid out by pictureForm", () => {
   // Klein extended to an aspect ratio, the others by the sides (card #275): every outpaint does both now
   it("outpaints by the sides or to an aspect ratio on every family", () => {
     const outpaints = forms.filter((r) => PICTURE_DROPS.get(r.id)!.op === "outpaint");
-    expect(outpaints.map((r) => r.family).sort()).toEqual([...PICTURE_FAMILIES].filter((f) => f !== "qwen21").sort());
+    expect(outpaints.map((r) => r.family).sort()).toEqual([...PICTURE_FAMILIES].sort());
     for (const r of outpaints) {
       const v = r.variants[0]!;
       const pads = (shape: string, more: Record<string, unknown> = {}) => {
@@ -65,7 +65,7 @@ describe("picture forms laid out by pictureForm", () => {
   // SDXL's rule before, now every family's (card #275): a face is redrawn in the form's steps, at least 8, at most 30
   it("redraws a face in 8 to 30 steps on every face refine", () => {
     const faces = forms.filter((r) => PICTURE_DROPS.get(r.id)!.op === "face");
-    expect(faces).toHaveLength(PICTURE_FAMILIES.length - 1);
+    expect(faces).toHaveLength(PICTURE_FAMILIES.length);
     for (const r of faces) {
       const v = r.variants[0]!;
       const stepsAt = (steps: number) => {

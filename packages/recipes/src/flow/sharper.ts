@@ -57,7 +57,7 @@ export function flowSharper(spec: FlowSpec, kit: FlowKit): Recipe<FlowSharper> {
     build(input, ctx) {
       const g = new GraphBuilder();
       const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
-      const size = { width: roundTo(from.width * input.factor, 16), height: roundTo(from.height * input.factor, 16) };
+      const size = { width: roundTo(from.width * input.factor, spec.grid ?? 16), height: roundTo(from.height * input.factor, spec.grid ?? 16) };
       const source = g.out("LoadImage", { image: ctx.uploads.source });
       g.phase("upscaling");
       const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.upscaler }), image: source });
