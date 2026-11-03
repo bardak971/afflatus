@@ -7,7 +7,7 @@
  */
 
 import { gridAtLeast, gridAtOrBefore, type FrameGrid } from "./frameGrid";
-import type { InputSpec } from "./inputs";
+import { plannedSeconds, type InputSpec } from "./inputs";
 import { quietest, type Loudness, type Pause } from "./recordingParts";
 import type { VideoTraits } from "./recipe";
 
@@ -224,6 +224,16 @@ export function windowPlaysSeconds(recipe: (WindowedTraits & { inputs: readonly 
   if (!Number.isFinite(seconds) || seconds <= 0) return null;
   const frames = Math.floor(seconds * fps + 0.01) - (joined === "continue" ? carriedOf(recipe, inputs) : 0);
   return frames > 0 ? frames / fps : null;
+}
+
+/**
+ * How long a clip not rendered yet is drawn on its timeline, in milliseconds: what its window shows of its source
+ * (windowPlaysSeconds: its carried frames not counted twice), else the length its form asks for (plannedSeconds), else five
+ * seconds; less what its take will hide of its end (`hiddenMs`: a window run past a part kept removed), one second at
+ * least. The editor's layout and the server's command bar read the same sum (card #260).
+ */
+export function plannedClipMs(recipe: (WindowedTraits & { inputs: InputSpec[] }) | undefined, inputs: Record<string, unknown>, joined: "continue" | "cut" | undefined, hiddenMs = 0): number {
+  return Math.max(1000, ((recipe ? windowPlaysSeconds(recipe, inputs, joined) ?? plannedSeconds(recipe.inputs, inputs) : null) ?? 5) * 1000 - hiddenMs);
 }
 
 /** Where a window's end lies on a pause's middle: within a frame, or half a step of the model's counts it was brought onto. */

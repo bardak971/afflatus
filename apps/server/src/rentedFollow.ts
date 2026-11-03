@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { httpError } from "./errors";
 import { BOOT_PORT, RunpodError, tokenSecret, type Pod } from "./runpod";
 import type { Comfy } from "./comfy";
-import { stepSaid, usd, type PresetFile } from "@afflatus/core";
+import { POD_BOOT_LIMIT_MIN, stepSaid, usd, type PresetFile } from "@afflatus/core";
 import { recordMeasure } from "./podMeasures";
 import { bootPacks, type BootLog } from "./podBoot";
 import { imageLayers, type ImageLayer } from "./podImage";
@@ -42,12 +42,12 @@ const STUCK_MS = 10 * 60_000;
 /** How long RunPod is asked less often after it said to slow down (429). */
 const BACK_OFF_MS = 60_000;
 /** A pod running this long without its ComfyUI ever answering did not come up (its container failed): its idle action applies. */
-const BOOT_LIMIT_MS = 10 * 60_000;
+const BOOT_LIMIT_MS = POD_BOOT_LIMIT_MIN.own * 60_000;
 /**
  * The same for a pod deployed from Afflatus: its first start pulls its image (several GB), which RunPod says may take long
  * on a host that never had it.
  */
-const DEPLOYED_BOOT_LIMIT_MS = 20 * 60_000;
+const DEPLOYED_BOOT_LIMIT_MS = POD_BOOT_LIMIT_MIN.deployed * 60_000;
 
 /** How long a pod may run without its ComfyUI answering before its idle action applies. */
 export const bootLimit = (m: Machine) => (m.rented?.deployed ? DEPLOYED_BOOT_LIMIT_MS : BOOT_LIMIT_MS);

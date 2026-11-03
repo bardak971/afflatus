@@ -9,17 +9,17 @@ describe("the grid drawn only where it is seen", () => {
   it("places justified rows one under the other, every tile in its row's band", () => {
     const shapes = Array.from({ length: 400 }, (_, i) => [1.5, 0.75, 1, 16 / 9, 2 / 3][i % 5]!);
     const rows = justify(shapes, 1200, 210, 8);
-    const { at, bands: placed, height } = placeRows(rows, 20, 8);
+    const { at, bands: placed, height } = placeRows(rows, 8);
     expect(at).toHaveLength(400);
     rows.forEach((r, k) => {
       for (let i = r.start; i < r.end; i++) {
         expect(at[i]!.top).toBe(placed[k]!.top);
-        expect(at[i]!.height).toBe(r.height + 20);
+        expect(at[i]!.height).toBe(r.height);
       }
       if (k) expect(placed[k]!.top).toBe(placed[k - 1]!.bottom + 8);
     });
     expect(height).toBe(placed.at(-1)!.bottom);
-    expect(placeRows([], 0, 8).height).toBe(0);
+    expect(placeRows([], 8).height).toBe(0);
   });
 
   it("finds the rows that meet a window, the gaps between them meeting none", () => {
@@ -95,7 +95,7 @@ describe("the grid drawn only where it is seen", () => {
     expect(laid.at[7]!.top).toBe(0);
     // with no heading, as the plain grid: no room above, the rows as placeRows has them
     const plain = layGroups([{ rows: justify(shapes[0]!, 900, 200, 8), head: 0 }], { gap: 8, headGap: 8, groupGap: 16 });
-    const rows = placeRows(justify(shapes[0]!, 900, 200, 8), 0, 8);
+    const rows = placeRows(justify(shapes[0]!, 900, 200, 8), 8);
     expect(plain.at).toEqual(rows.at);
     expect(plain.bands).toEqual(rows.bands);
     expect(plain.height).toBe(rows.height);

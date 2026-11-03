@@ -15,6 +15,12 @@ export const UNKEPT_MS = 24 * 60 * 60_000;
  */
 export const UPLOAD_MAX_BYTES = 4 * 2 ** 30;
 
+/**
+ * How many renders one Generate (a draft's batch, an MCP tool's `takes`) asks for: the server refuses more, and the batch
+ * stepper stops at them.
+ */
+export const BATCH = { least: 1, most: 8 } as const;
+
 export const LIMITS = {
   /** People and places in one look. */
   cast: 8,

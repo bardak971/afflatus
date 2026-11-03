@@ -1,4 +1,5 @@
 import type { EventEmitter } from "node:events";
+import { hasOutsideWork } from "@afflatus/core";
 import { toRun, type Db } from "./db";
 import { readJson, type Lane } from "./queueModel";
 
@@ -17,10 +18,7 @@ const OUTSIDE_EVERY_MS = 10_000;
 const OWN_KEPT_MS = 2 * 60_000;
 
 /** Whether a machine's ComfyUI has work from outside Afflatus (its own page, another tool), running or waiting, as last read. */
-export function outsideBusy(lane: Lane | undefined): boolean {
-  const o = lane?.outside;
-  return Boolean(o && o.running + o.pending > 0);
-}
+export const outsideBusy = (lane: Lane | undefined): boolean => hasOutsideWork(lane?.outside);
 
 /** What reading the outside work takes of the queue. */
 interface OutsideDeps {

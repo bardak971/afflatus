@@ -46,10 +46,9 @@ export function sizeSaid(urls: ReadonlyArray<string | undefined>, sizes: Readonl
 
 /**
  * What an optional file is for, in a few words, from what its line already says: "for Face refine" from "For Face
- * refine, 52 MB: …", or the operations it alone serves (onlyFor); null when its hint is the only way to say it.
+ * refine, 52 MB: …"; null when its hint is the only way to say it.
  */
-export function forSaid(hint: string, only: readonly string[] = []): string | null {
+export function forSaid(hint: string): string | null {
   const said = /^(?:optional[:,]\s*)?for ([^:,.(]+)[:,.]/i.exec(hint)?.[1]?.trim();
-  if (said && said.length <= 32) return `for ${said}`;
-  return only.length ? `for ${only.join(", ")} only` : null;
+  return said && said.length <= 32 ? `for ${said}` : null;
 }

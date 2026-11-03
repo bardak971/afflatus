@@ -269,7 +269,7 @@ export function usePlaces() {
  * places, a menu of them all, the choice kept for that folder on that ComfyUI (card #59). Nothing for a ComfyUI that does
  * not say its folders.
  */
-export function GoesTo({ folder, className }: { folder: string; className?: string }) {
+export function GoesTo({ folder }: { folder: string }) {
   const machine = useContext(DownloadTo);
   const places = usePlaces();
   const client = useQueryClient();
@@ -289,7 +289,7 @@ export function GoesTo({ folder, className }: { folder: string; className?: stri
   const said = <span className="truncate font-mono">→ {f.goes}</span>;
   if (!several) {
     const tip = f.fixed && f.places.length > 1 ? "Where the file goes on disk. Downloads reach this ComfyUI through ComfyUI-Manager or an older Afflatus node pack, which cannot be told another of its places." : "Where the file goes on disk";
-    return <span className={cx("inline-flex min-w-0 items-center text-xs text-ink-3", className)} data-tip={tip}>{said}</span>;
+    return <span className="inline-flex min-w-0 items-center text-xs text-ink-3" data-tip={tip}>{said}</span>;
   }
   const current = f.chosen ?? f.places.find((p) => p.shown === f.goes)?.path;
   return (
@@ -297,7 +297,7 @@ export function GoesTo({ folder, className }: { folder: string; className?: stri
       <button
         type="button"
         onClick={(e) => setAt(menuAt(e, e.currentTarget))}
-        className={cx("inline-flex min-w-0 items-center gap-0.5 rounded-control text-xs text-ink-3 hover:text-ink", className)}
+        className="inline-flex min-w-0 items-center gap-0.5 rounded-control text-xs text-ink-3 hover:text-ink"
         data-tip={`ComfyUI reads ${folder} from ${f.places.length} places: choose where downloads go. Kept for ${folder} on this ComfyUI (Settings › Models).`}
       >
         {said}

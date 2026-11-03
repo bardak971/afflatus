@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cutOn, recordingPart, recordingParts } from "../src/recordingParts";
+import { cutOn, exactSoundPart, PAUSE, pausesIn, recordingPart, recordingParts, soundPartOf } from "../src/recordingParts";
 
 /** A recording cut into Lip sync clips at its pauses (the mock's "cut at its pauses", 2026-10-20). */
 describe("a recording cut into clips", () => {
@@ -156,5 +156,32 @@ describe("a recording cut within a window", () => {
     for (const p of parts) expect(p.seconds).toBeGreaterThanOrEqual(4);
     // 14.5 asked ± 1.5: never over the most
     for (const p of recordingParts({ fromS: 0, toS: 60, wantS: 14.5, ...bounds, pauses: [], levels: levels(60, { 15.5: -80 }) })) expect(p.seconds).toBeLessThanOrEqual(14.83);
+  });
+});
+
+describe("what a pause in a sound is", () => {
+  it("is the server's rule (quiet 0.2 s at least) read off the loudness the page is sent", () => {
+    expect(PAUSE).toEqual({ quietDb: 30, leastS: 0.2 });
+    // ten samples a second: quiet 0.3 s, words, a 0.5 s pause, words, a 0.2 s dip, words, a 0.1 s dip, words, quiet to the end
+    const db = [-70, -70, -70, -12, -10, -14, -60, -60, -60, -60, -60, -11, -13, -60, -60, -12, -10, -60, -11, -65, -65, -65];
+    // the 0.2 s dip is a pause, as ffmpeg's silencedetect at d=0.2 finds it where the recording is cut (the page's own rule
+    // asked 0.3 s, so a part snapped past pauses a recording is cut at); the 0.1 s one is not
+    expect(pausesIn(db, 10)).toEqual([{ from: 0, to: 3 }, { from: 6, to: 11 }, { from: 13, to: 15 }, { from: 19, to: 22 }]);
+    // a caller that wants longer ones (a take's silent ends: a quarter second at twenty samples a second)
+    expect(pausesIn(db, 10, 0.3)).toEqual([{ from: 0, to: 3 }, { from: 6, to: 11 }, { from: 19, to: 22 }]);
+  });
+
+  it("is quiet against the sound's own loudness, so a take recorded quietly has pauses too", () => {
+    const quiet = [-45, -44, -46, -75, -75, -75, -44, -45];
+    expect(pausesIn(quiet, 10)).toEqual([{ from: 3, to: 6 }]);
+    expect(pausesIn([], 10)).toEqual([]);
+  });
+});
+
+describe("the part of a sound that is used (card #260)", () => {
+  it("keeps two seconds after a voice's start, and a cue's start where it was asked; both end with the sound", () => {
+    expect(soundPartOf(9.5, 4, 10)).toEqual({ start: 8, seconds: 2 });
+    expect(exactSoundPart(9.5, 4, 10)).toEqual({ start: 9.5, seconds: 0.5 });
+    expect(soundPartOf(-1, 3, null)).toEqual({ start: 0, seconds: 3 });
   });
 });

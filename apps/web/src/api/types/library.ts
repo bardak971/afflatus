@@ -123,8 +123,8 @@ export interface TreeGroup {
   archived: boolean;
   /** Where its things land; null for the Inbox, and for a project that has none. Not a node of the tree: the project's row stands for it. */
   rootFolderId: string | null;
-  /** When the project was made; null for the Inbox. Left out by an older server. */
-  createdAt?: string | null;
+  /** When the project was made; null for the Inbox. */
+  createdAt: string | null;
   /** `unusedDrafts`: of its drafts, those with no prompt, no name and nothing made from them (what "Clear" deletes). */
   counts: { drafts: number; unusedDrafts?: number; timelines: number; items: number };
   bytes: number;
@@ -148,7 +148,7 @@ export interface FolderNode {
   items: number;
   totalItems: number;
   bytes: number;
-  createdAt?: string;
+  createdAt: string;
   children: FolderNode[];
 }
 export interface TimelineLeaf {

@@ -193,14 +193,14 @@ describe("settings", () => {
   const put = (payload: unknown) => t.app.inject({ method: "PUT", url: "/api/settings", payload: payload as object });
 
   it("are saved, and secrets never come back", async () => {
-    expect((await put({ comfyUrl: "http://10.0.0.5:8188", llm: { baseUrl: "http://llm/v1", model: "m", apiKey: "secret" }, civitaiKey: "k" })).statusCode).toBe(200);
+    expect((await put({ comfyUrl: "http://10.0.0.5:8188", llms: [{ id: "main", baseUrl: "http://llm/v1", model: "m", apiKey: "secret" }], civitaiKey: "k" })).statusCode).toBe(200);
     const res = await get(t.app, "/api/settings");
     expect(res.json()).toEqual({
       machines: [{ id: "m1", name: "", url: "http://10.0.0.5:8188", dir: "", takes: "all", packs: "ask", families: {}, tokenEnd: "", local: false }], machinesSetAside: [],
       comfyUrl: "http://10.0.0.5:8188", comfyDir: "", llm: { baseUrl: "http://llm/v1", model: "m", hasApiKey: true, vision: false },
       llms: [{ id: "main", name: "", baseUrl: "http://llm/v1", model: "m", hasApiKey: true, vision: false, contextSize: 16384, maxOutputTokens: 3000, noThinking: false }],
       unloadAfterMinutes: 0, designerLlm: "main", designerInstructions: [], designerInstruction: "", designerGuides: {},
-      tagCheck: true, families: {}, allFamilies: false, firstLaunch: "done", hasCivitaiKey: true, hasHuggingFaceToken: false, hasRunpodKey: false, runpodS3User: "", hasRunpodS3Secret: false, rentCaps: { day: 0, month: 0 }, costs: { kwhPrice: null, currency: "€" }, lastDeploy: null, volumeUnusedDays: 7, bootLogDays: 0, civitaiLookups: true, updateChecks: false, afflatusUpdateChecks: true, downloadModels: true, downloadPlaces: {}, renderHistoryDays: 90, jobHistoryDays: 30, unkeptDays: 1, binDays: 7,
+      tagCheck: true, families: {}, allFamilies: false, firstLaunch: "done", hasCivitaiKey: true, hasHuggingFaceToken: false, hasRunpodKey: false, hasRunpodS3Secret: false, rentCaps: { day: 0, month: 0 }, costs: { kwhPrice: null, currency: "€" }, lastDeploy: null, volumeUnusedDays: 7, bootLogDays: 0, civitaiLookups: true, updateChecks: false, afflatusUpdateChecks: true, downloadModels: true, downloadPlaces: {}, renderHistoryDays: 90, jobHistoryDays: 30, unkeptDays: 1, binDays: 7,
       finish: { route: "seedvr", factor: 2, colour: "lab", upscaleModel: "", latentNoise: 0.35, latentSteps: 3, faceDenoise: 0.45, face: false, seedvrFrames: 0, sharpen: 0, faceModel: "", latentModel: "", seedvrModel: "" }, slotFiles: {}, acceptedPresets: [],
       bar: { shortcut: "Ctrl+K", snippets: false, cast: false }, pinnedProjects: [], pinnedFields: {},
       notify: { hasTelegramToken: false, telegramChat: "", hasDiscordWebhook: false, picture: true, events: expect.objectContaining({ renderDone: { telegram: false, discord: false }, renderFailed: { telegram: true, discord: true } }) },

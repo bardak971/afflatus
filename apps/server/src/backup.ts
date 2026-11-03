@@ -37,19 +37,19 @@ const SECRET_SETTINGS: Record<string, (value: unknown) => unknown> = {
   huggingFaceToken: () => "",
   runpodKey: () => "",
   runpodS3Secret: () => "",
-  // the one model from before there was a list ("llm"), and the list
-  llm: (v) => (v && typeof v === "object" ? { ...v, apiKey: "" } : v),
   llms: (v) => (Array.isArray(v) ? v.map((l) => (l && typeof l === "object" ? { ...l, apiKey: "" } : l)) : v),
   machines: (v) => (Array.isArray(v) ? v.map((m) => (m && typeof m === "object" ? { ...m, token: "" } : m)) : v),
   notify: (v) => (v && typeof v === "object" ? { ...v, telegramToken: "", discordWebhook: "" } : v),
 };
 
 /**
- * The keys and tokens of a copy of the database blanked (SECRET_SETTINGS). With secure_delete, SQLite writes zeros over
- * what a row held before instead of leaving its bytes in the page until the room is used again: the file holds no trace
- * of them, without a second VACUUM of the whole copy.
+ * The keys and tokens of a copy of the database blanked (SECRET_SETTINGS), and with `password` the password's hash too
+ * (a backup asked for from another device: a session taken over would guess it offline, past the sign-in's limits, and the
+ * password it found would outlive Sign out everywhere, card #254). With secure_delete, SQLite writes zeros over what a row
+ * held before instead of leaving its bytes in the page until the room is used again: the file holds no trace of them,
+ * without a second VACUUM of the whole copy.
  */
-function blankSecrets(file: string): void {
+function blankSecrets(file: string, o: { password: boolean }): void {
   const db = new DatabaseSync(file);
   try {
     db.exec("PRAGMA secure_delete = ON");
@@ -66,6 +66,16 @@ function blankSecrets(file: string): void {
         value = null;
       }
       write.run(JSON.stringify(blank(value)), key);
+    }
+    const access = o.password ? (read.get("access") as { value: string } | undefined) : undefined;
+    if (access) {
+      let value: unknown = null;
+      try {
+        value = JSON.parse(access.value);
+      } catch {
+        // not JSON: read as no password already
+      }
+      if (value && typeof value === "object") write.run(JSON.stringify({ ...value, password: null }), "access");
     }
   } finally {
     db.close();
@@ -145,7 +155,8 @@ export function registerBackup(app: FastifyInstance, s: Services, places: Backup
   app.get("/api/backup.zip", async (req, reply) => {
     if (!places) throw httpError("This server was started without a data folder to back up.", 404);
     const secrets = (req.query as { secrets?: string }).secrets === "1";
-    if (secrets && !fromThisComputer(req)) throw httpError("A backup with the keys and tokens is made on the computer Afflatus runs on, not from another one.", 403);
+    const here = fromThisComputer(req);
+    if (secrets && !here) throw httpError("A backup with the keys and tokens is made on the computer Afflatus runs on, not from another one.", 403);
     const zip = new ZipStream();
     const name = `afflatus-backup-${stamp()}${secrets ? "-with-keys" : ""}.zip`;
     reply.header("Content-Type", "application/zip").header("Content-Disposition", `attachment; filename="${name}"`).header("Cache-Control", "no-store");
@@ -175,6 +186,7 @@ export function registerBackup(app: FastifyInstance, s: Services, places: Backup
                 "the Civitai and Hugging Face tokens, the language models' API keys, the lock tokens of the ComfyUIs, the Telegram",
                 "bot token and the Discord webhook. After a restore, enter them again in Settings (a locked ComfyUI: paste its token",
                 "or lock it again). A backup with them is made from the computer Afflatus runs on (Settings › Storage).",
+                ...(here ? [] : ["Made from another device, it holds no password either: after a restore, set one again in Settings › Sign-in."]),
               ]),
           "",
           "To restore: stop Afflatus, empty its data folder (or point DATA_DIR at a new one), unpack this zip into it so that",
@@ -189,7 +201,7 @@ export function registerBackup(app: FastifyInstance, s: Services, places: Backup
           tmp = await mkdtemp(join(tmpdir(), "afflatus-backup-"));
           const copy = join(tmp, "afflatus.db");
           await sql`VACUUM INTO ${copy}`.execute(s.db);
-          if (!secrets) blankSecrets(copy);
+          if (!secrets) blankSecrets(copy, { password: !here });
           await zip.add("afflatus.db", createReadStream(copy), new Date(), (await stat(copy)).size);
         }
         for await (const f of walk(places.filesDir)) {

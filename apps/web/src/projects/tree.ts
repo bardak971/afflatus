@@ -136,12 +136,12 @@ function sortLeaves<T>(list: T[], s: Sort, of: (x: T) => { name: string; created
     return a.bytes === undefined || b.bytes === undefined ? 0 : sign * (a.bytes - b.bytes) || byName(a, b);
   });
 }
-/** Folders come first, in the same order; those of an older server, with no date, by name when sorted by Created. */
+/** Folders come first, in the same order. */
 const sortFolders = (list: FolderNode[], s: Sort) =>
   [...list].sort((a, b) => {
     const sign = s.desc ? -1 : 1;
     if (s.by === "size") return sign * (a.bytes - b.bytes) || byName(a, b);
-    if (s.by === "created") return sign * (a.createdAt ?? "").localeCompare(b.createdAt ?? "") || byName(a, b);
+    if (s.by === "created") return sign * a.createdAt.localeCompare(b.createdAt) || byName(a, b);
     return sign * byName(a, b);
   });
 
@@ -212,7 +212,7 @@ const leaf = (row: Node["row"]): Node => ({ row, count: 0, kids: () => [] });
 function folderNodes(c: Ctx, g: TreeGroup, list: FolderNode[], parent: string | null, ancestors: string[], parentLinked = false, filed: Map<string, TreeGroup["timelines"]> = new Map()): Node[] {
   return c.sortedFolders(list).map((f) => ({
     row: {
-      key: `f:${f.id}`, kind: "folder", id: f.id, label: f.name, bytes: f.bytes, ...(f.createdAt ? { created: f.createdAt } : {}), group: g.id, linked: f.linked, linkedRoot: f.linked && !parentLinked, archived: g.archived,
+      key: `f:${f.id}`, kind: "folder", id: f.id, label: f.name, bytes: f.bytes, created: f.createdAt, group: g.id, linked: f.linked, linkedRoot: f.linked && !parentLinked, archived: g.archived,
       meta: folderMeta(f, c.s.kind),
       ...(f.path ? { path: f.path, ...(f.missing ? { missing: true } : {}) } : {}),
       ...(c.s.kind && !f.totalItems ? { empty: true } : {}),

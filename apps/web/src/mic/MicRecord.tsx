@@ -29,7 +29,7 @@ const NOT_HERE = "🎙 needs this computer or https: open Afflatus on the PC it 
  * rather than nothing happening. `slot`: the slot's name, in the dialog's title and the take's name; `kit`: a take used
  * goes with the Prompt kit's person, as a file dropped there does, not into the library.
  */
-export function MicButton({ slot, kit, onTake, size = 28, className }: { slot: string; kit?: boolean; onTake(asset: string): void; size?: 24 | 28 | 32 | 36; className?: string }) {
+export function MicButton({ slot, kit, onTake, size = 28 }: { slot: string; kit?: boolean; onTake(asset: string): void; size?: 24 | 28 | 32 | 36 }) {
   const [open, setOpen] = useState(false);
   // whether the page is a secure one does not change while it is open
   const [here] = useState(canRecord);
@@ -37,7 +37,7 @@ export function MicButton({ slot, kit, onTake, size = 28, className }: { slot: s
     <>
       <IconButton
         size={size} tone="outline" label={`Record from the microphone: ${slot}`} tip={here ? "Record from the microphone" : NOT_HERE}
-        data-mic="" aria-disabled={here ? undefined : true} onClick={() => setOpen(true)} className={cx(!here && "opacity-40", className)}
+        data-mic="" aria-disabled={here ? undefined : true} onClick={() => setOpen(true)} className={here ? undefined : "opacity-40"}
       >
         <Mic size={size <= 28 ? 14 : 16} />
       </IconButton>

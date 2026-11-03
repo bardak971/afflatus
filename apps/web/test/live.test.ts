@@ -96,7 +96,7 @@ describe("a hello on the live connection", () => {
 });
 
 describe("the machines' load on the live connection", () => {
-  const load = (vramPercent: number): SystemLoad => ({ source: "comfyui", disks: [], gpus: [{ name: "GPU", vramUsed: vramPercent, vramTotal: 100, vramPercent }] });
+  const load = (vramPercent: number): SystemLoad => ({ source: "comfyui", gpus: [{ name: "GPU", vramUsed: vramPercent, vramTotal: 100, vramPercent }] });
 
   it("is taken whole as the stream opens, then only the machines that changed, a machine gone dropped", () => {
     const opened = systemAfter({ load: null, loads: {} }, { load: load(10), loads: { m1: load(10), m2: load(20), m3: null } })!;

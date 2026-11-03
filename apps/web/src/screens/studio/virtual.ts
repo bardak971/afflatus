@@ -31,15 +31,15 @@ export interface At {
 
 /**
  * Justified rows placed one under the other: each tile's box (in the list's order), each row's band, and the height
- * of the whole. `under`: room under every tile for a line of its own.
+ * of the whole.
  */
-export function placeRows(rows: Row[], under: number, gap: number): { at: At[]; bands: Band[]; height: number } {
+export function placeRows(rows: Row[], gap: number): { at: At[]; bands: Band[]; height: number } {
   const at: At[] = [];
   const bands: Band[] = [];
   let top = 0;
   for (const r of rows) {
     let left = 0;
-    const height = r.height + under;
+    const height = r.height;
     for (const w of r.widths) {
       at.push({ left, top, width: w, height });
       left += w + gap;
@@ -75,7 +75,7 @@ export interface GroupsLaid {
  * each its heading of `head` pixels, `headGap` under it, and its justified rows; `groupGap` above every section with a
  * heading. `rows`: the rows of each section, from justify.ts.
  */
-export function layGroups(groups: Array<{ rows: Row[]; head: number }>, o: { gap: number; under?: number; headGap: number; groupGap: number }): GroupsLaid {
+export function layGroups(groups: Array<{ rows: Row[]; head: number }>, o: { gap: number; headGap: number; groupGap: number }): GroupsLaid {
   const at: At[] = [];
   const places: GroupPlace[] = [];
   const bands: Band[] = [];
@@ -91,7 +91,7 @@ export function layGroups(groups: Array<{ rows: Row[]; head: number }>, o: { gap
       bandOf.push({ group: n, first: item, end: item });
     }
     const body = g.head ? g.head + o.headGap : 0;
-    const laid = placeRows(g.rows, o.under ?? 0, o.gap);
+    const laid = placeRows(g.rows, o.gap);
     at.push(...laid.at);
     g.rows.forEach((r, k) => {
       bands.push({ top: start + body + laid.bands[k]!.top, bottom: start + body + laid.bands[k]!.bottom });

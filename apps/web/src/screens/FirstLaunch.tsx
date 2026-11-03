@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { plural, shortGpu, torchBuild } from "@afflatus/core";
+import { plural, shortGpu, torchBuild, verb } from "@afflatus/core";
 import { Check, ExternalLink } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type ComfyProbe, type Settings } from "../api";
@@ -116,7 +116,7 @@ export function FirstLaunch() {
   const none = async () => {
     if (own.length) {
       const names = own.map((m) => m.name || hostOf(m.url)).join(", ");
-      const ok = await ask({ title: "Render on rented GPUs only?", text: `${own.length > 1 ? "Your ComfyUIs" : "Your ComfyUI"} (${names}) ${own.length > 1 ? "are" : "is"} taken out of Afflatus, with ${own.length > 1 ? "their" : "its"} settings. The pods stay.`, yes: own.length > 1 ? "Take them out" : "Take it out" });
+      const ok = await ask({ title: "Render on rented GPUs only?", text: `${own.length > 1 ? "Your ComfyUIs" : "Your ComfyUI"} (${names}) ${verb(own.length, "is", "are")} taken out of Afflatus, with ${own.length > 1 ? "their" : "its"} settings. The pods stay.`, yes: own.length > 1 ? "Take them out" : "Take it out" });
       if (!ok) return;
       save.mutate({ machines: (settings.data?.machines ?? []).filter((m) => m.rented) as Settings["machines"] }, { onError: sayFailed("Your ComfyUI was not taken out") });
     }

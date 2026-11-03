@@ -8,20 +8,12 @@ import { persist } from "zustand/middleware";
  */
 export type ProjectChoice = string;
 
-/**
- * Before version 1 the choice could be null, "everything". A browser left there works in the Inbox from now on: what was
- * made while looking at everything landed in no project, which is the Inbox already.
- */
-export const migrateProject = (stored: unknown): { id: ProjectChoice } => {
-  const id = (stored as { id?: unknown } | null)?.id;
-  return { id: typeof id === "string" && id ? id : "none" };
-};
-
 export const useProject = create<{ id: ProjectChoice; set(id: ProjectChoice | null): void }>()(
   persist(
     // null is taken as the Inbox too: a caller from when it meant "everything" lands somewhere real
     (set) => ({ id: "none", set: (id) => set({ id: id || "none" }) }),
-    { name: "afflatus.project", version: 1, migrate: (stored) => migrateProject(stored) },
+    // what was saved, as it is: a store left at another version would be dropped without a migrate
+    { name: "afflatus.project", version: 1, migrate: (stored) => stored as never },
   ),
 );
 

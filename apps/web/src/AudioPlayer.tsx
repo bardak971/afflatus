@@ -10,16 +10,14 @@ import { queryKeys } from "./queryKeys";
  * The app's audio player, in place of the browser's: a play button, the name and the time, the sound's
  * waveform (the loudness the server measures once for the library and the timelines) with what was played
  * in the accent, and the volume. A click or a drag on the waveform goes there; with the focus on the
- * player, Space plays and pauses, and the arrow keys on the waveform go back and forth. A sound that is
- * not in the library (no `asset`) has a plain bar in place of its waveform. With `strip`, the place's own waveform is drawn
+ * player, Space plays and pauses, and the arrow keys on the waveform go back and forth. A sound whose waveform is
+ * not read has a plain bar in its place. With `strip`, the place's own waveform is drawn
  * under the player in place of the small one (a part chosen on the whole sound: SoundRange), with the playhead on it.
  */
 
-export function AudioPlayer({ asset, src, name, range, strip, bare, className, onClick, children }: {
+export function AudioPlayer({ asset, name, range, strip, bare, className, onClick, children }: {
   /** The sound (or the video whose sound it is) in the library: its waveform is drawn. */
   asset?: string;
-  /** Another address than the asset's file: a sound that is not in the library. */
-  src?: string;
   /** Written over the waveform; left out, the time goes after it on one line. */
   name?: string;
   /** Only a part is played, in seconds of the sound: the waveform and the time are those of the part. */
@@ -33,7 +31,7 @@ export function AudioPlayer({ asset, src, name, range, strip, bare, className, o
   /** After the volume: buttons of the place it is in. */
   children?: ReactNode;
 }) {
-  const url = src ?? (asset ? fileUrl(asset) : "");
+  const url = asset ? fileUrl(asset) : "";
   const audio = useRef<HTMLAudioElement>(null);
   const [on, setOn] = useState(false);
   // the position and the length, in seconds of the sound (the part's start is taken off when shown)

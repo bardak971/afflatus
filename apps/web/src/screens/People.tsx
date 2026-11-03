@@ -10,10 +10,10 @@ import { ShippedPreset } from "../ShippedPreset";
 import { importPresetFile, savePresetFile } from "../presetFile";
 import { ContextMenu, groups, headLine, useMenu, type MenuItem } from "../ContextMenu";
 import { handPreset } from "../handoff";
-import { useStudio } from "../store";
+import { useBanners, useStudio } from "../store";
 import { Thumb } from "../Thumb";
 import { Button, cx, Empty, Failed, Help } from "../ui";
-import { firstFailed } from "../sayFailed";
+import { firstFailed, useSayFailed } from "../sayFailed";
 import { ask, askText } from "../Confirm";
 import { copyText } from "../secureContext";
 import { ItemHeader, noteOfDelete } from "./kit/ItemHeader";
@@ -54,6 +54,8 @@ export function People() {
   const entities = useEntities();
   const client = useQueryClient();
   const recipes = useRecipes();
+  const say = useBanners((b) => b.push);
+  const copyFailed = useSayFailed({ id: "kit-link", here: true });
   const [, go] = useLocation();
   const all = entities.data?.items ?? [];
   // the tab and the item named in the address ("/kit#people/<id>", "/kit#snippets") when there are, else the tab last looked at
@@ -153,6 +155,11 @@ export function People() {
   const rowMenu = useMenu<Entity>();
   // a preset that ships with Afflatus keeps its name and stays; its copy can be renamed and deleted
   const shippedOne = (e: Entity) => e.kind === "preset" && e.source === "shipped";
+  /** The item's link on the clipboard, said in a banner as the library's copies are: the menu closes, nothing else would say it. */
+  const copyLink = (e: Entity) => void copyText(`${window.location.origin}${kitHref(e.kind, e.id)}`).then(
+    () => say({ id: `kit-link:${Date.now()}`, tone: "good", title: "Link copied" }),
+    (err: unknown) => copyFailed("Could not copy the link")(err),
+  );
   const rowItems = (e: Entity): MenuItem[] => groups(
     [
       open === e.id
@@ -163,7 +170,7 @@ export function People() {
     [
       { label: "Duplicate", icon: <CopyPlus size={14} />, note: duplicate.isPending ? "copying…" : "opened as a copy", disabled: duplicate.isPending, run: () => duplicate.mutate(e) },
       ...(shippedOne(e) ? [] : [{ label: "Rename…", icon: <Pencil size={14} />, run: () => void renameIt(e) }]),
-      { label: "Copy link", icon: <Link2 size={14} />, run: () => void copyText(`${window.location.origin}${kitHref(e.kind, e.id)}`).catch(() => {}) },
+      { label: "Copy link", icon: <Link2 size={14} />, run: () => copyLink(e) },
       ...(e.kind === "preset" ? [{ label: "Save as a file", icon: <FileDown size={14} />, run: () => savePresetFile(e) }] : []),
     ],
     !shippedOne(e) && [{ label: "Delete…", icon: <Trash2 size={14} />, danger: true, run: () => void askRemove(e) }],

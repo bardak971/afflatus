@@ -2,7 +2,10 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { extraDirs, extraPaths, insideDir, modelDirs, readLocalHeader } from "../src/modelFiles";
+import { extraPaths, insideDir, modelDirs, readLocalHeader } from "../src/modelFiles";
+
+/** The directories alone, without their `is_default`. */
+const extraDirs = (yaml: string, comfyDir: string, folder: string) => extraPaths(yaml, comfyDir, folder).map((d) => d.path);
 
 const yaml = `#Rename this to extra_model_paths.yaml and ComfyUI will load it
 

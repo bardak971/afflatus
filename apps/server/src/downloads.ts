@@ -103,8 +103,12 @@ export interface DownloadView {
  */
 export const PASSING = /not answering|cannot be reached|no longer knows the (download|upload)|did not answer|does not answer with|\((429|5\d\d)[:)]|answered (429|5\d\d)\)|fetch failed|ECONN|Errno -?\d+|reset by peer|Remote end closed|EOF occurred|socket|timed? ?out|aborted/i;
 
-/** A path on a disk in a line: quoted (it may hold spaces), a drive's or a share's, or a Unix one of two parts or more. */
-const DISK_PATH = /(['"])((?:[A-Za-z]:[\\/]|\\\\|\/)[^'"]*)\1|(?<!\w)(?:[A-Za-z]:[\\/]|\\\\)[^\s'"<>|*?]*|(?<![\w.:/\\-])\/(?:[^\s'"<>|/]+\/)+[^\s'"<>|/]*/g;
+/**
+ * A path on a disk in a line: quoted (it may hold spaces), a drive's or a share's, or a Unix one of two parts or more. A
+ * drive's or a share's runs through the spaces of its folders (C:\Users\John Smith\…, card #254: cut at the first space,
+ * "Smith\ComfyUI\…" was left in the line); its last part, the file's name, ends at a space.
+ */
+const DISK_PATH = /(['"])((?:[A-Za-z]:[\\/]|\\\\|\/)[^'"]*)\1|(?<!\w)(?:[A-Za-z]:[\\/]|\\\\)(?:[^\\/\r\n'"<>|*?:]+[\\/])*[^\s'"<>|*?\\/]*|(?<![\w.:/\\-])\/(?:[^\s'"<>|/]+\/)+[^\s'"<>|/]*/g;
 
 /**
  * A line of what went wrong without the folders on a disk it names, each path made its file's name: what a download says

@@ -39,17 +39,17 @@ describe("a stored LLM key", () => {
   it("is dropped when the model is pointed at another server without the key sent again", async () => {
     const other = await listen();
     try {
-      await putSettings({ llm: { baseUrl: "http://127.0.0.1:1/v1", model: "m", apiKey: "zz-secret-123" } });
+      await putSettings({ llms: [{ id: "main", baseUrl: "http://127.0.0.1:1/v1", model: "m", apiKey: "zz-secret-123" }] });
       // the same server at another path keeps it
-      expect((await putSettings({ llm: { baseUrl: "http://127.0.0.1:1/api/v1" } })).json().llm.hasApiKey).toBe(true);
+      expect((await putSettings({ llms: [{ id: "main", baseUrl: "http://127.0.0.1:1/api/v1", model: "m" }] })).json().llm.hasApiKey).toBe(true);
       // another server (here another port) does not
-      expect((await putSettings({ llm: { baseUrl: `${other.url}/v1` } })).json().llm.hasApiKey).toBe(false);
+      expect((await putSettings({ llms: [{ id: "main", baseUrl: `${other.url}/v1`, model: "m" }] })).json().llm.hasApiKey).toBe(false);
       await post(t.app, "/api/designer/test");
       expect(other.asked.length).toBeGreaterThan(0);
       expect(other.asked.every((a) => a.auth === undefined)).toBe(true);
       expect((await readSettings(t.db)).llms[0]!.apiKey).toBe("");
       // sent again with the new address, it is kept and used there
-      await putSettings({ llm: { baseUrl: `${other.url}/v1`, apiKey: "zz-secret-456" } });
+      await putSettings({ llms: [{ id: "main", baseUrl: `${other.url}/v1`, model: "m", apiKey: "zz-secret-456" }] });
       await post(t.app, "/api/designer/test");
       expect(other.asked.at(-1)!.auth).toBe("Bearer zz-secret-456");
     } finally {
@@ -162,5 +162,18 @@ describe("a language model's refusal", () => {
     expect(said.length).toBeLessThanOrEqual(80);
     expect(said).not.toContain("<");
     expect(said).not.toContain("zz-test");
+  });
+});
+
+describe("a ComfyUI folder on a network share", () => {
+  it("is refused, for a machine and for the first one said the short way (card #249)", async () => {
+    for (const dir of ["\\\\zz-test-host\\s\\ComfyUI", "//zz-test-host/s/ComfyUI"]) {
+      const res = await putSettings({ comfyDir: dir });
+      expect(res.statusCode).toBe(400);
+      expect(res.body).toMatch(/network share/);
+      const machines = (await readSettings(t.db)).machines.map((m) => ({ ...m, dir }));
+      expect((await putSettings({ machines })).statusCode).toBe(400);
+    }
+    expect((await readSettings(t.db)).machines.every((m) => !m.dir.includes("zz-test-host"))).toBe(true);
   });
 });

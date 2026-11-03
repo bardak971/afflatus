@@ -6,7 +6,7 @@ import { ImagePlus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import { api, thumbUrl } from "./api";
 import { useAsset, useEntities, useQueue, useRecipes, useSetup } from "./data";
 import { Viewer } from "./viewer/LazyViewer";
-import { DRAG_PICTURE, DRAG_TYPE } from "./dragging";
+import { DRAG_PICTURE, useDropZone } from "./dragging";
 import { clock } from "./format";
 import { Picker } from "./PictureField";
 import { useSayFailed } from "./sayFailed";
@@ -84,7 +84,7 @@ function useJobsOf(ids: string[]) {
   });
 }
 
-export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, onPick, frameControl, after }: {
+export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, onPick, frameControl }: {
   /** What the set is kept under: a draft, a timeline's source. */
   keyId: string;
   /** The driving video, and the moment of it the person is put into. */
@@ -101,8 +101,6 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
   onPick(asset: string): void;
   /** How the frame is chosen here (a slider within the part, or "the playhead"): drawn under the frame. */
   frameControl?: React.ReactNode;
-  /** Under the results (the timeline's "then make the clips"). */
-  after?: React.ReactNode;
 }) {
   const set = usePictureSets((s) => s.of[keyId] ?? EMPTY);
   const change = usePictureSets((s) => s.set);
@@ -142,6 +140,8 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
     onError: failed("The picture could not be picked"),
   });
   const addPhotos = (ids: string[]) => change(keyId, { people: [...new Set([...set.people, ...ids])].slice(0, 3) });
+  // pictures only (a video or a sound made a job that failed), and every one of a drag of several
+  const photoDrop = useDropZone([DRAG_PICTURE], (_first, ids) => addPhotos(ids.filter((id) => /^[0-9a-f]{32}$/.test(id))));
   const busy = jobs.some((j) => j.state === "waiting" || j.state === "running");
   /** A made picture let go: out of the box, and to the library's bin (back from there for a week); a failed one only out of the box. */
   const drop = useMutation({
@@ -184,14 +184,8 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
             <button
               type="button"
               onClick={() => setAdding(true)}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                // pictures only (a video or a sound made a job that failed), and every one of a drag of several
-                if (!e.dataTransfer.types.includes(DRAG_PICTURE)) return;
-                addPhotos(e.dataTransfer.getData(DRAG_TYPE).split(",").filter((id) => /^[0-9a-f]{32}$/.test(id)));
-              }}
-              className="flex h-14 w-14 flex-col items-center justify-center gap-0.5 rounded-md border border-dashed border-line-strong text-micro text-ink-2 hover:text-ink"
+              {...photoDrop.props}
+              className={cx("flex h-14 w-14 flex-col items-center justify-center gap-0.5 rounded-md border border-dashed text-micro text-ink-2 hover:text-ink", photoDrop.zone || "border-line-strong")}
             >
               <ImagePlus size={15} />
               image
@@ -272,7 +266,6 @@ export function PictureMaker({ keyId, video, atMs, name, folder, cast, current, 
           ))}
         </div>
       )}
-      {after}
       {shown.data && <Viewer asset={shown.data} onClose={() => setLooking(null)} />}
       {jobs.some((j) => j.state === "done") && !measured && (
         <span className="flex items-center gap-1.5 text-meta text-ink-3">

@@ -103,7 +103,6 @@ export type SettingsPatch = Partial<Omit<Settings, "llm" | "llms" | "hasCivitaiK
   /** The server's own list of deploys whose machine is not saved yet: the page never sends it. */
   pendingDeploys?: Array<{ name: string; secret: string; at: string }>;
   llms?: LlmPatch[];
-  llm?: Partial<Omit<LlmPatch, "id">>;
 };
 /** What Afflatus tells about (the server's notify.ts); `newDevice`: a sign-in from a device never seen (access.ts). */
 export type NotifyKind = "renderDone" | "renderFailed" | "queueEmpty" | "renderStuck" | "podStopped" | "capReached" | "balanceLow" | "comfyGone" | "comfyBusy" | "gpuFound" | "huntGaveUp" | "newDevice";
@@ -308,8 +307,7 @@ export interface Settings {
   hasHuggingFaceToken: boolean;
   /** A RunPod API key is set (rented machines). */
   hasRunpodKey: boolean;
-  /** RunPod's S3 API key for the volume viewer: its access key (the user's id), and whether its secret is set. */
-  runpodS3User: string;
+  /** Whether RunPod's S3 API key for the volume viewer is set (its secret; its access key is the account's own id). */
   hasRunpodS3Secret: boolean;
   /** What the rented GPUs may cost, in USD, today and this month; 0: no cap. */
   rentCaps: { day: number; month: number };

@@ -1,4 +1,4 @@
-import { pausesIn } from "../pauses";
+import { pausesIn } from "@afflatus/core";
 import { dayMonth, hourMinute, seconds } from "../format";
 
 /**
@@ -93,7 +93,7 @@ const LEAST = 0.15;
 export function proposedTrim(levels: readonly Level[], total: number): Trim | null {
   if (!levels.length || total <= 0) return null;
   const db = levels.map((l) => l.db);
-  const pauses = pausesIn(db, Math.ceil(LEVELS / 4));
+  const pauses = pausesIn(db, LEVELS, 0.25);
   const lead = pauses.find((p) => p.from === 0);
   const tail = pauses.findLast((p) => p.to === db.length);
   // one pause from start to end: the take is silence, there is nothing to keep

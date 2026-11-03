@@ -25,13 +25,6 @@ vi.mock("../../src/form", async (real) => {
     return form.settingsOnly(...a);
   } };
 });
-vi.mock("../../src/pauses", async (real) => {
-  const pauses = await real<typeof import("../../src/pauses")>();
-  return { ...pauses, pausesIn: (...a: Parameters<typeof pauses.pausesIn>) => {
-    counted.pauses++;
-    return pauses.pausesIn(...a);
-  } };
-});
 vi.mock("../../src/timeline/track/nearJoin", async (real) => {
   const near = await real<typeof import("../../src/timeline/track/nearJoin")>();
   // read once by each clip at each of its draws
@@ -42,10 +35,17 @@ vi.mock("../../src/timeline/track/nearJoin", async (real) => {
 });
 vi.mock("@afflatus/core", async (real) => {
   const core = await real<typeof import("@afflatus/core")>();
-  return { ...core, loraFit: (...a: Parameters<typeof core.loraFit>) => {
-    counted.loraFit++;
-    return core.loraFit(...a);
-  } };
+  return {
+    ...core,
+    loraFit: (...a: Parameters<typeof core.loraFit>) => {
+      counted.loraFit++;
+      return core.loraFit(...a);
+    },
+    pausesIn: (...a: Parameters<typeof core.pausesIn>) => {
+      counted.pauses++;
+      return core.pausesIn(...a);
+    },
+  };
 });
 
 const video = {

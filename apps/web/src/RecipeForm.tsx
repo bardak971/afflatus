@@ -77,8 +77,6 @@ export function Form(props: {
   helpers?: ReactNode;
   /** Chapters of the screen's own before every other (a timeline clip's Source and Takes): first in the strip too, in this order. */
   lead?: LeadPart | ReadonlyArray<LeadPart | undefined>;
-  /** The chapters drawn first, in this order, by id; the others follow in the form's own order (a swap clip's Model, Takes, Mask). */
-  first?: readonly string[];
   /** What the screen puts at the top of one of the recipe's own chapters, by its id (a swap clip's Mask: who is replaced, Show the mask). */
   chapterExtra?: Record<string, ReactNode>;
   /** What the screen adds to the Inputs chapter's frames (a timeline clip's pinned frames), with its words for the summary. */
@@ -116,8 +114,8 @@ export function Form(props: {
 
 /**
  * What the parts give the prompt as sent, asked once they stop changing (the server writes it by the recipe's own rules), with
- * what the screen gives too (`given`: a timeline window's clip before, set at plan time): Swap motion's windows that carry on
- * are written by the motion's rules, and showed the swap's caption, which the render never sends. The field it fills is left
+ * what the screen gives too (`given`: a timeline clip that carries on from the clip before, which its render is handed at plan
+ * time): such a clip's prompt is written as one that carries the shot on, as the render will send it. The field it fills is left
  * out of what is asked: it is what goes while that field is empty, so typing there asks nothing. A request overtaken by a
  * change is cancelled.
  */
@@ -134,7 +132,7 @@ export function useWrittenPrompt(recipe: RecipeInfo, stored: Record<string, unkn
   return asked?.into && asked.text ? { into: asked.into, text: asked.text } : null;
 }
 
-function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, frameExtra, chapterExtra, first, keepEmpty, promptInView, machine, noPins, off, agentRings }: {
+function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, frameExtra, chapterExtra, keepEmpty, promptInView, machine, noPins, off, agentRings }: {
   recipe: RecipeInfo;
   status: RecipeStatus | undefined;
   /** What the draft holds for this recipe: only what was touched. */
@@ -154,8 +152,6 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
   helpers?: ReactNode;
   /** Chapters of the screen's own before every other (a timeline clip's Source and Takes): first in the strip too, in this order. */
   lead?: LeadPart | ReadonlyArray<LeadPart | undefined>;
-  /** The chapters drawn first, in this order, by id; the others follow in the form's own order (a swap clip's Model, Takes, Mask). */
-  first?: readonly string[];
   /** What the screen puts at the top of one of the recipe's own chapters, by its id (a swap clip's Mask: who is replaced, Show the mask). */
   chapterExtra?: Record<string, ReactNode>;
   /** What the screen adds to the Inputs chapter's frames (a timeline clip's pinned frames), with its words for the summary. */
@@ -396,12 +392,12 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
     ...(out.length || encoding.length || upscaling.length ? [{ id: "output", label: "Output" }] : []),
     ...(rare.length && !advancedMoved ? [{ id: "advanced", label: "Advanced" }] : []),
   ];
-  // the chapters asked for first, in that order; the rest keep theirs (a stable sort)
-  const firstIds = first ?? recipe.first;
+  // the chapters the recipe asks for first, in that order; the rest keep theirs (a stable sort)
+  const firstIds = recipe.first;
   const rank = (id: string) => (firstIds?.includes(id) ? firstIds.indexOf(id) : firstIds?.length ?? 0);
   const ordered = <T,>(list: T[], idOf: (x: T) => string) => (firstIds?.length ? [...list].sort((a, b) => rank(idOf(a)) - rank(idOf(b))) : list);
   // the Pinned card comes first of the form's own chapters: after the screen's (a timeline clip's Source, its Takes), before the
-  // rest, wherever `first` puts them; in the strip too
+  // rest, wherever the recipe's `first` puts them; in the strip too
   const leadIds = new Set(leads.map((l) => l.id));
   const withPinned = <T,>(list: T[], idOf: (x: T) => string, pinned: T) => {
     if (!pinnedRows.length) return list;

@@ -6,11 +6,10 @@ import { wordsOf } from "../../fields/Loras";
 import { mainTextOf } from "../../form";
 import { appendTo } from "../../promptText";
 import { queryKeys } from "../../queryKeys";
-import { copyText } from "../../secureContext";
 import { stem } from "../searchRows";
 import { valueText } from "../search";
 import type { SearchValue } from "../items";
-import type { Action, BarCtx } from "./ctx";
+import { copySaid, type Action, type BarCtx } from "./ctx";
 import { commandActions } from "./commands";
 import { retype } from "./retype";
 import { cardActions, downloadActions, findAction, linkActions, MODEL_FOLDERS, newerActions, whereActions, whereAsk } from "./models";
@@ -71,7 +70,7 @@ export function searchValueActions(x: BarCtx, v: SearchValue): Action[] {
           run: async () => {
             const words = await triggerWords(x, v.file).catch(() => "");
             if (!words) return x.onCopied("");
-            await copyText(words).then(() => x.onCopied("its trigger words"), () => x.onCopied(""));
+            await copySaid(x, "its trigger words", words);
           },
         },
       ];
@@ -93,7 +92,7 @@ export function searchValueActions(x: BarCtx, v: SearchValue): Action[] {
         ...(v.newer ? newerActions(x, v.newer) : []),
         pageAction(x, v.file, MODEL_FOLDERS),
         ...whereActions(x, whereAsk(v)!),
-        { label: "Copy the file's name", icon: <Copy size={14} />, stay: true, run: () => copyText(v.file).then(() => x.onCopied(v.file), () => x.onCopied("")) },
+        { label: "Copy the file's name", icon: <Copy size={14} />, stay: true, run: () => copySaid(x, v.file, v.file) },
       ];
     case "link":
       return linkActions(x, v.card, v.version, v.file);

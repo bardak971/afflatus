@@ -10,10 +10,9 @@ import { size } from "../../format";
 import { machineLabel } from "../../machines";
 import { queryKeys } from "../../queryKeys";
 import { settingHref } from "../../screens/settings/settingsIndex";
-import { copyText } from "../../secureContext";
 import type { SearchValue } from "../items";
 import { inLine } from "../../downloadLine";
-import type { Action, BarCtx } from "./ctx";
+import { copySaid, type Action, type BarCtx } from "./ctx";
 /**
  * What the bar does with Civitai and Hugging Face: a pasted link's file downloaded onto this PC or another ComfyUI, a
  * download stopped, dismissed or asked again, a newer version of a model fetched. Every download is asked first, with
@@ -81,7 +80,7 @@ export function linkActions(x: BarCtx, card: BrowseCard, version: string, file: 
     })),
     { label: "Open in Find models", icon: <Search size={14} />, note: "every version and file, to pick from", run: () => openFindModels(onThisPc(x), card.page) },
     { label: `Its page on ${card.site === "civitai" ? "Civitai" : "Hugging Face"}`, icon: <ExternalLink size={14} />, run: () => window.open(card.page, "_blank", "noopener") },
-    ...(words ? [{ label: "Copy its trigger words", icon: <Copy size={14} />, note: words.slice(0, 60), stay: true, run: () => copyText(words).then(() => x.onCopied("its trigger words"), () => x.onCopied("")) }] : []),
+    ...(words ? [{ label: "Copy its trigger words", icon: <Copy size={14} />, note: words.slice(0, 60), stay: true, run: () => copySaid(x, "its trigger words", words) }] : []),
   ];
 }
 
@@ -299,11 +298,11 @@ export function whereActions(x: BarCtx, w: WhereAsk): Action[] {
     if (!d.places.length) continue;
     return d.places.map((p, at) => (d.reveal
       ? { label: "Show in folder", icon: <FolderOpen size={14} />, note: p.path, run: () => api.revealModelFile({ folder, file: w.file, at, ...(w.machine ? { machine: w.machine } : {}) }).catch(x.failed("Could not show it in its folder")) }
-      : { label: "Copy path", icon: <Copy size={14} />, note: p.path, stay: true, run: () => copyText(p.path).then(() => x.onCopied("the path"), () => x.onCopied("")) }));
+      : { label: "Copy path", icon: <Copy size={14} />, note: p.path, stay: true, run: () => copySaid(x, "the path", p.path) }));
   }
   if (unread) return [{ label: "Show in folder", icon: <FolderOpen size={14} />, disabled: true, note: "its place on disk could not be read", run: () => {} }];
   // found in none of its folders: the page copies its folder and name; a model, whose folder is not known, has nothing to copy
   if (w.folders.length > 1) return [];
   const said = `${w.folders[0]}/${w.file}`;
-  return [{ label: "Copy path", icon: <Copy size={14} />, note: said, stay: true, run: () => copyText(said).then(() => x.onCopied("the path"), () => x.onCopied("")) }];
+  return [{ label: "Copy path", icon: <Copy size={14} />, note: said, stay: true, run: () => copySaid(x, "the path", said) }];
 }

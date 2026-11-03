@@ -336,6 +336,19 @@ describe("where Afflatus may write a model", () => {
     expect(await modelRoot({ loras: ["\\\\nas\\models\\loras"] }, "loras", "http://127.0.0.1:8188", "")).toBeNull();
   });
 
+  it("never writes inside a node pack's folder, though ComfyUI lists one for the folder (card #254)", async () => {
+    // a pack that registers a folder inside its own code (VideoHelperSuite's video formats), listed first
+    const nodes = join(dir, "zz-comfy", "custom_nodes");
+    const inPack = join(nodes, "zz-test-pack", "loras");
+    const loras = join(dir, "zz-comfy", "models", "loras");
+    mkdirSync(inPack, { recursive: true });
+    mkdirSync(loras, { recursive: true });
+    expect(await modelRoot({ custom_nodes: [nodes], loras: [inPack, loras] }, "loras", "http://127.0.0.1:8188", "")).toBe(await realpath(loras));
+    // chosen by hand, and with no custom_nodes said: still not there
+    expect(await modelRoot({ loras: [inPack, loras] }, "loras", "http://127.0.0.1:8188", "", inPack)).toBe(await realpath(loras));
+    expect(await modelRoot({ loras: [inPack] }, "loras", "http://127.0.0.1:8188", "")).toBeNull();
+  });
+
   it("takes ComfyUI's own models/<folder> first, though ComfyUI lists its older name and another app's folder first (card #59)", async () => {
     // the owner's ComfyUI as it answered on 2026-10-24: unet before diffusion_models, A1111's folders (extra_model_paths.yaml) first
     const comfy = join(dir, "ComfyUI");

@@ -96,7 +96,7 @@ type Target = { id: string; name: string };
 export function useTimelineOf<V>(of: (v: V) => TimelineOf | Promise<TimelineOf>, opts: { onSuccess?(target: Target, v: V): void; onError?(err: Error, v: V): void } = {}) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: async (v: V) => timelineOf(await of(v), { create: () => api.createTimeline(), add: api.addClip }),
+    mutationFn: async (v: V) => timelineOf(await of(v), { create: () => api.createTimeline(), add: api.addClip, music: (timeline, asset) => api.editTimeline(timeline, { music: { asset } }) }),
     onSuccess: (target: Target, v: V) => {
       remember(target);
       void client.invalidateQueries({ queryKey: queryKeys.timelines.all() });

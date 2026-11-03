@@ -4,7 +4,8 @@ import { ArrowDownToLine, ChevronRight, Copy, Eraser, Pause, Play, Search } from
 import { api } from "../../api";
 import { useQueueOf } from "../studio/queueOf";
 import { logRows, type JobAt, type LogLine, type LogRow } from "./logRows";
-import { copyText } from "../../secureContext";
+import { useCopied } from "../../hooks";
+import { useSayFailed } from "../../sayFailed";
 import { Button, Chip, cx, ErrorNote, Failed, fieldClass, Toggle } from "../../ui";
 import { queryKeys } from "../../queryKeys";
 
@@ -60,6 +61,9 @@ export function ComfyLog({ online, pod = false, machine }: {
   const [onlyTrouble, setOnlyTrouble] = useState(false);
   const [lines, setLines] = useState<Line[]>([]);
   const [stuck, setStuck] = useState(true);
+  // a copy the browser refuses is said in a banner, as every other copy of the app: the lines are on screen already
+  const failed = useSayFailed({ id: "log-copy", here: true });
+  const { copied, copy } = useCopied(1500, failed("Could not copy the log"));
   const box = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const seen = useRef(new Set<string>());
@@ -183,7 +187,7 @@ export function ComfyLog({ online, pod = false, machine }: {
             Only {onlyJob.label}
           </Chip>
         )}
-        <Button size="sm" onClick={() => void copyText(shown.flatMap(raw).map((l) => `${l.t} ${l.m}`).join("\n")).catch(() => {})} data-tip="Copy the lines shown (tracebacks whole)"><Copy size={13} /> Copy</Button>
+        <Button size="sm" onClick={() => copy(shown.flatMap(raw).map((l) => `${l.t} ${l.m}`).join("\n"))} data-tip="Copy the lines shown (tracebacks whole)"><Copy size={13} /> {copied ? "Copied" : "Copy"}</Button>
         {!stuck && <Button size="sm" tone="primary" onClick={() => { setStuck(true); if (box.current) box.current.scrollTop = box.current.scrollHeight; }}><ArrowDownToLine size={13} /> Follow the end</Button>}
         <span className="grow" />
         <span className="text-ink-3">{shown.length} of {rows.length} rows{paused ? " · paused" : log.isFetching ? " · reading…" : ""} · read-only, {boot ? "the pod's boot log until ComfyUI answers" : "straight from ComfyUI"}</span>

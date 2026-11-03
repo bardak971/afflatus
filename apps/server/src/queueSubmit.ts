@@ -1,11 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { openAsBlob } from "node:fs";
-import { baseModels, checkGraph, choicesOf, graphFiles, clockFits, FRAME_SLACK_MS, isChunkStart, latentClockOf, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, neededSlots, onGrid, packOfNode, parseInput, pickChoice, pickedFiles, RANDOM_SEED, relocateFiles, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue, type SetFinding } from "@afflatus/core";
+import { baseModels, checkGraph, choicesOf, graphFiles, clockFits, exactSoundPart, FRAME_SLACK_MS, isChunkStart, latentClockOf, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, neededSlots, onGrid, packOfNode, parseInput, pickChoice, pickedFiles, RANDOM_SEED, relocateFiles, soundPartOf, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue, type SetFinding } from "@afflatus/core";
 import { catalogKey, ComfyCancelled, ComfyError, ComfyUnreachable, filesIn } from "@afflatus/comfy";
 import { Kept } from "./kept";
 import { chunksOf, forecast, fromRates, sizedFrom, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
-import { cutFrames, frameAt, inTemp, exactPart, onDisk, partOf, rangeKeep, referenceClip, soundPart, type Media } from "./cut";
+import { cutFrames, frameAt, inTemp, onDisk, rangeKeep, referenceClip, soundPart, type Media } from "./cut";
 import type { Db, Tables } from "./db";
 import { extOf, fileName } from "./media";
 import { usualParts } from "./renders";
@@ -772,7 +772,7 @@ async function uploadSound({ db, storage, upload, input, signal, sent }: Up, spe
   });
   sent.uploads[spec.id] = part ? await upload(part, "wav") : await upload(await sendable(storage, asset.file_key), extOf(asset.mime));
   // how long the part really is (a sound that ends before the part asked for gives less): a recipe that follows it, a lip sync, is made that long
-  const seconds = part ? partOf(asked.start, asked.seconds, asset.duration_ms ? asset.duration_ms / 1000 : null).seconds : asset.duration_ms ? asset.duration_ms / 1000 : undefined;
+  const seconds = part ? soundPartOf(asked.start, asked.seconds, asset.duration_ms ? asset.duration_ms / 1000 : null).seconds : asset.duration_ms ? asset.duration_ms / 1000 : undefined;
   if (seconds) sent.media[spec.id] = { width: 0, height: 0, seconds, ...(part && after ? { after } : {}), ...(part && pre ? { before: pre } : {}) };
 }
 
@@ -797,7 +797,7 @@ async function uploadCues({ db, storage, upload, signal, sent }: Up, spec: Input
       throw new Error(`the part of sound cue ${i + 1} could not be cut (${(err as Error).message})`);
     });
     sent.uploads[`${spec.id}.${i}`] = await upload(part, "wav");
-    sent.media[`${spec.id}.${i}`] = { width: 0, height: 0, seconds: exactPart(cue.start, cue.seconds, asset.duration_ms ? asset.duration_ms / 1000 : null).seconds };
+    sent.media[`${spec.id}.${i}`] = { width: 0, height: 0, seconds: exactSoundPart(cue.start, cue.seconds, asset.duration_ms ? asset.duration_ms / 1000 : null).seconds };
   }));
 }
 

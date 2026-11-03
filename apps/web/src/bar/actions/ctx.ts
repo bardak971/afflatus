@@ -18,6 +18,7 @@ import type { Banner } from "../../store";
 import type { useItemActions } from "../../useItemActions";
 import type { SelectedClip, TimelineRequest } from "../bridge";
 import type { SettingCtx } from "../settingsRegistry";
+import { copyText } from "../../secureContext";
 
 /** One thing a result can have done to it: Enter does the first, Ctrl + Enter the second, Tab lists them all. */
 export interface Action {
@@ -120,4 +121,12 @@ export interface BarCtx {
   showInFolder(id: string, project: string | null): Promise<void>;
   askTimeline(t: TimelineAim, request: TimelineRequest): Promise<string[] | null>;
   atTopAction(t: TimelineAim, request: RenderTimeline): Action;
+}
+
+/**
+ * A copy from the bar, said in its footer as every one is: "Copied <what>", or that the browser refused. `work`: the
+ * text to put on the clipboard, or a copy already under way (a picture's, copyPicture).
+ */
+export function copySaid(x: Pick<BarCtx, "onCopied">, what: string, work: string | Promise<unknown>): Promise<void> {
+  return (typeof work === "string" ? copyText(work) : work).then(() => x.onCopied(what), () => x.onCopied(""));
 }

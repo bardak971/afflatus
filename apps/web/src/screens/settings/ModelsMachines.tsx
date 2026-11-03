@@ -3,14 +3,14 @@ import { useSearch } from "wouter";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { api, type Machine, type Scan } from "../../api";
 import { useRecipes, useSettings } from "../../data";
-import { familyOnFor, machineLabel } from "../../machines";
+import { machineLabel } from "../../machines";
 import { Select } from "../../Select";
 import { cx, Failed, Help, Segmented, Toggle } from "../../ui";
 import { Block, Card, CardLoading } from "./Rows";
 import { ModelsCard } from "./ModelsTab";
 import { queryKeys } from "../../queryKeys";
 import { COLUMNS } from "./wide";
-import { SETTING_HELP } from "@afflatus/core";
+import { familyOnFor, SETTING_HELP } from "@afflatus/core";
 
 /** Past this many machines the tabs become a dropdown, as Render times has it. */
 const TABS_UP_TO = 4;

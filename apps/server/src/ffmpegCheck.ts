@@ -1,7 +1,8 @@
 import { existsSync, statSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
-import { delimiter, dirname, join, relative, resolve } from "node:path";
+import { delimiter, dirname, join, posix, relative, resolve, win32 } from "node:path";
 import { environment } from "./config";
+import { isNetworkPath } from "./linked";
 import { countFrames, cutArgs, ffRun, inTemp } from "./cut";
 import { installKind, writeAtomic, type InstallKind } from "./updatesModel";
 
@@ -200,7 +201,9 @@ export const gotDir = (dataDir: string) => join(dataDir, "bin");
  */
 export async function comfyFfmpegs(comfyDir: string, platform = process.platform): Promise<string[]> {
   const dir = comfyDir.trim();
-  if (!dir) return [];
+  // a folder on a network share is never listed (card #249): Windows signs in to the share as the account Afflatus runs as,
+  // and an ffmpeg found there would be run; nor a relative one, read from wherever the server was started
+  if (!dir || isNetworkPath(dir) || !(platform === "win32" ? win32 : posix).isAbsolute(dir)) return [];
   const sites: string[] = [];
   for (const base of [join(dir, "venv"), join(dir, ".venv"), join(dir, "..", "python_embeded"), join(dir, "python_embeded")]) {
     if (platform === "win32") sites.push(join(base, "Lib", "site-packages"));

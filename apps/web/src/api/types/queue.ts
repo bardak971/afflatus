@@ -6,8 +6,6 @@ export interface SystemLoad {
   source: "dasiwa" | "crystools" | "comfyui";
   cpu?: number;
   ram?: { used: number; total: number; percent: number };
-  swap?: number;
-  disks: Array<{ path: string; percent: number; readMbS?: number; writeMbS?: number }>;
   gpus: Array<{ name: string; load?: number; temperature?: number; vramUsed: number; vramTotal: number; vramPercent: number }>;
 }
 export interface Job {
@@ -374,7 +372,7 @@ export interface TimesSummary {
   prior?: { from: number; to: number; gpuMs: number; done: number; failed: number; cancelled: number; videoMs: number } | null;
   /** The upscales' pace per stretch: a video route in minutes per second of video, a picture tool or a hires pass in seconds per megapixel. */
   upscale?: { video: Array<{ key: string; name: string; points: Line }>; pictures: Array<{ key: string; name: string; points: Line }> };
-  finished: { images: number[]; videos: number[]; bad: number[]; videoMs?: number[] };
+  finished: { images: number[]; videos: number[]; bad: number[]; videoMs: number[] };
   phases: { loading: number[]; sampling: number[]; refining: number[]; finishing: number[] };
   wait: { usual: Line; slow: Line };
   gpu: { vram: Line; heat: Line };

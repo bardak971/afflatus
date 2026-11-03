@@ -2,9 +2,8 @@ import { ArrowUpToLine, Copy, ListOrdered, PenLine, RotateCcw, Trash2, X } from 
 import { api } from "../../api";
 import { moved } from "../../screens/queue/order";
 import { lighter, memoryThatRanOut, shorterStretch } from "../../screens/queue/retry";
-import { copyText } from "../../secureContext";
 import type { Item } from "../items";
-import type { Action, BarCtx } from "./ctx";
+import { copySaid, type Action, type BarCtx } from "./ctx";
 import { queryKeys } from "../../queryKeys";
 
 /** A job of the queue: what its row and menu on the Queue page do. */
@@ -20,7 +19,7 @@ export function jobActions(x: BarCtx, it: Item): Action[] {
     return [
       toQueue,
       { label: "Stop", icon: <X size={14} />, danger: true, note: "nothing is added", run: () => api.cancel(job.id).then(() => client.invalidateQueries({ queryKey: queryKeys.queue() }), failed("Could not stop it")) },
-      ...(seed !== null ? [{ label: "Copy the seed", icon: <Copy size={14} />, note: String(seed), stay: true, run: () => copyText(String(seed)).then(() => x.onCopied(`the seed ${seed}`), () => x.onCopied("")) }] : []),
+      ...(seed !== null ? [{ label: "Copy the seed", icon: <Copy size={14} />, note: String(seed), stay: true, run: () => copySaid(x, `the seed ${seed}`, String(seed)) }] : []),
       ...toDraft,
     ];
   }

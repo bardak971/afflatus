@@ -3,7 +3,7 @@ import { Minus, Plus } from "lucide-react";
 import { hasWildcards, plural } from "@afflatus/core";
 import type { Draft, MachineState, RecipeInfo } from "../../api";
 import { batchAbout, batchMs, useAdvice } from "../../advice";
-import { BATCH } from "../../draft";
+import { BATCH } from "@afflatus/core";
 import { Keys } from "../../Keys";
 import { FormModel, ResultsPlace } from "../../ModelLoad";
 import { Button, cx, ErrorNote, Failed, Help } from "../../ui";

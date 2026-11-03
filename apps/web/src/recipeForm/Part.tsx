@@ -118,7 +118,7 @@ export const PartHead = ({ children }: { children: ReactNode }) => <span classNa
  * the settings show. A part that needs something from the user (a picture that is not chosen yet) is open
  * whatever was remembered.
  */
-export function Part({ id, title, icon, accent, help, summary, warn, needs, head, children, startOpen }: {
+export function Part({ id, title, icon, accent, help, summary, warn, needs, children, startOpen }: {
   id: string;
   title: string;
   /** A mark before the name (the Pinned card's pin). */
@@ -134,8 +134,6 @@ export function Part({ id, title, icon, accent, help, summary, warn, needs, head
   needs?: boolean;
   /** Open until the person folds it (the Takes of a timeline clip): what is looked at first. */
   startOpen?: boolean;
-  /** A control in the header, beside the fold (a chapter's own switch). */
-  head?: ReactNode;
   children: ReactNode;
 }) {
   const kept = useParts((s) => s.open[id] ?? Boolean(startOpen));
@@ -147,8 +145,8 @@ export function Part({ id, title, icon, accent, help, summary, warn, needs, head
     <section data-part={id} className={cx("scroll-mt-12 rounded-xl border shadow-card transition-colors", open ? "border-line-strong bg-panel" : "border-line bg-raised hover:border-line-strong")}>
       {/* the whole head folds and unfolds it; its name is the button (the keys reach it), and its ? sits right after the
           name, as every ? of a form does: in the button it could not be (a button in a button), and beside the fold it
-          read as the chevron's. A click on the ? or on the head's own control (a chapter's switch) stays theirs */}
-      <div onClick={() => set(id, !open)} className={cx("flex cursor-pointer items-center gap-2.5 px-3 py-2.5", Boolean(head) && "pr-3")}>
+          read as the chevron's. A click on the ? stays its own */}
+      <div onClick={() => set(id, !open)} className="flex cursor-pointer items-center gap-2.5 px-3 py-2.5">
         <span className="flex min-w-0 grow flex-col gap-0.5 text-left">
           <span className="flex min-w-0 items-center gap-1.5">
             <button type="button" aria-expanded={open} aria-label={`${title}: ${open ? "fold" : "unfold"}`} className={cx("flex min-w-0 items-center gap-1.5 text-left", accent && "text-accent")}>{icon}<span className={accent ? PART_HEAD.replace("text-ink-3", "text-accent") : PART_HEAD}>{title}</span></button>
@@ -158,7 +156,6 @@ export function Part({ id, title, icon, accent, help, summary, warn, needs, head
           {warn && <span className="truncate text-xs text-warn-ink">{warn}</span>}
         </span>
         <ChevronDown size={15} className={cx("shrink-0 text-ink-2", chevronMotion(open, searching), open && "rotate-180")} />
-        {head && <span onClick={(e) => e.stopPropagation()}>{head}</span>}
       </div>
       <FoldBody open={open} now={now} className="flex flex-col gap-2 border-t border-line px-3 pt-2 pb-3">{children}</FoldBody>
     </section>

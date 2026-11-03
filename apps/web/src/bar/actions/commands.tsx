@@ -12,7 +12,6 @@ import { OPEN_MACHINES } from "../../MachinesPill";
 import { api, type Download as DownloadJob, type Health, type RecipeInfo } from "../../api";
 import { linesOf } from "../../downloadLine";
 import { ELSEWHERE } from "../../GetFfmpeg";
-import { copyText } from "../../secureContext";
 import { emptyAll, restoreAll } from "../../binActions";
 import { snapEdge } from "../../fields/SizeField";
 import { wholeForm } from "../../form";
@@ -27,7 +26,7 @@ import { kitHref } from "../../screens/kit/link";
 import { openFolderId, useBanners } from "../../store";
 import { useTimelineRequest, useWorkflowsRequest, type TimelineRequest } from "../bridge";
 import { KIT_OF, type Command, type KitNew } from "../parse";
-import type { Action, BarCtx, Preset } from "./ctx";
+import { copySaid, type Action, type BarCtx, type Preset } from "./ctx";
 import { applyPreset } from "./kit";
 import { row } from "./tree";
 import { queryKeys } from "../../queryKeys";
@@ -565,7 +564,7 @@ export function commandActions(x: BarCtx, c: Command, recipe?: RecipeInfo, prese
       const h = client.getQueryData<Health>(queryKeys.health());
       const get = h?.checks.find((k) => k.get)?.get;
       if (get === "brew") {
-        return [{ label: "Copy “brew install ffmpeg”", icon: <Copy size={14} />, stay: true, note: "Homebrew's line, as About shows it", run: () => copyText("brew install ffmpeg").then(() => x.onCopied("brew install ffmpeg"), () => x.onCopied("")) }];
+        return [{ label: "Copy “brew install ffmpeg”", icon: <Copy size={14} />, stay: true, note: "Homebrew's line, as About shows it", run: () => copySaid(x, "brew install ffmpeg", "brew install ffmpeg") }];
       }
       // as GetFfmpeg: offered only when the check offers the download, and refused from another computer
       if (get !== "download") {

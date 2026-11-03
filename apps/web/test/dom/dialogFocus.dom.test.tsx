@@ -14,7 +14,7 @@ const timeline: TimelineBrief = {
 const tree: ProjectsTree = {
   totalBytes: 0,
   groups: [{
-    id: null, kind: "inbox", name: "Inbox", archived: false, rootFolderId: null, counts: { drafts: 0, timelines: 1, items: 0 }, bytes: 0, folders: [],
+    id: null, kind: "inbox", name: "Inbox", archived: false, rootFolderId: null, createdAt: null, counts: { drafts: 0, timelines: 1, items: 0 }, bytes: 0, folders: [],
     timelines: [{ id: timeline.id, name: timeline.name, folderId: null, clips: 3, durationMs: 9000, bytes: 0, exported: false, unusedTakes: 0, unusedBytes: 0, createdAt: timeline.updatedAt, updatedAt: timeline.updatedAt }],
   }],
 };

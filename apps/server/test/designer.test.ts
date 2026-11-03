@@ -51,7 +51,9 @@ afterEach(async () => {
 });
 
 const put = async (url: string, payload: unknown) => t.app.inject({ method: "PUT", url, payload: payload as object });
-const useLlm = (over: Record<string, unknown> = {}) => put("/api/settings", { llm: { baseUrl: llm.url, model: "test-model", apiKey: "secret", ...over } });
+/** The one model, as the Settings page sends the list: a key left out stays as it was. */
+const setLlm = (over: Record<string, unknown> = {}) => put("/api/settings", { llms: [{ id: "main", baseUrl: llm.url, model: "test-model", ...over }] });
+const useLlm = (over: Record<string, unknown> = {}) => setLlm({ apiKey: "secret", ...over });
 const system = (n = -1) => String(llm.asked.at(n)!.messages[0]!.content);
 
 describe("the designer's language model", () => {
@@ -59,7 +61,7 @@ describe("the designer's language model", () => {
     expect((await post(t.app, "/api/designer/test")).json().error).toMatch(/no language model yet/);
     expect((await useLlm()).json().llm).toEqual({ baseUrl: llm.url, model: "test-model", hasApiKey: true, vision: false });
     // the address changes; the key is not sent again and stays
-    await put("/api/settings", { llm: { vision: true } });
+    await setLlm({ vision: true });
     // with Vision on, the test also shows the model a red square: it answered the colour, so it reads pictures
     llm.answers.push("ready", "Red.");
     expect((await post(t.app, "/api/designer/test")).json()).toEqual({ ok: true, model: "test-model", answer: "ready", ms: expect.any(Number), thinks: false, vision: { ok: true, answer: "Red." } });
@@ -403,7 +405,7 @@ options: even warmer | add seagulls | "the camera pushes in"`);
     expect(system()).toContain("You cannot see that picture");
     expect(typeof llm.asked.at(-1)!.messages.at(-1)!.content).toBe("string");
 
-    await put("/api/settings", { llm: { vision: true } });
+    await setLlm({ vision: true });
     llm.answers.push("kind: proposal\nnote: ok\ndescription: She turns her head slowly.");
     expect((await ask()).json().sawPicture).toBe(true);
     expect(system()).toContain("You are shown the picture");

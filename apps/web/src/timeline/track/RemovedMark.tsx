@@ -11,11 +11,11 @@ export const removedSaid = (p: RemovedPart) => `cut · ${seconds(p.toMs - p.from
  * Source lane: a line where it jumps, and its words; a click brings the part back (its clips and takes, before `number`'s
  * clip), as Undo would. `width`: the stretch it covers where the lane is drawn in the source's own time (0: a line).
  */
-export function RemovedMark({ part, left, width = 0, number, onBringBack, className }: { part: RemovedPart; left: number; width?: number; number: number; onBringBack?(before: string): void; className?: string }) {
+export function RemovedMark({ part, left, width = 0, number, onBringBack }: { part: RemovedPart; left: number; width?: number; number: number; onBringBack?(before: string): void }) {
   const said = removedSaid(part);
   const tip = `${clock(part.fromMs, { decimals: 1 })}–${clock(part.toMs, { decimals: 1 })} cut out here, with ${plural(part.clips, "clip")}${part.takes ? ` (${plural(part.takes, "rendered")})` : ""}: clip ${number} starts after a cut.${onBringBack ? " Click: bring it back" : ""}`;
   return (
-    <span className={cx("absolute inset-y-0", className)} style={{ left, width: Math.max(2, width) }}>
+    <span className="absolute inset-y-0" style={{ left, width: Math.max(2, width) }}>
       <span aria-hidden className={cx("pointer-events-none absolute inset-y-0 left-0", width > 2 ? "right-0 bg-[repeating-linear-gradient(135deg,transparent_0_4px,color-mix(in_srgb,var(--color-warn)_35%,transparent)_4px_6px)]" : "w-0.5 bg-warn")} />
       <button
         type="button"

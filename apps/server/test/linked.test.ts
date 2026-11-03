@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { join, parse } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makePng, type FakeComfy } from "@afflatus/comfy/testing";
-import { uploadName, whyNotLinkable } from "../src/linked";
+import { placeFree, uploadName, whyNotLinkable } from "../src/linked";
 import { CHECKPOINT, complete, get, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 
 /** A directory with pictures in it and in a sub-directory, a hidden file and a text file. */
@@ -72,6 +72,11 @@ describe("a folder linked to a directory of the disk", () => {
     } else {
       expect(await refused("/etc")).toContain("system");
       expect(whyNotLinkable("/var/log")).toContain("/var");
+      // the live system folders, the administrator's home, the libraries and the programs beside the system (card #254)
+      for (const sys of ["/proc/self", "/sys", "/dev/shm", "/run/user", "/root/videos", "/boot", "/lib64", "/opt/app", "/srv/www"]) expect(whyNotLinkable(sys), sys).toContain("system");
+      expect(whyNotLinkable("/home")).toContain("/home");
+      expect(whyNotLinkable("/home/zz-test-someone")).toContain("/home");
+      expect(whyNotLinkable("/home/zz-test-someone/videos")).toBeNull();
     }
     // the allow-list: a directory outside it is refused, one inside it goes through
     process.env.LINK_ROOTS = join(dir, "day 1");
@@ -401,5 +406,25 @@ describe.skipIf(!mov || !mkv)("videos dropped on a linked folder", () => {
     expect((await post(t.app, `/api/folders/${root.id}/scan`, {})).json()).toEqual({ files: 4, folders: 1 });
     const names = (await inFolder(root.id)).filter((x) => x.name.startsWith("take")).map((x) => [x.name, x.id]);
     expect(names.sort()).toEqual([["take one.mov", a.id], ["take two.mkv", b.id]]);
+  });
+});
+
+describe("a file moved into a linked folder", () => {
+  it("never replaces a file made there between its name found free and the move (card #254)", async () => {
+    const into = mkdtempSync(join(tmpdir(), "afflatus-zz-into-"));
+    try {
+      const from = join(into, ".zz-test.part");
+      writeFileSync(from, "the item");
+      // the name found free, then taken by the user's own file before the move (a download, another program)
+      writeFileSync(join(into, "zz-test.png"), "the user's own");
+      const names = ["zz-test.png", "zz-test_02.png"];
+      const to = await placeFree(from, into, "zz-test.png", async (d) => join(d, names.shift()!));
+      expect(to).toBe(join(into, "zz-test_02.png"));
+      expect(readFileSync(join(into, "zz-test.png"), "utf8")).toBe("the user's own");
+      expect(readFileSync(to, "utf8")).toBe("the item");
+      expect(existsSync(from)).toBe(false);
+    } finally {
+      rmSync(into, { recursive: true, force: true });
+    }
   });
 });
