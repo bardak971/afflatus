@@ -1,4 +1,4 @@
-import { BATCH, matchFiles, ownValues, pickedFile, plural, schemaFor, type InputSpec, type Recipe } from "@afflatus/core";
+import { BATCH, matchFiles, nameKey, ownValues, pickedFile, plural, schemaFor, type InputSpec, type Recipe } from "@afflatus/core";
 import { z } from "zod";
 import { createBody, createDraft, deleteDraft, draftsList, draftView, findDraft, saveDraft, type DraftView, type saveBody } from "./drafts";
 import { emptyLook, lookSchema, type Look } from "./entities";
@@ -93,8 +93,7 @@ function itemsIn(spec: InputSpec, value: unknown): string[] {
 /** A file asked for an input, as the machines name it: the same name in another folder is the same file; null when no machine has it. */
 function fileThere(list: string[], file: string): string | null {
   if (list.includes(file)) return file;
-  const base = (f: string) => (f.split(/[\\/]/).pop() ?? f).toLowerCase();
-  return list.find((o) => base(o) === base(file)) ?? null;
+  return list.find((o) => nameKey(o) === nameKey(file)) ?? null;
 }
 
 /**

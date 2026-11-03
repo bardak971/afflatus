@@ -4,7 +4,7 @@ import { missingNodesSaid, packCommit } from "@afflatus/core";
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Downloads } from "../src/downloads";
-import { Recent } from "../src/jobFiles";
+import { Recent } from "../src/kept";
 import { packFacts } from "../src/jobPacks";
 import { PodPacks } from "../src/podPacks";
 import { OwnPacks, packsToWant } from "../src/queuePacks";

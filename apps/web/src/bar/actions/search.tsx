@@ -1,7 +1,8 @@
+import { nameKey } from "@afflatus/core";
 import { Copy, ExternalLink, MemoryStick, Plus, Search, Sparkles } from "lucide-react";
 import type { LoraValue } from "@afflatus/core";
 import { api } from "../../api";
-import { wordsOf, nameOf } from "../../fields/Loras";
+import { wordsOf } from "../../fields/Loras";
 import { mainTextOf } from "../../form";
 import { appendTo } from "../../promptText";
 import { queryKeys } from "../../queryKeys";
@@ -19,7 +20,7 @@ const pageAction = (x: BarCtx, file: string, folders: string[]): Action => ({
   run: async () => {
     for (const folder of folders) {
       const pages = await x.client.fetchQuery({ queryKey: queryKeys.modelPages(folder), queryFn: ({ signal }) => api.modelPages(folder, { signal }), staleTime: Infinity }).catch(() => null);
-      const page = pages?.items[nameOf(file)];
+      const page = pages?.items[nameKey(file)];
       if (page) return void window.open(page.url, "_blank", "noopener");
     }
     x.say({ id: "bar:page", tone: "bad", title: `No page known for ${stem(file)}`, text: "With Search Hugging Face and Civitai on, Settings › Models finds pages by the files' hashes." });
@@ -32,7 +33,7 @@ async function triggerWords(x: BarCtx, file: string): Promise<string> {
     x.client.fetchQuery({ queryKey: queryKeys.modelInfo.of("loras"), queryFn: ({ signal }) => api.modelInfo("loras", { signal }), staleTime: Infinity }),
     x.client.fetchQuery({ queryKey: queryKeys.modelWords("loras"), queryFn: ({ signal }) => api.modelWords("loras", { signal }), staleTime: Infinity }),
   ]);
-  const w = wordsOf(info.items[file], more.items[nameOf(file)]);
+  const w = wordsOf(info.items[file], more.items[nameKey(file)]);
   return w.from && w.from !== "training" ? w.words : "";
 }
 

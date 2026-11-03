@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, Minus, Pencil, Plus } from "lucide-react";
-import { baseGroup, baseLabel, lineOf, loraFit, lorasCounted, modelFit, sameLora, type AddedRow, type InputSpec, type LoraValue } from "@afflatus/core";
+import { baseGroup, baseLabel, lineOf, loraFit, lorasCounted, modelFit, nameKey, sameLora, type AddedRow, type InputSpec, type LoraValue } from "@afflatus/core";
 import { api, type FamilyInfo, type ModelInfo, type ModelWords } from "../api";
 import { useModelInfo, useModelWords } from "../data";
 import { fileLabel } from "../format";
@@ -17,7 +17,6 @@ import { queryKeys } from "../queryKeys";
 import { useCopied } from "../hooks";
 
 /** A file's name as the words kept for it are filed under: lower case, without its sub-folder. */
-export const nameOf = (file: string) => (file.split(/[\\/]/).pop() ?? file).toLowerCase();
 
 /**
  * The words that call a LoRA up, and where they are from: the user's own first, then what its author
@@ -38,7 +37,7 @@ export function useLoraWords(values: Record<string, unknown> | undefined): strin
   const more = useModelWords("loras").data?.items;
   return useMemo(() => {
     const loras = Object.values(values ?? {}).filter((v): v is LoraValue[] => Array.isArray(v) && v.length > 0 && v.every((x) => x && typeof (x as LoraValue).file === "string" && typeof (x as LoraValue).weight === "number")).flat();
-    return loras.map((l) => wordsOf(info?.[l.file], more?.[nameOf(l.file)])).filter((w) => w.from && w.from !== "training").map((w) => w.words);
+    return loras.map((l) => wordsOf(info?.[l.file], more?.[nameKey(l.file)])).filter((w) => w.from && w.from !== "training").map((w) => w.words);
   }, [values, info, more]);
 }
 
@@ -129,7 +128,7 @@ export function useLoraWordsOf(files: string[]) {
   const extra = useModelWords("loras");
   const more = extra.data?.items ?? {};
   const client = useQueryClient();
-  const silent = files.filter((f) => info[f] && !info[f]!.trigger && !more[nameOf(f)] && !askedWords.has(f));
+  const silent = files.filter((f) => info[f] && !info[f]!.trigger && !more[nameKey(f)] && !askedWords.has(f));
   const silentKey = silent.join("|");
   const [failed, setFailed] = useState<string | null>(null);
   useEffect(() => {
@@ -147,7 +146,7 @@ export function useLoraWordsOf(files: string[]) {
       (err: Error) => setFailed(err.message),
     );
   }, [silentKey, extra.isSuccess, client]);
-  return { known, extra, info, more, failed, of: (file: string) => wordsOf(info[file], more[nameOf(file)]) };
+  return { known, extra, info, more, failed, of: (file: string) => wordsOf(info[file], more[nameKey(file)]) };
 }
 
 /**
@@ -278,8 +277,8 @@ export function Loras({ spec, value, options, family, model, onChange, main, add
     const choices = made.map((m): Option => ({
       ...fileOption(m.file, m.about),
       ...(places.said(m.file) ? { note: [fileOption(m.file, m.about).note, places.said(m.file)].filter(Boolean).join(" · ") } : {}),
-      detail: wordsOf(m.about, more[nameOf(m.file)]).words || undefined,
-      ...(more[nameOf(m.file)] ? { search: [fileOption(m.file, m.about).search, more[nameOf(m.file)]!.own, more[nameOf(m.file)]!.found].filter(Boolean).join(" ") } : {}),
+      detail: wordsOf(m.about, more[nameKey(m.file)]).words || undefined,
+      ...(more[nameKey(m.file)] ? { search: [fileOption(m.file, m.about).search, more[nameKey(m.file)]!.own, more[nameKey(m.file)]!.found].filter(Boolean).join(" ") } : {}),
       ...(sorted ? { group: titles[rank(m)] } : {}),
     }));
     choices.push(...places.offered([...options, ...value.map((v) => v.file)]));
@@ -303,7 +302,7 @@ export function Loras({ spec, value, options, family, model, onChange, main, add
             <NumberBox label={`Strength of ${fileLabel(l.file)}, typed`} value={l.weight} min={-4} max={4} step={0.05} onCommit={(v) => set(i, v)} className="shrink-0 text-xs" />
             <CloseButton size={28} label={`Remove ${fileLabel(l.file)}`} onClose={() => onChange(value.filter((_, j) => j !== i))} />
           </div>
-          <LoraWords file={l.file} info={info[l.file]} more={more[nameOf(l.file)]} main={main} />
+          <LoraWords file={l.file} info={info[l.file]} more={more[nameKey(l.file)]} main={main} />
         </div>
       ))}
       {loaded < spec.max && (

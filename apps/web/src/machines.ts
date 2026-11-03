@@ -1,5 +1,5 @@
 import type { MachineState, PodFile, QueueStatus, RentedState } from "./api";
-import { hasOutsideWork, POD_BOOT_LIMIT_MIN, stepSaid } from "@afflatus/core";
+import { hasOutsideWork, POD_BOOT_LIMIT_MIN, stepSaid, usdFor } from "@afflatus/core";
 import { gb, minutesSaid, plural, usd } from "./format";
 
 /** Several ComfyUIs (Settings › ComfyUI): how a machine is named on screen, and what the screens read of them. */
@@ -226,15 +226,8 @@ export function rentedSaid(r: RentedState, now = Date.now()): string {
 
 /** What a running pod has cost so far, worked out here from its start and its rate: it counts on screen between two reads. */
 export function rentedSpent(r: RentedState, now = Date.now()): number {
-  return r.status === "RUNNING" && r.since && r.rate ? (Math.max(0, now - r.since) / 3_600_000) * r.rate : r.spent;
+  return r.status === "RUNNING" && r.since && r.rate ? usdFor(Math.max(0, now - r.since), r.rate) : r.spent;
 }
-
-/** RunPod's price of a pod's own disk while it runs, USD per GB and month, billed by the hour over 730 hours (the server's runpod.ts). */
-const DISK_RUNNING_PER_GB_MONTH = 0.1;
-const HOURS_A_MONTH = 730;
-
-/** What a pod's own disk adds to its GPU's price an hour while it runs (USD): RunPod bills it with the GPU. */
-export const diskPerHour = (gb: number) => (Math.max(0, gb) * DISK_RUNNING_PER_GB_MONTH) / HOURS_A_MONTH;
 
 /**
  * A pod's rate, its GPU and its disk, as its "?" says it: "GPU $0.59 + disk $0.02 an hour, as RunPod bills it". Null

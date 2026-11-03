@@ -1,3 +1,4 @@
+import { fileKey } from "@afflatus/core";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download as DownloadIcon, ExternalLink, ScrollText } from "lucide-react";
@@ -22,10 +23,9 @@ export const usePresetFiles = () => useQuery({ queryKey: queryKeys.presetFiles()
 /** Every file any preset names, by folder and name: where a missing file can be had. */
 function presetFileIndex(data: { items: PresetFilesView[] } | undefined): Map<string, PresetFileView> {
   const map = new Map<string, PresetFileView>();
-  for (const p of data?.items ?? []) for (const f of p.files) map.set(`${f.folder}:${(f.file.split(/[\\/]/).pop() ?? f.file).toLowerCase()}`, f);
+  for (const p of data?.items ?? []) for (const f of p.files) map.set(fileKey(f), f);
   return map;
 }
-const fileKey = (folder: string, file: string) => `${folder}:${(file.split(/[\\/]/).pop() ?? file).toLowerCase()}`;
 
 const KEYS = [queryKeys.presetFiles(), queryKeys.setup(), queryKeys.downloads(), queryKeys.settings()];
 
@@ -131,7 +131,7 @@ export function PresetFiles({ id, def, fetch, inHead = false }: { id: string; de
       )}
       {fetchAll.isError && <Failed what="Not downloaded" error={fetchAll.error} />}
       {/* each file's row says its own download once it can download (its GetFile): listed here only before that */}
-      {!(fetching && accepted) && downloads.data?.items.filter((d) => files.some((f) => fileKey(f.folder, f.file) === fileKey(d.folder, d.file)) && d.status !== "done").map((d) => <DownloadRow key={d.id} d={d} named />)}
+      {!(fetching && accepted) && downloads.data?.items.filter((d) => files.some((f) => fileKey(f) === fileKey(d)) && d.status !== "done").map((d) => <DownloadRow key={d.id} d={d} named />)}
       {licence && def.licence && (
         <Dialog label="Licence of the preset's files" onClose={() => setLicence(false)} className={cx(DIALOG, "max-w-[520px]")}>
             <DialogHead icon={<ScrollText size={16} />} title="Before the files are fetched" sub={`Licence of the preset's files · ${def.licence.name}`} onClose={() => setLicence(false)} />
@@ -152,7 +152,7 @@ export function PresetFiles({ id, def, fetch, inHead = false }: { id: string; de
 /** Under a form's Model field: the file it names is not in ComfyUI, and where it is had when a preset knows. */
 export function MissingModel({ folder, file }: { folder: string; file: string }) {
   const all = usePresetFiles();
-  const found = presetFileIndex(all.data).get(fileKey(folder, file));
+  const found = presetFileIndex(all.data).get(fileKey({ folder, file }));
   return (
     <div className="flex flex-col gap-1 text-xs text-warn-ink">
       <span>ComfyUI does not have <span className="font-semibold">{fileLabel(file)}</span> in models/{folder}.{found ? " A preset says where it is had:" : ""}</span>

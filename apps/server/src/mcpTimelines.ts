@@ -1,4 +1,4 @@
-import { CUT_WINDOW_MOST, cutAtJoinFigure, cutAtJoinSaid, cutsAtJoin, OWN_MODEL, plural, recordingSpecOf, TRANSITION_KINDS, TRANSITION_MS, type InputSpec, type Recipe } from "@afflatus/core";
+import { cents, CUT_WINDOW_MOST, cutAtJoinFigure, cutAtJoinSaid, cutsAtJoin, OWN_MODEL, plural, recordingSpecOf, TRANSITION_KINDS, TRANSITION_MS, type InputSpec, type Recipe } from "@afflatus/core";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { httpError } from "./errors";
@@ -724,7 +724,7 @@ const renderClipsTool = tool({
       ctx.said(`Rendered ${plural(asked.length, "clip")} of “${view.name}”${takes > 1 ? `, ${takes} takes each` : ""}`);
       return {
         jobs, clips: numbers, takes, on: machine ? machineName(machine) : spends(ctx) ? "wherever the queue ends each first" : "the user's own machines (this token has no Spend)",
-        ...(skipped.length ? { skipped } : {}), ...(usd ? { mayCostUsd: Math.round(usd * 100) / 100 } : {}),
+        ...(skipped.length ? { skipped } : {}), ...(usd ? { mayCostUsd: cents(usd) } : {}),
       };
     });
   },
@@ -788,7 +788,7 @@ const finish = tool({
       const done = await finishClips(s, plan, skipped, { mcpToken: token.id });
       s.queue.events.emit("timeline");
       ctx.said(`Finished ${plural(plan.length, "clip")} of “${view.name}” (${args.route})`);
-      return { jobs: done.jobs, skipped: done.skipped.map((x) => `clip ${x.clip}: ${x.why}`), ...(usd ? { mayCostUsd: Math.round(usd * 100) / 100 } : {}) };
+      return { jobs: done.jobs, skipped: done.skipped.map((x) => `clip ${x.clip}: ${x.why}`), ...(usd ? { mayCostUsd: cents(usd) } : {}) };
     }));
   },
   task: (a: { jobs: string[] }) => ({ jobs: a.jobs }),
@@ -887,7 +887,7 @@ const timelineRange = tool({
           by: r.engine === "rife" ? "RIFE on the GPU" : "ffmpeg on this computer (this ComfyUI has no RIFE)",
           said: "each slowed video arrives as a new take of its clip; the joins into and out of the range are cuts now. undo takes the split back",
           on: spends(ctx) ? "wherever the queue ends each first" : "the user's own machines (this token has no Spend)",
-          ...(usd ? { mayCostUsd: Math.round(usd * 100) / 100 } : {}),
+          ...(usd ? { mayCostUsd: cents(usd) } : {}),
         };
       });
     }
@@ -1000,7 +1000,7 @@ const maskPreviewTool = tool({
       return {
         job, clip: i + 1, said: "mask_preview with this job says where it stands and shows its frames once it is done",
         on: spends(ctx) ? "wherever the queue ends it first" : "the user's own machines (this token has no Spend)",
-        ...(usd ? { mayCostUsd: Math.round(usd * 100) / 100 } : {}),
+        ...(usd ? { mayCostUsd: cents(usd) } : {}),
       };
     });
   },

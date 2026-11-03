@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
+import { fetchTime, usdFor } from "@afflatus/core";
 import type { Db } from "./db";
 
 /**
  * What rented pods were measured at (pod_measures): a file's speed from each source, and how long a deploy took to answer.
- * The Deploy dialog says a pod's files' time and price from them, as a range from slow to fast, and nothing at all for a
- * source never measured: a speed is learned on the user's own deploys or not said (this computer's line says nothing of a
- * pod's). A fill's or a volume's plan says a guess for such a source, as a guess (GUESSED).
+ * The Deploy dialog, a fill's and a volume's plan say a pod's files' time and price from them, as a range from slow to fast;
+ * a source never measured is taken at its guess (GUESSED) and said as one (this computer's line says nothing of a pod's).
+ * Deploy alone said "not known yet" there, where the queue's plan and a fill's guessed (the 2026-11-02 review).
  */
 
 export type MeasureKind = "hf" | "civitai" | "upload" | "url" | "boot";
@@ -73,6 +74,12 @@ export async function rangeOrGuess(db: Db, kind: MeasureKind, cloud: string | nu
   return range ? { ...range, guessed: false } : { ...GUESSED[kind], count: 0, guessed: true };
 }
 
+/** Each source's range (rangeOrGuess): what Deploy, a fill and a volume's plan time a pod's files with. */
+export async function speedsOrGuess(db: Db, cloud: string | null): Promise<Record<Exclude<MeasureKind, "boot">, Range & { guessed: boolean }>> {
+  const [hf, civitai, url, upload] = await Promise.all((["hf", "civitai", "url", "upload"] as const).map((k) => rangeOrGuess(db, k, cloud)));
+  return { hf: hf!, civitai: civitai!, url: url!, upload: upload! };
+}
+
 export interface FilesEstimate {
   /** How long the files take, slowest to fastest (ms). */
   fastMs: number;
@@ -90,17 +97,6 @@ export interface FilesEstimate {
  * guess and the estimate says so: a set holding one file of a source never fetched said nothing at all for the whole set.
  */
 export async function estimateFiles(db: Db, files: Array<{ bytes: number; kind: Exclude<MeasureKind, "boot"> }>, cloud: string | null, rate: number): Promise<FilesEstimate> {
-  let fastMs = 0;
-  let slowMs = 0;
-  let guessed = false;
-  const kinds = [...new Set(files.filter((f) => f.bytes > 0).map((f) => f.kind))];
-  for (const kind of kinds) {
-    const range = await rangeOrGuess(db, kind, cloud);
-    guessed ||= range.guessed;
-    const bytes = files.filter((f) => f.kind === kind).reduce((n, f) => n + f.bytes, 0);
-    fastMs += (bytes / range.high) * 1000;
-    slowMs += (bytes / range.low) * 1000;
-  }
-  const usd = (ms: number) => (ms / 3_600_000) * rate;
-  return { fastMs, slowMs, lowUsd: usd(fastMs), highUsd: usd(slowMs), guessed };
+  const { fastMs, slowMs, guessed } = fetchTime(files, await speedsOrGuess(db, cloud))!;
+  return { fastMs, slowMs, lowUsd: usdFor(fastMs, rate), highUsd: usdFor(slowMs, rate), guessed };
 }

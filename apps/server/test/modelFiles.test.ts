@@ -96,6 +96,9 @@ describe("ComfyUI's model folders on this computer", () => {
     expect(await readLocalHeader(dirs, "Krea2\\muse.safetensors")).toEqual(header);
     expect(await readLocalHeader(dirs, "Krea2/muse.safetensors")).toEqual(header);
     expect(await readLocalHeader(dirs, "old.safetensors")).toMatchObject({ "input_blocks.0.0.weight": { shape: [320, 4, 3, 3] } });
+    // a .sft file is safetensors too (Flux's were shipped so): its header was never read, though the downloader took it as one
+    safetensors(join(comfy, "models", "unet", "flux1-dev.sft"), header);
+    expect(await readLocalHeader(dirs, "flux1-dev.sft")).toEqual(header);
     // not there, not a safetensors file, no ComfyUI folder: nothing
     expect(await readLocalHeader(dirs, "missing.safetensors")).toBeNull();
     expect(await readLocalHeader(dirs, "muse.gguf")).toBeNull();

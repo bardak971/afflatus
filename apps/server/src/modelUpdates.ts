@@ -1,7 +1,6 @@
-import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
 import type { FastifyInstance } from "fastify";
-import type { ModelInfo } from "@afflatus/core";
+import { isSafetensors, type ModelInfo } from "@afflatus/core";
+import { sha256File } from "./fsUtil";
 import { civitaiGet } from "./civitai";
 import { now, type Tables } from "./db";
 import { fileName } from "./media";
@@ -59,14 +58,6 @@ const tokensOf = (name: string) => name.toLowerCase().replace(/_/g, "").split(/[
 export const sansPrecision = (name: string) => tokensOf(name).filter((t) => !PRECISION.test(t)).join(" ");
 /** A version's precision words alone, sorted: which variant it is. */
 export const precisionOf = (name: string) => tokensOf(name).filter((t) => PRECISION.test(t)).sort().join(" ");
-
-/** The SHA-256 of a file, streamed. */
-function sha256Of(path: string): Promise<string> {
-  return new Promise((done, fail) => {
-    const hash = createHash("sha256");
-    createReadStream(path).on("data", (d) => hash.update(d)).on("end", () => done(hash.digest("hex").toUpperCase())).on("error", fail);
-  });
-}
 
 export class Updates {
   /** The last full check, in memory: the table has the rows, this has the counts. */
@@ -148,7 +139,7 @@ export class Updates {
     let hashesLeft = 0;
     let hashed = 0;
     for (const folder of UPDATE_FOLDERS) {
-      const files = (await comfy.client.models(folder).catch(() => [] as string[])).filter((f) => /\.safetensors$/i.test(f));
+      const files = (await comfy.client.models(folder).catch(() => [] as string[])).filter(isSafetensors);
       if (!files.length) continue;
       const infoRows = await db.selectFrom("model_info").select(["file", "info"]).where("folder", "=", folder).execute();
       const known = await db.selectFrom("model_updates").select(["name"]).where("folder", "=", folder).execute();
@@ -176,7 +167,7 @@ export class Updates {
               const path = await whereIs(dirs, file);
               if (path) {
                 hashed++;
-                hash = await sha256Of(path).catch(() => undefined);
+                hash = await sha256File(path, { upper: true }).catch(() => undefined);
                 if (hash && infoRow) {
                   await db.updateTable("model_info").set({ info: JSON.stringify({ ...info, sha256: hash }) }).where("folder", "=", folder).where("file", "=", infoRow.file).execute();
                   // what was read off the files changed: whoever keeps it reads it again

@@ -1,5 +1,5 @@
 import type { RecipeStatus, Scan } from "./api";
-import { missingNodesSaid, modelStem, roughly } from "@afflatus/core";
+import { GB, missingNodesSaid, modelStem, roughly } from "@afflatus/core";
 
 /** A length to a tenth of a second: "4.5 s". */
 export const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
@@ -100,7 +100,7 @@ export const sourceOf = (version: string | undefined) => (version && /^v?\d+\.\d
 
 /** A size on disk: "340 MB", "38.2 GB". */
 export const size = (bytes: number) =>
-  bytes < 2 ** 20 ? `${bytes > 0 ? Math.max(1, Math.round(bytes / 1024)) : 0} KB` : bytes < 2 ** 30 ? `${Math.round(bytes / 2 ** 20)} MB` : `${(bytes / 2 ** 30).toFixed(1)} GB`;
+  bytes < 2 ** 20 ? `${bytes > 0 ? Math.max(1, Math.round(bytes / 1024)) : 0} KB` : bytes < GB ? `${Math.round(bytes / 2 ** 20)} MB` : `${(bytes / GB).toFixed(1)} GB`;
 
 /** What an item takes on the disk: its file and what it keeps beside it (an H3 clip's latents, the model's own frames), as the server sums it. */
 export const spaceOf = (a: { bytes: number; keptBytes?: number }) => a.bytes + (a.keptBytes ?? 0);
@@ -111,7 +111,7 @@ export const spaceSaid = (a: { bytes: number; keptBytes?: number }) => (a.keptBy
 /** A place in a line as people say it: "1st", "2nd", "3rd", "11th", "21st", "112th". */
 export const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : (["th", "st", "nd", "rd"][n % 10] ?? "th")}`;
 
-export const gb = (bytes: number) => `${(bytes / 2 ** 30).toFixed(1)} GB`;
+export const gb = (bytes: number) => `${(bytes / GB).toFixed(1)} GB`;
 
 /** A count with its word: "1 take", "3 settings", "2 people" (core's, shared with the server). */
 export { plural, verb } from "@afflatus/core";
@@ -269,14 +269,8 @@ export function whyTone(why: string, status: RecipeStatus | undefined): "broken"
   return why === notReady(undefined, false) ? "attention" : "todo";
 }
 
-/**
- * An amount in US dollars, as a rented GPU's cost is said: cents under $100 ("$0.69", "$12.40"), whole dollars past it.
- * `fine`: a cost that runs (a pod's, by the second), to a tenth of a cent under a dollar ("$0.012"), so that it is seen to move.
- */
-export function usd(n: number, fine = false): string {
-  if (fine && n > 0 && n < 1) return `$${n.toFixed(3)}`;
-  return n < 100 ? `$${n.toFixed(2)}` : `$${Math.round(n)}`;
-}
+/** An amount in US dollars, as a rented GPU's cost is said (core's, shared with the server's notices): "$0.69", "$12.40". */
+export { usd } from "@afflatus/core";
 
 /** A count as a list says it short: "412k", "9.1k", "1.4M". */
 export const compact = (n: number) => new Intl.NumberFormat(UI_LOCALE, { notation: "compact", maximumFractionDigits: 1 }).format(n).toLowerCase();

@@ -1,5 +1,6 @@
 import { catalogKey, filesIn, type Scan } from "@afflatus/comfy";
 import { choicesOf, graphFiles, isBeyondPack, isMissingSlotFile, missingSlotFile, packOfNode, parseInput, podSlotFiles, sameFile, TOOLS_FAMILY, type Family, type GraphFile, type NodeCatalog, type Recipe, type Wanted } from "@afflatus/core";
+import { Kept, Recent } from "./kept";
 import { ANY_PACKS, cannotWhy, lookAhead, skipWhy, type PackFacts, type PacksSaid } from "./jobPacks";
 import type { Comfy } from "./comfy";
 import { readJson, type JobRow, type QueueCore } from "./queueModel";
@@ -78,42 +79,13 @@ async function absentOn(on: { id: string; comfy: Comfy; scan: Scan }, catalog: N
  */
 function listingOf(on: { id: string; comfy: Comfy; scan: Scan }, folder: string): Promise<string[] | null> {
   const key = `${on.id}|${on.scan.at}|${folder}`;
-  let got = listings.get(key);
-  if (!got) {
-    got = filesIn(on.comfy.client, folder).catch(() => null);
-    listings.set(key, got);
-    if (listings.size > KEPT) listings.delete(listings.keys().next().value!);
-  }
-  return got;
+  return listings.get(key, () => filesIn(on.comfy.client, folder).catch(() => null));
 }
-const listings = new Map<string, Promise<string[] | null>>();
 
 /** The files a node's input offers on a machine, as its node list says; null when it lists none. */
 function nodeChoices(catalog: NodeCatalog, f: GraphFile): string[] | null {
   const def = catalog[f.classType];
   return def ? choicesOf(def.input.required?.[f.input] ?? def.input.optional?.[f.input]) : null;
-}
-
-/** A Map that holds its `max` most recently used entries: one read goes to the end, the least recently used goes first. */
-export class Recent<K, V> extends Map<K, V> {
-  constructor(public max: number) {
-    super();
-  }
-
-  override get(key: K): V | undefined {
-    if (!super.has(key)) return undefined;
-    const value = super.get(key)!;
-    super.delete(key);
-    super.set(key, value);
-    return value;
-  }
-
-  override set(key: K, value: V): this {
-    super.delete(key);
-    super.set(key, value);
-    if (this.size > this.max) this.delete(this.keys().next().value!);
-    return this;
-  }
 }
 
 /** The least room the kept graphs have, and the most: a key holds a job's inputs, and the line may hold thousands. */
@@ -163,6 +135,7 @@ export function roomFor(entries: number): number {
 
 /** The folder listings kept, by machine and folder. */
 const KEPT = 512;
+const listings = new Kept<string[] | null>({ max: KEPT });
 
 /**
  * The files a waiting job's graph loads on a machine (`on`: its ComfyUI and its scan), or on a pod that has nothing yet

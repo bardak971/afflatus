@@ -1,4 +1,4 @@
-import { BATCH, formDefaults, madeAroundRecording, plural, sentForm, type InputSpec, type Recipe } from "@afflatus/core";
+import { BATCH, formDefaults, madeAroundRecording, plural, sentForm, usd, usdFor, type InputSpec, type Recipe } from "@afflatus/core";
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
 import { z } from "zod";
 import { OWNER } from "./db";
@@ -8,7 +8,6 @@ import { httpError } from "./errors";
 import { familyOn, mergeScans } from "./machineScans";
 import { quoted, tool, type ToolCtx } from "./mcpTool";
 import { refusal } from "./mcpTokens";
-import { dollars } from "./notifyWords";
 import type { Services } from "./services";
 import { readSettings, type Machine } from "./settings";
 
@@ -19,7 +18,6 @@ import { readSettings, type Machine } from "./settings";
  * render (mcpRender.ts) read the forms through the helpers here.
  */
 
-const HOUR = 3_600_000;
 /** The files listed of one input on one machine, at most: a LoRA folder can hold thousands. */
 const FILES_SHOWN = 80;
 
@@ -184,7 +182,7 @@ export async function estimateOf(s: Services, seen: Seen, ctx: ToolCtx, recipe: 
     const f = got?.on?.[m.id] ?? (seen.machines.length < 2 && got ? got.forecast : undefined);
     const ms = f ? f.ms + f.loadMs : null;
     const rate = m.rented ? rates.get(m.id) ?? null : null;
-    return { id: m.id, name: machineName(m), rented: Boolean(m.rented), msEach: ms, ...(m.rented ? { usdPerHour: rate, usdEach: ms !== null && rate !== null ? Math.round((ms / HOUR) * rate * 1000) / 1000 : null } : {}) };
+    return { id: m.id, name: machineName(m), rented: Boolean(m.rented), msEach: ms, ...(m.rented ? { usdPerHour: rate, usdEach: ms !== null && rate !== null ? Math.round(usdFor(ms, rate) * 1000) / 1000 : null } : {}) };
   });
   const soonest = onEach.filter((m) => m.msEach !== null).sort((a, b) => a.msEach! - b.msEach!)[0];
   // the load counted once for the batch, as Generate's "about" counts it
@@ -196,7 +194,7 @@ export async function estimateOf(s: Services, seen: Seen, ctx: ToolCtx, recipe: 
     // eachMs is a take with the model loaded first; loadMs, part of it, is paid once for the batch: so totalMs is less than takes × eachMs
     time: total !== null ? { totalMs: Math.round(total), eachMs: soonest!.msEach, loadMs: Math.round(loadMs), on: soonest!.name, from: `${plural(got?.forecast.samples ?? 0, "render")} like it here` } : null,
     machines: onEach,
-    rentedCost: onEach.some((m) => m.rented) ? onEach.filter((m) => m.rented).map((m) => ({ machine: m.name, usd: "usdEach" in m && m.usdEach != null ? dollars(m.usdEach * takes) : "not known yet" })) : null,
+    rentedCost: onEach.some((m) => m.rented) ? onEach.filter((m) => m.rented).map((m) => ({ machine: m.name, usd: "usdEach" in m && m.usdEach != null ? usd(m.usdEach * takes) : "not known yet" })) : null,
     modelSet: findings.length ? findings : "the files go together",
     refused: findings.some((f) => (f as { black?: boolean }).black) ? "Render would refuse this mix of files (it gives black frames)." : null,
   };

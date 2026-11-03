@@ -1,7 +1,7 @@
-import { folderOfFileInput, MODEL_EXT, squash } from "@afflatus/core";
+import { civitaiKinds, folderOfFileInput, MODEL_EXT, squash } from "@afflatus/core";
 import type { FileSource } from "@afflatus/workflows";
 import { envSaid } from "./config";
-import { civitaiGet, KINDS, pretendSites, wordsOf, type ApiFile, type ApiModel, type ApiVersion } from "./civitai";
+import { civitaiGet, pretendSites, wordsOf, type ApiFile, type ApiModel, type ApiVersion } from "./civitai";
 
 /**
  * Where a missing model file can be had, worked out before anyone searches. Three places, in order:
@@ -65,11 +65,11 @@ function match(m: Model, wanted: string, prefer?: number) {
 /** The best of a pool of models for a file: the right kind for its folder, the file itself first, else enough of the name's words. */
 function best(m: Missing, pool: Pool, how: FileSource["how"]): FileSource | null {
   const folder = folderOfFileInput(m.classType, m.input);
-  const kinds = folder ? KINDS[folder] : undefined;
+  const kinds = folder ? civitaiKinds(folder) : undefined;
   const name = baseOf(m.file);
   let top: { score: number; src: FileSource } | null = null;
   for (const { model, version } of pool) {
-    if (kinds && !kinds.includes(model.type ?? "")) continue;
+    if (kinds && !(kinds as readonly string[]).includes(model.type ?? "")) continue;
     const r = match(model, name, version);
     if (!r) continue;
     // a third of the words at least: "babes illustrious … dmd2" is the model, "babes" alone is not
@@ -114,7 +114,7 @@ export async function sourcesFor(missing: Missing[], links: Array<{ url: string 
   // 3. the same authors' other models of the kind the folder holds, for what is still not settled by its own name
   const creators = [...new Set(models.map((x) => x.model.creator?.username).filter((u): u is string => Boolean(u)))].slice(0, 2);
   const lists = new Map<string, Promise<Model[]>>();
-  const byCreator = (user: string, kinds: string[] | undefined) => {
+  const byCreator = (user: string, kinds: readonly string[] | undefined) => {
     const k = `${user}|${(kinds ?? []).join(",")}`;
     if (!lists.has(k)) {
       const params = new URLSearchParams({ username: user, limit: "100", nsfw: "true" });
@@ -128,7 +128,7 @@ export async function sourcesFor(missing: Missing[], links: Array<{ url: string 
     if (have?.exact) continue;
     const folder = folderOfFileInput(m.classType, m.input);
     for (const user of creators) {
-      const pool: Pool = (await byCreator(user, folder ? KINDS[folder] : undefined)).map((model) => ({ model }));
+      const pool: Pool = (await byCreator(user, folder ? civitaiKinds(folder) : undefined)).map((model) => ({ model }));
       const src = best(m, pool, "creator");
       // the author's own pointer stands unless the file itself turns up
       if (src && (src.exact || !have)) {

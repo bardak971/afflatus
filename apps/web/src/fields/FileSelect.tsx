@@ -20,12 +20,6 @@ export const fileOption = (file: string, info?: ModelInfo): Option => {
   return { value: file, label: fileLabel(file), ...(note ? { note } : {}), ...(search ? { search } : {}) };
 };
 
-/** The ComfyUI model folder behind a node input that picks a file, for the inputs whose name says it. */
-export const FOLDER_OF: Record<string, string> = {
-  ckpt_name: "checkpoints", unet_name: "diffusion_models", vae_name: "vae", clip_name: "text_encoders", lora_name: "loras", control_net_name: "controlnet",
-};
-
-
 /** A dropdown of model files, searched by what the files say about themselves when their folder is known. */
 export function FileSelect({ id, label, value, files, folder, placeholder, match, family, absent, absentGroup, lead, onChange }: {
   id: string;

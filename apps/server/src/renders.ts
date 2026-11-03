@@ -1,6 +1,6 @@
 import type { Kysely } from "kysely";
 import type { Measured } from "@afflatus/comfy";
-import { modelOf, timeKey, TOOLS_FAMILY, type Recipe } from "@afflatus/core";
+import { GB, modelOf, timeKey, TOOLS_FAMILY, type Recipe } from "@afflatus/core";
 import { freezeOld, freezeOldInTurns, keepSplitsUntil } from "./costs";
 import { now, OWNER, type Db, type Tables } from "./db";
 import { RELOAD_MS, reloadAbove } from "./forecast";
@@ -25,7 +25,7 @@ import { cellOf, DAY, dayOf, digestDays, median, merge, WHOLE_DAY, type Cell, ty
 /** A render's milliseconds per node class as kept (render_stats.node_ms): null when none were heard. */
 const nodeMs = (measured: Measured | null): string | null => (measured?.nodes && Object.keys(measured.nodes).length ? JSON.stringify(measured.nodes) : null);
 /** Bytes as GB to a tenth, as render_stats keeps the RAM; null when not read. */
-const gbOf = (bytes: number | null | undefined): number | null => (bytes ? Math.round((bytes / 1024 ** 3) * 10) / 10 : null);
+const gbOf = (bytes: number | null | undefined): number | null => (bytes ? Math.round((bytes / GB) * 10) / 10 : null);
 
 /**
  * One row for a render that ran on ComfyUI, finished or not: where its time went (loading, sampling, the

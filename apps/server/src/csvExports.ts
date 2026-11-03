@@ -1,3 +1,4 @@
+import { monthStart, usdFor } from "@afflatus/core";
 import type { Db } from "./db";
 import type { CostsView } from "./costs";
 import { csvOf, dollars4, seconds, utc, type CsvCell } from "./csv";
@@ -14,7 +15,6 @@ import { buildOf } from "./podImage";
  * out rather than guessed. Never a prompt, nor a path of the user's library (a model file goes by its name alone).
  */
 
-const HOUR = 3_600_000;
 
 /** A machine as the files name it: its own name, else "ComfyUI m2" (a removed pod's id, as the queue says it). */
 const machineName = (settings: Settings, id: string | null): string | null => {
@@ -49,8 +49,7 @@ export function costsCsv(view: CostsView, spending: Spending | null, settings: S
       null, dollars4(s.usd), null,
     ]);
   }
-  const d = new Date(now);
-  const monthFrom = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+  const monthFrom = monthStart(now);
   const volumesBill = spending?.storage?.volumesMonth;
   if (volumesBill !== null && volumesBill !== undefined && view.to > monthFrom) {
     rows.push([
@@ -111,7 +110,7 @@ export async function rendersCsv(db: Db, registry: Registry, settings: Settings,
       r.width, r.height, seconds(r.duration_ms), r.steps, Boolean(r.cold), seconds(r.total_ms), seconds(r.waited_ms), seconds(r.load_ms), seconds(r.sample_ms), seconds(r.refine_ms), seconds(r.finish_ms),
       r.step_ms === null ? null : Math.round(r.step_ms) / 1000, seconds(r.expected_ms), r.vram_peak === null ? null : Math.round(r.vram_peak * 10) / 10, r.heat_peak,
       r.energy_wh === null ? null : Math.round(r.energy_wh * 1000) / 1000, r.power_avg_w === null ? null : Math.round(r.power_avg_w * 10) / 10,
-      rate === null ? null : dollars4((r.total_ms / HOUR) * rate),
+      rate === null ? null : dollars4(usdFor(r.total_ms, rate)),
       local ? dollars4((r.energy_wh! / 1000) * price!) : null, local ? settings.costs.currency : null,
     ];
   });

@@ -1,23 +1,20 @@
-import { execFile, type ExecFileException } from "node:child_process";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { readFile, rm, stat, writeFile } from "node:fs/promises";
 import { exactSoundPart, FRAME_SLACK_MS, PAUSE, soundPartOf } from "@afflatus/core";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { factsOf, ffmpegMajor, ffmpegSaid, localInputs, readAs, tools, type ProbeInfo, type VideoFacts } from "./video";
+import { Kept } from "./kept";
+import { factsOf, ffmpegMajor, ffmpegSaid, type ProbeInfo, type VideoFacts } from "./video";
+import { CutError, ffRun, failureOf, grabFrame, hasStream, inTemp, must, readAs, streamKinds, tempDir, tools } from "./ff";
 import { ffmpegPool } from "./pool";
 import { aiVideoArgs } from "./aiMark";
 
 /**
  * Cutting videos: the few frames a new clip joins onto, one frame as a picture, a strip of frames for
  * the timeline, a range kept, a sound taken out or slowed. Measuring them is measure.ts, a join's jump joinScore.ts and
- * a timeline as one file exportJoin.ts, all run through this file's ffmpeg runs (ffRun, must). Unlike reading a video's
+ * a timeline as one file exportJoin.ts, all run through ff.ts's ffmpeg runs (ffRun, must). Unlike reading a video's
  * facts (video.ts), these cannot be skipped when ffmpeg is missing: the error says so in words the person can act on.
  */
-export class CutError extends Error {
-  statusCode = 400;
-}
-/** ffmpeg is not there at all: said as it is, never taken for a file it could not read. */
-export class FfmpegMissing extends CutError {}
+// the runs and their errors are ff.ts's; named here too, where the files that cut and measure have always taken them
+export { CutError, FfmpegMissing, ffRun, inTemp } from "./ff";
 
 /**
  * A video or a sound as ffmpeg is handed it: a file on this machine's disk (its path, read where it is), or its bytes
@@ -41,71 +38,9 @@ export async function onDisk(dir: string, name: string, source: Media): Promise<
  */
 export const forLength = (durationMs: number | null | undefined): number => Math.min(3 * 60 * 60_000, 120_000 + 10 * Math.max(0, Number(durationMs) || 0));
 
-/** ffmpeg (or ffprobe) not found, in words the person can act on: one text wherever a run finds it missing. */
-export const missing = () => new FfmpegMissing("This needs ffmpeg, which was not found on the machine Afflatus runs on. Install ffmpeg, or set FFMPEG and FFPROBE.");
-
-/** Why a run of ffmpeg ended without its result, as the user reads it. */
-export function failureOf(err: ExecFileException, stderr: unknown, timeout: number): CutError {
-  if (err.code === "ENOENT") return missing();
-  if (err.name === "AbortError") return new CutError("stopped by you");
-  // killed at its time limit: said as such (as video.ts does), never as a file it could not read
-  if (err.killed || err.signal) return new CutError(`ffmpeg took more than ${Math.round(timeout / 1000)} s on this file and was stopped`);
-  const last = String(stderr ?? "").trim().split(/\r?\n/).pop() ?? "";
-  return new CutError(`ffmpeg could not read or write the file${last ? `: ${last.slice(0, 300)}` : ""}`);
-}
-
-/**
- * What a run of ffmpeg or ffprobe gave, however it ended: its output, its log (stderr), the error it ended on (null: it went
- * to the end), and whether that error is the tool not being there at all. Each caller reads what it needs of it: a missing
- * tool is never taken for a file the tool could not read.
- */
-interface Ran<T extends string | Buffer> {
-  stdout: T;
-  stderr: string;
-  err: ExecFileException | null;
-  missing: boolean;
-}
-interface RunOptions {
-  timeout: number;
-  signal?: AbortSignal;
-  /** Where it runs: a filter graph that writes files names them there (a Windows path in a filter's options needs escaping). */
-  cwd?: string;
-  /** Left out: Node's own limit. */
-  maxBuffer?: number;
-}
-
-/** One run of a tool, its window hidden and its local inputs read as files (localInputs); it never rejects (see Ran). */
-export function ffRun(tool: string, args: string[], opts: RunOptions & { encoding: "buffer" }): Promise<Ran<Buffer>>;
-export function ffRun(tool: string, args: string[], opts: RunOptions): Promise<Ran<string>>;
-export function ffRun(tool: string, args: string[], opts: RunOptions & { encoding?: "buffer" }): Promise<Ran<string | Buffer>> {
-  return new Promise((done) => {
-    execFile(tool, localInputs(args), {
-      encoding: opts.encoding ?? "utf8", timeout: opts.timeout, windowsHide: true,
-      ...(opts.maxBuffer !== undefined ? { maxBuffer: opts.maxBuffer } : {}), ...(opts.signal ? { signal: opts.signal } : {}), ...(opts.cwd ? { cwd: opts.cwd } : {}),
-    }, (err, stdout, stderr) => done({ stdout, stderr: String(stderr ?? ""), err, missing: err?.code === "ENOENT" }));
-  });
-}
-
-/** A run that must succeed: its output, or why it failed as the user reads it (failureOf). */
-export async function must(tool: string, args: string[], opts: { timeout?: number; signal?: AbortSignal } = {}): Promise<string> {
-  const timeout = opts.timeout ?? 120_000;
-  const r = await ffRun(tool, args, { timeout, maxBuffer: 16 * 1024 * 1024, signal: opts.signal });
-  if (r.err) throw failureOf(r.err, r.stderr, timeout);
-  return r.stdout;
-}
-
 /** How the encoder times the frames it is handed, by the option this ffmpeg reads (`-fps_mode` since 6, `-vsync` before). */
 export async function fpsMode(mode: "passthrough" | "vfr"): Promise<string[]> {
   return [((await ffmpegMajor()) ?? 99) < 6 ? "-vsync" : "-fps_mode", mode];
-}
-
-export async function inTemp<T>(work: (dir: string) => Promise<T>): Promise<T> {
-  const dir = await mkdtemp(join(tmpdir(), "afflatus-cut-"));
-  try {
-    return await work(dir);
-  } finally {
-    await rm(dir, { recursive: true, force: true }).catch(() => {});
-  }
 }
 
 /**
@@ -146,7 +81,7 @@ const LISTS = new Set(["hls", "applehttp", "dash", "concat"]);
  * ffprobe says everything.
  */
 export async function probeMediaFile(file: string): Promise<ProbedMedia | null> {
-  // read only as a real container: a manifest is refused before ffprobe opens what it names (video.ts readAs)
+  // read only as a real container: a manifest is refused before ffprobe opens what it names (ff.ts readAs)
   const out = await must(tools.ffprobe, readAs("stranger", ["-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height,avg_frame_rate,duration:stream_tags=DURATION:format=format_name,duration", "-of", "json", file])).catch(() => null);
   if (!out) return null;
   try {
@@ -180,8 +115,8 @@ export async function referenceClip(source: Media, ext: string, opts: { seconds:
   return inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "ref.mp4");
-    const streams = await must(tools.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", input]);
-    const audio = /audio/.test(streams);
+    // a file ffprobe cannot read fails the reference here, said as such: the encode below would fail on it anyway
+    const audio = hasStream(await streamKinds(input), "audio");
     // `start`: from there rather than from the start (a source video's part, a swap)
     const from = opts.start ? ["-ss", opts.start.toFixed(3)] : [];
     await must(tools.ffmpeg, [
@@ -191,10 +126,10 @@ export async function referenceClip(source: Media, ext: string, opts: { seconds:
       ...(audio ? ["-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2"] : ["-an"]),
       out,
     ]);
-    // a sound track that is silence is no voice: how loud it gets is read from ffmpeg's own report
+    // a sound track that is silence is no voice: how loud it gets is read from ffmpeg's own report, the picture not decoded
     let hasSound = false;
     if (audio) {
-      const report = (await ffRun(tools.ffmpeg, ["-hide_banner", "-i", out, "-af", "volumedetect", "-f", "null", "-"], { timeout: 60_000 })).stderr;
+      const report = await reportOf(["-i", out, "-vn", "-af", "volumedetect"]);
       hasSound = peakOf(report) > -45;
     }
     const size = (await must(tools.ffprobe, ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", out])).trim().split(",").map(Number);
@@ -253,19 +188,21 @@ export async function cutFrames(
   });
 }
 
-/** One frame of a video as a PNG. A moment at or past the end gives the last frame. */
+/**
+ * One frame of a video as a PNG. A moment at or past the end gives the last frame. A run in the ffmpeg pool, as peekAt's
+ * and filmStrip's are: it was the one frame a request asks for that was not, and ran beside a full pool.
+ */
 export async function frameAt(source: Media, ext: string, atMs: number, durationMs?: number): Promise<Uint8Array> {
-  return inTemp(async (dir) => {
+  return ffmpegPool(() => inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "frame.png");
     const tries = [atMs, ...(durationMs ? [durationMs - 60, durationMs - 150] : []), 0].map((ms) => Math.max(0, ms));
     for (const ms of tries) {
-      await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-ss", (ms / 1000).toFixed(3), "-i", input, "-frames:v", "1", out]);
-      const bytes = await readFile(out).catch(() => null);
-      if (bytes?.length) return new Uint8Array(bytes);
+      const bytes = await grabFrame(input, out, { atMs: ms });
+      if (bytes) return bytes;
     }
     throw new CutError("No picture could be taken from that moment of the video.");
-  });
+  }));
 }
 
 /** How many frames a strip holds, and how tall they are. */
@@ -314,16 +251,13 @@ export async function peekAt(source: Media, ext: string, atMs: number, height = 
   return ffmpegPool(() => inTemp(async (dir) => {
     const input = await onDisk(dir, `in.${ext}`, source);
     const out = join(dir, "peek.jpg");
-    const scale = `scale=-2:${Math.max(48, Math.min(480, height))}`;
-    const seeked = await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-ss", (Math.max(0, atMs) / 1000).toFixed(3), "-i", input, "-frames:v", "1", "-vf", scale, "-q:v", "4", out]).then(() => true, () => false);
-    let bytes = seeked ? await readFile(out).catch(() => null) : null;
-    // a moment inside the last frame (a clip's end, asked for by its length) seeks past every frame: the last one is taken instead
-    if (!bytes?.length) {
-      await must(tools.ffmpeg, ["-y", "-loglevel", "error", "-sseof", "-0.5", "-i", input, "-vf", scale, "-q:v", "4", "-update", "1", out]);
-      bytes = await readFile(out).catch(() => null);
-    }
-    if (!bytes?.length) throw new CutError("No picture could be taken from that moment of the video.");
-    return new Uint8Array(bytes);
+    const look = { height: Math.max(48, Math.min(480, height)), q: 4 };
+    const seeked = await grabFrame(input, out, { atMs, ...look }).catch(() => null);
+    // a moment inside the last frame (a clip's end, asked for by its length) seeks past every frame, and a seek that failed
+    // gave none either: the last one is taken instead, and only its failure is said
+    const bytes = seeked ?? await grabFrame(input, out, { last: true, ...look });
+    if (!bytes) throw new CutError("No picture could be taken from that moment of the video.");
+    return bytes;
   }), { first: true });
 }
 
@@ -459,8 +393,10 @@ export async function slowSoundOnto(slowed: Uint8Array, range: Media, factor: nu
     const out = join(dir, "with-sound.mp4");
     await writeFile(v, slowed);
     const r = await onDisk(dir, "range.mp4", range);
-    const streams = await must(tools.ffprobe, ["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", r]).catch(() => "");
-    if (!/audio/.test(streams)) return slowed;
+    // a range ffprobe cannot read (or no ffprobe) has no sound to give: the slowed video RIFE made is kept, silent, rather
+    // than lost for want of its sound
+    const streams = await streamKinds(r).catch(() => []);
+    if (!hasStream(streams, "audio")) return slowed;
     await must(tools.ffmpeg, [
       "-y", "-loglevel", "error", "-i", v, "-i", r,
       "-filter_complex", `[1:a]${slowTempo(factor)}[a]`, "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", out,
@@ -518,7 +454,8 @@ export async function silentOf<T = Uint8Array>(source: Media, ext: string, durat
  * request asks for.
  */
 export async function markedVideoFile(source: Media, ext: string): Promise<{ file: string; size: number; done: () => Promise<void> }> {
-  const dir = await mkdtemp(join(tmpdir(), "afflatus-cut-"));
+  // its own folder, not inTemp's: it outlives this call, until whoever reads the file is through (`done`)
+  const dir = await tempDir();
   // retried a little: on Windows the stream that read it may still hold it for a moment after its last chunk
   const done = () => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => {});
   try {
@@ -693,7 +630,7 @@ async function evenGain(input: string, part?: { start: number; seconds: number }
  * each clip of a recording cut into 30 decoded all of it again, true peak included, for the same figure. A failed measure is
  * not kept, so the next clip tries again. The last hundred.
  */
-const wholeGains = new Map<string, Promise<number | null>>();
+const wholeGains = new Kept<number | null>({ max: 100, keepIf: (gain) => gain !== null });
 
 /** evenGain over all of `source` (written to `input`), measured once per sound (wholeGains); not kept when it is not named. */
 async function wholeGain(input: string, source: Media, evenKey?: string): Promise<number | null> {
@@ -701,13 +638,8 @@ async function wholeGain(input: string, source: Media, evenKey?: string): Promis
     ? await stat(source).then((st) => `${source}:${st.size}:${st.mtimeMs}`, () => null)
     : evenKey ? `${evenKey}:${source.byteLength}` : null;
   if (key === null) return evenGain(input);
-  const have = wholeGains.get(key);
-  if (have) return have;
-  const measuring = evenGain(input);
-  wholeGains.set(key, measuring);
-  if (wholeGains.size > 100) wholeGains.delete(wholeGains.keys().next().value!);
-  if ((await measuring) === null) wholeGains.delete(key);
-  return measuring;
+  // a measure that threw was kept here (only a null one was dropped): Kept drops both
+  return wholeGains.get(key, () => evenGain(input));
 }
 
 /**

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { plural, UPLOAD_MAX_BYTES } from "@afflatus/core";
+import { cents, GB, plural, UPLOAD_MAX_BYTES } from "@afflatus/core";
 import { z } from "zod";
 import { assetLookup, mirrorItem, renameItem, silentItem, soundItem } from "./assets-api";
 import { binItem, bulkItems, keepItem, restoreItem, type BulkDone } from "./assetsBin";
@@ -292,7 +292,7 @@ function fetchedToday(i: Imports, token: string, at = Date.now(), of: "fetched" 
   i[of].set(token, kept);
   return kept.reduce((n, x) => n + x.bytes, 0);
 }
-const gb = (bytes: number) => `${(bytes / 2 ** 30).toFixed(1).replace(/\.0$/, "")} GB`;
+const gb = (bytes: number) => `${(bytes / GB).toFixed(1).replace(/\.0$/, "")} GB`;
 
 const importFromUrl = tool({
   name: "import_from_url",
@@ -441,7 +441,7 @@ const cutRangeTool = tool({
         return {
           job: job.id, by: job.engine === "rife" ? "RIFE on the GPU" : "ffmpeg on this computer (this ComfyUI has no RIFE)",
           on: spends(ctx) ? "wherever the queue ends it first" : "the user's own machines (this token has no Spend)",
-          ...(usd ? { mayCostUsd: Math.round(usd * 100) / 100 } : {}),
+          ...(usd ? { mayCostUsd: cents(usd) } : {}),
         };
       });
     }

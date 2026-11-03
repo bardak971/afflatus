@@ -1,5 +1,7 @@
 import { open, stat, readFile } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
+import { isSafetensors, LEGACY_FOLDER, SAFETENSORS_HEADER_MOST } from "@afflatus/core";
+import { isInside } from "./fsUtil";
 import { isNetworkPath } from "./linked";
 
 /**
@@ -9,8 +11,6 @@ import { isNetworkPath } from "./linked";
  * past the header is read: a few hundred kilobytes of a file of many gigabytes.
  */
 
-/** ComfyUI's older names for some folders, which extra_model_paths.yaml may still use (A1111's layout among them): folder_paths.map_legacy. */
-const LEGACY: Record<string, string[]> = { diffusion_models: ["unet"], text_encoders: ["clip"] };
 
 /**
  * The directories under `models/` ComfyUI reads a folder from, in its own order (folder_paths.py): models/unet before
@@ -19,8 +19,6 @@ const LEGACY: Record<string, string[]> = { diffusion_models: ["unet"], text_enco
  */
 const OWN: Record<string, string[]> = { diffusion_models: ["unet", "diffusion_models"], text_encoders: ["text_encoders", "clip"], controlnet: ["controlnet", "t2i_adapter"] };
 
-/** The biggest header read: a safetensors header is small, and a file that claims more is not one. */
-const HEADER_MOST = 64 * 1024 * 1024;
 
 /**
  * The directories ComfyUI reads a model folder from, in the order it looks for a name in them: `<comfyDir>/models/<folder>`
@@ -80,7 +78,8 @@ export interface ExtraDir {
  * that base. Read with a small reader of its own: the file is simple and a YAML library is not worth carrying for it.
  */
 export function extraPaths(yaml: string, comfyDir: string, folder: string): ExtraDir[] {
-  const names = [folder, ...(LEGACY[folder] ?? [])];
+  // its older name too, which extra_model_paths.yaml may still use (A1111's layout among them): folder_paths.map_legacy
+  const names = [folder, ...Object.keys(LEGACY_FOLDER).filter((old) => LEGACY_FOLDER[old] === folder)];
   const out: ExtraDir[] = [];
   /** The section being read: its paths, as written, resolved once its base path and is_default are known. */
   let section = { basePath: "", isDefault: false, paths: [] as string[] };
@@ -152,8 +151,8 @@ export function insideDir(dir: string, file: string): string | null {
   if (!rel || rel.includes("\0") || rel.startsWith("/") || /^[a-z]:/i.test(rel) || rel.split("/").some((part) => part === "..")) return null;
   const root = resolve(dir);
   const path = resolve(root, rel);
-  const back = relative(root, path);
-  return back && back !== ".." && !back.startsWith(`..${sep}`) && !isAbsolute(back) ? path : null;
+  // a file under it, never the directory itself
+  return path !== root && isInside(root, path) ? path : null;
 }
 
 /**
@@ -162,7 +161,7 @@ export function insideDir(dir: string, file: string): string | null {
  * or is named outside the directories (insideDir).
  */
 export async function readLocalHeader(dirs: string[], file: string): Promise<Record<string, unknown> | null> {
-  if (!/\.safetensors$/i.test(file)) return null;
+  if (!isSafetensors(file)) return null;
   for (const dir of dirs) {
     const path = insideDir(dir, file);
     if (!path) return null;
@@ -177,7 +176,7 @@ export async function readLocalHeader(dirs: string[], file: string): Promise<Rec
       const { bytesRead } = await fh.read(head, 0, 8, 0);
       if (bytesRead < 8) return null;
       const size = Number(head.readBigUInt64LE(0));
-      if (!Number.isFinite(size) || size <= 0 || size > HEADER_MOST) return null;
+      if (!Number.isFinite(size) || size <= 0 || size > SAFETENSORS_HEADER_MOST) return null;
       const body = Buffer.alloc(size);
       const got = await fh.read(body, 0, size, 8);
       if (got.bytesRead < size) return null;

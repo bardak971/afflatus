@@ -1,6 +1,7 @@
 import { stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { baseName, type Family, type PresetFile } from "@afflatus/core";
+import { baseName, nameKey, pathKey, type Family, type PresetFile } from "@afflatus/core";
+import { Kept } from "./kept";
 import { civitaiVersion } from "./civitai";
 import type { Selectable } from "kysely";
 import { now, type Db, type Tables } from "./db";
@@ -82,7 +83,6 @@ export interface SourceLookup {
 
 // Core's split, the one the fetch's official test uses: a name matched here and refused there sent a pod a file it then
 // would not fetch (a Windows sub-folder name, 2026-10-22).
-const nameOf = (file: string) => baseName(file).toLowerCase();
 const CIVITAI_PAGE = /civitai\.(?:com|red|green)\/models\/\d+[^\s#]*?[?&]modelVersionId=(\d+)/i;
 const HF_FILE = /^https:\/\/huggingface\.co\/([^/]+)\/([^/]+)\/(?:blob|resolve)\/([^/]+)\/(.+)$/i;
 
@@ -93,18 +93,11 @@ const HF_FILE = /^https:\/\/huggingface\.co\/([^/]+)\/([^/]+)\/(?:blob|resolve)\
  * is not kept. The lookup is the server's one (services.ts), so a moment later the next request reads afresh.
  */
 const BRIEF_MS = 2_000;
-const brief = new WeakMap<SourceLookup, Map<string, { at: number; value: Promise<unknown> }>>();
+const brief = new WeakMap<SourceLookup, Kept<unknown>>();
 function once<T>(l: SourceLookup, key: string, read: () => Promise<T>): Promise<T> {
   let kept = brief.get(l);
-  if (!kept) brief.set(l, (kept = new Map()));
-  const had = kept.get(key);
-  if (had && Date.now() - had.at < BRIEF_MS) return had.value as Promise<T>;
-  const entry = { at: Date.now(), value: read() };
-  kept.set(key, entry);
-  entry.value.catch(() => {
-    if (kept.get(key) === entry) kept.delete(key);
-  });
-  return entry.value;
+  if (!kept) brief.set(l, (kept = new Kept({ ttlMs: BRIEF_MS })));
+  return kept.get(key, read) as Promise<T>;
 }
 
 /** The presets that name files, read once for the many files a request asks about (a file's size is looked for there too). */
@@ -117,9 +110,9 @@ const hashesOf = (l: SourceLookup, folder: string) =>
     const rows = await l.db.selectFrom("model_hashes").selectAll().where("folder", "=", folder).execute().catch(() => [] as HashRow[]);
     const byName = new Map<string, HashRow[]>();
     for (const r of rows) {
-      const list = byName.get(nameOf(r.file));
+      const list = byName.get(nameKey(r.file));
       if (list) list.push(r);
-      else byName.set(nameOf(r.file), [r]);
+      else byName.set(nameKey(r.file), [r]);
     }
     return { byPath: new Map(rows.map((r) => [r.file.toLowerCase(), r])), byName };
   });
@@ -134,7 +127,7 @@ const updatesOf = (l: SourceLookup, folder: string) =>
   once(l, `updates|${folder}`, async () => {
     const rows = await l.db.selectFrom("model_updates").select(["version_id", "file"]).where("folder", "=", folder).execute().catch(() => []);
     const byName = new Map<string, number>();
-    for (const r of rows) if (!byName.has(nameOf(r.file))) byName.set(nameOf(r.file), r.version_id);
+    for (const r of rows) if (!byName.has(nameKey(r.file))) byName.set(nameKey(r.file), r.version_id);
     return byName;
   });
 
@@ -153,7 +146,7 @@ function pageSource(page: ModelPage, file: string): PodSource | null {
   const version = CIVITAI_PAGE.exec(page.url)?.[1];
   if (version) return { kind: "civitai", version: Number(version), pick: baseName(file) };
   const hf = HF_FILE.exec(page.url);
-  if (hf && nameOf(decodeURIComponent(hf[4]!)) === nameOf(file)) return { kind: "url", url: `https://huggingface.co/${hf[1]}/${hf[2]}/resolve/${hf[3]}/${hf[4]}` };
+  if (hf && nameKey(decodeURIComponent(hf[4]!)) === nameKey(file)) return { kind: "url", url: `https://huggingface.co/${hf[1]}/${hf[2]}/resolve/${hf[3]}/${hf[4]}` };
   return null;
 }
 
@@ -165,14 +158,14 @@ function pageSource(page: ModelPage, file: string): PodSource | null {
 export async function podSource(l: SourceLookup, want: { file: string; folder: string; url?: string; civitai?: PresetFile["civitai"] }, o: { live?: boolean } = {}): Promise<PodSource | null> {
   const given = presetSource(want);
   if (given) return given;
-  const name = nameOf(want.file);
+  const name = nameKey(want.file);
   for (const p of await presetsOf(l)) {
-    const f = p.files.find((x) => x.folder === want.folder && nameOf(x.file) === name);
+    const f = p.files.find((x) => x.folder === want.folder && nameKey(x.file) === name);
     const src = f && presetSource(f);
     if (src) return src;
   }
   for (const family of l.families()) {
-    const slot = family.slots.find((x) => x.folder === want.folder && x.get && nameOf(x.get.file) === name);
+    const slot = family.slots.find((x) => x.folder === want.folder && x.get && nameKey(x.get.file) === name);
     // with the bytes it must have, when the family says them (every pickle): the pod's node pack checks the file against them
     if (slot?.get) return { kind: "url", url: slot.get.url, ...(slot.get.sha256 ? { sha256: slot.get.sha256 } : {}) };
   }
@@ -196,8 +189,8 @@ async function sameBytes(l: SourceLookup, want: { file: string; folder: string }
   if (!st) return null;
   const hashes = await hashesOf(l, want.folder);
   // by its path, else by its name alone only when one file has that name (two of the same name are two files)
-  const named = hashes.byName.get(nameOf(want.file)) ?? [];
-  const row = hashes.byPath.get(want.file.replace(/\\/g, "/").toLowerCase()) ?? (named.length === 1 ? named[0] : undefined);
+  const named = hashes.byName.get(nameKey(want.file)) ?? [];
+  const row = hashes.byPath.get(pathKey(want.file)) ?? (named.length === 1 ? named[0] : undefined);
   // the hash is this copy's only while the file is as it was hashed: one replaced since is other bytes until hashed again
   if (!row || Number(row.size) !== st.size || Number(row.mtime) !== Math.round(st.mtimeMs)) return null;
   const pick = baseName(want.file);
@@ -216,7 +209,7 @@ async function sameBytes(l: SourceLookup, want: { file: string; folder: string }
     // the folder's hashes kept a moment are read again: the next file asked sees the match
     brief.get(l)?.delete(`hashes|${row.folder}`);
   };
-  const updated = (await updatesOf(l, want.folder)).get(nameOf(want.file));
+  const updated = (await updatesOf(l, want.folder)).get(nameKey(want.file));
   const page = (await lookUpPage(l.db, want.folder, want.file).catch(() => null))?.page;
   const versions = [...new Set([updated, page ? Number(CIVITAI_PAGE.exec(page.url)?.[1] ?? 0) : 0].filter((v): v is number => Boolean(v)))];
   for (const version of versions) {

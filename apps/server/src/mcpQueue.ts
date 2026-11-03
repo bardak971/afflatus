@@ -1,4 +1,4 @@
-import { plural } from "@afflatus/core";
+import { plural, usd } from "@afflatus/core";
 import { z } from "zod";
 import { httpError } from "./errors";
 import { askSchema, changeSchema, rankSchema, type HuntState } from "./hunt";
@@ -8,7 +8,6 @@ import { mayStart } from "./mcpMachines";
 import { jobRow, madeOwn, mayMove, mayTouch, mayUnload, mustNotSteerOntoPods, podsTaking, podsUp } from "./mcpRender";
 import { quoted, tool, type ToolCtx } from "./mcpTool";
 import { refusal } from "./mcpTokens";
-import { dollars } from "./notifyWords";
 import { needsComfy } from "./queueOffline";
 import { runningRate } from "./runpod";
 import type { Services } from "./services";
@@ -277,10 +276,10 @@ const startHunt = tool({
     return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
       // hold rest pauses the user's own machines: their work would go to a pod up meanwhile, as pause_machine would send it
       if (asked.hold === "rest") mustNotSteerOntoPods(ctx, await podsTaking(s, (await readSettings(s.db)).machines), "a hunt resting the user's machines (hold rest; keep lets them render on)");
-      await mayStart(s, token, hour, `a hunt deploys a GPU of up to ${dollars(hour)} an hour`, `a pod found by the hunt, at its ceiling`);
+      await mayStart(s, token, hour, `a hunt deploys a GPU of up to ${usd(hour)} an hour`, `a pod found by the hunt, at its ceiling`);
       const view = await s.hunt.start(asked, token.id);
-      ctx.said(`Started a GPU hunt (${asked.mode}, at most ${dollars(asked.ceiling)}/h, ${asked.hold === "rest" ? "the user's machines resting" : "the user's machines rendering on"})`);
-      return { ...(await huntSaid(s, ctx, view)), said: `Hunting. The pod it deploys counts whole against this token's cap (${dollars(token.spendCapCents / 100)} a month), and its deploy is asked of the caps again when a GPU is found.` };
+      ctx.said(`Started a GPU hunt (${asked.mode}, at most ${usd(asked.ceiling)}/h, ${asked.hold === "rest" ? "the user's machines resting" : "the user's machines rendering on"})`);
+      return { ...(await huntSaid(s, ctx, view)), said: `Hunting. The pod it deploys counts whole against this token's cap (${usd(token.spendCapCents / 100)} a month), and its deploy is asked of the caps again when a GPU is found.` };
     });
   },
 });
@@ -303,7 +302,7 @@ const changeHunt = tool({
       if (asked.hold === "rest" && st.hold !== "rest") mustNotSteerOntoPods(ctx, await podsTaking(s, (await readSettings(s.db)).machines), "a hunt resting the user's machines (hold rest; keep lets them render on)");
       if (asked.ceiling !== undefined && asked.ceiling > st.ceiling) {
         const hour = hourOf(asked.ceiling, st.deploy);
-        await mayStart(s, token, hour, `a hunt deploys a GPU of up to ${dollars(hour)} an hour`, "a pod found by the hunt, at its new ceiling");
+        await mayStart(s, token, hour, `a hunt deploys a GPU of up to ${usd(hour)} an hour`, "a pod found by the hunt, at its new ceiling");
       }
       const view = await s.hunt.change(asked, token.id);
       ctx.said(`Changed the GPU hunt: ${Object.keys(a).join(", ") || "nothing"}`);

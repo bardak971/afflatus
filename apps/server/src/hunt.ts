@@ -1,12 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { fileKey, firstFree, forCuda, plural, rankGpus, type CudaPick, type HuntMode, type Learned, type PresetFile, type RankedGpu, type RankRender } from "@afflatus/core";
+import { fileKey, firstFree, forCuda, plural, rankGpus, usd, type CudaPick, type HuntMode, type Learned, type PresetFile, type RankedGpu, type RankRender } from "@afflatus/core";
 import { deployOverhead, type DeployOverhead } from "./costs";
 import { deployFiles, deployModels, waitingFiles } from "./deployModels";
 import { httpError } from "./errors";
 import { oneAtATime } from "./keyedLock";
 import { gpuPaces, rentedLoadMs } from "./forecast";
-import { dollars, took, type Say } from "./notifyWords";
+import { took, type Say } from "./notifyWords";
 import { readJson, type JobRow } from "./queueModel";
 import { needsComfy } from "./queueOffline";
 import { refusalOf } from "./rentedDeploy";
@@ -411,7 +411,7 @@ export class Hunt {
     this.aside.clear();
     if (st.hold === "rest") st.pausedByHunt = await this.pauseHome();
     await this.save();
-    console.log(`[hunt] started (${st.mode}, at most ${dollars(st.ceiling)}/h, ${st.hold === "rest" ? `${plural(st.pausedByHunt.length, "home machine")} paused` : "the home machines go on"})`);
+    console.log(`[hunt] started (${st.mode}, at most ${usd(st.ceiling)}/h, ${st.hold === "rest" ? `${plural(st.pausedByHunt.length, "home machine")} paused` : "the home machines go on"})`);
     this.kick(0);
     return this.view();
   }
@@ -612,7 +612,7 @@ export class Hunt {
     console.log(`[hunt] ${pick.name} found and deployed after ${took(this.now() - started)}`);
     this.tell?.("gpuFound", {
       title: `${pick.name} found`,
-      body: `Deployed in ${made.dataCenter ?? "a data center RunPod picked"} at ${dollars(pick.price)}/h, after ${took(this.now() - started)} of hunting; ${plural(rows.length, "render")} waiting for it.`,
+      body: `Deployed in ${made.dataCenter ?? "a data center RunPod picked"} at ${usd(pick.price)}/h, after ${took(this.now() - started)} of hunting; ${plural(rows.length, "render")} waiting for it.`,
       key: st.startedAt,
     });
   }

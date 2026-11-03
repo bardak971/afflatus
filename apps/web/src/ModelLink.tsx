@@ -1,3 +1,4 @@
+import { nameKey } from "@afflatus/core";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "wouter";
@@ -28,7 +29,7 @@ export function ModelLink({ folder, file, className }: { folder: string; file: s
   const [own, setOwn] = useState("");
   const button = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
-  const name = (file.split(/[\\/]/).pop() ?? file).toLowerCase();
+  const name = nameKey(file);
   const label = fileLabel(file);
   const page = pages.data?.items[name];
   const keep = (found: ModelPage | null) =>

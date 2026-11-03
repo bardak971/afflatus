@@ -9,7 +9,7 @@ import { FFMPEG_TIMEOUT, ffmpegMade, ffmpegThere } from "./clipKit";
 import { makeApp, type TestApp } from "./helpers";
 
 /**
- * A file from a stranger (an upload, MCP's import_from_url) is read only as a real container (video.ts readAs): an
+ * A file from a stranger (an upload, MCP's import_from_url) is read only as a real container (ff.ts readAs): an
  * HLS or DASH manifest naming a file elsewhere on the disk is refused before ffmpeg opens what it names. With only the
  * `file` protocol allowed, the frame of that other file came back. Skipped where ffmpeg is not installed.
  */

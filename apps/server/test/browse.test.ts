@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { civitaiCard, civitaiKept, forAdults, forgetPages, PageStore, thumbOf } from "../src/browse";
 import { startFakeComfy } from "@afflatus/comfy/testing";
-import { folderOfHfFile, folderOfSlots, slotPlaces } from "../src/fromLink";
+import { folderFor, folderOfHfFile, folderOfSlots, slotPlaces } from "../src/fromLink";
 import { forgetHuggingFace } from "../src/huggingface";
 import { writeSettings } from "../src/settings";
 import { get, makeApp, post, type TestApp } from "./helpers";
@@ -72,6 +72,14 @@ afterEach(async () => {
 });
 
 describe("find models", () => {
+  it("files a Civitai link by core's one table of types: a detector in ultralytics, a UNet in diffusion_models", () => {
+    // fromLink had its own copy, without Detection, UNet, CLIP or CLIPVision: such a link came with no folder
+    expect(folderFor("Detection", "Other", "face_yolov8m.pt")).toEqual({ folder: "ultralytics" });
+    expect(folderFor("UNet", "Flux.1 D", "flux1-dev-fp8.safetensors")).toEqual({ folder: "diffusion_models" });
+    expect(folderFor("CLIPVision", "Other", "sigclip_vision_384.safetensors")).toEqual({ folder: "clip_vision" });
+    expect(folderFor("Other", "Other", "x.pth")).toEqual({ folder: null });
+  });
+
   it("lists Civitai's models as cards: files with their folder, source, and what the user has; filters as Civitai takes them", async () => {
     const res = await get(t.app, "/api/browse/civitai?q=handheld&types=LORA&bases=Wan%20Video%202.2%20I2V-A14B&sort=Newest&period=Month");
     expect(res.statusCode).toBe(200);

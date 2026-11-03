@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { openAsBlob } from "node:fs";
 import { baseModels, checkGraph, choicesOf, graphFiles, clockFits, exactSoundPart, FRAME_SLACK_MS, isChunkStart, latentClockOf, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, neededSlots, onGrid, packOfNode, parseInput, pickChoice, pickedFiles, RANDOM_SEED, relocateFiles, soundPartOf, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue, type SetFinding } from "@afflatus/core";
 import { catalogKey, ComfyCancelled, ComfyError, ComfyUnreachable, filesIn } from "@afflatus/comfy";
+import { Kept } from "./kept";
 import { chunksOf, forecast, fromRates, sizedFrom, workOf, type Forecast } from "./forecast";
 import type { Comfy } from "./comfy";
 import { cutFrames, frameAt, inTemp, onDisk, rangeKeep, referenceClip, soundPart, type Media } from "./cut";
@@ -1105,7 +1106,8 @@ async function referenceFacts(db: Db, id: string): Promise<MediaFacts | null> {
 }
 
 /** The facts of a render's own frames (kept beside an upscaled take), read once per file: a file kept under a key never changes. */
-const rawFacts = new Map<string, Promise<VideoFacts | null>>();
+// a read that failed is not kept: ffprobe out of time under load would have every later join take the finished frames
+const rawFacts = new Kept<VideoFacts | null>({ max: 256, keepIf: (facts) => facts !== null });
 
 /**
  * A video's facts by ffprobe alone, read where it is stored (bytes only for a storage with no paths): readVideo also grabs a
@@ -1121,17 +1123,7 @@ async function probed(source: Media, ext: string): Promise<{ facts: VideoFacts |
  * finish's needs (queueTools toolNeeds). The last 256 files are kept, as the sibling caches are (card #119, P7).
  */
 export function rawFactsOf(storage: Storage, key: string, mime: string): Promise<VideoFacts | null> {
-  let got = rawFacts.get(key);
-  if (!got) {
-    // a read that failed is not kept: ffprobe out of time under load would have every later join take the finished frames
-    got = sourceOf(storage, key).then((source) => probed(source, extOf(mime))).then((r) => r.facts, () => null).then((facts) => {
-      if (!facts) rawFacts.delete(key);
-      return facts;
-    });
-    rawFacts.set(key, got);
-    if (rawFacts.size > 256) rawFacts.delete(rawFacts.keys().next().value!);
-  }
-  return got;
+  return rawFacts.get(key, () => sourceOf(storage, key).then((source) => probed(source, extOf(mime))).then((r) => r.facts, () => null));
 }
 
 /**
@@ -1172,7 +1164,7 @@ async function clipFacts(core: QueueCore, spec: InputSpec & { type: "clip" }, va
  */
 export async function forecastOf(
   core: QueueCore, recipeId: string, rawInput: unknown,
-  opts: { cold?: boolean; finishedFrom?: string | null; clip?: { id: string; fit: boolean } | null; machine?: string | null; machines?: readonly string[]; loads?: (machine: string) => string | null; placed?: PlacedReader; builds?: Map<string, Promise<BuiltGraph | null>> } = {},
+  opts: { cold?: boolean; finishedFrom?: string | null; clip?: { id: string; fit: boolean } | null; machine?: string | null; machines?: readonly string[]; loads?: (machine: string) => string | null; placed?: PlacedReader; builds?: Kept<BuiltGraph | null> } = {},
 ): Promise<{ forecast: Forecast; shape: { pixels: number; frames: number }; model: string; on?: Record<string, Forecast> } | null> {
   const recipe = core.registry.recipe(recipeId);
   if (!recipe) return null;
@@ -1189,7 +1181,7 @@ export async function forecastOf(
   const catalog = await within((await core.comfy()).catalog(), CATALOG_WAIT_MS);
   const build = () => (catalog ? builtOf(core, recipeId, plan ? plan.input : rawInput, { finishedFrom: opts.finishedFrom ?? null, canvas: plan?.canvas, catalog }).catch(() => null) : Promise.resolve(null));
   // kept by its form and that node list: one that cannot be built on it is not built again at each pass either
-  const built = await (catalog && opts.builds && !opts.clip ? keptBuild(opts.builds, [recipeId, opts.finishedFrom ?? "", catalogKey(catalog) ?? "", JSON.stringify(rawInput)].join("\u0001"), build) : build());
+  const built = await (catalog && opts.builds && !opts.clip ? opts.builds.get([recipeId, opts.finishedFrom ?? "", catalogKey(catalog) ?? "", JSON.stringify(rawInput)].join("\u0001"), build) : build());
   // its settings as submit files them: a file left on its default that this ComfyUI does not have is its best one (the time key)
   if (built) chosen = settled(recipe, chosen, catalog!);
   const shape = built ? workOf(built) : null;
@@ -1214,13 +1206,6 @@ export async function forecastOf(
     return g ? [[m, g] as const] : [];
   })) : undefined;
   return { forecast: fallback, shape: { pixels: shape?.pixels ?? 0, frames: shape?.frames ?? 1 }, model, ...(on ? { on } : {}) };
-}
-
-/** A form's graph kept under its key (its form and the node list it was built on), built or not. */
-function keptBuild(kept: Map<string, Promise<BuiltGraph | null>>, key: string, build: () => Promise<BuiltGraph | null>): Promise<BuiltGraph | null> {
-  let got = kept.get(key);
-  if (!got) kept.set(key, (got = build()));
-  return got;
 }
 
 /** The model file a render is recorded under (render_stats.model_file). */

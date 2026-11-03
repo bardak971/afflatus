@@ -1,7 +1,6 @@
-import { modelStem, plural, rankGpus, shortGpu, volumePerMonth, type RankOffer } from "@afflatus/core";
+import { dayStart, GB, modelStem, monthStart, plural, rankGpus, shortGpu, usd, usdFor, volumePerMonth, volumeSizeFor, type RankOffer } from "@afflatus/core";
 import type { Selectable } from "kysely";
 import type { Db, Tables } from "./db";
-import { dollars } from "./notifyWords";
 import { buildOf } from "./podImage";
 import { median } from "./renderDigests";
 import { nameOf, windowOf } from "./rendersRead";
@@ -40,8 +39,6 @@ const noBoot = (): BootMs => ({ pull: 0, packs: 0, comfy: 0, startFailed: 0, boo
 
 const HOUR = 3_600_000;
 const DAY = 86_400_000;
-const GB = 1e9;
-const usdOf = (ms: number, rate: number) => (ms / HOUR) * rate;
 
 export interface Span {
   from: number;
@@ -195,7 +192,7 @@ export const idleTail = (spans: readonly Span[], open: boolean): number => {
  * cost a boot again).
  */
 export function idleSaving(sessions: ReadonlyArray<{ tailMs: number; rate: number }>, shorter: number): number {
-  return sessions.reduce((n, s) => n + usdOf(Math.max(0, s.tailMs - shorter * 60_000), s.rate), 0);
+  return sessions.reduce((n, s) => n + usdFor(Math.max(0, s.tailMs - shorter * 60_000), s.rate), 0);
 }
 
 /** The idle a shorter one is weighed at: half the one set (5 min for 10), never under 2; for "never", 10. */
@@ -217,7 +214,7 @@ export interface FetchAdvice {
   bytes: number;
   times: number;
   onceUsd: number;
-  /** The volume that would keep them (GB, rounded up to 10) and its price a month. */
+  /** The volume that would keep them (volumeSizeFor: the size Make a volume… plans) and its price a month. */
   volumeGb: number;
   perMonth: number;
   /** How many deploys a month it takes for the volume to pay for itself. */
@@ -237,8 +234,8 @@ export function fetchAdvice(fetched: readonly Fetched[]): FetchAdvice | null {
   if (!again.length) return null;
   const bytes = again.reduce((n, list) => n + list[0]!.bytes, 0);
   // fetching them once: each file's usual time at the rate it came at
-  const onceUsd = again.reduce((n, list) => n + list.reduce((m, f) => m + usdOf(f.ms, f.rate), 0) / list.length, 0);
-  const volumeGb = Math.max(10, Math.ceil((bytes * 1.1) / GB / 10) * 10);
+  const onceUsd = again.reduce((n, list) => n + list.reduce((m, f) => m + usdFor(f.ms, f.rate), 0) / list.length, 0);
+  const volumeGb = volumeSizeFor(bytes);
   const perMonth = volumePerMonth(volumeGb);
   const biggest = again.sort((a, b) => b[0]!.bytes - a[0]!.bytes)[0]!;
   return {
@@ -508,12 +505,12 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
     const inWindow = partsOf(clipped);
     for (const p of PARTS) {
       whereMs[p] += inWindow[p];
-      whereUsd[p] += usdOf(inWindow[p], r.rate);
+      whereUsd[p] += usdFor(inWindow[p], r.rate);
     }
     const bootInWindow = bootPartsOf(clipped);
     for (const p of BOOT_PARTS) {
       bootMs[p] += bootInWindow[p];
-      bootUsd[p] += usdOf(bootInWindow[p], r.rate);
+      bootUsd[p] += usdFor(bootInWindow[p], r.rate);
     }
     const packs = packsOf(r.boot_packs);
     if (inWindow.boot) bootsOf.push({ pullMs: r.pulled_at ? boot.pull : null, packs: packs.map((x) => x.pack), packsKnown: r.packs_from !== null });
@@ -525,9 +522,9 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
     const gpu = gpuShort(r.gpu ?? mine.find((x) => x.row.gpu)?.row.gpu ?? machineOf.get(r.machine_id)?.name ?? null);
     gpuOfSession.set(r.id, gpu);
     for (const x of mine) renderRate.set(x.row.id, r.rate);
-    const its = mine.map((x) => ({ id: x.row.id, at: x.to, ms: x.row.total_ms, status: x.row.status, model: nameOf(d.registry, x.row.recipe_id), usd: usdOf(x.row.total_ms, r.rate), item: refs.get(x.row.id)?.item ?? null }));
+    const its = mine.map((x) => ({ id: x.row.id, at: x.to, ms: x.row.total_ms, status: x.row.status, model: nameOf(d.registry, x.row.recipe_id), usd: usdFor(x.row.total_ms, r.rate), item: refs.get(x.row.id)?.item ?? null }));
     sessions.push({
-      id: r.id, machine: r.machine_id, gpu, cuda: buildOf(r.image), hostCuda: r.host_cuda ?? null, dataCenter: r.data_center ?? null, pull: pullFigures(r.pull), bootLog: Boolean(r.boot_log), rate: r.rate, from, to, open: !r.ended_at, usd: usdOf(to - from, r.rate), parts, boot, startFailed: r.start_failed, crash: crashSaid(r.crash), packs, estimated: split.estimated, why: whyOf(its, parts.outside), idleMinutes: idle,
+      id: r.id, machine: r.machine_id, gpu, cuda: buildOf(r.image), hostCuda: r.host_cuda ?? null, dataCenter: r.data_center ?? null, pull: pullFigures(r.pull), bootLog: Boolean(r.boot_log), rate: r.rate, from, to, open: !r.ended_at, usd: usdFor(to - from, r.rate), parts, boot, startFailed: r.start_failed, crash: crashSaid(r.crash), packs, estimated: split.estimated, why: whyOf(its, parts.outside), idleMinutes: idle,
       fetched: { files: kept.length + guessed.length, bytes: [...kept.map((f) => Number(f.bytes)), ...guessed.map((m) => Number(m.bytes))].reduce((n, b) => n + b, 0) },
       renders: its.sort((a, b) => a.at - b.at),
     });
@@ -543,7 +540,7 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
     times.forEach((t, i) => {
       const a = Math.max(from, t, wFrom);
       const b = Math.min(to, t + step, wTo);
-      if (b > a) values[i]! += usdOf(b - a, r.rate);
+      if (b > a) values[i]! += usdFor(b - a, r.rate);
     });
     perGpu.set(g, values);
   }
@@ -587,15 +584,14 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
 
   // ---- the top figures
   const spending = d.spending;
-  const nowDate = new Date(now);
-  const todayFrom = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()).getTime();
-  const monthEndAt = new Date(nowDate.getFullYear(), nowDate.getMonth() + 1, 1).getTime();
+  const todayFrom = dayStart(now);
+  const monthEndAt = monthStart(now, 1);
   // the pace and the runway as rented.ts says them (Settings too); Afflatus's count alone without RunPod
   const pace7 = spending?.perDay.pods ?? (await d.costBetween(now - 7 * DAY, now)) / 7;
   const storageDay = spending?.perDay.storage ?? 0;
   const todaySessions = (await db.selectFrom("rent_sessions").select(["started_at", "ended_at", "rate"]).where((eb) => eb.or([eb("ended_at", "is", null), eb("ended_at", ">", iso(todayFrom))])).execute());
   const todayMs = todaySessions.reduce((n, r) => n + Math.max(0, (r.ended_at ? Date.parse(r.ended_at) : now) - Math.max(todayFrom, Date.parse(r.started_at))), 0);
-  const monthCount = await d.costBetween(new Date(nowDate.getFullYear(), nowDate.getMonth(), 1).getTime(), now);
+  const monthCount = await d.costBetween(monthStart(now), now);
   // the whole month's bill, the volumes' in it: the figure the month cap is weighed against (rented.ts spent)
   const month = spending?.month ?? monthCount;
   // the month's bill of the pods beyond the count: said under it, so that it and "Where it went" over the month add up
@@ -1034,7 +1030,7 @@ async function byProject(db: Db, rows: readonly RenderLine[], refs: Map<string, 
     const pid = ref?.project && projects.some((p) => p.id === ref.project) ? ref.project : null;
     const p = out.get(pid) ?? { id: pid, name: named(pid), usd: 0, renders: 0, timelines: 0, drafts: 0, items: [] };
     out.set(pid, p);
-    const usd = usdOf(r.total_ms, rate.get(r.id) ?? 0);
+    const usd = usdFor(r.total_ms, rate.get(r.id) ?? 0);
     p.usd += usd;
     p.renders++;
     if (!ref?.item) continue;
@@ -1073,7 +1069,7 @@ async function costRows(rows: readonly RenderLine[], onPod: (r: RenderLine) => b
     for (const [gpu, list] of groupBy(m.pod.filter((r) => rate.has(r.id)), (r) => gpuOfRender.get(r.id) ?? "GPU")) {
       const ms = median(list.map((r) => r.total_ms))!;
       const r = median(list.map((x) => rate.get(x.id)!))!;
-      mine.push({ key: m.key, model, file, where: "pod", on: gpu, ms, renders: list.length, usd: usdOf(ms, r), local: null, wh: null, best: false });
+      mine.push({ key: m.key, model, file, where: "pod", on: gpu, ms, renders: list.length, usd: usdFor(ms, r), local: null, wh: null, best: false });
     }
     mine.sort((a, b) => a.usd! - b.usd!);
     if (mine[0]) mine[0].best = true;
@@ -1143,8 +1139,8 @@ export function adviceOf(f: {
     const save = shorter < setting || setting <= 0 ? idleSaving(ended, shorter) : 0;
     const waited = setting <= 0 ? "Your pods never stop on their own when idle." : `Your pods wait ${idles.length > 1 ? `up to ${setting}` : setting} min before they stop.`;
     out.push({
-      kind: "idle", title: `Idle: ${min(f.where.ms.idle)}, ${dollars(f.where.usd.idle)}`,
-      why: save >= 0.01 ? `${waited} At ${shorter} min the same sessions would have cost ${dollars(save)} less.` : `${waited} It is mostly the wait between renders: a shorter idle would boot more often.`,
+      kind: "idle", title: `Idle: ${min(f.where.ms.idle)}, ${usd(f.where.usd.idle)}`,
+      why: save >= 0.01 ? `${waited} At ${shorter} min the same sessions would have cost ${usd(save)} less.` : `${waited} It is mostly the wait between renders: a shorter idle would boot more often.`,
       save: save >= 0.01 ? save : null,
     });
   }
@@ -1153,7 +1149,7 @@ export function adviceOf(f: {
     const lo = Math.min(...f.bootsSeen);
     const hi = Math.max(...f.bootsSeen);
     const range = Math.round(lo / 60_000) === Math.round(hi / 60_000) ? min(lo) : `${Math.round(lo / 60_000)}–${min(hi)}`;
-    out.push({ kind: "boot", title: `Booting: ${min(f.where.ms.boot)}, ${dollars(f.where.usd.boot)}`, why: `Each deploy boots ${range}. Deploying fewer, longer sessions (queue the batch first) boots less.`, save: null });
+    out.push({ kind: "boot", title: `Booting: ${min(f.where.ms.boot)}, ${usd(f.where.usd.boot)}`, why: `Each deploy boots ${range}. Deploying fewer, longer sessions (queue the batch first) boots less.`, save: null });
   }
   // in the boots: the image pulled onto hosts new to it, and the node packs' Python packages installed at every start
   const boot = f.where.boot;
@@ -1162,7 +1158,7 @@ export function adviceOf(f: {
   const longPulls = pulled.filter((b) => b.pullMs! > LONG_PULL_MS).length;
   if (boot && longPulls && boot.usd.pull >= 0.01) {
     out.push({
-      kind: "pull", title: `Image pulls: ${min(boot.ms.pull)}, ${dollars(boot.usd.pull)}`,
+      kind: "pull", title: `Image pulls: ${min(boot.ms.pull)}, ${usd(boot.usd.pull)}`,
       why: `${longPulls === pulled.length ? (longPulls === 1 ? "Its boot" : `All ${longPulls} boots`) : `${longPulls} of ${pulled.length} boots`} spent over ${min(LONG_PULL_MS)} pulling the image: a host new to it pulls it first, billed while it comes. A host that has it starts in seconds.`,
       save: null,
     });
@@ -1176,7 +1172,7 @@ export function adviceOf(f: {
     const on = read.length === 1 ? "your deploy" : times.get(most.at(-1)!) === read.length ? (read.length === 2 ? "both of your deploys" : `all ${read.length} of your deploys`) : `most of your ${read.length} deploys`;
     const what = most.length ? `${namesSaid(most)} ${most.length > 1 ? "are" : "is"} installed on ${on}` : "Node packs' Python packages are installed on your deploys";
     out.push({
-      kind: "packs", title: `Node pack installs: ${min(boot.ms.packs)}, ${dollars(boot.usd.packs)}`,
+      kind: "packs", title: `Node pack installs: ${min(boot.ms.packs)}, ${usd(boot.usd.packs)}`,
       why: `${what}: the packs on the volume get their Python packages at every start. A pack you no longer use, taken off the volume, stops costing it.`,
       save: null,
     });
@@ -1189,7 +1185,7 @@ export function adviceOf(f: {
     const pays = Number.isFinite(again.deploys) ? `: it pays for itself at about ${plural(again.deploys, "deploy")} a month` : "";
     out.push({
       kind: "fetch", title: `Files fetched: ${(allBytes / GB).toFixed(allBytes >= 10 * GB ? 0 : 1)} GB, ${min(f.where.ms.fetch)}`,
-      why: `${again.biggest.name}'s ${(again.biggest.bytes / GB).toFixed(1)} GB came ${times}. A ${again.volumeGb} GB volume (${dollars(again.perMonth)}/month) keeps them${pays}.`,
+      why: `${again.biggest.name}'s ${(again.biggest.bytes / GB).toFixed(1)} GB came ${times}. A ${again.volumeGb} GB volume (${usd(again.perMonth)}/month) keeps them${pays}.`,
       save: null,
     });
   }
@@ -1201,9 +1197,9 @@ export function adviceOf(f: {
     const others = list.filter((r) => r.where === "pod" && !r.best);
     const name = best.model;
     if (guess && guess.usd! < best.usd!) {
-      out.push({ kind: "gpu", title: `${name} may cost less on an ${guess.on}`, why: `Guessed ${pct(guess.ms!, best.ms!)} the ${best.on}'s time at ${dollars(guess.usd!)} a render against ${dollars(best.usd!)}. Untried: a guess until it renders.`, save: null });
+      out.push({ kind: "gpu", title: `${name} may cost less on an ${guess.on}`, why: `Guessed ${pct(guess.ms!, best.ms!)} the ${best.on}'s time at ${usd(guess.usd!)} a render against ${usd(best.usd!)}. Untried: a guess until it renders.`, save: null });
     } else if (others.length || guess) {
-      const vs = others[0] ? `The ${others[0].on} took ${dollars(others[0].usd!)} a render against ${dollars(best.usd!)} here.` : `An ${guess!.on} is guessed at ${pct(guess!.ms!, best.ms!)} its time but ${dollars(guess!.usd!)} a render: dearer. Untried: a guess until it renders.`;
+      const vs = others[0] ? `The ${others[0].on} took ${usd(others[0].usd!)} a render against ${usd(best.usd!)} here.` : `An ${guess!.on} is guessed at ${pct(guess!.ms!, best.ms!)} its time but ${usd(guess!.usd!)} a render: dearer. Untried: a guess until it renders.`;
       out.push({ kind: "gpu", title: `${name} on the ${best.on} is your cheapest so far`, why: vs, save: null });
     }
   }
