@@ -60,7 +60,7 @@ function hear(app: TestApp): void {
   app.services.rented.everyMs = 60_000;
   app.services.rented.imageCheck = async () => true;
   told.length = 0;
-  app.services.rented.tell = (kind, m) => void told.push({ kind, title: m.title, body: m.body });
+  app.services.rented.deps.tell = (kind, m) => void told.push({ kind, title: m.title, body: m.body });
 }
 
 /** Afflatus's clock moved on by `ms` (RunPod's and the pods' stay real). */

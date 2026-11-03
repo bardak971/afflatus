@@ -19,7 +19,7 @@ beforeEach(async () => {
   fake = await startFakeComfy({ catalog: referenceCatalog(), models: { checkpoints: [CHECKPOINT, "other.safetensors"], upscale_models: [] } });
   t = await makeApp({ comfyUrl: fake.url });
   told = [];
-  t.services.queue.tell = (kind, said) => void told.push({ kind, ...said });
+  t.services.queue.deps.notices.tell = (kind, said) => void told.push({ kind, ...said });
   await t.services.queue.start();
 });
 afterEach(async () => {
@@ -55,7 +55,7 @@ async function running(): Promise<string> {
 describe("a ComfyUI that answers nothing while it renders", () => {
   it("its process alive: not offline, not queued again, said busy once, and quiet once it answers again", async () => {
     const asked: boolean[] = [];
-    t.services.queue.stillRuns = async (_m, memory) => (asked.push(memory), SWAMPED);
+    t.services.queue.deps.pods.stillRuns = async (_m, memory) => (asked.push(memory), SWAMPED);
     const silent = await silence();
     const id = await running();
     const sent = (await statusOf(id)).attempts;
@@ -98,7 +98,7 @@ describe("a ComfyUI that answers nothing while it renders", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     t.services.queue.podSilentMs = 400;
     // the render's machine taken as a pod from the first look on (the one object its wait was given)
-    t.services.queue.stillRuns = async (m) => (Object.assign(m, { rented: { podId: "zz-test" } }), SWAMPED);
+    t.services.queue.deps.pods.stillRuns = async (m) => (Object.assign(m, { rented: { podId: "zz-test" } }), SWAMPED);
     const silent = await silence();
     const id = await running();
     silent(true);
@@ -125,7 +125,7 @@ describe("a ComfyUI that answers nothing while it renders", () => {
 
   it("a gateway in front of it saying nothing listens behind it (502): gone, whatever else is asked", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    t.services.queue.stillRuns = async () => SWAMPED;
+    t.services.queue.deps.pods.stillRuns = async () => SWAMPED;
     const id = await running();
     fake.down = true;
     await until(async () => (await statusOf(id)).status !== "running");
@@ -135,7 +135,7 @@ describe("a ComfyUI that answers nothing while it renders", () => {
 
   it("silent to the page's poll 30 s, its process alive: said busy, not offline; gone: offline", async () => {
     let still: StillRuns = SWAMPED;
-    t.services.queue.stillRuns = async () => still;
+    t.services.queue.deps.pods.stillRuns = async () => still;
     await running();
     const q = t.services.queue;
     q.noteReachable(false, new Map([[FIRST_MACHINE, false]]), 1_000);

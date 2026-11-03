@@ -85,7 +85,7 @@ describe("a render pinned to a pod, a family file its graph reads not listed at 
   it("there whole by the pod's word, its folder's listing failing once: read again, and the job runs (it was failed for it)", async () => {
     const id = await deployed();
     const { fetch } = pretendFetch(new Map([[TE, { state: "ready" }]]));
-    t.services.queue.podFetch = fetch;
+    t.services.queue.deps.pods.podFetch = fetch;
     // the pod's text encoders cannot be listed until the job has started, then once more: as a listing that failed reads, empty
     const comfy = await podComfy(id);
     const real = comfy.client.models.bind(comfy.client);
@@ -109,7 +109,7 @@ describe("a render pinned to a pod, a family file its graph reads not listed at 
   it("there whole by the pod's word and never listed: back in line each time, failed only once its attempts are spent, saying so", async () => {
     const id = await deployed();
     const { fetch } = pretendFetch(new Map([[TE, { state: "ready" }]]));
-    t.services.queue.podFetch = fetch;
+    t.services.queue.deps.pods.podFetch = fetch;
     pod.models.text_encoders = [];
     const a = await pinned(id);
     await until(async () => (await job(a)).status === "failed", 15_000);
@@ -124,7 +124,7 @@ describe("a render pinned to a pod, a family file its graph reads not listed at 
     const id = await deployed();
     const states = new Map([[TE, { state: "fetching" as const }]]);
     const { fetch, asked } = pretendFetch(states, { planWaits: false });
-    t.services.queue.podFetch = fetch;
+    t.services.queue.deps.pods.podFetch = fetch;
     pod.models.text_encoders = [];
     const a = await pinned(id);
     // the clip that carries on from it, behind it on the same pod: it waits with it (it failed as "the clip it continues was not rendered")
@@ -146,7 +146,7 @@ describe("a render pinned to a pod, a family file its graph reads not listed at 
   it("RIFE with RIFE ×2 on, there whole by the pod's word, its folder's listing failing once: read again, and the render interpolates (it ran at 24 fps)", async () => {
     const id = await deployed();
     const { fetch } = pretendFetch(new Map([[RIFE, { state: "ready" }]]));
-    t.services.queue.podFetch = fetch;
+    t.services.queue.deps.pods.podFetch = fetch;
     const comfy = await podComfy(id);
     const real = comfy.client.models.bind(comfy.client);
     let a = "";
@@ -167,7 +167,7 @@ describe("a render pinned to a pod, a family file its graph reads not listed at 
   it("RIFE there whole by the pod's word and never listed: the render goes without it after a few reads, as before, never held", async () => {
     const id = await deployed();
     const { fetch } = pretendFetch(new Map([[RIFE, { state: "ready" }]]));
-    t.services.queue.podFetch = fetch;
+    t.services.queue.deps.pods.podFetch = fetch;
     pod.models.frame_interpolation = [];
     const a = await pinned(id, true);
     await until(() => pod.prompts.size === 1, 15_000);
@@ -181,7 +181,7 @@ describe("a render pinned to a pod, a family file its graph reads not listed at 
   it("never asked for there and on its volume, its folder's listing failing at the submit: read again, never asked for, and the job runs", async () => {
     const id = await deployed();
     const { fetch, asked } = pretendFetch(new Map());
-    t.services.queue.podFetch = fetch;
+    t.services.queue.deps.pods.podFetch = fetch;
     const comfy = await podComfy(id);
     const real = comfy.client.models.bind(comfy.client);
     let a = "";
@@ -202,7 +202,7 @@ describe("a render pinned to a pod, a family file its graph reads not listed at 
   it("never asked for there, its folder not answering at any submit: never asked for, back in line, failed once its attempts are spent, saying so", async () => {
     const id = await deployed();
     const { fetch, asked } = pretendFetch(new Map());
-    t.services.queue.podFetch = fetch;
+    t.services.queue.deps.pods.podFetch = fetch;
     const comfy = await podComfy(id);
     const real = comfy.client.models.bind(comfy.client);
     let a = "";
@@ -224,7 +224,7 @@ describe("a render pinned to a pod, a family file its graph reads not listed at 
   it("that failed on the pod: refused, with why", async () => {
     const id = await deployed();
     const { fetch } = pretendFetch(new Map([[TE, { state: "failed", error: "Hugging Face answered 404" }]]), { planWaits: false });
-    t.services.queue.podFetch = fetch;
+    t.services.queue.deps.pods.podFetch = fetch;
     pod.models.text_encoders = [];
     const a = await pinned(id);
     await until(async () => (await job(a)).status === "failed", 15_000);

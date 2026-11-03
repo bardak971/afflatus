@@ -5,6 +5,7 @@ import { Runpod, type Pod, type PodStatus } from "./runpod";
 import { BootLogs, type BootView } from "./podBoot";
 import type { PullState } from "./podPull";
 import type { Say } from "./notifyWords";
+import type { PresetFile } from "@afflatus/core";
 
 /** What the queue's machine rows, the pill and the cards say of a rented machine. */
 export interface RentedView {
@@ -195,6 +196,60 @@ export function resetRun(s: Seen): void {
   s.hung = null;
 }
 
+/** What Rented asks of the queue (queue.ts): the work on each pod, which holds its idle time and its stops. */
+export interface QueueForRented {
+  readonly events: EventEmitter;
+  wants(machine: string): Promise<boolean>;
+  runningOn(machine: string): boolean;
+  heardOn(machine: string): boolean;
+  busyOn(machine: string): boolean;
+  busyOutside(machine: string): Promise<boolean>;
+  waitingBehindOutside(machine: string): boolean;
+  fetching(machine: string): boolean;
+  quietFor(machine: string, now?: number): { ms: number; gpuIdle: boolean };
+  overrunFor(machine: string, now?: number): { ms: number; forecastMs: number };
+  endStuck(machine: string, why: string): Promise<boolean>;
+  hungOn(machine: string, now?: number): Promise<string | null | undefined>;
+  machineDied(machine: string, why: string, trace: string | null): boolean;
+  answering(machine: string): void;
+}
+
+/** What a pod still waits for of the files it was given (podFiles.ts), for its card and a fill's end. */
+export interface PodFilesLeft {
+  left: number;
+  total: number;
+  bytes: number;
+  waiting: string[];
+  failed: Array<{ file: string; error: string }>;
+}
+
+/**
+ * What Rented asks of the rest of the app (services.ts wires each). Every one is required: a missing one would fail open,
+ * and some guard money (a token's cap over the pod it started, a public pod locked).
+ */
+export interface RentedDeps {
+  /** Where what the user is told of goes (notify.ts): a pod stopped, a cap reached, the balance low. */
+  tell: Say;
+  /**
+   * Whether an MCP token's spend cap is reached (mcpTokens.ts): a pod whose run that token started stops as at the app's
+   * caps, once its render ends.
+   */
+  tokenCapped: (token: string) => Promise<boolean>;
+  /**
+   * Lock a pod's ComfyUI (lock-api.ts lockMachine): a rented machine is reached at a public address, so one that came up
+   * unlocked (RunPod did not take the token for its start) is locked as soon as it is up, when its node pack can.
+   */
+  lockPod: (machine: string) => Promise<unknown>;
+  /** Whether work from outside Afflatus is being timed on a pod (podOutside.ts): its queue is read at each pass then. */
+  outsideTimed: (machine: string) => boolean;
+  /** A deployed pod answered for the first time: the files its deploy asked for, and the ones it left out (handed to podFiles). */
+  onUp: (machine: string, files: PresetFile[], leaveOut: Array<{ file: string; folder: string }>) => void;
+  /** What a pod was getting forgotten (podFiles.ts forget), its machine taken out. */
+  forgetFiles: (machine: string) => void;
+  /** The files a machine's pod still waits for (how many, their names), all it was given, the bytes in so far, and those that failed (podFiles). */
+  filesLeft: (machine: string) => PodFilesLeft;
+}
+
 /**
  * A rented machine's state as it is followed (Seen, one per machine), and what every part of rented.ts shares: the
  * database, the queue, RunPod's client and clock, the boot logs. The parts are layered: billing, then the follow loop, then
@@ -218,15 +273,31 @@ export class RentedCore {
   client: (key: string) => Runpod = (key) => new Runpod(key);
   now: () => number = Date.now;
 
-  /** Where what the user is told of goes (notify.ts; set by services.ts): a pod stopped, a cap reached, the balance low. */
-  tell: Say | null = null;
+  /** The queue, given once it is made (attach): it is made after Rented, its money checks being Rented's. */
+  private attached: QueueForRented | null = null;
 
   constructor(
     protected readonly db: Db,
-    protected readonly queue: { wants(machine: string): Promise<boolean>; runningOn(machine: string): boolean; heardOn(machine: string): boolean; busyOn(machine: string): boolean; busyOutside(machine: string): Promise<boolean>; waitingBehindOutside(machine: string): boolean; fetching(machine: string): boolean; quietFor(machine: string, now?: number): { ms: number; gpuIdle: boolean }; overrunFor(machine: string, now?: number): { ms: number; forecastMs: number }; endStuck(machine: string, why: string): Promise<boolean>; hungOn(machine: string, now?: number): Promise<string | null | undefined>; machineDied(machine: string, why: string, trace: string | null): boolean; answering(machine: string): void },
-    protected readonly events: EventEmitter,
     protected readonly comfyOf: (machine: string) => Promise<Comfy | null>,
+    /** What Rented asks of the rest of the app (services.ts), all given at once: none can be left out and fail open. A test stands in for one here. */
+    readonly deps: RentedDeps,
   ) {}
+
+  /** The queue Rented follows the pods' work through, given once, before run(). */
+  attach(queue: QueueForRented): void {
+    if (this.attached) throw new Error("Rented: a queue is attached already");
+    this.attached = queue;
+  }
+
+  protected get queue(): QueueForRented {
+    if (!this.attached) throw new Error("Rented: used before its queue was attached");
+    return this.attached;
+  }
+
+  /** The queue's events ("queue", "setup"): what Rented says changed, and listens to. */
+  protected get events(): EventEmitter {
+    return this.queue.events;
+  }
 
   protected seenOf(machine: string): Seen {
     let s = this.seen.get(machine);

@@ -977,8 +977,8 @@ describe("a fill of a volume always ends, and never says all in when it is not",
     ] })).json().id as string;
     const rented = t.services.rented;
     const handed: string[] = [];
-    rented.onUp = (machine) => handed.push(machine);
-    rented.filesLeft = () => left();
+    rented.deps.onUp = (machine) => handed.push(machine);
+    rented.deps.filesLeft = () => left();
     const id = (await post(t.app, "/api/runpod/volumes/vol-ro/fill", { set })).json().id as string;
     await until(async () => (await rented.poll(), (await readSettings(t.db)).machines.find((m) => m.id === id)?.rented?.deployedAt === ""));
     return { id, handed, rented };
@@ -1034,7 +1034,7 @@ describe("a fill of a volume always ends, and never says all in when it is not",
     // restarted: podFiles has nothing of the pod, Rented reads it afresh
     given = false;
     (rented as unknown as { seen: Map<string, unknown> }).seen.clear();
-    rented.onUp = (machine) => {
+    rented.deps.onUp = (machine) => {
       handed.push(machine);
       given = true;
     };
@@ -1043,7 +1043,7 @@ describe("a fill of a volume always ends, and never says all in when it is not",
     expect(runpod.pods[0]!.status).toBe("RUNNING");
     // what it was handed lost again, and handing it brings nothing into view: still not done
     given = false;
-    rented.onUp = () => {};
+    rented.deps.onUp = () => {};
     await rented.poll();
     await rented.poll();
     expect(runpod.pods[0]!.status).toBe("RUNNING");

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
-import { complete, FAST, get, job, makeApp, makeFake, post, referenceCatalog, until, type TestApp } from "./helpers";
+import { complete, FAST, get, job, makeApp, makeFake, post, queueDeps, referenceCatalog, until, type TestApp } from "./helpers";
 
 /** Several ComfyUIs (settings.ts `machines`): one line of jobs, each machine running one at a time, in parallel. */
 
@@ -167,7 +167,7 @@ describe("a job a ComfyUI had when Afflatus stopped", () => {
     await t.services.queue.idle();
     const { Queue } = await import("../src/queue");
     // the test's fast waits: the default one reads the history every 5 s, past a 5 s test limit
-    const again = new Queue(t.db, t.services.storage, () => t.services.machines(), t.services.registry, FAST);
+    const again = new Queue(t.db, t.services.storage, () => t.services.machines(), t.services.registry, FAST, queueDeps(t));
     await again.start();
     complete(two, sentTo(two)[0]!);
     await until(async () => (await row(a)).status === "done");
@@ -188,7 +188,7 @@ describe("a job a ComfyUI had when Afflatus stopped", () => {
     await post(t.app, "/api/queue/resume", {});
     two.down = true;
     const { Queue } = await import("../src/queue");
-    const again = new Queue(t.db, t.services.storage, () => t.services.machines(), t.services.registry, { ...FAST, offlineExpiryMs: 60_000 });
+    const again = new Queue(t.db, t.services.storage, () => t.services.machines(), t.services.registry, { ...FAST, offlineExpiryMs: 60_000 }, queueDeps(t));
     try {
       await again.start();
       const cut = await again.enqueueCut({ asset: "nope", startMs: 0, endMs: 1000, action: "copy" }, "zz-test cut");
@@ -224,7 +224,7 @@ describe("a job a ComfyUI had when Afflatus stopped", () => {
     await post(t.app, "/api/queue/resume", {});
     two.down = true;
     const { Queue } = await import("../src/queue");
-    const again = new Queue(t.db, t.services.storage, () => t.services.machines(), t.services.registry, { ...FAST, offlineExpiryMs: 60_000 });
+    const again = new Queue(t.db, t.services.storage, () => t.services.machines(), t.services.registry, { ...FAST, offlineExpiryMs: 60_000 }, queueDeps(t));
     try {
       await again.start();
       await until(async () => (await row(a)).status === "queued");
@@ -249,7 +249,7 @@ describe("a render whose machine stops answering under it", () => {
     t.services.queue.stop();
     await t.services.queue.idle();
     const { Queue } = await import("../src/queue");
-    const q = new Queue(t.db, t.services.storage, () => t.services.machines(), t.services.registry, { ...FAST, offlineExpiryMs: expiryMs });
+    const q = new Queue(t.db, t.services.storage, () => t.services.machines(), t.services.registry, { ...FAST, offlineExpiryMs: expiryMs }, queueDeps(t));
     await q.start();
     return q;
   };
@@ -303,7 +303,7 @@ describe("a render given up while its machine is away", () => {
     t.services.queue.stop();
     await t.services.queue.idle();
     const { Queue } = await import("../src/queue");
-    const q = new Queue(t.db, t.services.storage, () => t.services.machines(), t.services.registry, { ...FAST, ...over });
+    const q = new Queue(t.db, t.services.storage, () => t.services.machines(), t.services.registry, { ...FAST, ...over }, queueDeps(t));
     await q.start();
     return q;
   };
@@ -375,7 +375,7 @@ describe("the offline limit", () => {
     t.services.queue.stop();
     await t.services.queue.idle();
     const { Queue } = await import("../src/queue");
-    const q = new Queue(t.db, t.services.storage, () => t.services.machines(), t.services.registry, FAST);
+    const q = new Queue(t.db, t.services.storage, () => t.services.machines(), t.services.registry, FAST, queueDeps(t));
     await q.start();
     try {
       // the PC paused by hand (or by a GPU hunt) answers; the other machine is switched off for the night

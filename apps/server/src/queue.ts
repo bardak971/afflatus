@@ -129,6 +129,81 @@ export interface EnqueueOptions {
   mcpToken?: string | null;
 }
 
+/**
+ * What the queue asks of the rest of the app (services.ts wires each one), given at construction. Every group is required:
+ * a hook left out used to fail open (no balance check, no token cap, no pod holding files), in silence, on the spending
+ * side. A test stands in for one by assigning it on `queue.deps` (test/helpers.ts queueDeps).
+ */
+export interface QueueDeps {
+  /** What keeps a job off a rented pod it may not bill. */
+  money: {
+    /**
+     * A machine that cannot take work now, and why: a rented pod that is not running, or at a spending cap (rented.ts). It
+     * is never asked, never planned for; what is pinned to it waits for it. Asked at each pass.
+     */
+    unavailable: (machine: string) => string | null;
+    /**
+     * Whether a job this long (ms, null: not known) ends on a rented pod before RunPod's balance does (rented.ts fitsBalance):
+     * at zero RunPod stops every pod, the render lost. One that does not is not sent to a rented pod.
+     */
+    fitsBalance: (ms: number | null) => { ok: boolean; leftMs: number | null };
+    /**
+     * What a job needs of the balance on a rented pod (rented.ts balanceNeed), its forecast there and its files' time to come
+     * given: half again over a forecast that rests on too little of the pod's own.
+     */
+    balanceNeed: (machine: string, recipeId: string, renderMs: number, fetchMs: number) => Promise<number>;
+    /** The waiting jobs of MCP tokens with Spend that no pod takes this pass, each with why (mcpRender.ts capHeld). */
+    capHeld: (rows: ReadonlyArray<Pick<JobRow, "id" | "mcp_token_id">>) => Promise<Map<string, string>>;
+  };
+  /** The rented pods and the machines' ComfyUIs as the rest of the app follows them. */
+  pods: {
+    /** Rented pods' files (podFiles.ts, through queuePlan.ts podFetchOf). */
+    podFetch: PodFetch;
+    /** What each rented pod not up holds or fetches, by pod id (filePlaces.ts downPodFiles). */
+    podsHold: () => Promise<Map<string, Set<string>>>;
+    /** Whether a rented pod is on its way (a GPU hunt, a deploy under way): a render is not refused as nowhere meanwhile. */
+    podComing: () => Promise<boolean>;
+    /** What is said of a rented machine on its row (rented.ts); null for a ComfyUI of its own. */
+    rentedOf: (machine: Machine) => view.RentedRow | null;
+    /** A ComfyUI of its own's model files downloading now (`first`: the downloads asked for no machine go to it). */
+    downloadsOf: (machine: Machine, first: boolean) => PodFileView[];
+    /**
+     * Told when a rented pod's ComfyUI is found started again without the render it ran (an older pod image, whose ComfyUI was
+     * the container itself: its death restarted it, and said nothing): rentedFollow terminates the pod as a crash, with why.
+     */
+    podCrashed: (machine: string, why: string) => void;
+    /** Asked once before a render lost on a deployed pod goes again: whether its ComfyUI died there (rentedFollow diedLate). */
+    diedLate: (machine: string) => Promise<{ said: string; report: Record<string, unknown> | null } | null>;
+    /**
+     * Whether a machine's ComfyUI that answers nothing still runs (comfyAlive.ts: its port, its pod). Asked before a render
+     * is taken as lost or its machine said offline: one that runs is swamped, not gone. `memory`: what it holds is read too
+     * (slow on a PC that pages: once per silence).
+     */
+    stillRuns: (machine: Machine, memory: boolean) => Promise<StillRuns>;
+  };
+  /** The node packs renders ask for on the machines of the user's own (queuePacks.ts). */
+  packs: {
+    /** Whether a ComfyUI has ComfyUI-Manager, which installs them (downloads.ts manager); null: not known. */
+    managerOf: (comfy: Comfy) => Promise<boolean | null>;
+    /** Whether Afflatus downloads a file through this ComfyUI now (its process): its restart for node packs waits for it. */
+    downloadingIn: (comfy: Comfy) => boolean;
+  };
+  /** What the user is told of, and what the queue's status carries from elsewhere. */
+  notices: {
+    /** Where what the user is told of goes (notify.ts): a ComfyUI gone mid-render, or swamped. */
+    tell: Say;
+    /**
+     * Told every read of a machine's work from outside Afflatus, changed or not: a rented pod's time at that work is kept for
+     * the Costs tab (podOutside.ts), its last sight with it.
+     */
+    onOutside: (machine: string, outside: { running: number; pending: number } | null) => void;
+    /** The GPU hunt's summary, given how many renders wait (hunt.ts); null: no hunt. */
+    huntOf: (held: number) => HuntSummary | null;
+  };
+  /** The timelines, for jobs that render a clip of one: they are made after the queue, so services.ts gives them through a getter. */
+  readonly clips: Timelines;
+}
+
 export class Queue {
   /** "queue": jobs changed. "library": an asset was added. "progress": a running job moved. */
   readonly events = new EventEmitter();
@@ -160,38 +235,16 @@ export class Queue {
   private stopped = false;
   /** While an update waits for the queue (updates.ts): only these jobs may start, the rest wait for the new version. Null: any. */
   private only: ReadonlySet<string> | null = null;
-  /** The timelines, for jobs that render a clip of one (set once both exist). */
-  clips: Timelines | null = null;
-  /** Where what the user is told of goes (notify.ts; set by services.ts): a ComfyUI gone mid-render. Null: nothing is said. */
-  tell: Say | null = null;
-  /**
-   * Told every read of a machine's work from outside Afflatus, changed or not (set by services.ts): a rented pod's time at
-   * that work is kept for the Costs tab (podOutside.ts), its last sight with it. Null: not kept.
-   */
-  onOutside: ((machine: string, outside: { running: number; pending: number } | null) => void) | null = null;
   /** The machines a ComfyUI gone mid-render was said of, until they answer again: said once, however it is found out. */
   private goneSaid = new Set<string>();
   /** Since when each machine has not answered the status poll, in a row (noteReachable). */
   private silentSince = new Map<string, number>();
-  /**
-   * Whether a machine's ComfyUI that answers nothing still runs (comfyAlive.ts: its port, its pod; set by services.ts). Asked
-   * before a render is taken as lost or its machine said offline: one that runs is swamped, not gone. `memory`: what it holds
-   * is read too (slow on a PC that pages: once per silence). Null: never asked, as before.
-   */
-  stillRuns: ((machine: Machine, memory: boolean) => Promise<StillRuns>) | null = null;
   /** How long a rented pod's render silent with nothing moving is followed on (POD_SILENT_MS; a test's shorter). */
   podSilentMs = POD_SILENT_MS;
   /** The machines whose ComfyUI answers nothing while it renders and still runs, since when and what was said (Queue, status bar). */
   private readonly busy = new Map<string, { since: number; said: string }>();
   /** The machines a silence is being looked into for (judgeSilent): one look at a time. */
   private readonly judging = new Set<string>();
-  /**
-   * Told when a rented pod's ComfyUI is found started again without the render it ran (an older pod image, whose ComfyUI was
-   * the container itself: its death restarted it, and said nothing): rentedFollow terminates the pod as a crash, with why.
-   */
-  podCrashed: ((machine: string, why: string) => void) | null = null;
-  /** Asked once before a render lost on a deployed pod goes again: whether its ComfyUI died there (rentedFollow diedLate). */
-  diedLate: ((machine: string) => Promise<{ said: string; report: Record<string, unknown> | null } | null>) | null = null;
   /** The render a machine's ComfyUI died under (machineDied), by machine: that render's end is that death, whatever its wait saw. */
   private readonly died = new Map<string, Died>();
   /**
@@ -224,7 +277,9 @@ export class Queue {
     private readonly storage: Storage,
     private readonly machines: () => Promise<MachineComfy[]>,
     private readonly registry: Registry,
-    private readonly opts: QueueOptions = DEFAULT_QUEUE_OPTIONS,
+    private readonly opts: QueueOptions,
+    /** What the queue asks of the rest of the app, all given at once (QueueDeps); read at each call, so a test may stand in for one. */
+    readonly deps: QueueDeps,
   ) {
     this.offline = new Offline({
       events: this.events, opts,
@@ -254,17 +309,16 @@ export class Queue {
       machines: () => this.machineLanes().map((l) => l.id),
       forecastOf: (recipeId, input, o) => submitting.forecastOf(this.core, recipeId, input, o),
     });
-    // read through the queue at each call: services.ts sets the balance checks and the pods' files after the queue is made,
-    // and a test may stand in for `expected`
+    // read through the queue at each call: a test may stand in for one of its deps (queue.deps) or for `expected`
     const self = this;
     this.planner = new Planner({
       db, registry,
       machineLanes: () => this.machineLanes(),
       lane: (id) => this.lanes.get(id),
       unavailable: (machine) => this.unavailable(machine),
-      get podFetch() { return self.podFetch; },
-      get capHeld() { return self.capHeld; },
-      get podsHold() { return self.podsHold; },
+      get podFetch() { return self.deps.pods.podFetch; },
+      get capHeld() { return self.deps.money.capHeld; },
+      get podsHold() { return self.deps.pods.podsHold; },
       heldOn: (r) => this.heldOn(r),
       allPaused: () => this.allPaused(),
       retryLater: () => this.retryLater(),
@@ -272,8 +326,8 @@ export class Queue {
       paces: () => this.forecasts.paces(),
       expected: (recipe, input, cold, job, machine) => this.expected(recipe, input, cold, job, machine),
       expectedAll: (recipe, input, cold, job) => this.forecasts.expectedAll(recipe, input, cold, job),
-      fitsBalance: (ms) => this.fitsBalance(ms),
-      balanceNeed: (machine, recipeId, renderMs, fetchMs) => this.balanceNeed(machine, recipeId, renderMs, fetchMs),
+      fitsBalance: (ms) => this.deps.money.fitsBalance(ms),
+      balanceNeed: (machine, recipeId, renderMs, fetchMs) => this.deps.money.balanceNeed(machine, recipeId, renderMs, fetchMs),
       // a machine builds the options whose packs cannot come there without them, as its render will: a pod those that failed
       // there (a pod's job whose pack failed waited for it, the pod billed idle until it was stopped with the job unrun)
       loaded: async (r, lane, scan) => loadedOn(this.core, r, { id: lane.id, comfy: lane.comfy!, scan, own: !lane.machine?.rented }, lane.machine?.rented ? { facts: this.podPackFacts(lane) } : { facts: await this.ownPacks.facts(lane), said: packsSaid(r) }),
@@ -285,8 +339,8 @@ export class Queue {
     });
     this.ownPacks = new OwnPacks({
       lane: (id) => this.lanes.get(id),
-      manager: (comfy) => this.managerOf(comfy),
-      downloading: (comfy) => this.downloadingIn(comfy),
+      manager: (comfy) => this.deps.packs.managerOf(comfy),
+      downloading: (comfy) => this.deps.packs.downloadingIn(comfy),
       changed: () => {
         this.events.emit("queue");
         void this.pump();
@@ -298,7 +352,7 @@ export class Queue {
       stale: (machine) => this.stale.get(machine),
       stuck: (machine) => this.stuckOn.get(machine)?.keys(),
       stopped: () => this.stopped,
-      onOutside: (machine, outside) => this.onOutside?.(machine, outside),
+      onOutside: (machine, outside) => this.deps.notices.onOutside(machine, outside),
       pump: () => void this.pump(),
     });
   }
@@ -325,7 +379,7 @@ export class Queue {
       machineId: id === TOOLS ? null : id,
       // the lane of the jobs that need no ComfyUI reaches the first machine's, for what it may still ask of one
       comfy: async () => (id === TOOLS ? this.comfyOfFirst() : l.comfy ?? (await this.refreshed(l))),
-      get clips() { return self.clips; },
+      get clips() { return self.deps.clips; },
       get running() { return l.running; },
       get paused() { return self.paused || l.paused; },
       get lastLoads() { return l.lastLoads; },
@@ -341,8 +395,8 @@ export class Queue {
       runTool: (row, work) => this.runTool(l, row, work),
       packFacts: async () => (l.machine?.rented ? this.podPackFacts(l) : this.ownPacks.facts(l)),
       podFiles: () => {
-        const fetch = this.podFetch;
-        if (!l.machine?.rented || !fetch) return null;
+        const fetch = this.deps.pods.podFetch;
+        if (!l.machine?.rented) return null;
         return {
           state: (f) => fetch.fileState(l.id, f),
           need: (files, job) => {
@@ -636,7 +690,7 @@ export class Queue {
     const all = await this.machines();
     if (!all.length || all.some((m) => m.machine.rented)) return;
     // a pod on its way (a GPU hunt, a deploy under way) is sent the job's files: nothing is refused meanwhile
-    if (await this.podComing?.().catch(() => true)) return;
+    if (await this.deps.pods.podComing().catch(() => true)) return;
     // the files picked in a model or LoRA field: a choice among a loader's files (a hires upscaler) that is not there is
     // replaced by one that is at the build
     const picked = new Set(recipe.inputs.filter((i) => i.type === "model" || i.type === "loras").map((i) => i.id));
@@ -1094,7 +1148,7 @@ export class Queue {
     const lanes = await this.refresh();
     const tools = this.lane(TOOLS);
     return [
-      ...lanes.map((l, i) => ({ machine: l.machine, core: l.core, paused: l.paused, reachable: l.reachable, outside: l.outside, locked: l.comfy?.locked ?? false, rented: l.machine ? this.rentedOf(l.machine) : null, files: l.machine && !l.machine.rented ? this.downloadsOf(l.machine, i === 0) : [], packsHold: Boolean(this.podFetch?.holding(l.id) || this.ownPacks.holding(l.id)), busy: this.swampedSaid(l.id) })),
+      ...lanes.map((l, i) => ({ machine: l.machine, core: l.core, paused: l.paused, reachable: l.reachable, outside: l.outside, locked: l.comfy?.locked ?? false, rented: l.machine ? this.deps.pods.rentedOf(l.machine) : null, files: l.machine && !l.machine.rented ? this.deps.pods.downloadsOf(l.machine, i === 0) : [], packsHold: Boolean(this.deps.pods.podFetch.holding(l.id) || this.ownPacks.holding(l.id)), busy: this.swampedSaid(l.id) })),
       { machine: null, core: tools.core, paused: false, reachable: null, locked: false, rented: null },
     ];
   }
@@ -1127,7 +1181,7 @@ export class Queue {
     const ends = [...planned.values()].map((p) => p.endsInMs);
     const waitingEndsInMs = ends.length && ends.every(Number.isFinite) ? Math.max(...ends) : null;
     // the GPU hunt under way, for the status bar (hunt.ts); null when there is none
-    return { ...status, waitingEndsInMs, hunt: this.huntOf?.(rows.filter(needsComfy).length) ?? null };
+    return { ...status, waitingEndsInMs, hunt: this.deps.notices.huntOf(rows.filter(needsComfy).length) };
   }
 
   /**
@@ -1158,8 +1212,6 @@ export class Queue {
     return { waiting: Number(waiting.n), running: ran.length > 0, busy };
   }
 
-  /** The GPU hunt's summary (set by services.ts), given how many renders wait. */
-  huntOf: ((held: number) => HuntSummary | null) | null = null;
   /** The running jobs' figures alone, from memory: what a progress event carries, many times a second. */
   async progress() { return view.progress(await this.views()); }
   /** A running job's latest live preview. */
@@ -1272,7 +1324,7 @@ export class Queue {
         // the renders waiting for another job to end (a timeline clip after the one it carries on from): none starts now, but
         // one bound for a pod has its files sent there ahead (sendAfter), judged in the same turn as the others. Left out of
         // the plan, a Wan clip's SVI LoRAs were never asked for, and the clip went to the pod without them (card #107)
-        const after = this.podFetch && lanes.some((l) => l.machine?.rented)
+        const after = lanes.some((l) => l.machine?.rented)
           ? active.filter((r) => r.status === "queued" && needsComfy(r) && r.depends_on && waitingOn.has(r.depends_on) && !(this.only && !this.only.has(r.id)))
           : [];
         let judged: Map<string, Able> | null = null;
@@ -1302,7 +1354,7 @@ export class Queue {
             // on a pod getting files, the first job planned there whose own files are all there
             // a pod whose node packs wait for its ComfyUI to restart (or that restarts now) takes nothing until it is back: the
             // job that needs them is first in its line, and a job sent meanwhile would be lost in the restart
-            if (this.podFetch?.holding(lane.id) || this.ownPacks.holding(lane.id)) continue;
+            if (this.deps.pods.podFetch.holding(lane.id) || this.ownPacks.holding(lane.id)) continue;
             // the first planned there whose files are there and that lacks no node pack it asks for there (a machine of the
             // user's own: one waiting for its packs, or for the user to say Install, lets the next one go meanwhile)
             let next: JobRow | undefined;
@@ -1443,51 +1495,19 @@ export class Queue {
     }, this.opts.offlineRetryMs);
   }
 
-  /**
-   * A machine that cannot take work now, and why: a rented pod that is not running (rented.ts sets it). It is never asked,
-   * never planned for; what is pinned to it waits for it. Asked at each pass.
-   */
-  unavailable: (machine: string) => string | null = () => null;
-  /** What is said of a rented machine on its row (rented.ts); null for a ComfyUI of its own. */
-  rentedOf: (machine: Machine) => view.RentedRow | null = () => null;
-  /** A ComfyUI of its own's model files downloading now (`first`: the downloads asked for no machine go to it): set by services.ts. */
-  downloadsOf: (machine: Machine, first: boolean) => PodFileView[] = () => [];
-  /**
-   * Whether a job this long (ms, null: not known) ends on a rented pod before RunPod's balance does (rented.ts fitsBalance):
-   * at zero RunPod stops every pod, the render lost. One that does not is not sent to a rented pod.
-   */
-  fitsBalance: (ms: number | null) => { ok: boolean; leftMs: number | null } = () => ({ ok: true, leftMs: null });
-  /**
-   * What a job needs of the balance on a rented pod (rented.ts balanceNeed), its forecast there and its files' time to come
-   * given: half again over a forecast that rests on too little of the pod's own.
-   */
-  balanceNeed: (machine: string, recipeId: string, renderMs: number, fetchMs: number) => Promise<number> = async (_m, _r, renderMs, fetchMs) => renderMs + fetchMs;
-
-  /** Rented pods' files: set by services.ts. */
-  podFetch: PodFetch | null = null;
-
-  /** The waiting jobs of MCP tokens with Spend that no pod takes this pass, each with why (mcpRender.ts capHeld): set by services.ts. */
-  capHeld: ((rows: ReadonlyArray<Pick<JobRow, "id" | "mcp_token_id">>) => Promise<Map<string, string>>) | null = null;
-
-  /** Whether a rented pod is on its way (a GPU hunt, a deploy under way): set by services.ts. */
-  podComing: (() => Promise<boolean>) | null = null;
-
-  /** What each rented pod not up holds or fetches, by pod id (filePlaces.ts downPodFiles): set by services.ts. */
-  podsHold: (() => Promise<Map<string, Set<string>>>) | null = null;
+  /** A machine that cannot take work now, and why (QueueDeps money.unavailable). */
+  unavailable(machine: string): string | null {
+    return this.deps.money.unavailable(machine);
+  }
 
   /** What can come to a rented pod: its card, and the node packs that failed there (podPacks.ts, failed for good on a pod). */
   private podPackFacts(lane: Lane): PackFacts {
-    return packFacts(lane.device, null, this.podFetch?.failingPacks(lane.id) ?? new Map(), lane.machine?.name || lane.id);
+    return packFacts(lane.device, null, this.deps.pods.podFetch.failingPacks(lane.id) ?? new Map(), lane.machine?.name || lane.id);
   }
-
-  /** Whether a ComfyUI has ComfyUI-Manager, which installs the node packs renders ask for (downloads.ts manager; set by services.ts); null: not known. */
-  managerOf: (comfy: Comfy) => Promise<boolean | null> = async () => null;
-  /** Whether Afflatus downloads a file through this ComfyUI now (its process): its restart for node packs waits for it (services.ts sets it). */
-  downloadingIn: (comfy: Comfy) => boolean = () => false;
 
   /** Files are coming to a machine now (a rented pod's, their bytes moving): its idle time is held meanwhile (rented.ts). */
   fetching(machine: string): boolean {
-    return this.podFetch?.moving(machine) ?? false;
+    return this.deps.pods.podFetch.moving(machine) ?? false;
   }
 
   /** Something a waiting job may wait for changed (a file came to a pod, or failed there): the line is read again. */
@@ -1591,10 +1611,10 @@ export class Queue {
 
   /** A machine's ComfyUI went while it rendered: told once, until it answers again. `label`: the render's, when known. */
   private sayGone(lane: Lane, label: string | null): void {
-    if (!this.tell || this.goneSaid.has(lane.id)) return;
+    if (this.goneSaid.has(lane.id)) return;
     this.goneSaid.add(lane.id);
     const name = lane.machine ? machineSaid(lane.machine) : "ComfyUI";
-    this.tell("comfyGone", { title: `${name} is offline`, body: `It stopped answering while it rendered${label ? ` ${label}` : ""}. The render is queued again while attempts remain.`, key: lane.id });
+    this.deps.notices.tell("comfyGone", { title: `${name} is offline`, body: `It stopped answering while it rendered${label ? ` ${label}` : ""}. The render is queued again while attempts remain.`, key: lane.id });
   }
 
   /**
@@ -1609,7 +1629,7 @@ export class Queue {
     this.busy.set(lane.id, { since: Date.now(), said: `ComfyUI isn't answering: ${said}` });
     this.events.emit("queue");
     const name = lane.machine ? machineSaid(lane.machine) : "ComfyUI";
-    this.tell?.("comfyBusy", { title: `${name} isn't answering`, body: `It still runs${label ? ` ${label}` : ""}: ${said}.`, key: lane.id });
+    this.deps.notices.tell("comfyBusy", { title: `${name} isn't answering`, body: `It still runs${label ? ` ${label}` : ""}: ${said}.`, key: lane.id });
   }
 
   /** It answers again, or its render ended: no longer busy. */
@@ -1628,10 +1648,10 @@ export class Queue {
    */
   private async judgeSilent(lane: Lane): Promise<void> {
     if (this.busy.has(lane.id) || this.goneSaid.has(lane.id) || this.judging.has(lane.id)) return;
-    if (!this.stillRuns || !lane.machine) return this.sayGone(lane, null);
+    if (!lane.machine) return this.sayGone(lane, null);
     this.judging.add(lane.id);
     try {
-      const still = await this.stillRuns(lane.machine, true).catch(() => null);
+      const still = await this.deps.pods.stillRuns(lane.machine, true).catch(() => null);
       // its process found gone: it went, even if one started again answers by now; found running, busy, unless it answered
       // meanwhile or its render ended
       if (!still?.runs) this.sayGone(lane, null);
@@ -1690,7 +1710,7 @@ export class Queue {
     // (its prompt cleared on ComfyUI's own page), and the pod was terminated for it, its disk lost
     if (reportsDeath(lane.machine.rented.image)) return null;
     const why = "ComfyUI started again on the pod during the render, without it: it likely crashed (this pod's image does not say why; a newer Afflatus pod image does)";
-    this.podCrashed?.(lane.id, why);
+    this.deps.pods.podCrashed(lane.id, why);
     return new Died(`${why}, on ${machineSaid(lane.machine)}. Not run again on its own: it would likely kill ComfyUI again.`);
   }
 
@@ -1700,9 +1720,9 @@ export class Queue {
    * too. A Died, with the pod's line and report; null for any other loss, which goes again as before.
    */
   private async diedLateOn(lane: Lane, err: Error, aborted: boolean): Promise<Died | null> {
-    if (aborted || !lane.machine?.rented?.deployed || !this.diedLate) return null;
+    if (aborted || !lane.machine?.rented?.deployed) return null;
     if (!(err instanceof ComfyLost || err instanceof ComfyUnreachable || err instanceof ComfyError)) return null;
-    const said = await this.diedLate(lane.id).catch(() => null);
+    const said = await this.deps.pods.diedLate(lane.id).catch(() => null);
     if (!said) return null;
     return new Died(`${said.said}, on ${machineSaid(lane.machine)}. Not run again on its own: it would likely kill ComfyUI again.`, said.report ? `The pod's report: ${JSON.stringify(said.report)}` : null);
   }
@@ -1809,9 +1829,9 @@ export class Queue {
    * own is never said so: its files wait for the user's Download, and it bills nothing.
    */
   private stalledOn(machine: string, job: string, fetch: Able["fetch"][string] | undefined): string | null {
-    if (!fetch || !this.podFetch || !this.lanes.get(machine)?.machine?.rented) return null;
+    if (!fetch || !this.lanes.get(machine)?.machine?.rented) return null;
     if (!fetch.files.length && !fetch.packs?.length) return null;
-    return this.podFetch.stalled(machine, job, fetch.files, fetch.packs);
+    return this.deps.pods.podFetch.stalled(machine, job, fetch.files, fetch.packs);
   }
 
   /** What the page's status poll (events.ts) found of the ComfyUIs: whether any answered (queueOffline.ts), and each machine's own answer. */
@@ -2106,8 +2126,8 @@ export class Queue {
       try {
         // a ComfyUI silent past the wait's offlineMs whose process still runs is swamped (a PC paging): followed on, not lost
         const machine = lane.machine;
-        const ask = this.stillRuns;
-        const stillRuns = machine && ask ? async () => {
+        const ask = this.deps.pods.stillRuns;
+        const stillRuns = machine ? async () => {
           // a pod's silence is bounded (POD_SILENT_MS): its bill runs on while it says nothing
           if (machine.rented && Date.now() - (running.movedAt ?? Date.now()) > this.podSilentMs) return false;
           const still = await ask(machine, !this.busy.has(lane.id));
@@ -2189,12 +2209,12 @@ export class Queue {
    * picked up again after a crash finds its take placed and places none.
    */
   private async place(row: JobRow, generationId: string, resume: Resume | null): Promise<void> {
-    if (!row.clip_id || !this.clips) return;
+    if (!row.clip_id) return;
     // a Face refine with a finish queued behind it, made from its video: that finish is the clip's finished take, this one
     // only among its takes (it played for the length of the upscale, then gave way: two finished takes for one Finish)
     const behind = row.finished_from ? await this.db.selectFrom("jobs").select(["recipe_id", "inputs"]).where("depends_on", "=", row.id).where("status", "in", ["queued", "running"]).execute() : [];
     const between = behind.some((j) => j.recipe_id === CUT_JOB && tools.cutOptionsOf(j)?.fromJob === row.id);
-    await this.clips.finished(row.clip_id, generationId, resume?.overlap, resume?.links ?? {}, row.finished_from, between).catch((err: Error) => this.warn(row.id, `Its take was not placed on its clip: ${err.message}`));
+    await this.deps.clips.finished(row.clip_id, generationId, resume?.overlap, resume?.links ?? {}, row.finished_from, between).catch((err: Error) => this.warn(row.id, `Its take was not placed on its clip: ${err.message}`));
   }
 
   /** A job whose result was filed before this process stopped: its take placed when it was not yet, and the job closed. */
@@ -2335,7 +2355,7 @@ export class Queue {
    */
   private heldOn(r: JobRow): string | null {
     if (r.pin_machine || r.status !== "queued") return null;
-    const restarts = this.podFetch?.restartsFor(r.id);
+    const restarts = this.deps.pods.podFetch.restartsFor(r.id);
     if (restarts && this.lanes.get(restarts)?.machine && !this.unavailable(restarts)) return restarts;
     if (!r.machine_id) return null;
     const lostAt = readJson<Resume | null>(r.resume, null)?.lostAt;

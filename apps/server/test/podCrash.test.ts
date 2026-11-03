@@ -34,7 +34,7 @@ beforeEach(async () => {
   t.services.rented.everyMs = 60_000;
   t.services.rented.imageCheck = async () => true;
   told = [];
-  t.services.rented.tell = t.services.queue.tell = (kind, said) => void told.push({ kind, ...said });
+  t.services.rented.deps.tell = t.services.queue.deps.notices.tell = (kind, said) => void told.push({ kind, ...said });
   await t.app.inject({ method: "PUT", url: "/api/settings", payload: { runpodKey: KEY } });
 });
 afterEach(async () => {
