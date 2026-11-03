@@ -12,7 +12,7 @@ import { ltx25 } from "./ltx25/family";
 import { ltx25LipSync, ltx25Video } from "./ltx25/video";
 import { krea2 } from "./krea2/family";
 import { krea2FixFace, krea2Outpaint, krea2PaintOver, krea2Picture, krea2Redraw, krea2Sharper } from "./krea2/recipes";
-import { kleinEdit, kleinFixFace, kleinPaintOver, kleinPicture, kleinReshape, kleinSharper, kleinVariation } from "./klein/recipes";
+import { kleinEdit, kleinFixFace, kleinPaintOver, kleinPicture, kleinRedraw, kleinReshape, kleinSharper, kleinVariation } from "./klein/recipes";
 import { sdxl } from "./sdxl/family";
 import { sdxlTextToPicture } from "./sdxl/text-to-picture";
 import { sdxlFixFace, sdxlOutpaint, sdxlPaintOver, sdxlRedraw, sdxlSharper } from "./sdxl/tools";
@@ -30,7 +30,7 @@ export const families: Family[] = [sdxl, klein, krea2, flux, qwen, qwen21, zimag
 /** Every built-in recipe. Imported workflows are added to this list at run time by the server. */
 export const recipes: Recipe<any>[] = [
   sdxlTextToPicture, sdxlRedraw, sdxlPaintOver, sdxlOutpaint, sdxlSharper, sdxlFixFace,
-  kleinPicture, kleinEdit, kleinVariation, kleinPaintOver, kleinReshape, kleinSharper, kleinFixFace,
+  kleinPicture, kleinEdit, kleinRedraw, kleinVariation, kleinPaintOver, kleinReshape, kleinSharper, kleinFixFace,
   krea2Picture, krea2Redraw, krea2PaintOver, krea2Outpaint, krea2Sharper, krea2FixFace,
   fluxPicture, fluxEdit, fluxRedraw, fluxPaintOver, fluxOutpaint, fluxSharper, fluxFixFace,
   qwenPicture, qwenEdit, qwenRedraw, qwenPaintOver, qwenOutpaint, qwenSharper, qwenFixFace,

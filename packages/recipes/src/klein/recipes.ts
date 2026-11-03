@@ -203,6 +203,53 @@ export const kleinEdit = pictureForm("edit", defineRecipe<KleinEdit>({
   ],
 }), KLEIN_DROPS);
 
+// ---------------------------------------------------------------- img2img
+
+interface KleinRedraw extends KleinBase {
+  source: string;
+  prompt: string;
+  strength: number;
+}
+
+/**
+ * A picture drawn again from a prompt (card #275: every other family had one): encoded at about a megapixel, its shape kept,
+ * and Klein's schedule cut at the strength, as Inpaint touches a part up. The picture is not handed over as a reference: it
+ * would be kept, as an edit keeps it, where img2img lets the prompt take it elsewhere.
+ */
+export const kleinRedraw = pictureForm("img2img", defineRecipe<KleinRedraw>({
+  id: "klein.redraw",
+  family: "klein",
+  needsWith: kleinNeeds,
+  version: 1,
+  title: "img2img",
+  summary: "Image to image: an image redrawn from a prompt. The denoising strength says how far it may go from the original.",
+  output: "image",
+  presets: KLEIN_PRESETS,
+  inputs: [
+    kleinModel,
+    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+    { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: "what the picture shows, as it should come out" },
+    { id: "strength", type: "number", label: "Denoising strength", note: `0.3 keeps it close, 0.7 only keeps the layout; denoise at Klein's schedule: ${kleinNoise.split(0.55, 20, [{ size: { width: 1024, height: 1024 }, where: "at 1 MP" }])}`, min: 0.05, max: 1, step: 0.05, default: 0.55 },
+    ...kleinInputs,
+  ],
+  nodes: (input) => [...LOAD_NODES(input), ...SAMPLE_NODES, "LoadImage", "ImageScale", "VAEEncode", "PreviewImage", ...(input.strength < 1 ? ["SplitSigmasDenoise"] : [])],
+  build(input, ctx) {
+    const g = new GraphBuilder();
+    const k = loadKlein(g, input, ctx);
+    const size = kleinSize(ctx.media.source);
+    const sized = g.out("ImageScale", { image: g.out("LoadImage", { image: ctx.uploads.source }), upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
+    const cond = kleinCond(g, k, input.prompt, []);
+    const { image, pass } = kleinSample(g, k, cond, g.out("VAEEncode", { pixels: sized, vae: k.vae }), size, ctx.seed, { strength: input.strength });
+    const out = g.add("PreviewImage", { images: image });
+    return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: pass.steps, passes: [pass], loads: k.loads };
+  },
+  variants: [
+    { name: "plain", input: { source: "p", prompt: "a" }, slots: files, uploads: { source: "s.png" }, media: { source: { width: 896, height: 1152 } } },
+    { name: "a large picture, a LoRA, strong", input: { source: "p", prompt: "a", strength: 0.8, loras: [{ file: "l.safetensors", weight: 0.8 }] }, slots: files, uploads: { source: "s.png" }, media: { source: { width: 3000, height: 2000 } } },
+    { name: "all the way: a new picture of its shape", input: { source: "p", prompt: "a", strength: 1 }, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
+  ],
+}), KLEIN_DROPS);
+
 // ---------------------------------------------------------------- paint over a part
 
 interface KleinPaintOver extends KleinBase, MaskSettings {
