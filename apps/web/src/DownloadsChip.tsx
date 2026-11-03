@@ -1,14 +1,15 @@
-import { lazy, Suspense, useMemo, useRef, useState } from "react";
+import { Suspense, useMemo, useRef, useState } from "react";
 import type { Download } from "./api";
 import { useSettings } from "./data";
 import { linesOf, type Line } from "./downloadLine";
 import { fileLabel } from "./format";
 import { useNow } from "./hooks";
+import { lazyPart, loadDownloadsLine } from "./lazyParts";
 import { useDownloads } from "./useGetFile";
 
 // the line itself (its lists, menus and drag, DownloadsLine.tsx) is a chunk of its own, fetched the first time the chip is
 // opened: in the status bar of every page, it came with the first load (card #246)
-const DownloadsPopover = lazy(() => import("./DownloadsLine").then((m) => ({ default: m.DownloadsPopover })));
+const DownloadsPopover = lazyPart(loadDownloadsLine, (m) => m.DownloadsPopover);
 
 /** Every ComfyUI's line, read again every half minute for "today" and the times. */
 export function useLines() {
