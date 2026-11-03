@@ -1,15 +1,11 @@
-import { defineRecipe, type InputSpec, type Variant } from "@afflatus/core";
+import { type InputSpec, type Variant } from "@afflatus/core";
 import { H3_FPS } from "./family";
 import { RECORDING_AFTER, recordingInputs, recordingNodes, recordingOnClip, type Recording } from "../shared/recording";
-import { H3_NO_TAGS, H3_SOUND_CHAPTER, REF_VIDEOS_WHAT, h3Inputs, withFaceCarried, type H3Video } from "./inputs";
-import { buildH3, h3Video } from "./video";
+import { H3_NO_TAGS, REF_VIDEOS_WHAT, type H3Video } from "./inputs";
 import { isH3Layout } from "./prompt";
-import { H3_STARTS, referenceNeeds, turboNeeds, vedaNeeds } from "./model";
-import { latentUpscaleNeeds } from "./latent-upscale";
-import { upscaleNeeds } from "../video/upscale";
-import { rifeNeeds } from "../shared/finish";
-import { clipModelOf, FACE_REFINE_SLOTS, faceRefineNeeds, withFacePass } from "./faceRefine";
+import { FACE_REFINE_SLOTS } from "./faceRefine";
 import { cueMixNodes } from "./cue";
+import { h3Form } from "./form";
 
 /**
  * MiniMax H3 · Lip sync: a new shot made around a recording. The recording is laid on the clip's sound where the clip's
@@ -54,55 +50,55 @@ const speechAt: InputSpec = {
  */
 const recording = recordingInputs({ shown: true, less: [speechAt] });
 const IN_SOUND = new Set(["speechAt", "evenLoudness"]);
-const lipSyncInputs: InputSpec[] = withFaceCarried(h3Inputs).flatMap((spec): InputSpec[] => {
-  // nor In the take: the file's sound is always the recording, so each cue's part is laid over it (H3's own is not in it, B12)
-  if (spec.id === "seconds" || spec.id === "voice" || spec.id === "voiceStart" || spec.id === "voiceSeconds" || spec.id === "voiceEven" || spec.id === "cueSound") return [];
-  if (spec.id === "description" && spec.type === "prompt") {
-    return [
-      { ...spec, label: "What happens", placeholder: "A man at a café terrace, medium close-up, talking to the camera, calm and friendly.", note: `where they are and how they speak, without a dialogue line: the recording is what is said. ${H3_NO_TAGS}` },
-      ...recording.filter((i) => !IN_SOUND.has(i.id)),
-    ];
-  }
-  // the Sound card (card #170): when the words start and the loudness. Sound effects and Music stay prompt text, in the Prompt
-  // card as on every H3 form (card #210)
-  if (spec.id === "music") return [spec, ...recording.filter((i) => IN_SOUND.has(i.id)).map((i): InputSpec => ({ ...i, chapter: "sound" }))];
-  // the recording is the voice: no reference video gives its sound here (build)
-  if (spec.id === "refVideos") return [{ ...spec, note: `${REF_VIDEOS_WHAT} Their sound is left out: the recording is the voice` }];
-  return [spec];
-});
+const VOICE = "the recording is the voice: a sample beside it would only pull the timbre elsewhere";
 
-export const h3LipSync = defineRecipe<H3LipSync>({
-  // Turbo's LoRA, the reference model for a clip with the cast, H3's latent upscaler for an upscale with it, Face refine's
-  // files (built by buildH3, as a clip is)
-  needsWith: (input, slots) => [...turboNeeds(input, slots), ...referenceNeeds(input, slots), ...vedaNeeds(input, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth), ...faceRefineNeeds(withFacePass(input), { picture: Boolean(input.start && !input.previous), clip: clipModelOf(input, slots) })],
+export const h3LipSync = h3Form<H3LipSync>({
   id: "h3.lipsync",
-  family: "h3",
   version: 1,
   title: "Lip sync",
   summary: "A new shot made around a recording: the mouth follows it. Continues the clip before.",
-  output: "video",
-  traits: h3Video.traits,
-  inputs: lipSyncInputs,
-  chapters: [H3_SOUND_CHAPTER],
-  starts: H3_STARTS,
-  presets: h3Video.presets,
+  inputs: {
+    drop: {
+      seconds: "the recording's length decides the clip's",
+      voice: VOICE, voiceStart: VOICE, voiceSeconds: VOICE, voiceEven: VOICE,
+      // the file's sound is always the recording, so each cue's part is laid over it (H3's own is not in it, B12)
+      cueSound: "the file's sound is always the recording: each cue's part is laid over it",
+    },
+    lay: (shared) => shared.flatMap((spec): InputSpec[] => {
+      if (spec.id === "description" && spec.type === "prompt") {
+        return [
+          { ...spec, label: "What happens", placeholder: "A man at a café terrace, medium close-up, talking to the camera, calm and friendly.", note: `where they are and how they speak, without a dialogue line: the recording is what is said. ${H3_NO_TAGS}` },
+          ...recording.filter((i) => !IN_SOUND.has(i.id)),
+        ];
+      }
+      // the Sound card (card #170): when the words start and the loudness. Sound effects and Music stay prompt text, in the Prompt
+      // card as on every H3 form (card #210)
+      if (spec.id === "music") return [spec, ...recording.filter((i) => IN_SOUND.has(i.id)).map((i): InputSpec => ({ ...i, chapter: "sound" }))];
+      // the recording is the voice: no reference video gives its sound here (build)
+      if (spec.id === "refVideos") return [{ ...spec, note: `${REF_VIDEOS_WHAT} Their sound is left out: the recording is the voice` }];
+      return [spec];
+    }),
+  },
   // the recording is cut to the clip; the model's decoded sound goes before it when the clip opens on frames of the clip
   // before or on a moment before the words. No voice sample: H3's nodes are asked without one
-  nodes: (input) => [...new Set([...h3Video.nodes({ ...input, voice: undefined, recording: undefined }), "MiniMaxH3AddGuide", ...recordingNodes({ joined: (Boolean(input.previous) || leadOf(input) > 0) && !input.recordingLeadIn }), ...cueMixNodes(input)])],
-  optionalNodes: h3Video.optionalNodes,
-  finishing: h3Video.finishing,
+  asClip: (input) => ({ ...input, voice: undefined, recording: undefined }),
+  moreNodes: (input) => ["MiniMaxH3AddGuide", ...recordingNodes({ joined: (Boolean(input.previous) || leadOf(input) > 0) && !input.recordingLeadIn }), ...cueMixNodes(input)],
 
-  build(input, ctx) {
+  built(input, ctx) {
     const lead = leadOf(input);
     const laid = recordingOnClip(input, ctx, lead);
     const description = withSpeaks(input.description);
     // the cast's videos lend their frames only: their own sound would be a second voice beside the recording, pulling the
     // timbre away from it as a voice sample would
     const media = Object.fromEntries(Object.entries(ctx.media).map(([k, m]) => [k, k.startsWith("refVideos.") ? { ...m, hasSound: false } : m]));
-    return buildH3({ ...input, voice: undefined, seconds: laid.seconds, description }, { ...ctx, media }, {
-      guide: (g, at) => g.out("MiniMaxH3AddGuide", { positive: at.positive, latent: at.latent, vae: at.vae, audio_vae: at.audioVae, audio: laid.loaded(g, at), frame_idx: at.head + lead }),
-      sound: laid.sound,
-    });
+    return {
+      clip: { ...input, voice: undefined, seconds: laid.seconds, description },
+      ctx: { ...ctx, media },
+      extra: {
+        guide: (g, at) => g.out("MiniMaxH3AddGuide", { positive: at.positive, latent: at.latent, vae: at.vae, audio_vae: at.audioVae, audio: laid.loaded(g, at), frame_idx: at.head + lead }),
+        sound: laid.sound,
+      },
+    };
   },
 
   variants: ((): Variant<H3LipSync>[] => {

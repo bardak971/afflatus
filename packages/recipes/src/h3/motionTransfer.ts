@@ -1,19 +1,15 @@
-import { defineRecipe, gridAtOrBefore, type BuildContext, type BuiltGraph, type ClipValue, type GraphBuilder, type InputSpec, type Ref, type Variant } from "@afflatus/core";
+import { gridAtOrBefore, type BuildContext, type ClipValue, type GraphBuilder, type InputSpec, type Ref, type Variant } from "@afflatus/core";
 import { H3_MOTION_GUIDE } from "./guide";
 import { H3_FPS, H3_GRID } from "./family";
-import { H3_NO_TAGS, H3_SOUND_CHAPTER, h3Inputs, SOURCE_SOUND_INPUTS, SOURCE_START, type H3Video } from "./inputs";
+import { H3_NO_TAGS, SOURCE_SOUND_INPUTS, SOURCE_START, type H3Video } from "./inputs";
 import { MOTION_STARTS, MOTION_TURBO_ROW, withTurboRow } from "./turboRow";
-import { buildH3, h3Video, SHOT_WORDS } from "./video";
-import { H3_CONTINUATION_NODES, H3_SEAM, H3_TRIM } from "./join";
-import { modelOf, referenceNeeds, turboNeeds, vedaNeeds } from "./model";
-import { latentUpscaleNeeds } from "./latent-upscale";
-import { upscaleNeeds } from "../video/upscale";
-import { rifeNeeds } from "../shared/finish";
+import { h3ClipNodes, H3_OPTIONAL_NODES, SHOT_WORDS } from "./clip";
+import { h3Form, sourceSound, sourceSoundNodes, type H3Built } from "./form";
+import { modelOf } from "./model";
 import { partBounds } from "../motion/driving";
 import { asClip as swapClip, h3Swap, SWAP_FRAMES, SWAP_RUN_UP, type H3Swap } from "./swap";
 import { controlled, frameBefore, MOTION_CHAPTER, motionControlInputs, motionNeeds, motionNodes, poseVideo, POSE_SDPOSE, type H3Motion } from "./motion";
-import { clipModelOf, FACE_REFINE_SLOTS, faceRefineNeeds } from "./faceRefine";
-import { cueMixNodes } from "./cue";
+import { FACE_REFINE_SLOTS } from "./faceRefine";
 
 /**
  * MiniMax H3 · Motion transfer (the owner's, 2026-10-18; built 2026-10-20): a picture made to move like a driving video,
@@ -91,15 +87,23 @@ const MOTION_CARRIED = 22;
 const MOTION_PART = partBounds({ fps: H3_FPS, most: SWAP_FRAMES, least: MOTION_LEAST });
 
 /**
- * H3's inputs this form does not take: the picture is its first frame, the driving video its length and shape, its sound the
- * video's; how the person looks is the form's own `look` (H3's `subject` was a second "How they look", landing elsewhere).
+ * H3's inputs this form does not take, each with why: the picture is its first frame, the driving video its length and
+ * shape, its sound the video's; how the person looks is the form's own `look` (H3's `subject` was a second "How they look",
+ * landing elsewhere).
  */
-const NOT_TAKEN = new Set([
-  "description", "start", "end", "mid", "midAt", "handover", "next", "landing",
-  "voice", "voiceStart", "voiceSeconds", "voiceEven", "subject", "seconds", "shape",
-  // (a window samples with the person's picture: Face refine in its place is Video with audio's and Lip sync's, card #223)
-  "faceCarried", "holdFace",
-]);
+const FIRST_FRAME = "the Picture is its first frame, and the driving video its motion";
+const CARRIED = "a window carries on from the one before by the source lane's own windows, and lands on none";
+const VOICE = "its sound is the driving video's, or the one H3 makes";
+const FACE_HELD = "not tested yet, card #224: a window samples with the person's picture (Face refine in its place is Video with audio's and Lip sync's, card #223)";
+const MOTION_DROP: Record<string, string> = {
+  description: "its own Prompt as sent, written from its parts (look, happens) while it is left empty",
+  start: FIRST_FRAME, end: FIRST_FRAME, mid: FIRST_FRAME, midAt: FIRST_FRAME,
+  handover: CARRIED, next: CARRIED, landing: CARRIED,
+  voice: VOICE, voiceStart: VOICE, voiceSeconds: VOICE, voiceEven: VOICE,
+  subject: "how the person looks is the form's own How they look (look): H3's was a second one, landing elsewhere",
+  seconds: "the driving video's part is its length", shape: "the picture's shape, the video cut to it from the centre",
+  faceCarried: FACE_HELD, holdFace: FACE_HELD,
+};
 
 /**
  * H3's inputs as this form shows them, every H3 form alike (card #170): Sound effects and Music only while the take makes its
@@ -117,7 +121,7 @@ const MOTION_SHOWS: Record<string, InputSpec["showWhen"]> = {
 /** H3's two sound texts, drawn with this form's prompt rather than where H3's inputs come. */
 const SOUND_TEXTS = new Set(["soundscape", "music"]);
 
-const inputs: InputSpec[] = [
+const layInputs = (shared: InputSpec[]): InputSpec[] => [
   {
     id: "source", type: "clip", role: "source", label: "Source video", frames: [SWAP_FRAMES], fps: H3_FPS, whole: true,
     window: { start: "sourceStart", seconds: "sourceSeconds", fits: { frames: SWAP_FRAMES, fps: H3_FPS, pad: 0, min: MOTION_LEAST / H3_FPS, grid: H3_GRID } },
@@ -131,7 +135,7 @@ const inputs: InputSpec[] = [
     note: "what moves, its first frame: its room, its light and its people are kept, only the motion comes from the video. In the source video's shape: the video is cut to the picture's from the centre. A window after a swap needs none: it carries on from it",
   },
   // Sound effects and Music, H3's prompt text: in the Prompt card first under What happens, as on every H3 form (card #210)
-  ...h3Inputs.filter((spec) => SOUND_TEXTS.has(spec.id)).map((spec) => ({ ...spec, showWhen: MOTION_SHOWS[spec.id] }) as InputSpec),
+  ...shared.filter((spec) => SOUND_TEXTS.has(spec.id)).map((spec) => ({ ...spec, showWhen: MOTION_SHOWS[spec.id] }) as InputSpec),
   // the prompt's parts (card #34): the prompt as sent written from them while it is left empty (motionFromParts)
   { id: "look", type: "prompt", weights: false, label: "How they look", style: "sentences", line: true, optional: true, noCast: true, designed: true, holds: "subject", placeholder: "short brown hair, a white shirt and jeans", note: `the person of the picture, in a few words: what H3 keeps of them. Shared by a source's windows. ${H3_NO_TAGS}` },
   { id: "happens", type: "prompt", weights: false, label: "What happens", style: "sentences", optional: true, noCast: true, designed: true, main: true, placeholder: "He dances in the living room, turning on the spot and raising his arms.", note: `in this part, in the present tense. Each window of a source keeps its own. ${H3_NO_TAGS}` },
@@ -146,7 +150,7 @@ const inputs: InputSpec[] = [
   // H3's colour match pulls towards the first frame: here the picture
   // H3's Model is this form's own: a window after a swap shows the swap's in its place (the one it runs on)
   // (Turbo's row in the LoRA list on whichever model the window runs on, card #160)
-  ...withTurboRow(h3Inputs, MOTION_TURBO_ROW).filter((spec) => !NOT_TAKEN.has(spec.id) && !SOUND_TEXTS.has(spec.id)).flatMap((spec): InputSpec[] => (spec.showWhen === "start" ? [{ ...spec, showWhen: "picture" }] : spec.id === "model" ? [{ ...spec, showWhen: OWN_MODEL }, SWAP_MODEL] : MOTION_SHOWS[spec.id] ? [{ ...spec, showWhen: MOTION_SHOWS[spec.id] } as InputSpec] : [spec])),
+  ...withTurboRow(shared, MOTION_TURBO_ROW).filter((spec) => !SOUND_TEXTS.has(spec.id)).flatMap((spec): InputSpec[] => (spec.showWhen === "start" ? [{ ...spec, showWhen: "picture" }] : spec.id === "model" ? [{ ...spec, showWhen: OWN_MODEL }, SWAP_MODEL] : MOTION_SHOWS[spec.id] ? [{ ...spec, showWhen: MOTION_SHOWS[spec.id] } as InputSpec] : [spec])),
   ...motionControlInputs,
   {
     // set where a source's window comes from a swap (windowFrom, the migration of Swap motion): not a choice made up front
@@ -205,7 +209,7 @@ const asWindow = (input: H3MotionTransfer): H3Video =>
  * window's words (which picture is whom said by Afflatus, any tag typed taken out); the source's sound kept as the swap
  * keeps it. Built as H3 · Swap motion built its windows that carried on, so that its sources migrated render alike.
  */
-function windowAfterSwap(input: H3MotionTransfer, ctx: BuildContext): BuiltGraph {
+function windowAfterSwap(input: H3MotionTransfer, ctx: BuildContext): H3Built {
   const unet = input.swapModel ?? ctx.slots.swapUnet;
   if (!unet) throw new Error("A window carrying on from a swap runs on the swap's model: MiniMax H3's reference model, minimax_h3_ref2va_*.safetensors in ComfyUI's models/diffusion_models folder (Settings › Models has it).");
   const frames = framesOf(input, ctx);
@@ -218,33 +222,34 @@ function windowAfterSwap(input: H3MotionTransfer, ctx: BuildContext): BuiltGraph
   // typed, the prompt is the user's; else written from the parts (card #34), else the plain carrying on
   const written = input.description.trim() || motionFromParts(input);
   const said = written.replace(TAGS, "").replace(/\s+([.,])/g, "$1").trim();
-  let heard: Ref | null = null;
-  const drivingSound = (g: GraphBuilder, n: number) =>
-    (heard ??= g.out("TrimAudioDuration", { audio: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: ctx.uploads.source }) }), 1], start_index: 0, duration: n / H3_FPS }));
   // (the shot's words are the parts' own: a prompt typed is sent as it is)
   const clip = { ...swapClip(asSwap(input), null, frames, carried, unet, size), description: said, shot: "Any" };
-  const built = buildH3(clip, asRef, {
-    pictures: (g) => frameBefore(g, ctx),
-    ...(keep ? { sound: (g, _decoded, at) => drivingSound(g, at.frames) } : {}),
-    ...(keep && input.soundGuide ? {
-      guide: (g, at) => g.out("MiniMaxH3AddGuide", { positive: at.positive, latent: at.latent, vae: at.vae, audio_vae: at.audioVae, audio: drivingSound(g, at.frames), frame_idx: 0 }),
-    } : {}),
-    model: (g, model, at) => {
-      const pose = poseVideo(g, ctx, input, ctx.uploads.source!, at);
-      const made = controlled(g, ctx, input, model, at.vae, pose);
-      const sd = input.poseFrom === POSE_SDPOSE ? [`checkpoints/${ctx.slots.sdpose}`, `diffusion_models/${ctx.slots.rtdetr}`] : [];
-      return { model: made.model, loads: [`model_patches/${made.file}`, ...sd] };
-    },
-    vedaFor: "reference",
-    faceLook: input.look,
-    ...(ctx.slots.refTurbo ?? ctx.slots.turbo ? { turbo: ctx.slots.refTurbo ?? ctx.slots.turbo } : {}),
-  });
   // said on the job, the window rendered all the same
   const notes = [
     ...(/<Video \d+>|^\s*(?:replace|swap)\b/i.test(written) ? ["This window carries on from the one before, moved by its pose: its prompt is still a swap's. Write its own: who is in it, as they look in the clip before, and what they do."] : []),
     ...(input.references.length === 0 ? ["No picture of who goes in: the window carries on from the clip before's frames alone, and the face may drift."] : []),
   ];
-  return notes.length ? { ...built, warnings: [...(built.warnings ?? []), ...notes] } : built;
+  return {
+    clip,
+    ctx: asRef,
+    extra: {
+      pictures: (g) => frameBefore(g, ctx),
+      ...sourceSound(ctx, keep, input.soundGuide),
+      model: (g, model, at) => posed(g, ctx, input, model, at),
+      vedaFor: "reference",
+      faceLook: input.look,
+      ...(ctx.slots.refTurbo ?? ctx.slots.turbo ? { turbo: ctx.slots.refTurbo ?? ctx.slots.turbo } : {}),
+    },
+    after: (built) => (notes.length ? { ...built, warnings: [...(built.warnings ?? []), ...notes] } : built),
+  };
+}
+
+/** The model held to the source's pose (motion.ts), and the files the pose's patch loads. */
+function posed(g: GraphBuilder, ctx: BuildContext, input: H3MotionTransfer, model: Ref, at: { vae: Ref; width: number; height: number; frames: number }) {
+  const pose = poseVideo(g, ctx, input, ctx.uploads.source!, at);
+  const made = controlled(g, ctx, input, model, at.vae, pose);
+  const sd = input.poseFrom === POSE_SDPOSE ? [`checkpoints/${ctx.slots.sdpose}`, `diffusion_models/${ctx.slots.rtdetr}`] : [];
+  return { model: made.model, loads: [`model_patches/${made.file}`, ...sd] };
 }
 
 /**
@@ -260,20 +265,20 @@ const asSwap = (input: H3MotionTransfer) => ({ ...input, swapSize: "576p", turbo
  * slots). Core's LoRA loader: a window after a swap takes it only for a turbo LoRA (a model that is not distilled, known by
  * the file the slot gives, which nodes() does not see) or the user's LoRAs.
  */
-const MOTION_OPTIONAL = [...(h3Video.optionalNodes ?? []), "ImageFromBatch", "LoraLoaderModelOnly"];
+const MOTION_OPTIONAL = ["ImageFromBatch", "LoraLoaderModelOnly"];
 
 /** The nodes of a window after a swap: H3's with no swap LoRA, the clip before's last frame a reference, the sound's, the pose's. */
 function nodesAfterSwap(input: H3MotionTransfer): string[] {
-  const optional = new Set(MOTION_OPTIONAL);
+  const optional = new Set([...H3_OPTIONAL_NODES, ...MOTION_OPTIONAL]);
   return [...new Set([
-    ...h3Video.nodes({ ...swapClip(asSwap(input), null, SWAP_FRAMES, MOTION_CARRIED), description: "a", references: [...input.references, { asset: "frame", role: "person" }] }),
-    ...(input.keepSound ? ["TrimAudioDuration", ...cueMixNodes(input)] : []), ...(input.keepSound && input.soundGuide ? ["MiniMaxH3AddGuide"] : []),
+    ...h3ClipNodes({ ...swapClip(asSwap(input), null, SWAP_FRAMES, MOTION_CARRIED), description: "a", references: [...input.references, { asset: "frame", role: "person" }] }),
+    ...sourceSoundNodes(input),
     ...motionNodes(input),
   // (with no cast photo, the frame is the only picture: nothing loaded from a file)
   ])].filter((n) => !optional.has(n) && !(n === "LoadImage" && input.references.length === 0));
 }
 
-export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
+export const h3MotionTransfer = h3Form<H3MotionTransfer>({
   id: "h3.motion",
   // the prompt as sent written from the parts while it is left empty (card #34)
   partsInto: "description",
@@ -288,46 +293,35 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
     const theirs = Object.fromEntries(from.inputs.filter((i) => SAMPLING.has(i.id) && "default" in i && !(i.id in inputs)).map((i) => [i.id, (i as { default: unknown }).default]));
     return { ...theirs, ...inputs, afterSwap: true };
   },
-  family: "h3",
   version: 1,
   title: "Motion transfer",
   // its boxes walked in its own guide over H3's shot guide (card #129): the video gives the motion and the camera
   guide: H3_MOTION_GUIDE,
   summary: "A picture moved like a source video, H3 held to its pose: the picture's room, light and people kept, the motion the video's. Audio included.",
-  output: "video",
+  inputs: { drop: MOTION_DROP, lay: layInputs },
   // made from a picture and another video; on a timeline, a window of a long source carrying on from the window before (its
   // last frames, in its latent), each window with its own prompt
-  traits: {
-    startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID,
-    latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM], faceRefine: "faceRefine",
-    windows: { most: SWAP_FRAMES, least: MOTION_LEAST, carried: MOTION_CARRIED, runUp: SWAP_RUN_UP, own: ["description", "happens", "cues"] },
-  },
-  inputs,
+  traits: { windows: { most: SWAP_FRAMES, least: MOTION_LEAST, carried: MOTION_CARRIED, runUp: SWAP_RUN_UP, own: ["description", "happens", "cues"] } },
   // under the Inputs tab, with Sound: every H3 form keeps the same six tabs (card #170)
-  chapters: [{ ...MOTION_CHAPTER, under: "inputs" }, H3_SOUND_CHAPTER],
+  chapters: [{ ...MOTION_CHAPTER, under: "inputs" }],
   starts: MOTION_STARTS,
-  presets: h3Video.presets,
+  // carrying on, the clip before's last frame is a picture of who moves: the reference route (with H3's reference model there)
+  asClip: asWindow,
   // a window after a swap needs what the swap's do (its model, unless picked), less its LoRA and SAM 3; any other is read
   // on the window as it is built (asWindow): a window carrying on asks for the reference model its frame before is given by
   // (a pod never had it, and rendered the window by the frames alone), and Veda's and Turbo's files for that model. On a
   // machine of the user's own without the reference model, a window with no cast picture is read as the build takes it
   // there, on the frames carried alone (canRefer), as before: it was held, waiting for a download of that model
-  needsWith: (input, slots = {}, where = {}) => {
-    if (afterSwap(input)) return [...(h3Swap.needsWith?.(asSwap(input), slots) ?? []).filter((n) => n !== "swapSam"), ...motionNeeds(input), ...(input.swapModel ? [] : ["swapUnet"])];
-    const framesAlone = where.own && !slots.refUnet && !(input.references ?? []).length;
-    const clip = framesAlone ? asClip(input, SWAP_FRAMES, input.previous ? MOTION_CARRIED : 0) : asWindow(input);
-    return [...turboNeeds(clip, slots), ...referenceNeeds(clip, slots), ...vedaNeeds(clip, slots), ...latentUpscaleNeeds(input), ...upscaleNeeds(input), ...rifeNeeds(input.smooth), ...motionNeeds(input), ...faceRefineNeeds(input, { picture: Boolean(input.picture && !input.previous), clip: clipModelOf(clip, slots) })];
-  },
-  nodes: (input) => afterSwap(input) ? nodesAfterSwap(input) : [...new Set([
-    // carrying on, the clip before's last frame is a picture of who moves: the reference route (with H3's reference model there)
-    ...h3Video.nodes(asWindow(input)), ...motionNodes(input),
-    ...(input.keepSound ? ["TrimAudioDuration", ...cueMixNodes(input)] : []), ...(input.keepSound && input.soundGuide ? ["MiniMaxH3AddGuide"] : []),
+  needsInstead: (input, slots) => (afterSwap(input) ? [...(h3Swap.needsWith?.(asSwap(input), slots) ?? []).filter((n) => n !== "swapSam"), ...motionNeeds(input), ...(input.swapModel ? [] : ["swapUnet"])] : null),
+  needsClip: (input, slots, where) => (where.own && !slots.refUnet && !(input.references ?? []).length ? asClip(input, SWAP_FRAMES, input.previous ? MOTION_CARRIED : 0) : asWindow(input)),
+  moreNeeds: ({ input }) => motionNeeds(input),
+  nodesInstead: (input) => (afterSwap(input) ? nodesAfterSwap(input) : null),
+  moreNodes: (input) => [...motionNodes(input), ...sourceSoundNodes(input)],
   // (carrying on with no cast photo, the frame is the only picture: nothing loaded from a file)
-  ])].filter((n) => !(n === "LoadImage" && input.previous && input.references.length === 0)),
-  optionalNodes: MOTION_OPTIONAL,
-  finishing: (input) => h3Video.finishing!(asClip(input, SWAP_FRAMES, 0)),
+  lessNodes: (input) => (input.previous && input.references.length === 0 ? ["LoadImage"] : []),
+  moreOptional: MOTION_OPTIONAL,
 
-  build(input, ctx) {
+  built(input, ctx) {
     if (!input.source || !ctx.uploads.source) throw new Error("Motion transfer needs a source video: how it moves.");
     if (afterSwap(input)) return windowAfterSwap(input, ctx);
     if (!input.picture || !ctx.uploads.picture) throw new Error("Motion transfer needs a picture: what moves.");
@@ -341,29 +335,21 @@ export const h3MotionTransfer = defineRecipe<H3MotionTransfer>({
       uploads: { ...ctx.uploads, ...(ctx.uploads.picture ? { start: ctx.uploads.picture } : {}) },
       media: { ...ctx.media, ...(ctx.media.picture ? { start: ctx.media.picture } : {}) },
     };
-    let heard: Ref | null = null;
-    const drivingSound = (g: GraphBuilder, n: number) =>
-      (heard ??= g.out("TrimAudioDuration", { audio: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: ctx.uploads.source }) }), 1], start_index: 0, duration: n / H3_FPS }));
     const clip = asClip(input, frames, carried);
     // a window carrying on is also given the clip before's last frame as a picture of who moves (how they look by now),
     // when H3's reference route can run here: a reference model there, or a hybrid picked (else the frames carried alone)
     const canRefer = input.references.length > 0 || Boolean(ctx.slots.refUnet) || modelOf(clip, ctx.slots).hybrid;
-    const built = buildH3(clip, asStart, {
-      // how the person looks, for Face refine's prompt (its one "How they look")
-      faceLook: input.look,
-      ...(input.previous && canRefer ? { pictures: (g: GraphBuilder) => frameBefore(g, ctx) } : {}),
-      ...(keep ? { sound: (g, _decoded, at) => drivingSound(g, at.frames) } : {}),
-      ...(keep && input.soundGuide ? {
-        guide: (g, at) => g.out("MiniMaxH3AddGuide", { positive: at.positive, latent: at.latent, vae: at.vae, audio_vae: at.audioVae, audio: drivingSound(g, at.frames), frame_idx: 0 }),
-      } : {}),
-      model: (g, model, at) => {
-        const pose = poseVideo(g, ctx, input, ctx.uploads.source!, at);
-        const made = controlled(g, ctx, input, model, at.vae, pose);
-        const sd = input.poseFrom === POSE_SDPOSE ? [`checkpoints/${ctx.slots.sdpose}`, `diffusion_models/${ctx.slots.rtdetr}`] : [];
-        return { model: made.model, loads: [`model_patches/${made.file}`, ...sd] };
+    return {
+      clip,
+      ctx: asStart,
+      extra: {
+        // how the person looks, for Face refine's prompt (its one "How they look")
+        faceLook: input.look,
+        ...(input.previous && canRefer ? { pictures: (g: GraphBuilder) => frameBefore(g, ctx) } : {}),
+        ...sourceSound(ctx, keep, input.soundGuide),
+        model: (g, model, at) => posed(g, ctx, input, model, at),
       },
-    });
-    return built;
+    };
   },
 
   variants: ((): Variant<H3MotionTransfer>[] => {

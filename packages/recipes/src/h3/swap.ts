@@ -1,19 +1,16 @@
-import { defineRecipe, gridAtOrBefore, OWN_MODEL, typedInto, upstream, type BuildContext, type ClipValue, type GraphBuilder, type InputSpec, type Ref, type StartRule, type Variant } from "@afflatus/core";
+import { gridAtOrBefore, OWN_MODEL, typedInto, upstream, type BuildContext, type ClipValue, type GraphBuilder, type InputSpec, type Ref, type StartRule, type Variant } from "@afflatus/core";
 import { H3_FPS, H3_GRID, H3_HYBRIDS, SWAP_MODELS } from "./family";
 import { modelOf, REF_TURBO_4_STEPS, REF_TURBO_4_VALUES } from "./model";
-import { latentUpscaleNeeds } from "./latent-upscale";
-import { upscaleNeeds } from "../video/upscale";
-import { H3_SOUND_CHAPTER, h3Inputs, SOURCE_SOUND_INPUTS, SOURCE_START, type H3Video } from "./inputs";
+import { SOURCE_SOUND_INPUTS, SOURCE_START, type H3Video } from "./inputs";
 import { SWAP_MODEL_TURBO, SWAP_TURBO_ROW } from "./turboRow";
 /** Said in the "?" of a swap's parts (card #49): the tags are written for them. */
 const PART_NO_TAGS = "No <Video 1> or <Picture 1> to type: Afflatus adds them";
-import { buildH3, h3Video, refinesOnly, SHOT_WORDS, type H3Extra } from "./video";
+import { H3_PRESETS, refinesOnly, SHOT_WORDS, type H3Extra } from "./clip";
+import { h3Form, sourceSound, sourceSoundNodes } from "./form";
 import { saveVideo } from "../shared/out";
-import { rifeNeeds } from "../shared/finish";
 import { partBounds } from "../motion/driving";
-import { H3_CONTINUATION_NODES, H3_LANDINGS, H3_SEAM, H3_TRIM } from "./join";
+import { H3_LANDINGS } from "./join";
 import { FACE_REFINE_SLOTS, faceRefineNeeds } from "./faceRefine";
-import { cueMixNodes } from "./cue";
 
 /**
  * MiniMax H3 · Swap character: a person in a video replaced by someone of the cast, the rest of the video kept. The
@@ -97,22 +94,33 @@ export const SWAP_OWN = ["who", "happens", "cues"];
 /** What the Source: length field takes, in seconds. */
 const SWAP_PART = (({ least, most }) => ({ min: least, max: most }))(partBounds({ fps: H3_FPS, most: SWAP_FRAMES, least: SWAP_LEAST }));
 
-/** H3's inputs a swap does not take: its prompt is the caption, its length the source's part, its shape the source's. */
-const NOT_TAKEN = new Set([
+/** H3's inputs a swap does not take, each with why: its prompt is the caption, its length the source's part, its shape the source's. */
+const SOURCE_KEPT = "the source video is the scene: its own place, light, frames and length";
+const SOURCE_VOICE = "the file's sound is the source's own, or the one H3 makes";
+const SWAP_FACE = "not tested yet, card #224: the swap is drawn from the person's picture on every window (Face refine in its place is Video with audio's and Lip sync's, card #223)";
+const SWAP_DROP: Record<string, string> = {
   // the model is a reference model, as the LoRA was trained on (swapModel, else the swapUnet slot): a hybrid fine-tune
   // redrew the room. Hybrid stays off the form: the swap runs its own model as a hybrid would, whatever its references, and
   // "No" would hand the clip to the reference slot. Distilled model is the form's, as on every H3 form (card #170)
-  "model", "hybrid",
+  model: "the swap's own Model (swapModel): a reference model, as the swap LoRA was trained on",
+  hybrid: "the swap runs its own model as a hybrid would, whatever its references: \"No\" would hand the clip to the reference slot",
   // the size is the swap's own choice (swapSize): the source's, or a height a small phone clip is enlarged to
-  "short",
+  short: "the swap's own Resolution (swapSize): the source's size, or a height a small phone clip is enlarged to",
+  description: "its own Prompt as sent (who), written from its parts, the swap LoRA's caption first",
+  soundscape: "the source's own sound is the scene's", music: "the source's own sound is the scene's",
+  start: SOURCE_KEPT, end: SOURCE_KEPT, mid: SOURCE_KEPT, midAt: SOURCE_KEPT,
   // the frozen tail is never skipped on a source's windows: the window after would no longer start where its part does
-  "description", "soundscape", "music", "start", "end", "mid", "midAt", "handover", "next", "landing",
-  // the swap is drawn from the person's picture on every window: Face refine in its place is Video with audio's (card #223)
-  "faceCarried", "holdFace",
-  "refVideos", "voice", "voiceStart", "voiceSeconds", "voiceEven", "subject", "seconds", "shape",
+  handover: "the frozen tail is never skipped on a source's windows: the window after would no longer start where its part does",
+  next: "a window carries on from the one before, and lands on none", landing: "a window carries on from the one before, and lands on none",
+  faceCarried: SWAP_FACE, holdFace: SWAP_FACE,
+  refVideos: "the source's part is its one reference video (<Video 1>)",
+  voice: SOURCE_VOICE, voiceStart: SOURCE_VOICE, voiceSeconds: SOURCE_VOICE, voiceEven: SOURCE_VOICE,
+  subject: "how the one who goes in looks is the form's own How they look (look)",
+  seconds: "the source's part is its length", shape: "the source's shape",
   // H3's colour match pulls towards a start picture, which a swap has not
-  "colourMatch", "colourStrength",
-]);
+  colourMatch: "H3's colour match pulls towards a start picture, which a swap has not",
+  colourStrength: "H3's colour match pulls towards a start picture, which a swap has not",
+};
 
 /**
  * How the designer writes a swap's prompt: what worked on the LoRA's card, its users' reports and the owner's takes
@@ -138,7 +146,8 @@ export const SWAP_CAPTION = "Swap the person in <Video 1> with the character in 
 // take, 2026-10-18); the text encoder reads a negation as what it names
 const SWAP_TURBO_PROMPT = `${SWAP_CAPTION} Keep the motion, the gestures and the lip movements of <Video 1>. Keep the room of <Video 1> exactly as it is.`;
 
-export const swapInputs: InputSpec[] = [
+/** The swap's inputs, laid around H3's shared ones (those it takes). */
+const swapInputs = (shared: InputSpec[]): InputSpec[] => [
   {
     // MiniMax's reference model and what is made from it: a fine-tune, or a distilled merge such as the fused reference turbo
     // (4 steps er_sde / beta in her workflow, 3.5 times quicker than ref2va's 20 steps, a little less like the person: §9.10).
@@ -180,8 +189,7 @@ export const swapInputs: InputSpec[] = [
   // frame windows add: 5.875 s refused them). 5.175 s by default: 124 frames, the length the swap held 3 times of 3 at,
   // within the 4-5 s its LoRA's author found safest
   { id: "sourceSeconds", type: "number", label: "Source: length", ...SWAP_PART, step: 0.01, default: 5.175, unit: " s", showWhen: "source" },
-  ...h3Inputs.flatMap((spec): InputSpec[] => {
-    if (NOT_TAKEN.has(spec.id)) return [];
+  ...shared.flatMap((spec): InputSpec[] => {
     // the model's own shifts (MiniMaxH3SigmaShift's defaults), as the swap was tested, not H3's full-step 11 / 4
     if (spec.id === "shiftVideo" && spec.type === "number") return [{ ...spec, default: 12, note: "12, the model's own, as the swaps were tested. Higher gives the first steps more weight (the whole picture and the motion), lower the last ones (detail)" }];
     if (spec.id === "shiftAudio" && spec.type === "number") return [{ ...spec, default: 3, note: "3, the model's own, as the swaps were tested" }];
@@ -356,7 +364,7 @@ export const SWAP_PRESETS = [
   { match: "refdelta", values: { fast: true, turboSteps: 4, sampler: "er_sde", scheduler: "beta", shiftVideo: 12, shiftAudio: 3 }, note: "a fused reference turbo: Turbo, 4 steps, er_sde / beta, as its swap workflow runs it" },
   // DaSiWa's hybrid turbo as it swapped and kept the video in 2 takes of 2, where the fused turbo did in 2 of 4 (the owner's cheese clip, 2026-10-29)
   { match: "dasiwa.*hybrid.*turbo", values: { fast: true, turboSteps: 8, sampler: "euler", scheduler: "simple", shiftVideo: 8, shiftAudio: 4 }, note: "DaSiWa's hybrid turbo: Turbo, 8 steps, euler / simple, shift 8 / 4, as its swaps were tested" },
-  ...(h3Video.presets ?? []),
+  ...H3_PRESETS,
 ];
 
 /**
@@ -454,62 +462,67 @@ function masked(file: string, sam: string, m: MaskSettings, has: (cls: string) =
   };
 }
 
-export const h3Swap = defineRecipe<H3Swap>({
+/** The swap as its nodes and needs read it before it is built: the LoRA and the reference model, whatever their files. */
+const asRead = (input: H3Swap) => asClip(input, "swap.safetensors", SWAP_FRAMES, 0, "minimax_h3_ref2va.safetensors");
+
+export const h3Swap = h3Form<H3Swap>({
   id: "h3.swap",
-  family: "h3",
   version: 1,
   title: "Swap character",
   summary: "A person in a video replaced by someone of the cast; the scene, the motion and the sound kept.",
-  output: "video",
   // a video of its own, made from another: on a timeline's source lane, a window of a long source carrying on from the window
   // before (its last 5 frames pinned at the start), otherwise no join with the clips around it
   // the prompt as sent written from the parts while it is left empty (card #34)
   partsInto: "who",
   partsStartOn: SWAP_STARTED_ON,
   promptFromParts: (input) => swapFromParts(input, Math.max(1, input.references?.length ?? 0)),
-  traits: { startFrame: false, endFrame: false, midFrames: false, continues: "clip", endAnchor: false, sound: true, fps: H3_FPS, frameGrid: H3_GRID, latentTrim: H3_TRIM, latentNodes: [...H3_CONTINUATION_NODES, H3_SEAM], faceRefine: "faceRefine",
+  traits: {
     // every window a swap, those that carry on too (the owner, 2026-10-30: Motion transfer after a swap was Swap motion's
     // leftover); a window is given Motion transfer by hand where the swap drifts (card #42)
     windows: { most: SWAP_FRAMES, least: SWAP_LEAST, carried: SWAP_CARRIED, runUp: SWAP_RUN_UP, own: SWAP_OWN, sourceDefault: true },
   },
-  inputs: swapInputs,
+  inputs: { drop: SWAP_DROP, lay: swapInputs },
   guide: SWAP_GUIDE,
   // a character swap's form: the model, its takes, who is replaced and how, then the rest as any form (the owner, 2026-10-18)
   first: ["model", "takes"],
   // who is replaced and how, apart from the source (the owner, 2026-10-18): the click and Show the mask are the screen's, the
   // rest the nodes' own inputs
   // (under the Inputs tab, with Sound: every H3 form keeps the same six tabs, card #170)
-  chapters: [{ id: "mask", label: "Mask", under: "inputs", help: "SAM 3 tracks the person clicked on the stage; the Swap Mask grows the zone H3 redraws and the paste-back band. Experimental: the edge can waver. Show the mask draws them first." }, H3_SOUND_CHAPTER],
+  chapters: [{ id: "mask", label: "Mask", under: "inputs", help: "SAM 3 tracks the person clicked on the stage; the Swap Mask grows the zone H3 redraws and the paste-back band. Experimental: the edge can waver. Show the mask draws them first." }],
   presets: SWAP_PRESETS,
   starts: SWAP_STARTS,
   needs: ["swapLora", "swapUnet"],
   // Show the mask and a take's Face refine alone sample nothing: neither the LoRA nor the model is loaded (card #226: Show
   // the mask waited for some 20 GB on a pod, its RIFE too)
   unneeded: (input) => (input.maskPreview || refinesOnly(input) ? ["swapLora", "swapUnet"] : []),
+  asClip: asRead,
   // as every other file and node: SAM 3 with the Mask on (off, nothing tracks the person), Veda's predictor when it is on, and a turbo LoRA when Turbo is on a model that is not
   // distilled (the reference one asked for, either taken). Show the mask runs SAM 3 and the masks alone
-  needsWith: (input, slots = {}) => input.maskPreview ? ["swapSam"] : [
-    ...(input.maskOn || input.maskPreview ? ["swapSam"] : []),
-    ...(input.veda ? ["veda"] : []),
-    // H3's latent upscaler for a finish that enlarges with it: the swap is built as a clip (buildH3), and a pod finishing
-    // Timeline 19's swaps without it fell back to a plain resize, blurred (2026-10-18)
-    ...latentUpscaleNeeds(input),
-    ...upscaleNeeds(input),
-    ...rifeNeeds(input.smooth),
+  needsInstead: (input) => (input.maskPreview ? ["swapSam"] : null),
+  needParts: {
+    // the swap's model is MiniMax's reference model, or a model made from it, whatever its file (modelOf on the swap's own
+    // model): it takes MiniMax's reference turbo LoRA, else the usual one, and none when the model is distilled
+    turbo: ({ input, slots }) => (input.fast && !modelOf({ ...input, model: input.swapModel ?? slots.swapUnet, turboIn: input.turboIn || "From the name" }, slots).turbo && !slots.refTurbo && !slots.turbo ? ["refTurbo"] : []),
+    // the reference model is the swap's own (needs: swapUnet), never the refUnet slot's
+    reference: () => [],
+    // Veda's predictor for the reference model (vedaFor), whatever the swap's file
+    veda: ({ input }) => (input.veda ? ["veda"] : []),
     // Face refine's files with it on: a pod was never sent them, and a Finish › Face refine there decoded the take as it was
     // (the swap's model, the clip's own Face refine runs on, is a need of every swap)
-    ...faceRefineNeeds(input, { clip: { follows: true } }),
-    ...(input.fast && !modelOf({ ...input, model: input.swapModel ?? slots.swapUnet, turboIn: input.turboIn || "From the name" }, slots).turbo && !slots.refTurbo && !slots.turbo ? ["refTurbo"] : []),
-  ],
+    faceRefine: ({ input }) => faceRefineNeeds(input, { clip: { follows: true } }),
+  },
+  // (H3's latent upscaler for a finish that enlarges with it is H3's: the swap is built as a clip, buildH3, and a pod finishing
+  // Timeline 19's swaps without it fell back to a plain resize, blurred, 2026-10-18)
+  moreNeeds: ({ input }) => (input.maskOn || input.maskPreview ? ["swapSam"] : []),
   // Show the mask runs the tracking and the masks alone (MASK_NODES, the preview node and the video out are optional)
-  nodes: (input) => input.maskPreview ? ["LoadVideo", "GetVideoComponents"] : [...new Set([...h3Video.nodes(asClip(input, "swap.safetensors", SWAP_FRAMES, 0, "minimax_h3_ref2va.safetensors")), ...(refinesOnly(input) ? [] : ["LoraLoaderModelOnly"]), ...(input.keepSound ? ["TrimAudioDuration", ...cueMixNodes(input)] : []), ...(input.keepSound && input.soundGuide ? ["MiniMaxH3AddGuide"] : [])])],
+  nodesInstead: (input) => (input.maskPreview ? ["LoadVideo", "GetVideoComponents"] : null),
+  moreNodes: (input) => [...(refinesOnly(input) ? [] : ["LoraLoaderModelOnly"]), ...sourceSoundNodes(input)],
   // the mask's nodes are not asked of a machine: one without them (an older node pack) swaps unmasked, and the job says so
   // Veda's node only serves its toggle, and without its pack the swap runs the full attention and says so on the job: an
   // optional node, so that it never stops a render and Settings › Models offers its pack among the optional ones
-  optionalNodes: [...(h3Video.optionalNodes ?? []), ...MASK_NODES, "AfflatusSwapMaskPreview", "AfflatusSwapPaste"],
-  finishing: (input) => h3Video.finishing!(asClip(input, "swap.safetensors", SWAP_FRAMES, 0, "minimax_h3_ref2va.safetensors")),
+  moreOptional: [...MASK_NODES, "AfflatusSwapMaskPreview", "AfflatusSwapPaste"],
 
-  build(input, ctx) {
+  built(input, ctx) {
     if (!input.source || !ctx.uploads.source) throw new Error("A swap needs its source video.");
     // a take's Face refine alone samples nothing: neither the LoRA nor the reference model is loaded, and a pod is not sent
     // them (model.ts), so their lack there is no reason to fail it (a pod's Face refine of a swap, 2026-10-23)
@@ -538,49 +551,48 @@ export const h3Swap = defineRecipe<H3Swap>({
       throw new Error(sam ? "Show the mask needs the Afflatus node pack 0.26.0 or newer: restart ComfyUI to load it." : "Show the mask needs SAM 3.1 (Settings › Models has it).");
     }
     const mask = input.maskOn && sam && MASK_NODES.every((n) => ctx.has(n)) ? masked(ctx.uploads.source, sam, input, ctx.has, carried && ctx.uploads.previous ? { file: ctx.uploads.previous, frames: carried } : undefined, input.source.pick, preview) : null;
-    // the source's own sound over the window, cut to the clip's length: one loader for the file's sound and the guide
-    let heard: Ref | null = null;
-    const sourceSound = (g: GraphBuilder, frames: number) =>
-      (heard ??= g.out("TrimAudioDuration", { audio: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file: ctx.uploads.source }) }), 1], start_index: 0, duration: frames / H3_FPS }));
-    const built = buildH3(asClip(input, swapLora, frames, carried, unet, size), asRef, {
-      prompt: (pictures) => swapPrompt(swapSent(asSent, pictures), pictures),
-      // the file's sound: the source's own over the window
-      ...(keep ? { sound: (g, _decoded, at) => sourceSound(g, at.frames) } : {}),
-      // and, asked for, the same sound anchored from the window's first frame, as Lip sync anchors its recording
-      ...(keep && input.soundGuide ? {
-        guide: (g, at) => g.out("MiniMaxH3AddGuide", { positive: at.positive, latent: at.latent, vae: at.vae, audio_vae: at.audioVae, audio: sourceSound(g, at.frames), frame_idx: 0 }),
-      } : {}),
-      ...(mask?.extra ?? {}),
-      // how the one who goes in looks, for Face refine's prompt
-      faceLook: input.look,
-      vedaFor: "reference",
-      ...(input.denoise < 1 ? { denoise: input.denoise } : {}),
-      // the reference model's own turbo LoRA, else the usual one (a distilled model takes neither)
-      ...(ctx.slots.refTurbo ?? ctx.slots.turbo ? { turbo: ctx.slots.refTurbo ?? ctx.slots.turbo } : {}),
-    });
-    // a prompt that names neither the source nor the cast's picture still runs: H3 may then leave them out, and the job says so
-    const lacks = swapPromptLacks(swapSent(asSent, Math.max(1, input.references.length)), input.references.length).map((tag) => `The prompt has no ${tag}: H3 may not use ${tag === "<Video 1>" ? "the source video" : "the cast's picture"}.`);
-    // Difference asked for and the pack not yet loaded: pasted by the mask, and said
-    const pasted = input.maskOn && input.paste === "Difference" && !ctx.has("AfflatusSwapPaste") ? ["Paste by Difference needs the Afflatus node pack 0.29.0 (restart ComfyUI to load it): pasted by the mask."] : [];
-    const notes = [...lacks, ...pasted];
-    const warned = notes.length ? { ...built, warnings: [...(built.warnings ?? []), ...notes] } : built;
-    // Show the mask: only what the tracking, the masks and their picture need, the H3 model never loaded
-    const shown = mask?.preview();
-    if (shown) {
-      const keep = upstream(built.graph, [shown]);
-      const graph = Object.fromEntries(Object.entries(built.graph).filter(([id]) => keep.has(id)));
-      return {
-        ...built, graph, phases: Object.fromEntries(Object.entries(built.phases).filter(([id]) => keep.has(id))),
-        outputs: [{ node: shown, kind: "video", role: "result" }], loads: [`checkpoints/${sam}`], light: true, warnings: [], passes: [],
-      };
-    }
-    const said = mask?.node();
-    if (said) return { ...warned, outputs: [...warned.outputs, { node: said, kind: "image", role: "note" }] };
-    // the Mask turned off: the whole frame redrawn, as asked. Its nodes and SAM there but no mask made: a finish by the latent
-    // re-sample, which redraws every pixel and pastes nothing back (finish.ts), not a pack without the Swap Mask
-    if (!input.maskOn || mask) return warned;
-    const why = sam ? "this ComfyUI's Afflatus node pack has no Swap Mask yet (0.22.0 on; ComfyUI loads a newer pack when it restarts)" : "SAM 3.1 is not on this ComfyUI (Settings › Models has it)";
-    return { ...warned, warnings: [...(warned.warnings ?? []), `Swapped without a mask, the whole frame redrawn: ${why}.`] };
+    return {
+      clip: asClip(input, swapLora, frames, carried, unet, size),
+      ctx: asRef,
+      extra: {
+        prompt: (pictures) => swapPrompt(swapSent(asSent, pictures), pictures),
+        // the file's sound: the source's own over the window; and, asked for, the same sound anchored from the window's first
+        // frame, as Lip sync anchors its recording
+        ...sourceSound(ctx, keep, input.soundGuide),
+        ...(mask?.extra ?? {}),
+        // how the one who goes in looks, for Face refine's prompt
+        faceLook: input.look,
+        vedaFor: "reference",
+        ...(input.denoise < 1 ? { denoise: input.denoise } : {}),
+        // the reference model's own turbo LoRA, else the usual one (a distilled model takes neither)
+        ...(ctx.slots.refTurbo ?? ctx.slots.turbo ? { turbo: ctx.slots.refTurbo ?? ctx.slots.turbo } : {}),
+      },
+      after: (built) => {
+        // a prompt that names neither the source nor the cast's picture still runs: H3 may then leave them out, and the job says so
+        const lacks = swapPromptLacks(swapSent(asSent, Math.max(1, input.references.length)), input.references.length).map((tag) => `The prompt has no ${tag}: H3 may not use ${tag === "<Video 1>" ? "the source video" : "the cast's picture"}.`);
+        // Difference asked for and the pack not yet loaded: pasted by the mask, and said
+        const pasted = input.maskOn && input.paste === "Difference" && !ctx.has("AfflatusSwapPaste") ? ["Paste by Difference needs the Afflatus node pack 0.29.0 (restart ComfyUI to load it): pasted by the mask."] : [];
+        const notes = [...lacks, ...pasted];
+        const warned = notes.length ? { ...built, warnings: [...(built.warnings ?? []), ...notes] } : built;
+        // Show the mask: only what the tracking, the masks and their picture need, the H3 model never loaded
+        const shown = mask?.preview();
+        if (shown) {
+          const keep = upstream(built.graph, [shown]);
+          const graph = Object.fromEntries(Object.entries(built.graph).filter(([id]) => keep.has(id)));
+          return {
+            ...built, graph, phases: Object.fromEntries(Object.entries(built.phases).filter(([id]) => keep.has(id))),
+            outputs: [{ node: shown, kind: "video", role: "result" }], loads: [`checkpoints/${sam}`], light: true, warnings: [], passes: [],
+          };
+        }
+        const said = mask?.node();
+        if (said) return { ...warned, outputs: [...warned.outputs, { node: said, kind: "image", role: "note" }] };
+        // the Mask turned off: the whole frame redrawn, as asked. Its nodes and SAM there but no mask made: a finish by the latent
+        // re-sample, which redraws every pixel and pastes nothing back (finish.ts), not a pack without the Swap Mask
+        if (!input.maskOn || mask) return warned;
+        const why = sam ? "this ComfyUI's Afflatus node pack has no Swap Mask yet (0.22.0 on; ComfyUI loads a newer pack when it restarts)" : "SAM 3.1 is not on this ComfyUI (Settings › Models has it)";
+        return { ...warned, warnings: [...(warned.warnings ?? []), `Swapped without a mask, the whole frame redrawn: ${why}.`] };
+      },
+    };
   },
 
   variants: ((): Variant<H3Swap>[] => {
