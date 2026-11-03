@@ -1,4 +1,5 @@
 import type { KyselyPlugin, OperationNode, PluginTransformQueryArgs, PluginTransformResultArgs, QueryResult, RootOperationNode, UnknownRow } from "kysely";
+import { Kept } from "./kept";
 
 /**
  * How many writes each table has had since the server started, counted by a Kysely plugin on every query (openDb): a view
@@ -54,21 +55,14 @@ export function writesTo(tables: readonly string[]): number {
 const KEPT_MS = 60_000;
 
 /**
- * A read kept, by database, until one of its tables is written to: the same answer for every caller meanwhile, never to be
- * changed by them. A write while it was read may be in it or not: that answer is not kept.
+ * A read kept, by database, until one of its tables is written to (kept under the count of their writes: a write while it
+ * was read makes the next ask a read of its own), the same answer for every caller meanwhile, never to be changed by them.
  */
 export function keptRead<D extends object, T>(tables: readonly string[], read: (db: D) => Promise<T>): (db: D) => Promise<T> {
-  const kept = new WeakMap<D, { writes: number; at: number; value: Promise<T> }>();
+  const kept = new WeakMap<D, Kept<T>>();
   return (db) => {
-    const writes = writesTo(tables);
-    const was = kept.get(db);
-    if (was && was.writes === writes && Date.now() - was.at < KEPT_MS) return was.value;
-    const entry = { writes, at: Date.now(), value: read(db) };
-    kept.set(db, entry);
-    const drop = () => {
-      if (kept.get(db) === entry) kept.delete(db);
-    };
-    entry.value.then(() => writesTo(tables) !== writes && drop(), drop);
-    return entry.value;
+    let k = kept.get(db);
+    if (!k) kept.set(db, (k = new Kept<T>({ ttlMs: KEPT_MS, max: 1 })));
+    return k.get(String(writesTo(tables)), () => read(db));
   };
 }
