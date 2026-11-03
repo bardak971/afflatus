@@ -2,7 +2,7 @@ import { defineRecipe, GraphBuilder, roundTo, type Ref } from "@afflatus/core";
 import { pictureForm } from "../shared/pictureForm";
 import { redrawInTiles, tileInputs, TILE_NODES, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import {
-  boxOf, FACE_INPUTS, SDXL_DROPS, FACTOR_INPUT, loadSdxl, NO_FACE, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, PASTE_BACK_NODES, pasteBack, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, REPAINT_NODES, repaintGuided, repaintInputs, repaints, samplerOf, stretchedFill, samplingInputs, SDXL_PRESETS, UPSCALER_PREFER, workSize,
+  boxOf, FACE_INPUTS, SDXL_DROPS, nothingToExtend, outpaintSides, FACTOR_INPUT, loadSdxl, NO_FACE, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, PASTE_BACK_NODES, pasteBack, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, REPAINT_NODES, repaintGuided, repaintInputs, repaints, samplerOf, stretchedFill, samplingInputs, SDXL_PRESETS, UPSCALER_PREFER, workSize,
   type FaceSettings, type MaskSettings, type OutpaintSettings, type RefineColourMatch, type RepaintSettings, type UpscaleSettings,
   type SdxlBase,
 } from "./common";
@@ -175,8 +175,10 @@ export const sdxlOutpaint = pictureForm("outpaint", defineRecipe<SdxlOutpaint>({
   presets: SDXL_PRESETS,
   nodes: (input) => [...modelNodes(input), ...OUTPAINT_NODES, "KSampler", ...PASTE_BACK_NODES],
   optionalNodes: [...REPAINT_NODES, "VAEEncode", "SetLatentNoiseMask", "DifferentialDiffusion"],
-  build(input, ctx) {
-    if (input.padLeft + input.padRight + input.padTop + input.padBottom === 0) throw new Error("Nothing to extend: set how far the picture grows on at least one side.");
+  build(form, ctx) {
+    // by the sides set, or those that bring it to the aspect ratio picked
+    const input = outpaintSides(form, ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 });
+    if (input.padLeft + input.padRight + input.padTop + input.padBottom === 0) throw new Error(nothingToExtend(input));
     const g = new GraphBuilder();
     const m = loadSdxl(g, input, input.prompt);
     const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
@@ -206,6 +208,7 @@ export const sdxlOutpaint = pictureForm("outpaint", defineRecipe<SdxlOutpaint>({
   variants: [
     { name: "wider on both sides", input: { source: "p", prompt: "a", checkpoint: "x.safetensors" }, uploads: { source: "s.png" }, media: { source: picture } },
     { name: "taller, a LoRA", input: { source: "p", prompt: "a", checkpoint: "x.safetensors", padLeft: 0, padRight: 0, padTop: 256, padBottom: 128, feathering: 64, loras: [{ file: "l.safetensors", weight: 0.8 }] }, uploads: { source: "s.png" }, media: { source: { width: 1216, height: 832 } } },
+    { name: "to a square, the picture in the middle", input: { source: "p", prompt: "a", checkpoint: "x.safetensors", shape: "Square 1:1" }, uploads: { source: "s.png" }, media: { source: picture } },
     { name: "no ControlNet: grey padding, the picture put back", input: { source: "p", prompt: "a", checkpoint: "x.safetensors", repaint: false }, uploads: { source: "s.png" }, media: { source: picture } },
   ],
 }), SDXL_DROPS);

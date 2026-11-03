@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defineRecipe } from "@afflatus/core";
+import { defineRecipe, dryContext, parseInput } from "@afflatus/core";
 import { recipes } from "../src";
 import { pictureForm, pictureRowsOf, PICTURE_DROPS } from "../src/shared/pictureForm";
 
@@ -43,6 +43,23 @@ describe("picture forms laid out by pictureForm", () => {
   // SDXL alone kept the size per model before (an SDXL checkpoint's 832×1216 is not what Qwen Image draws at)
   it("remembers the size per model on every txt2img", () => {
     for (const r of forms.filter((r) => PICTURE_DROPS.get(r.id)!.op === "txt2img")) expect(r.inputs.find((i) => i.id === "size")?.perModel, r.id).toBe(true);
+  });
+
+  // Klein extended to an aspect ratio, the others by the sides (card #275): every outpaint does both now
+  it("outpaints by the sides or to an aspect ratio on every family", () => {
+    const outpaints = forms.filter((r) => PICTURE_DROPS.get(r.id)!.op === "outpaint");
+    expect(outpaints.map((r) => r.family).sort()).toEqual([...PICTURE_FAMILIES].filter((f) => f !== "qwen21").sort());
+    for (const r of outpaints) {
+      const v = r.variants[0]!;
+      const pads = (shape: string, more: Record<string, unknown> = {}) => {
+        const input = parseInput(r, { ...v.input, shape, ...more });
+        const built = r.build(input, dryContext({ slots: v.slots ?? {}, uploads: v.uploads ?? {}, media: { source: { width: 1000, height: 1000 } } }));
+        return Object.values(built.graph).find((n) => n.class_type === "ImagePadForOutpaint")!.inputs;
+      };
+      expect(pads("Widescreen 16:9"), r.id).toMatchObject({ left: 389, right: 389, top: 0, bottom: 0 });
+      expect(pads("Custom", { padLeft: 0, padRight: 256, padTop: 64, padBottom: 0 }), r.id).toMatchObject({ left: 0, right: 256, top: 64, bottom: 0 });
+      expect(() => pads("Square 1:1"), r.id).toThrow(/Square 1:1 already/);
+    }
   });
 
   it("calls the pictures an edit reads Reference images on every edit", () => {

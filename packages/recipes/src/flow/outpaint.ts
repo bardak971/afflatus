@@ -1,6 +1,6 @@
 import { defineRecipe, GraphBuilder, type Recipe, type Ref } from "@afflatus/core";
 import { pictureForm } from "../shared/pictureForm";
-import { OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, PASTE_BACK_NODES, pasteBack, stretchedFill, type OutpaintSettings } from "../sdxl/common";
+import { nothingToExtend, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, outpaintSides, PASTE_BACK_NODES, pasteBack, stretchedFill, type OutpaintSettings } from "../sdxl/common";
 import { INPAINT_PATCH_NODES, inpaintPatched, inpaintPatchNeeds, photo, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
 
 export interface FlowOutpaint extends FlowBase, OutpaintSettings { source: string; prompt: string }
@@ -38,11 +38,13 @@ export function flowOutpaint(spec: FlowSpec, kit: FlowKit): Recipe<FlowOutpaint>
     nodes: (input) => [...loadNodes(input).filter((n) => n !== "VAEDecode" && n !== "PreviewImage"), ...OUTPAINT_NODES, ...PASTE_BACK_NODES, "GrowMask", "VAEEncode", "SetLatentNoiseMask", ...(spec.hardInpaint ? [] : ["DifferentialDiffusion"])],
     ...(spec.inpaintPatch ? { needsWith: inpaintPatchNeeds(spec) } : {}),
     ...(SOMETIMES.length || spec.inpaintPatch ? { optionalNodes: [...SOMETIMES, ...(spec.inpaintPatch ? INPAINT_PATCH_NODES : [])] } : {}),
-    build(input, ctx) {
-      if (input.padLeft + input.padRight + input.padTop + input.padBottom === 0) throw new Error("Nothing to extend: set how far the picture grows on at least one side.");
+    build(form, ctx) {
+      const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
+      // by the sides set, or those that bring it to the aspect ratio picked
+      const input = outpaintSides(form, from);
+      if (input.padLeft + input.padRight + input.padTop + input.padBottom === 0) throw new Error(nothingToExtend(input));
       const g = new GraphBuilder();
       const k = load(g, input, ctx);
-      const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
       const whole = { width: from.width + input.padLeft + input.padRight, height: from.height + input.padTop + input.padBottom };
       const size = sizeOf(whole);
       const source = g.out("LoadImage", { image: ctx.uploads.source });
@@ -69,6 +71,7 @@ export function flowOutpaint(spec: FlowSpec, kit: FlowKit): Recipe<FlowOutpaint>
     },
     variants: [
       { name: "wider on both sides", input: { source: "p", prompt: "a" } as Partial<FlowOutpaint>, slots: files, uploads: { source: "s.png" }, media: { source: { width: 896, height: 1152 } } },
+      { name: "to 16:9, the picture in the middle", input: { source: "p", prompt: "a", shape: "Widescreen 16:9" } as Partial<FlowOutpaint>, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
       { name: "taller, a fine-tune with a LoRA", input: { source: "p", prompt: "a", padLeft: 0, padRight: 0, padTop: 256, padBottom: 0, ...tuned } as Partial<FlowOutpaint>, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
       // Turbo's branch: the LoRA put on, its steps at CFG 1 (the operations' other variants have no turbo file)
       ...(kit.turboFiles ? [{ name: "Turbo with its LoRA", input: { source: "p", prompt: "a", fast: true, turboSteps: 6 } as Partial<FlowOutpaint>, slots: kit.turboFiles, uploads: { source: "s.png" }, media: { source: { width: 896, height: 1152 } } }] : []),

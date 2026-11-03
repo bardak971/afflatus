@@ -29,7 +29,7 @@ export const PICTURE_ROWS: Record<PictureOp, readonly string[]> = {
   txt2img: ["prompt", "size", ...DETAIL, ...SAMPLING, ...HIRES],
   img2img: ["source", "prompt", "strength", ...SAMPLING],
   inpaint: ["source", "mask", "prompt", "strength", "maskGrow", "maskBlur", ...SAMPLING],
-  outpaint: ["source", "prompt", "padLeft", "padRight", "padTop", "padBottom", "feathering", ...SAMPLING],
+  outpaint: ["source", "prompt", "shape", "padLeft", "padRight", "padTop", "padBottom", "feathering", ...SAMPLING],
   upscale: ["source", "prompt", "upscaler", "factor", "refine", "strength", "colourMatch", ...TILES, ...SAMPLING],
   face: ["source", "prompt", "strength", ...FACE, ...SAMPLING],
   edit: ["source", "prompt", "references", ...SAMPLING],

@@ -69,7 +69,7 @@ export { saveVideo } from "./shared/out";
 export { AUDIO_LOCK, FACE_REFINE_MASK, FACE_REFINE_NODES, faceModelOf, faceRefined, faceRefineNeeds, faceRefineSkipped } from "./h3/faceRefine";
 export { h3Prompt, h3ReferencePrompt, isH3Layout } from "./h3/prompt";
 export { introduce, kleinSize } from "./klein/common";
-export { padsFor } from "./klein/recipes";
+export { padsFor } from "./sdxl/common";
 export type { H3Video } from "./h3/video";
 export type { SdxlTextToPicture } from "./sdxl/text-to-picture";
 export { RIFE_GET } from "./shared/finish";

@@ -1,8 +1,8 @@
 import { defineRecipe, GraphBuilder, roundTo, type InputSpec, type ReferenceValue, type Ref, type SizeValue } from "@afflatus/core";
 import { pictureForm } from "../shared/pictureForm";
 import {
-  boxOf, FACE_INPUTS, FACTOR_INPUT, HIRES_PASS_INPUTS, SAME_PASS, MASK_INPUTS, NO_FACE, MASK_NODES, maskParts, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_PREFER,
-  type FaceSettings, type MaskSettings, type RefineColourMatch, type UpscaleSettings,
+  boxOf, FACE_INPUTS, FACTOR_INPUT, HIRES_PASS_INPUTS, nothingToExtend, OUTPAINT_INPUTS, outpaintSides, SAME_PASS, shapeInput, MASK_INPUTS, NO_FACE, MASK_NODES, maskParts, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_PREFER,
+  type FaceSettings, type MaskSettings, type OutpaintSettings, type RefineColourMatch, type UpscaleSettings,
 } from "../sdxl/common";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { redrawInTiles, tileInputs, tileNodes, TILE_NODES, tilePass, inTiles, type TileSettings } from "../shared/tiles";
@@ -334,24 +334,10 @@ export const kleinPaintOver = pictureForm("inpaint", defineRecipe<KleinPaintOver
 
 // ---------------------------------------------------------------- another shape
 
-const SHAPES = ["Portrait 2:3", "Square 1:1", "Landscape 3:2", "Widescreen 16:9", "Portrait 9:16"];
 const EXTEND = "The plain grey areas at the edges of this picture are empty. Fill them by continuing the scene naturally beyond its edges: the same place, the same light, the same style. Everything already in the picture stays exactly the same.";
 
-/** The room to add around a picture to bring it to a shape, the picture staying in the middle. */
-export function padsFor(width: number, height: number, shape: string) {
-  const [a, b] = (/(\d+):(\d+)/.exec(shape)?.slice(1) ?? ["1", "1"]).map(Number) as [number, number];
-  const r = a / b;
-  if (width / height < r) {
-    const add = Math.round(height * r) - width;
-    return { left: Math.floor(add / 2), right: Math.ceil(add / 2), top: 0, bottom: 0, width: width + add, height };
-  }
-  const add = Math.round(width / r) - height;
-  return { left: 0, right: 0, top: Math.floor(add / 2), bottom: Math.ceil(add / 2), width, height: height + add };
-}
-
-interface KleinReshape extends KleinBase {
+interface KleinReshape extends KleinBase, Omit<OutpaintSettings, "feathering"> {
   source: string;
-  shape: string;
   prompt: string;
 }
 
@@ -375,19 +361,23 @@ export const kleinReshape = pictureForm("outpaint", defineRecipe<KleinReshape>({
   inputs: [
     kleinModel,
     { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
-    { id: "shape", type: "choice", label: "Aspect ratio", options: SHAPES, default: "Widescreen 16:9" },
     { id: "prompt", type: "prompt", label: "Prompt", note: "optional: what is around it. Left empty, the surroundings simply continue", style: "sentences", optional: true, default: "" },
+    // to an aspect ratio, as it always did, or by the sides as the other families' outpaint (card #275); its soft edge is its own
+    shapeInput("Widescreen 16:9"),
+    ...OUTPAINT_INPUTS.filter((i) => i.id.startsWith("pad")),
     ...kleinInputs,
   ],
   nodes: (input) => [
     ...LOAD_NODES(input), ...SAMPLE_NODES, ...REFERENCE_NODES, "ImagePadForOutpaint", "ImageScale", "MaskToImage", "ImageToMask", "EmptyFlux2LatentImage",
     "InvertMask", "ImageCompositeMasked", "PreviewImage",
   ],
-  build(input, ctx) {
+  build(form, ctx) {
+    const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
+    const input = outpaintSides(form, from);
+    if (input.padLeft + input.padRight + input.padTop + input.padBottom === 0) throw new Error(nothingToExtend(input));
+    const p = { left: input.padLeft, right: input.padRight, top: input.padTop, bottom: input.padBottom, width: from.width + input.padLeft + input.padRight, height: from.height + input.padTop + input.padBottom };
     const g = new GraphBuilder();
     const k = loadKlein(g, input, ctx);
-    const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
-    const p = padsFor(from.width, from.height, input.shape);
     const size = kleinSize(p);
     const source = g.out("LoadImage", { image: ctx.uploads.source });
     // a wide soft edge: the model's version of the picture is never exactly as light as the picture, and a narrow edge shows it
@@ -406,10 +396,11 @@ export const kleinReshape = pictureForm("outpaint", defineRecipe<KleinReshape>({
   variants: [
     { name: "a tall picture made wide", input: { source: "p" }, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
     { name: "a wide picture made tall, with words", input: { source: "p", shape: "Portrait 9:16", prompt: "a", loras: [{ file: "l.safetensors", weight: 1 }] }, slots: files, uploads: { source: "s.png" }, media: { source: { width: 1600, height: 900 } } },
+    { name: "by the sides, wider on the left", input: { source: "p", shape: "Custom", padLeft: 384, padRight: 0 }, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
   ],
 }), {
   ...KLEIN_DROPS,
-  ...Object.fromEntries(["padLeft", "padRight", "padTop", "padBottom", "feathering"].map((id) => [id, "Klein extends a picture to an aspect ratio, the picture in the middle, with a soft edge of its own"])),
+  feathering: "Klein's soft edge is set from the picture's size: the model's version of the picture is never exactly as light as it, and a narrow edge shows it",
 });
 
 // ---------------------------------------------------------------- twice as large
