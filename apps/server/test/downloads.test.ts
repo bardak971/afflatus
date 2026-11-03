@@ -294,12 +294,12 @@ describe("fetching a missing model file into ComfyUI", () => {
     await start(true);
     await on();
     const comfy = await t.services.comfy();
-    expect(t.services.queue.downloadingIn(comfy)).toBe(false);
+    expect(t.services.queue.deps.packs.downloadingIn(comfy)).toBe(false);
     const d = (await post(t.app, "/api/downloads", { file: "slow.safetensors", folder: "loras", url: `${siteUrl}/files/slow.safetensors` })).json();
     await until(async () => (await list()).items[0].bytes > 0);
-    expect(t.services.queue.downloadingIn(comfy)).toBe(true);
+    expect(t.services.queue.deps.packs.downloadingIn(comfy)).toBe(true);
     await t.app.inject({ method: "DELETE", url: `/api/downloads/${d.id}` });
-    expect(t.services.queue.downloadingIn(comfy)).toBe(false);
+    expect(t.services.queue.deps.packs.downloadingIn(comfy)).toBe(false);
   });
 
   it("is asked again as it was first asked, once stopped or failed (the bar's Download again)", async () => {

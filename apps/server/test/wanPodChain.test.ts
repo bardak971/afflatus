@@ -151,7 +151,7 @@ describe.skipIf(!ffmpegThere)("a Wan clip carrying on through SVI, queued on a p
   it("has SVI's LoRAs sent to the pod while the jobs before it render, and goes there only once they are in", async () => {
     const id = await deployed();
     const files = pretendFetch();
-    t.services.queue.podFetch = files.fetch;
+    t.services.queue.deps.pods.podFetch = files.fetch;
     const { ahead, first, second } = await series(id);
     // the job ahead renders on the pod; the clip after waits for the first clip, and its LoRAs are asked for meanwhile
     await until(() => pod.prompts.size === 1, 15_000);
@@ -185,7 +185,7 @@ describe.skipIf(!ffmpegThere)("a Wan clip carrying on through SVI, queued on a p
   it("is not released while the pod's folders list its LoRAs and its ComfyUI's node list does not offer them yet", async () => {
     const id = await deployed();
     const files = pretendFetch();
-    t.services.queue.podFetch = files.fetch;
+    t.services.queue.deps.pods.podFetch = files.fetch;
     // SVI's LoRAs in the pod's folder, not yet in the node list it was given (read before they came: it is kept ten minutes)
     pod.models.loras = [...pod.models.loras!, ...SVI];
     const comfy = (await t.services.machines()).find((m) => m.machine.id === id)!.comfy;

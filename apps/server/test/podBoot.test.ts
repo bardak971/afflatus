@@ -188,7 +188,7 @@ describe("a deployed pod's boot on its card, its row and its log tab", () => {
 
   it("a start that stops on an error is terminated at once, not billed to its boot limit; its card and its log say why", async () => {
     const told: Array<{ body: string }> = [];
-    t.services.rented.tell = (_kind, said) => void told.push(said);
+    t.services.rented.deps.tell = (_kind, said) => void told.push(said);
     runpod.bootFails = "putting in the node packs";
     const id = (await post(t.app, "/api/runpod/deploy", ASK)).json().id as string;
     const pod = runpod.pods[0]!;

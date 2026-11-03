@@ -181,7 +181,6 @@ export class RentedBilling extends RentedCore {
    * back over the line.
    */
   private async sayBalance(balance: number, key: string): Promise<void> {
-    if (!this.tell) return;
     const pace = await this.perDay(key);
     const line = Math.max(LOW_LINE, pace.pods + pace.storage);
     if (balance >= line) {
@@ -191,7 +190,7 @@ export class RentedBilling extends RentedCore {
     if (this.lowTold) return;
     this.lowTold = true;
     const said = line > LOW_LINE ? `, a day at this pace (the last week's pods ${usd(pace.pods)}, storage ${usd(pace.storage)})` : "";
-    this.tell("balanceLow", { title: `RunPod balance low: ${usd(balance)}`, body: `Under ${usd(line)}${said}. At $0 RunPod stops every pod, a render under way too.`, key: "balance" });
+    this.deps.tell("balanceLow", { title: `RunPod balance low: ${usd(balance)}`, body: `Under ${usd(line)}${said}. At $0 RunPod stops every pod, a render under way too.`, key: "balance" });
   }
 
   /**
@@ -208,7 +207,6 @@ export class RentedBilling extends RentedCore {
 
   /** A day's or a month's cap reached: told once for that day, once for that month. */
   protected sayCap(caps: { day: number; month: number }, spent: { today: number; month: number }): void {
-    if (!this.tell) return;
     const d = new Date(this.now());
     const reached = [
       { key: `day:${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`, cap: caps.day, spent: spent.today, said: "Today's", also: "" },
@@ -218,7 +216,7 @@ export class RentedBilling extends RentedCore {
     for (const r of reached) {
       if (r.cap <= 0 || r.spent < r.cap || this.capsTold.has(r.key)) continue;
       this.capsTold.add(r.key);
-      this.tell("capReached", { title: `${r.said} cap reached: ${usd(r.spent)} of ${usd(r.cap)}`, body: `The rented GPUs stop once their render ends, and Start is refused until the cap is raised or the period ends.${r.also}`, key: r.key });
+      this.deps.tell("capReached", { title: `${r.said} cap reached: ${usd(r.spent)} of ${usd(r.cap)}`, body: `The rented GPUs stop once their render ends, and Start is refused until the cap is raised or the period ends.${r.also}`, key: r.key });
     }
   }
 

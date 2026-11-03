@@ -7,7 +7,7 @@ import { ComfyUnreachable } from "@afflatus/comfy";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { newId, now, OWNER } from "../src/db";
 import { FFMPEG_TIMEOUT } from "./clipKit";
-import { CHECKPOINT, complete, FAST, get, job, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
+import { CHECKPOINT, complete, FAST, get, job, makeApp, post, queueDeps, referenceCatalog, until, type TestApp } from "./helpers";
 
 /**
  * The queue and the timeline edits it meets: a failed render that says where it failed, a lost render that is not rendered
@@ -132,7 +132,7 @@ describe("a render ComfyUI answered for but no longer had (it restarted)", () =>
   it("is queued again without saying its machine is offline", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const told: string[] = [];
-    t.services.queue.tell = (kind, n) => void told.push(`${kind}: ${n.title}`);
+    t.services.queue.deps.notices.tell = (kind, n) => void told.push(`${kind}: ${n.title}`);
     const id = (await post(t.app, "/api/jobs", job())).json().ids[0] as string;
     await until(async () => submitted().length === 1 && (await statusOf(id)).status === "running" && Boolean((await statusOf(id)).resume));
     // gone from its queue with no history: ComfyUI started again and dropped it, answering all along
@@ -314,8 +314,7 @@ describe.skipIf(!clipBytes)("a finish stopped by a restart, with several machine
   }
   const queueOf = async (expiryMs: number) => {
     const { Queue } = await import("../src/queue");
-    const q = new Queue(t.db, t.services.storage, () => t.services.machines(), t.services.registry, { ...FAST, offlineExpiryMs: expiryMs });
-    q.clips = t.services.queue.clips;
+    const q = new Queue(t.db, t.services.storage, () => t.services.machines(), t.services.registry, { ...FAST, offlineExpiryMs: expiryMs }, queueDeps(t));
     await q.start();
     return q;
   };

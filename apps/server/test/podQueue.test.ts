@@ -186,7 +186,7 @@ describe("a job whose model file a pod lacks", () => {
     rmSync(join(podDisk, "checkpoints", CHECKPOINT), { force: true });
     await post(t.app, `/api/setup/rescan?machine=${id}`, {});
     // its file takes ten minutes to reach the pod
-    t.services.queue.podFetch!.untilThere = async () => 10 * 60_000;
+    t.services.queue.deps.pods.podFetch.untilThere = async () => 10 * 60_000;
     const b = await enqueue({ prompt: "a dog" });
     // the plan sends it home (its file would take longer to reach the pod than home takes): the pod has no work
     expect(await t.services.queue.wants(id)).toBe(false);
@@ -455,7 +455,7 @@ describe("a job pinned to a pod still booting", () => {
     const id = await booting();
     // files that take long to come: asked for, never there during the test
     const want = vi.fn();
-    t.services.queue.podFetch = { fileState: () => null, failed: () => null, short: async () => null, untilThere: async () => 5 * 60_000, want, drop: () => {}, holdsFor: () => false, jobState: () => "waiting", holding: () => false, moving: () => false, stalled: () => null, failingPacks: () => new Map(), restartsFor: () => null };
+    t.services.queue.deps.pods.podFetch = { fileState: () => null, failed: () => null, short: async () => null, untilThere: async () => 5 * 60_000, want, drop: () => {}, holdsFor: () => false, jobState: () => "waiting", holding: () => false, moving: () => false, stalled: () => null, failingPacks: () => new Map(), restartsFor: () => null };
     const a = await pinned(id);
     await answers();
     await until(() => want.mock.calls.some(([m, , tier, j]) => m === id && tier === "need" && j === a));

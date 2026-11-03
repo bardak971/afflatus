@@ -7,7 +7,7 @@ import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import type { NodeCatalog } from "@afflatus/core";
 import { buildApp } from "../src/app";
 import { migrate, openSqlite, type Db } from "../src/db";
-import type { QueueOptions } from "../src/queue";
+import type { QueueDeps, QueueOptions } from "../src/queue";
 import { createServices, type Services } from "../src/services";
 import { writeSettings } from "../src/settings";
 import { LocalStorage } from "../src/storage";
@@ -23,6 +23,29 @@ export const FAST: QueueOptions = {
   // a pod's folders read again at once when its pack has a file they did not list (queueSubmit.ts podHeld)
   relistMs: 20,
 };
+
+/**
+ * The deps the app wired its queue with (services.ts), for a second Queue a test makes on the same services (Afflatus
+ * restarted): the same balance checks, token caps, pods' holds and notices, never none. Each group is copied, so that a
+ * stand-in a test puts on one queue stays on it. Rented stays attached to the app's queue: it follows the pods' work there.
+ */
+export function queueDeps(t: { services: Services }): QueueDeps {
+  const d = t.services.queue.deps;
+  return { money: { ...d.money }, pods: { ...d.pods }, packs: { ...d.packs }, notices: { ...d.notices }, clips: d.clips };
+}
+
+/**
+ * Money deps that let every job through: every machine available, no balance check, no token cap. For a test that wants
+ * that on purpose only, and says so by naming this: it is what a queue made without its deps did before QueueDeps.
+ */
+export function allowAllMoney(): QueueDeps["money"] {
+  return {
+    unavailable: () => null,
+    fitsBalance: () => ({ ok: true, leftMs: null }),
+    balanceNeed: async (_machine, _recipe, renderMs, fetchMs) => renderMs + fetchMs,
+    capHeld: async () => new Map(),
+  };
+}
 
 export const CHECKPOINT = "illustrious.safetensors";
 

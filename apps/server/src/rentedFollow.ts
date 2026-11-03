@@ -11,7 +11,7 @@ import { SEARCHED_FOLDERS } from "./modelSets";
 import { noteFill, recordHoldings } from "./rentedVolumes";
 import { machineSaid } from "./notifyWords";
 import { machinesSetAside, readSettings, updateSettings, type Machine, type MachineSetAside, type Settings } from "./settings";
-import { resetRun, type RentedView, type Seen } from "./rentedModel";
+import { resetRun, type PodFilesLeft, type RentedView, type Seen } from "./rentedModel";
 import { capReached, HOUR, RentedBilling } from "./rentedBilling";
 import { overrunAllowed } from "./queueModel";
 
@@ -132,11 +132,6 @@ export class RentedFollow extends RentedBilling {
   /** How often RunPod is read: every `everyMs`, every `fastMs` while a pod is starting or stopping. */
   everyMs = 20_000;
   fastMs = 3_000;
-  /**
-   * Lock a pod's ComfyUI (lock-api.ts lockMachine): a rented machine is reached at a public address, so one that came up
-   * unlocked (RunPod did not take the token for its start) is locked as soon as it is up, when its node pack can.
-   */
-  lockPod: ((machine: string) => Promise<unknown>) | null = null;
 
   /** How long a render on a pod may stay silent before it is failed as stuck (STUCK_MS; shorter in tests). */
   stuckMs = STUCK_MS;
@@ -154,9 +149,6 @@ export class RentedFollow extends RentedBilling {
   }
 
   private running = false;
-
-  /** Whether work from outside Afflatus is being timed on a pod (podOutside.ts; set by services.ts): its queue is read at each pass then. */
-  outsideTimed: (machine: string) => boolean = () => false;
 
   /** The next read in `ms`, the one waiting put off: a pod just started or stopped is followed at the fast pace at once. */
   private kick(ms: number): void {
@@ -181,17 +173,6 @@ export class RentedFollow extends RentedBilling {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
   }
-
-  /** A deployed pod answered for the first time: the files its deploy asked for, and the ones it left out (services.ts hands them to podFiles). */
-  onUp: ((machine: string, files: PresetFile[], leaveOut: Array<{ file: string; folder: string }>) => void) | null = null;
-
-  /** What a pod was getting forgotten (podFiles.ts forget), its machine taken out; set by services.ts. */
-  forgetFiles: ((machine: string) => void) | null = null;
-  /**
-   * The files a machine's pod still waits for (how many, their names), all it was given, the bytes in so far, and those that
-   * failed (services.ts: podFiles).
-   */
-  filesLeft: ((machine: string) => { left: number; total: number; bytes: number; waiting: string[]; failed: Array<{ file: string; error: string }> }) | null = null;
 
   /** When each pod last listed its volume's folders (ms), by machine and volume: at most every VOLUME_LIST_MS, a new pod at its first answer. */
   private volumeListed = new Map<string, number>();
@@ -233,18 +214,12 @@ export class RentedFollow extends RentedBilling {
   }
 
   /**
-   * Whether an MCP token's spend cap is reached (mcpTokens.ts, set by services.ts): a pod whose run that token started stops
-   * as at the app's caps, once its render ends. Never reached by default (no token).
-   */
-  tokenCapped: (token: string) => Promise<boolean> = async () => false;
-
-  /**
    * Whether the token that started this pod's run has reached its cap: a token's cap holds over the pod it started. A cap
    * that cannot be read counts as reached: better a pod stopped once its render ends than one billing past what its token
    * may spend (a money path).
    */
   private async overTokenCap(m: Machine): Promise<boolean> {
-    return m.rented?.mcpToken ? this.tokenCapped(m.rented.mcpToken).catch((err) => {
+    return m.rented?.mcpToken ? this.deps.tokenCapped(m.rented.mcpToken).catch((err) => {
       console.warn(`[rented] ${m.name || m.id}: its MCP token's spend cap could not be read, counted as reached:`, (err as Error).message);
       return true;
     }) : false;
@@ -416,7 +391,7 @@ export class RentedFollow extends RentedBilling {
         const ok = await client.act(pod.id, "terminate").then(() => true, (err: Error) => (console.warn(`[rented] ${pod.name}, deployed and not followed, not terminated (${err.message}): asked again at the next read`), false));
         if (!ok) continue;
         console.log(`[rented] ${pod.name} terminated: Afflatus deployed it and lost it before following it`);
-        this.tell?.("podStopped", { title: `${pod.name} terminated`, body: "Why: Afflatus lost its deploy before following it (it stopped mid-deploy, or RunPod's answer was lost), so nothing here would have stopped it.", key: `pending:${pod.id}` });
+        this.deps.tell("podStopped", { title: `${pod.name} terminated`, body: "Why: Afflatus lost its deploy before following it (it stopped mid-deploy, or RunPod's answer was lost), so nothing here would have stopped it.", key: `pending:${pod.id}` });
         done.push({ ...p, pod: pod.id });
         continue;
       }
@@ -610,7 +585,7 @@ export class RentedFollow extends RentedBilling {
       if (Number.isFinite(deployedAt)) await recordMeasure(this.db, { kind: "boot", cloud: m.rented!.cloud ?? null, bytes: 0, ms: this.now() - deployedAt }).catch(() => {});
       const { files, leaveOut, fill } = m.rented!;
       await updateSettings(this.db, (current) => ({ machines: current.machines.map((x) => (x.id === m.id && x.rented ? { ...x, rented: { ...x.rented, deployedAt: "", ...(fill ? {} : { files: [], leaveOut: [] }) } } : x)) }));
-      if (!fill && (files.length || leaveOut.length)) this.onUp?.(m.id, files, leaveOut);
+      if (!fill && (files.length || leaveOut.length)) this.deps.onUp(m.id, files, leaveOut);
     }
     // up this long and its ComfyUI never answered: its container failed to start, or ComfyUI on it did; billed for nothing.
     // A deployed pod's first boot counts from its deploy (its image pulled first); one that never came up is terminated
@@ -621,9 +596,9 @@ export class RentedFollow extends RentedBilling {
       return true;
     }
     // up and open (RunPod did not take its token for the start, or it was added running): locked now, once a session
-    if (answers && !s.lockTried && this.lockPod && (await this.isOpen(m))) {
+    if (answers && !s.lockTried && (await this.isOpen(m))) {
       s.lockTried = true;
-      await this.lockPod(m.id).catch((err: Error) => console.warn(`[rented] ${m.name || m.id} not locked: ${err.message}`));
+      await this.deps.lockPod(m.id).catch((err: Error) => console.warn(`[rented] ${m.name || m.id} not locked: ${err.message}`));
     }
     if (answers && pod?.volumeId) void this.noteVolume(m, pod.volumeId);
     if (m.rented!.fill && (await this.followFill(m, s, pod, answers))) return true;
@@ -646,16 +621,16 @@ export class RentedFollow extends RentedBilling {
     s.busyAt = now;
     // a fill always brings files (Fill refuses a set without): none kept means what it was to fetch is not known any more
     if (!files.length) return this.cutFill(m, s, "what it was to fetch was not known any more");
-    let got = this.filesLeft?.(m.id) ?? null;
+    let got = this.deps.filesLeft(m.id);
     // handed once in this run of Afflatus, and again when podFiles has nothing of it (a pod seen down a moment is forgotten
     // there): an empty view is never read as all in
-    if (!s.handed || got?.total === 0) {
+    if (!s.handed || got.total === 0) {
       s.handed = true;
       s.fillProgress = null;
-      this.onUp?.(m.id, files, leaveOut);
-      got = this.filesLeft?.(m.id) ?? null;
+      this.deps.onUp(m.id, files, leaveOut);
+      got = this.deps.filesLeft(m.id);
     }
-    if (!got || got.total === 0) return false;
+    if (got.total === 0) return false;
     const progress = `${got.left}|${got.bytes}|${got.failed.length}`;
     if (progress !== s.fillProgress) {
       s.fillProgress = progress;
@@ -684,11 +659,11 @@ export class RentedFollow extends RentedBilling {
    * How a fill ended when its pod was terminated before its files were in, kept with its volume: interrupted, with why, the
    * files that failed and those that never came. Never "all in".
    */
-  private async noteCut(m: Machine, s: Seen, why: RentedView["stoppedBy"], got: ReturnType<NonNullable<RentedFollow["filesLeft"]>> | null): Promise<void> {
+  private async noteCut(m: Machine, s: Seen, why: RentedView["stoppedBy"], got: PodFilesLeft): Promise<void> {
     const volume = m.rented!.volume;
     if (!volume) return;
     const said = (why === "cut" ? s.cutWhy : why ? FILL_CUT[why] : null) ?? "its pod was terminated";
-    const failed = [...(got?.failed ?? []), ...(got?.waiting ?? []).map((file) => ({ file, error: "not fetched: the fill was cut short" }))];
+    const failed = [...got.failed, ...got.waiting.map((file) => ({ file, error: "not fetched: the fill was cut short" }))];
     await noteFill(this.db, volume, failed, this.now(), said).catch(() => {});
     console.log(`[rented] ${m.name || m.id}: its fill was cut short (${said})`);
   }
@@ -914,7 +889,7 @@ export class RentedFollow extends RentedBilling {
     }
     died.told = true;
     this.events.emit("queue");
-    this.tell?.("comfyGone", { title: `${machineSaid(m)}: ComfyUI died`, body: `${died.said}.${died.render ? " Its render failed, not run again." : ""} A pod added by hand is not terminated by Afflatus: it is still billed.`, key: `${m.id}:crash` });
+    this.deps.tell("comfyGone", { title: `${machineSaid(m)}: ComfyUI died`, body: `${died.said}.${died.render ? " Its render failed, not run again." : ""} A pod added by hand is not terminated by Afflatus: it is still billed.`, key: `${m.id}:crash` });
   }
 
   /**
@@ -1150,7 +1125,7 @@ export class RentedFollow extends RentedBilling {
     s.hung = `${why}. It takes no job until that render leaves its ComfyUI: restart its ComfyUI (a pod added by hand is not terminated by Afflatus)`;
     console.warn(`[rented] ${m.name || m.id}: ${why} (prompt ${hung})`);
     this.events.emit("queue");
-    this.tell?.("renderStuck", { title: `${machineSaid(m)}: ComfyUI hung`, body: `${why}. It takes no job until it leaves; a pod added by hand is not terminated by Afflatus: restart its ComfyUI, or stop the pod.`, key: `${m.id}:hung` });
+    this.deps.tell("renderStuck", { title: `${machineSaid(m)}: ComfyUI hung`, body: `${why}. It takes no job until it leaves; a pod added by hand is not terminated by Afflatus: restart its ComfyUI, or stop the pod.`, key: `${m.id}:hung` });
   }
 
   /** Idle long enough, or a cap reached once its render ends: stopped (or deleted, as its idle choice says). */
@@ -1188,7 +1163,7 @@ export class RentedFollow extends RentedBilling {
     if (running || (!s.answered && !s.busyRestored) || this.queue.fetching(m.id) || (answers && ((await this.queue.wants(m.id)) || (await outside())))) s.busyAt = now;
     // While its ComfyUI's work from outside Afflatus is being timed (podOutside.ts), its queue is read at every pass all the
     // same, Afflatus's own work there or not: the stretch is kept to this pass's sight of it, not closed early at an older one
-    if (answers && !outsideRead && this.outsideTimed(m.id)) await this.queue.busyOutside(m.id);
+    if (answers && !outsideRead && this.deps.outsideTimed(m.id)) await this.queue.busyOutside(m.id);
     // set when it was first seen running (follow), from what was kept across a restart of Afflatus
     s.busyAt ??= now;
     await this.keepBusy(m, s);
@@ -1232,7 +1207,6 @@ export class RentedFollow extends RentedBilling {
 
   /** A pod Afflatus stopped or terminated on its own: why, and what its run cost. */
   private async sayStopped(m: Machine, s: Seen, action: "stop" | "terminate", why: Exclude<NonNullable<RentedView["stoppedBy"]>, "you">): Promise<void> {
-    if (!this.tell) return;
     const because: Record<typeof why, string> = {
       idle: `idle ${m.rented!.idleMinutes} min`,
       cap: "a spending cap was reached",
@@ -1245,7 +1219,7 @@ export class RentedFollow extends RentedBilling {
       cut: `its fill was cut short: ${s.cutWhy ?? "it stopped moving"}`,
     };
     const cost = await this.lastRunCost(m);
-    this.tell("podStopped", { title: `${machineSaid(m)} ${action === "terminate" ? "terminated" : "stopped"}`, body: `Why: ${because[why]}.${cost !== null ? ` This run: ${usd(cost)}.` : ""}`, key: `${m.id}:${why}` });
+    this.deps.tell("podStopped", { title: `${machineSaid(m)} ${action === "terminate" ? "terminated" : "stopped"}`, body: `Why: ${because[why]}.${cost !== null ? ` This run: ${usd(cost)}.` : ""}`, key: `${m.id}:${why}` });
   }
 
   /**
@@ -1260,7 +1234,7 @@ export class RentedFollow extends RentedBilling {
     this.seen.delete(m.id);
     this.boots.forget(m.id);
     // what it was getting goes with it now: once its machine is out, nothing reads it as down any more
-    this.forgetFiles?.(m.id);
+    this.deps.forgetFiles(m.id);
     this.events.emit("setup");
   }
 
@@ -1268,7 +1242,7 @@ export class RentedFollow extends RentedBilling {
   protected async act(m: Machine, action: "start" | "stop" | "terminate", why: RentedView["stoppedBy"], again = false): Promise<void> {
     const s = this.seenOf(m.id);
     // what a fill cut short still waited for, read before its pod goes (podFiles forgets a pod being stopped)
-    const fillLeft = action === "terminate" && m.rented!.fill && why !== "filled" ? this.filesLeft?.(m.id) ?? null : undefined;
+    const fillLeft = action === "terminate" && m.rented!.fill && why !== "filled" ? this.deps.filesLeft(m.id) : undefined;
     // a read under way is not taken over this, and a stopping pod takes no new work from now (asked again: no second stop)
     s.epoch++;
     // a start is not a stop under way any more

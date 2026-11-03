@@ -99,36 +99,36 @@ export interface PodFetch {
   restartsFor(job: string): string | null;
 }
 
-/** A rented pod's files as the queue reads them, from podFiles.ts. */
-export function podFetchOf(files: Pick<PodFiles, "fileState" | "failed" | "failedPacks" | "failingPacks" | "short" | "untilThere" | "want" | "wantPacks" | "jobState" | "holding" | "moving" | "stalled" | "dropUnsought" | "holdsFor" | "restartsFor">): PodFetch {
+/** A rented pod's files as the queue reads them, from podFiles.ts: `filesOf` is read at each call, the pods' files being made after the queue (services.ts). */
+export function podFetchOf(filesOf: () => Pick<PodFiles, "fileState" | "failed" | "failedPacks" | "failingPacks" | "short" | "untilThere" | "want" | "wantPacks" | "jobState" | "holding" | "moving" | "stalled" | "dropUnsought" | "holdsFor" | "restartsFor">): PodFetch {
   return {
-    fileState: (machine, f) => files.fileState(machine, f.folder, f.file),
-    short: (machine, list) => files.short(machine, list),
-    failed: (machine, list, packs = []) => list.map((f) => files.failed(machine, f.folder, f.file)).find((why) => why !== null) ?? files.failedPacks(machine, packs),
-    untilThere: (machine, list, packs) => files.untilThere(machine, list, packs),
+    fileState: (machine, f) => filesOf().fileState(machine, f.folder, f.file),
+    short: (machine, list) => filesOf().short(machine, list),
+    failed: (machine, list, packs = []) => list.map((f) => filesOf().failed(machine, f.folder, f.file)).find((why) => why !== null) ?? filesOf().failedPacks(machine, packs),
+    untilThere: (machine, list, packs) => filesOf().untilThere(machine, list, packs),
     want: (machine, list, tier, job, packs) => {
-      files.want(machine, list, { tier, ...(tier === "need" ? { job } : {}), sentFor: job });
-      if (tier === "need" && packs?.length) files.wantPacks(machine, packs, job);
+      filesOf().want(machine, list, { tier, ...(tier === "need" ? { job } : {}), sentFor: job });
+      if (tier === "need" && packs?.length) filesOf().wantPacks(machine, packs, job);
     },
-    drop: (machine, mayRun) => files.dropUnsought(machine, mayRun),
-    holdsFor: (machine, job) => files.holdsFor(machine, job),
-    jobState: (machine, job, only) => files.jobState(machine, job, only)?.state ?? null,
-    holding: (machine) => files.holding(machine),
-    moving: (machine) => files.moving(machine),
-    stalled: (machine, job, list, packs) => files.stalled(machine, job, list, packs),
-    failingPacks: (machine) => files.failingPacks(machine),
-    restartsFor: (job) => files.restartsFor(job),
+    drop: (machine, mayRun) => filesOf().dropUnsought(machine, mayRun),
+    holdsFor: (machine, job) => filesOf().holdsFor(machine, job),
+    jobState: (machine, job, only) => filesOf().jobState(machine, job, only)?.state ?? null,
+    holding: (machine) => filesOf().holding(machine),
+    moving: (machine) => filesOf().moving(machine),
+    stalled: (machine, job, list, packs) => filesOf().stalled(machine, job, list, packs),
+    failingPacks: (machine) => filesOf().failingPacks(machine),
+    restartsFor: (job) => filesOf().restartsFor(job),
   };
 }
 
-/** What the plan reads of the queue: its machines' lanes and the queue's own checks, read at each call (services.ts sets some after the queue is made). */
+/** What the plan reads of the queue: its machines' lanes and the queue's own checks (its QueueDeps among them), read at each call. */
 interface PlanDeps {
   db: Db;
   registry: Registry;
   machineLanes(): Lane[];
   lane(id: string): Lane | undefined;
   unavailable(machine: string): string | null;
-  readonly podFetch: PodFetch | null;
+  readonly podFetch: PodFetch;
   heldOn(r: JobRow): string | null;
   allPaused(): boolean;
   retryLater(): void;
@@ -146,11 +146,11 @@ interface PlanDeps {
   /**
    * The jobs among these, queued by an MCP token with Spend, that no rented pod takes this pass, each with why: the token's
    * spend cap has no room for it beside its running work and the waiting work ahead of it, or a pod's price is not known
-   * yet (mcpRender.ts capHeld). Set by services.ts; null: none is held.
+   * yet (mcpRender.ts capHeld).
    */
-  readonly capHeld: ((rows: ReadonlyArray<Pick<JobRow, "id" | "mcp_token_id">>) => Promise<Map<string, string>>) | null;
-  /** What each rented pod not up holds or fetches, by pod id (filePlaces.ts downPodFiles); null: none is known. */
-  readonly podsHold: (() => Promise<Map<string, Set<string>>>) | null;
+  readonly capHeld: (rows: ReadonlyArray<Pick<JobRow, "id" | "mcp_token_id">>) => Promise<Map<string, string>>;
+  /** What each rented pod not up holds or fetches, by pod id (filePlaces.ts downPodFiles). */
+  readonly podsHold: () => Promise<Map<string, Set<string>>>;
 }
 
 /** Why a job queued by an MCP token without Spend goes to no rented pod (its Queue row says it). */
@@ -180,7 +180,7 @@ export class Planner {
     const out = new Map<string, string>(rows.filter((r) => r.mcp_token_id && !spends.has(r.mcp_token_id)).map((r) => [r.id, NO_SPEND]));
     const spending = rows.filter((r) => r.mcp_token_id && spends.has(r.mcp_token_id));
     // a cap that cannot be read holds them all: better a job waiting than one billed past what its token may spend
-    const held = spending.length ? await (this.d.capHeld?.(spending) ?? Promise.resolve(new Map<string, string>())).catch((err) => {
+    const held = spending.length ? await this.d.capHeld(spending).catch((err) => {
       console.warn("[queue] a token's spend cap could not be read:", (err as Error).message);
       return new Map(spending.map((r) => [r.id, CAP_UNREAD] as const));
     }) : new Map<string, string>();
@@ -254,7 +254,7 @@ export class Planner {
     // per clip, a ComfyUI that accepted and never answered held the Queue screen 60 s per clip, minutes on end, and one away
     // was asked once per clip at every read (the 2026-10-22 review, H-3 and M-10)
     // what the pods not up hold, read once a pass and only when one is down
-    const held = lanes.some((l) => l.machine!.rented && this.d.unavailable(l.id)) && this.d.podsHold
+    const held = lanes.some((l) => l.machine!.rented && this.d.unavailable(l.id))
       ? await this.d.podsHold().catch(() => new Map<string, Set<string>>())
       : new Map<string, Set<string>>();
     const official = new Set(families.flatMap((f) => (f.slots ?? []).flatMap((x) => (x.get ? [fileKey({ folder: x.folder, file: x.get.file })] : []))));
@@ -312,11 +312,11 @@ export class Planner {
         const lack = !asked ? null : recipe ? lackOn(recipe, input, asked, settings, machines.get(lane.id) ?? lane.machine!, familyOf, loaded) : loaded ? toolLackOn(loaded, toolSlots(this.d.registry), machines.get(lane.id) ?? lane.machine!) : null;
         // a pod that lacks only files it can be sent: it can run the job once they came, their time to come part of what the
         // balance must last
-        const fits = Boolean(lack?.sendable && lane.machine!.rented && this.d.podFetch && !this.d.podFetch.failed(lane.id, lack.files, lack.packs));
+        const fits = Boolean(lack?.sendable && lane.machine!.rented && !this.d.podFetch.failed(lane.id, lack.files, lack.packs));
         // files that do not fit on its disk (beside what it could delete): the job goes elsewhere, and its row says why
-        const short = fits ? await this.d.podFetch!.short(lane.id, lack!.files) : null;
+        const short = fits ? await this.d.podFetch.short(lane.id, lack!.files) : null;
         const sendable = fits && !short;
-        const fetchMs = sendable ? await this.d.podFetch!.untilThere(lane.id, lack!.files, lack!.packs) : 0;
+        const fetchMs = sendable ? await this.d.podFetch.untilThere(lane.id, lack!.files, lack!.packs) : 0;
         const balance = await this.balanceLack(r, lane, fetchMs);
         // a machine of the user's own that lacks only node packs its Manager can install: it runs the job once they are in
         // (queuePacks.ts, its rule or its row's Install), the time they take counted as a pod's files are
@@ -352,7 +352,7 @@ export class Planner {
           if (!pin || pin === lane.id) fetch[lane.id] = { files: lack.files, ...(lack.packs ? { packs: lack.packs } : {}), ms: fetchMs };
           return;
         }
-        const failed = short ?? (lack?.sendable && lane.machine!.rented && this.d.podFetch ? this.d.podFetch.failed(lane.id, lack.files, lack.packs) : null);
+        const failed = short ?? (lack?.sendable && lane.machine!.rented ? this.d.podFetch.failed(lane.id, lack.files, lack.packs) : null);
         if (lack || balance) lacks[lane.id] = { ...(lack ?? { off: false, files: [], sendable: false }), ...(balance ? { balance } : {}), ...(failed ? { failed } : {}) };
         else can.add(lane.id);
       }));
@@ -466,7 +466,6 @@ export class Planner {
    */
   sendFiles(rows: JobRow[], able: ReadonlyMap<string, Able>, where: ReadonlyMap<string, { lane: string }>): Map<string, Set<string>> {
     const sent = new Map<string, Set<string>>();
-    if (!this.d.podFetch) return sent;
     const all = this.d.allPaused();
     const planned = new Set([...where.values()].map((w) => w.lane));
     const idle = (id: string) => {
@@ -478,7 +477,7 @@ export class Planner {
       sent.set(r.id, lanes);
       const fetch = able.get(r.id)?.fetch ?? {};
       // a pod not judged this pass keeps what it holds for the job, which goes ahead nowhere else meanwhile
-      const kept = [...(able.get(r.id)?.unjudged ?? [])].filter((lane) => this.d.podFetch!.holdsFor(lane, r.id));
+      const kept = [...(able.get(r.id)?.unjudged ?? [])].filter((lane) => this.d.podFetch.holdsFor(lane, r.id));
       for (const lane of kept) lanes.add(lane);
       const on = where.get(r.id)?.lane;
       const need = on ? fetch[on] : undefined;
@@ -495,7 +494,7 @@ export class Planner {
       if (!pinned && kept.length) continue;
       // planned on a machine of the user's own, or placed nowhere (all paused) while one of them could run it: the plan means it for no pod
       if (!pinned && (on || [...(able.get(r.id)?.can ?? [])].some((id) => !this.d.lane(id)?.machine?.rented))) continue;
-      const ahead = pinned ?? may.find((lane) => this.d.podFetch!.holdsFor(lane, r.id)) ?? may.find(idle);
+      const ahead = pinned ?? may.find((lane) => this.d.podFetch.holdsFor(lane, r.id)) ?? may.find(idle);
       if (ahead) {
         this.d.podFetch.want(ahead, fetch[ahead]!.files, "ahead", r.id);
         lanes.add(ahead);
@@ -513,7 +512,6 @@ export class Planner {
    */
   sendAfter(rows: JobRow[], able: ReadonlyMap<string, Able>, boundFor: (r: JobRow) => string | undefined): Map<string, Set<string>> {
     const sent = new Map<string, Set<string>>();
-    if (!this.d.podFetch) return sent;
     for (const r of rows) {
       const lane = boundFor(r);
       const fetch = lane ? able.get(r.id)?.fetch[lane] : undefined;
@@ -533,7 +531,6 @@ export class Planner {
    * of that pod (one not answering for a pass had them stopped and fetched again from zero).
    */
   dropUnsought(active: ReadonlyArray<Pick<JobRow, "id" | "pin_machine">>, sent: ReadonlyMap<string, ReadonlySet<string>>): void {
-    if (!this.d.podFetch) return;
     const jobs = new Map(active.map((r) => [r.id, r.pin_machine]));
     for (const lane of this.d.machineLanes()) {
       if (!lane.machine?.rented) continue;
@@ -559,7 +556,7 @@ export class Planner {
     // what the plan sends it for now, not every file it was ever sent for there: one it no longer lacks, failed before, held
     // it for good, the pod billed (card #93). Nothing left to send: there
     if (!fetch.files.length && !fetch.packs?.length) return true;
-    return this.d.podFetch?.jobState(lane.id, r.id, fetch.files) === "ready";
+    return this.d.podFetch.jobState(lane.id, r.id, fetch.files) === "ready";
   }
 
   /**

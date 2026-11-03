@@ -187,39 +187,104 @@ export async function createServices(
     await installNodePack(found).catch((err: Error) => console.warn(`[node-pack] not written: ${err.message}`));
     return written;
   })().finally(() => (looking = null)));
-  const queue = new Queue(db, storage, machines, registry, queueOptions);
+  // a pod's time at work queued in its ComfyUI from outside Afflatus, kept for Queue › Costs: used, not idle
+  const podOutside = new PodOutside(db);
+  // What the rented pods and the queue ask of the rest of the app is given at construction (RentedDeps, QueueDeps): none
+  // can be left out, and none fails open. Some name what is made further down (the pods' files, the downloads, the
+  // timelines, the services): they are called once the queue works. A pass that came before them would fail, be logged and
+  // be tried again (queue.ts pump), never let through unchecked.
+  // a rented pod that is not running takes no work, and its row says what it is and costs
+  const rented = new Rented(db, async (id) => (await machines()).find((m) => m.machine.id === id)?.comfy ?? null, {
+    tell: (kind, notice) => notify.say(kind, notice),
+    // a pod whose run a token started (deploy_pod, start_pod) stops once that token's cap is reached, as at the app's caps
+    // A token gone from the list (revoked a month ago, its activity let go) has no cap left to hold the pod to: counted as
+    // reached, so that nothing keeps that pod billing (the user's own Start makes the run theirs again, rented.ts start)
+    tokenCapped: async (id) => {
+      const token = await services.mcp.tokens.get(id);
+      return token === null || (await services.mcp.tokens.spentThisMonth(id)) >= token.spendCapCents / 100;
+    },
+    // a pod up and not locked is locked (its address is public)
+    lockPod: (id) => lockMachine({ db, queue, machines }, id, { local: false, renew: false }),
+    outsideTimed: (id) => podOutside.timing(id),
+    // a deployed pod up: the files its deploy asked for come after what its jobs wait for; the ones left out never come
+    onUp: (id, files, leaveOut) => {
+      podFiles.leaveOut(id, leaveOut);
+      podFiles.want(id, files.map(({ file, folder, url, civitai, size }) => ({ file, folder, ...(url ? { url } : {}), ...(civitai ? { civitai } : {}), ...(size ? { size } : {}) })), { tier: "ahead" });
+    },
+    forgetFiles: (id) => podFiles.forget(id),
+    filesLeft: (id) => {
+      const files = podFiles.view(id);
+      const waiting = files.filter((f) => f.state === "next" || f.state === "fetching");
+      return { left: waiting.length, total: files.length, bytes: files.reduce((n, f) => n + f.bytes, 0), waiting: waiting.map((f) => f.file), failed: files.filter((f) => f.state === "failed").map((f) => ({ file: f.file, error: f.error ?? "failed" })) };
+    },
+  });
+  const UNDER_WAY = new Set(["starting", "downloading", "saving"]);
+  const queue = new Queue(db, storage, machines, registry, queueOptions, {
+    money: {
+      unavailable: (id) => rented.unavailable(id),
+      fitsBalance: (ms) => rented.fitsBalance(ms),
+      balanceNeed: (machine, recipeId, renderMs, fetchMs) => rented.balanceNeed(machine, recipeId, renderMs, fetchMs),
+      // a token with Spend has its jobs handed to a pod only while its cap has room (a money path: mcpRender.ts capHeld)
+      capHeld: (rows) => capHeld(services, rows),
+    },
+    pods: {
+      podFetch: podFetchOf(() => podFiles),
+      // a job whose files a stopped pod holds waits for that pod, its row offering Start (filePlaces.ts, card #139)
+      podsHold: async () => downPodFiles(services, (await readSettings(db)).machines),
+      // with none of the user's machines listing a file, a pod on its way is still sent it: a render is not refused then
+      podComing: async () => Boolean(services.hunt?.view().hunt) || (await readSettings(db)).pendingDeploys.length > 0,
+      // a pod's row says the files it is getting
+      rentedOf: (m) => {
+        const row = rented.view(m);
+        return row ? { ...row, files: podFiles.view(m.id), packs: podFiles.packsView(m.id), disk: podFiles.diskOf(m.id) } : null;
+      },
+      // a ComfyUI of its own's row says the model files downloading into it (a set's Fill, a missing model's Download), as a
+      // pod's are said: it is getting files, not idle
+      downloadsOf: (m, first) =>
+        downloads.list().filter((d) => UNDER_WAY.has(d.status) && (d.machine ? d.machine === m.id : first)).map((d) => ({
+          file: d.file, folder: d.folder, state: d.status === "starting" ? "next" : "fetching", tier: "ahead", bytes: d.bytes, total: d.total, jobs: [],
+        })),
+      // a pod's ComfyUI found started again without its render (an older image's death): the pod is terminated as a crash
+      podCrashed: (id, why) => rented.podCrashed(id, why),
+      // a render lost on a deployed pod: its death asked of the pod before it goes again (a crash seen late was run again elsewhere)
+      diedLate: (id) => rented.diedLate(id),
+      // a ComfyUI that answers nothing while it renders: its process asked of (its port, its pod) before it is said offline or
+      // its render lost; one still running is swamped, and its render followed on
+      stillRuns: (m, memory) => stillRuns(m, (id) => rented.comfyRuns(id), memory),
+    },
+    packs: {
+      // the node packs renders ask for are installed by each ComfyUI's Manager: one without it does without them (queuePacks.ts);
+      // one that did not answer is not known to lack it (null), and its jobs wait for a real answer
+      managerOf: async (comfy) => {
+        const m = await downloads.manager(comfy);
+        return m.unknown ? null : m.found;
+      },
+      // and a restart for them waits for the downloads that run in that ComfyUI's process
+      downloadingIn: (comfy) => downloads.runsIn(comfy),
+    },
+    notices: {
+      tell: (kind, notice) => notify.say(kind, notice),
+      onOutside: (id, outside) => podOutside.note(id, outside),
+      // the hunt is made once the services are: no summary before
+      huntOf: (held) => services.hunt?.summary(held) ?? null,
+    },
+    // the timelines are made with the queue's events, after it
+    get clips() {
+      return timelines;
+    },
+  });
+  rented.attach(queue);
   queue.events.on("models", () => {
     info = null;
   });
-  // a rented pod that is not running takes no work, and its row says what it is and costs
-  const rented = new Rented(db, queue, queue.events, async (id) => (await machines()).find((m) => m.machine.id === id)?.comfy ?? null);
-  queue.unavailable = (id) => rented.unavailable(id);
-  queue.fitsBalance = (ms) => rented.fitsBalance(ms);
-  queue.balanceNeed = (machine, recipeId, renderMs, fetchMs) => rented.balanceNeed(machine, recipeId, renderMs, fetchMs);
-  // a pod up and not locked is locked (its address is public)
-  rented.lockPod = (id) => lockMachine({ db, queue, machines }, id, { local: false, renew: false });
-  // a pod's time at work queued in its ComfyUI from outside Afflatus, kept for Queue › Costs: used, not idle
-  const podOutside = new PodOutside(db);
-  queue.onOutside = (id, outside) => podOutside.note(id, outside);
-  rented.outsideTimed = (id) => podOutside.timing(id);
-  rented.run();
   // a render's end, a pod stopped, a cap: told where the user asked (notify.ts), never in the way of what it is about
   const notify = new Notify({ db, storage, registry, events: queue.events, stillFor: () => queue.stillFor(), batchCost: (from, to, notBefore) => rented.batchCost(from, to, notBefore) });
-  queue.tell = rented.tell = (kind, notice) => notify.say(kind, notice);
-  // a pod's ComfyUI found started again without its render (an older image's death): the pod is terminated as a crash
-  queue.podCrashed = (id, why) => rented.podCrashed(id, why);
-  // a render lost on a deployed pod: its death asked of the pod before it goes again (a crash seen late was run again elsewhere)
-  queue.diedLate = (id) => rented.diedLate(id);
-  // a ComfyUI that answers nothing while it renders: its process asked of (its port, its pod) before it is said offline or
-  // its render lost; one still running is swamped, and its render followed on
-  queue.stillRuns = (m, memory) => stillRuns(m, (id) => rented.comfyRuns(id), memory);
   notify.watch();
   // the reset codes and the sign-ins go to the data folder's log file as well as the console (none in the tests)
   const access = new Access(db, notify, { logFile: dirs.dataDir ? join(dirs.dataDir, "logs", "afflatus.log") : undefined });
   // each locked ComfyUI told which of its logins opened from Afflatus still hold: a device signed out loses its ComfyUI too
   const comfyLogins = followComfyLogins({ access, machines, down: (id) => rented.podDown(id) !== null });
   const timelines = new Timelines(db, storage, registry, queue.events);
-  queue.clips = timelines;
   const precompute = dirs.precompute === false ? null : new Precompute(db, timelines.media, dirs.precompute);
   // a linked file that changed on the disk: what the timelines derived from it (strips, motion, scenes) goes too
   const linked = new Linked(db, storage, queue.events, timelines);
@@ -253,14 +318,6 @@ export async function createServices(
     firstSweep.unref();
   });
   const downloads = new Downloads(queue.events, dirs.dataDir ? join(dirs.dataDir, "downloads.json") : undefined);
-  // the node packs renders ask for are installed by each ComfyUI's Manager: one without it does without them (queuePacks.ts);
-  // one that did not answer is not known to lack it (null), and its jobs wait for a real answer
-  queue.managerOf = async (comfy) => {
-    const m = await downloads.manager(comfy);
-    return m.unknown ? null : m.found;
-  };
-  // and a restart for them waits for the downloads that run in that ComfyUI's process
-  queue.downloadingIn = (comfy) => downloads.runsIn(comfy);
   const shippedPresets = new ShippedPresets(dirs.shippedPresets === undefined ? shippedPresetsDir() : dirs.shippedPresets);
   const machineOf = async (id: string) => (await machines()).find((m) => m.machine.id === id);
   let podFilesTold: NodeJS.Timeout | null = null;
@@ -301,19 +358,6 @@ export async function createServices(
       podFilesTold.unref();
     },
   });
-  queue.podFetch = podFetchOf(podFiles);
-  // a pod's row says the files it is getting
-  queue.rentedOf = (m) => {
-    const row = rented.view(m);
-    return row ? { ...row, files: podFiles.view(m.id), packs: podFiles.packsView(m.id), disk: podFiles.diskOf(m.id) } : null;
-  };
-  // a ComfyUI of its own's row says the model files downloading into it (a set's Fill, a missing model's Download), as a
-  // pod's are said: it is getting files, not idle
-  const UNDER_WAY = new Set(["starting", "downloading", "saving"]);
-  queue.downloadsOf = (m, first) =>
-    downloads.list().filter((d) => UNDER_WAY.has(d.status) && (d.machine ? d.machine === m.id : first)).map((d) => ({
-      file: d.file, folder: d.folder, state: d.status === "starting" ? "next" : "fetching", tier: "ahead", bytes: d.bytes, total: d.total, jobs: [],
-    }));
   // their progress said as the queue is, every 2 s at most (a pod's come through podFiles' own)
   let downloadsTold: NodeJS.Timeout | null = null;
   queue.events.on("downloads", () => {
@@ -324,33 +368,11 @@ export async function createServices(
     }, 2000);
     downloadsTold.unref();
   });
-  // a deployed pod up: the files its deploy asked for come after what its jobs wait for; the ones left out never come
-  rented.forgetFiles = (id) => podFiles.forget(id);
-  rented.filesLeft = (id) => {
-    const files = podFiles.view(id);
-    const waiting = files.filter((f) => f.state === "next" || f.state === "fetching");
-    return { left: waiting.length, total: files.length, bytes: files.reduce((n, f) => n + f.bytes, 0), waiting: waiting.map((f) => f.file), failed: files.filter((f) => f.state === "failed").map((f) => ({ file: f.file, error: f.error ?? "failed" })) };
-  };
-  rented.onUp = (id, files, leaveOut) => {
-    podFiles.leaveOut(id, leaveOut);
-    podFiles.want(id, files.map(({ file, folder, url, civitai, size }) => ({ file, folder, ...(url ? { url } : {}), ...(civitai ? { civitai } : {}), ...(size ? { size } : {}) })), { tier: "ahead" });
-  };
   // what pods are getting is followed every second, while any is
   const podFilesTimer = setInterval(() => void podFiles.tick().catch((err) => console.warn("[pod files]", (err as Error).message)), 1000);
   podFilesTimer.unref();
-  // a token with Spend has its jobs handed to a pod only while its cap has room (a money path: mcpRender.ts capHeld)
-  queue.capHeld = (rows) => capHeld(services, rows);
-  // a job whose files a stopped pod holds waits for that pod, its row offering Start (filePlaces.ts, card #139)
-  queue.podsHold = async () => downPodFiles(services, (await readSettings(db)).machines);
-  // with none of the user's machines listing a file, a pod on its way is still sent it: a render is not refused then
-  queue.podComing = async () => Boolean(services.hunt?.view().hunt) || (await readSettings(db)).pendingDeploys.length > 0;
-  // a pod whose run a token started (deploy_pod, start_pod) stops once that token's cap is reached, as at the app's caps
-  // A token gone from the list (revoked a month ago, its activity let go) has no cap left to hold the pod to: counted as
-  // reached, so that nothing keeps that pod billing (the user's own Start makes the run theirs again, rented.ts start)
-  rented.tokenCapped = async (id) => {
-    const token = await services.mcp.tokens.get(id);
-    return token === null || (await services.mcp.tokens.spentThisMonth(id)) >= token.spendCapCents / 100;
-  };
+  // RunPod read from now, once the pods' files Rented answers through are made
+  rented.run();
   const services: Services = {
     db, dbKind, storage, linked, registry, comfy, machines, comfyOf, comfyFolder: () => comfyFolder(), queue, timelines, rented, notify, access, mcp: { tokens: new McpTokens(db), where: new WhereNow(db) }, podFiles, podOutside, downloads,
     shippedPresets,
@@ -390,7 +412,6 @@ export async function createServices(
   services.hunt.tell = (kind, notice) => notify.say(kind, notice);
   // a hunt an MCP token started deploys only within that token's cap and the app's, asked again when its GPU is found
   services.hunt.mayDeploy = (token, hour, gpu) => huntMayDeploy(services, token, hour, gpu);
-  queue.huntOf = (held) => services.hunt.summary(held);
   await services.hunt.run();
   // every model file hashed once, a minute after the start (and on "Hash now"), waiting while this computer renders
   services.hashes = new ModelHashes(services);
