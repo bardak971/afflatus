@@ -1,7 +1,7 @@
 import { MODEL_EXT, modelStem, squash } from "@afflatus/core";
 import { envSaid } from "./config";
 import { httpError } from "./errors";
-import { fetchPublic } from "./outbound";
+import { fetchPublic, hostOf } from "./outbound";
 
 /**
  * Asking Civitai where a model file can be had. Two sites answer the same way: civitai.com, and
@@ -30,13 +30,8 @@ export function keyFor(url: string, keys: { huggingFaceToken?: string | null; ci
   return keys.civitaiKey && civitai ? { Authorization: `Bearer ${keys.civitaiKey}` } : undefined;
 }
 
-const hostOf = (site: string) => {
-  try {
-    return new URL(site).host.replace(/^www\./, "");
-  } catch {
-    return site;
-  }
-};
+/** A site's name as the page says it: "civitai.com", never "www.civitai.com". */
+const siteName = (site: string) => hostOf(site).replace(/^www\./, "");
 
 /** What Civitai calls the kind of model that goes in each of ComfyUI's folders. */
 export const KINDS: Record<string, string[]> = {
@@ -147,7 +142,7 @@ export async function findOnCivitai(file: string, folder: string | null, key: st
       const version = exactIn ?? [...versions].sort((a, b) => hitsOf(b).length - hitsOf(a).length)[0];
       const picked = version ? fileOf(version) : undefined;
       items.push({
-        name: m.name, kind: m.type ?? "", site: hostOf(site),
+        name: m.name, kind: m.type ?? "", site: siteName(site),
         // links go to the real sites even when a pretend one answered
         url: `${envSaid.civitaiUrl() ? "https://civitai.com" : site}/models/${m.id}`,
         version: version?.name ?? "", base: version?.baseModel ?? "", words: (version?.trainedWords ?? []).slice(0, 12),
@@ -163,8 +158,8 @@ export async function findOnCivitai(file: string, folder: string | null, key: st
   const right = sorted.filter((i) => i.fits || i.exact);
   return {
     items: (right.length ? right : sorted).slice(0, 8),
-    asked: answers.filter((a) => a.models !== null).map((a) => hostOf(a.site)),
-    silent: answers.filter((a) => a.models === null).map((a) => hostOf(a.site)),
+    asked: answers.filter((a) => a.models !== null).map((a) => siteName(a.site)),
+    silent: answers.filter((a) => a.models === null).map((a) => siteName(a.site)),
   };
 }
 

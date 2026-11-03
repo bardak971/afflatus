@@ -6,6 +6,7 @@ import type { Comfy } from "./comfy";
 import { directOk, NO_SELF, type DownloadView } from "./downloads";
 import { httpError as bad } from "./errors";
 import { fileName } from "./media";
+import { cleanName, SHA256_HEX } from "./modelDownload";
 import { webUrl } from "./modelPages";
 import { assertPublicUrl } from "./outbound";
 import { officialGet } from "@afflatus/core";
@@ -26,7 +27,7 @@ export const downloadBody = z.strictObject({
   // of a Civitai version with several files: the one to fetch, by the name Civitai gives it where it was seen, and by its
   // SHA-256 and Civitai's id for it when known (Civitai's search and its version page name the same file differently)
   pick: z.string().max(400).optional(),
-  sha256: z.string().regex(/^[0-9a-fA-F]{64}$/).optional(), fileId: z.number().int().positive().optional(),
+  sha256: z.string().regex(SHA256_HEX).optional(), fileId: z.number().int().positive().optional(),
   // the page it comes from, kept for the file: its name then leads there
   page: z.strictObject({ url: webUrl, title: z.string().max(300) }).optional(),
   // the ComfyUI it goes to, by its id (settings.ts machines); left out: the first
@@ -103,11 +104,12 @@ export async function beginDownload(s: Services, from: FastifyRequest | string, 
   if (b.pick && found.by === "near") throw bad(gone, 409);
   const via = reachable(found.file.downloadUrl);
   // under the name the user saw it by: "on this PC", presets and forms know it by that name, not the version page's
-  const saveAs = b.file || (b.pick ?? found.file.name ?? "model.safetensors").replace(/[\\/:*?"<>|]/g, "_");
+  const saveAs = b.file || cleanName(b.pick ?? found.file.name ?? "model.safetensors");
   await keepPage(saveAs);
   return s.downloads.start(comfy, self, {
     file: saveAs, folder: b.folder, title: found.title || name,
-    source: found.file.downloadUrl, headers: settings.civitaiKey ? { Authorization: `Bearer ${settings.civitaiKey}` } : undefined,
+    // the key to Civitai alone (keyFor): the address is the one its answer names, which may be any host's
+    source: found.file.downloadUrl, headers: keyFor(found.file.downloadUrl, settings),
     total: Math.round((found.file.sizeKB ?? 0) * 1024), comfyDir: dir, machine, ...kept, ...via,
     // the file's own sha256, as Civitai lists it: checked before the file is named (by Afflatus or a pack from 0.44.0 on)
     ...(found.file.hashes?.SHA256 ? { sha256: found.file.hashes.SHA256 } : {}),

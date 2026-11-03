@@ -40,7 +40,7 @@ colour and voice at the join).
 The last two are the MIT-licensed continuation nodes of ttulttul's
 [ComfyUI-Minimax-H3-Continuation](https://github.com/ttulttul/ComfyUI-Minimax-H3-Continuation), vendored
 with one small change (a guarded import: a ComfyUI too old for them says "update ComfyUI" rather than
-failing with an ImportError) and without their Append Continuation (Afflatus joins with Seam Latent; gone since 0.49.4).
+failing with an ImportError) and without their Append Continuation (Afflatus joins with Seam Latent; gone since 0.49.6).
 Their licence is in `LICENSE-continuation`.
 
 ## Routes on ComfyUI's server
@@ -89,9 +89,9 @@ With the pack loaded, ComfyUI answers:
   aiohttp or ComfyUI change) stops at its start rather than run open, and says the same two ways out (0.20.0).
   With "No token needed from this PC" on, only a browser's page of this computer gets in without the token (ComfyUI's
   own, the address bar, Afflatus's); another program here sends the key written at each ComfyUI start in
-  `afflatus-local.key`, in the user folder, as a Bearer token (0.49.4). It is unsafe with any tunnel or port forward to
+  `afflatus-local.key`, in the user folder, as a Bearer token (0.49.6). It is unsafe with any tunnel or port forward to
   that ComfyUI. The login cookie is Secure over https (a proxy's in front too), made with random keys kept in
-  `afflatus-logins.json`; the one a pasted token gives lasts 30 days and ends at any sign-out in Afflatus (0.49.4).
+  `afflatus-logins.json`; the one a pasted token gives lasts 30 days and ends at any sign-out in Afflatus (0.49.6).
 - `POST /afflatus/logins` (0.42.0): the logins still good. A login opened from Afflatus (Open ComfyUI) belongs to the
   Afflatus sign-in that asked for it; Afflatus names the ones still good with each login code, on each sign-out and every
   minute, so signing a device out of Afflatus, Sign out everywhere or a new password ends its ComfyUI login too. A login
@@ -131,4 +131,4 @@ as one piece with the clip before; **Frames** pins the clip before's last frames
 ComfyUI alone does it. Measured on chains of continuations: a chain guided by re-encoded frames loses fine
 detail at every clip (it copies a softened picture), while the exact latent keeps it. The hybrid guide
 (Afflatus's H3 Tail Guide: frames for the picture, latent for the sound) was Auto for a while, then
-deprecated, and is gone since 0.49.4.
+deprecated, and is gone since 0.49.6.

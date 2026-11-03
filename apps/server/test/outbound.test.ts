@@ -3,6 +3,7 @@ import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { civitaiGet } from "../src/civitai";
+import { signedLink } from "../src/downloads";
 import { findOnHuggingFace, forgetHuggingFace } from "../src/huggingface";
 import { assertPublicUrl, cannotReach, fetchFailure, fetchPublic, insideRefusingLookup, isPrivateAddress, isPrivateHost } from "../src/outbound";
 
@@ -47,6 +48,20 @@ describe("where the server may fetch from", () => {
     expect(assertPublicUrl("https://civitai.com/api/download/models/1").hostname).toBe("civitai.com");
     expect(assertPublicUrl("http://127.0.0.1:8188/x", ["http://127.0.0.1:8188"]).port).toBe("8188");
     expect(assertPublicUrl("http://[::1]:9/x", ["http://[::1]:9"]).hostname).toBe("[::1]");
+  });
+
+  it("refuses an address with a user name or password in it, which undici's error then quoted everywhere (card #252)", async () => {
+    expect(() => assertPublicUrl("https://user:secret-pw@huggingface.co/x.safetensors")).toThrow("An address with a user name or password in it is not fetched: save the site's key in Settings › Models instead.");
+    expect(() => assertPublicUrl("https://token@civitai.com/x")).toThrow(/user name or password/);
+    // nor on the way: a redirect to one
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(null, { status: 302, headers: { location: "https://u:pw@cdn.example.com/m.safetensors" } }));
+    try {
+      const err = await fetchPublic("https://example.com/m.safetensors", {}).catch((e: Error) => e);
+      expect(String(err)).toMatch(/user name or password/);
+      expect(String(err)).not.toMatch(/pw/);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("allows a host inside the network by its port too: another port of the same machine is another service", () => {
@@ -119,6 +134,35 @@ describe("following a redirect", () => {
       expect(asked).toEqual(["https://example.com/model.safetensors"]);
     } finally {
       spy.mockRestore();
+    }
+  });
+
+  it("asks another host with a GET and no body, as a browser does: the body was meant for the host first asked (card #252)", async () => {
+    const got: Array<{ at: string; method?: string; body: string }> = [];
+    const record = (name: string, answer: (res: ServerResponse) => void) => createServer((req, res) => {
+      let body = "";
+      req.on("data", (c: Buffer) => (body += c.toString()));
+      req.on("end", () => {
+        got.push({ at: name, method: req.method, body });
+        answer(res);
+      });
+    });
+    const other = record("other", (res) => res.end("[]"));
+    await new Promise<void>((r) => other.listen(0, "127.0.0.1", () => r()));
+    const otherUrl = `http://127.0.0.1:${(other.address() as AddressInfo).port}`;
+    const first = record("first", (res) => {
+      res.writeHead(307, { location: `${otherUrl}/by-hash` });
+      res.end();
+    });
+    await new Promise<void>((r) => first.listen(0, "127.0.0.1", () => r()));
+    const firstUrl = `http://127.0.0.1:${(first.address() as AddressInfo).port}`;
+    try {
+      const res = await fetchPublic(`${firstUrl}/by-hash`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(["ABC123"]) }, [firstUrl, otherUrl]);
+      expect(await res.text()).toBe("[]");
+      expect(got).toEqual([{ at: "first", method: "POST", body: '["ABC123"]' }, { at: "other", method: "GET", body: "" }]);
+    } finally {
+      await new Promise((r) => other.close(r));
+      await new Promise((r) => first.close(r));
     }
   });
 
@@ -240,6 +284,12 @@ describe("a public name that points inside the network", () => {
     } finally {
       await new Promise((r) => from.close(r));
     }
+  });
+
+  it("is refused when a source's own signed link is asked for too, never a blind HEAD into the network (card #252)", async () => {
+    resolveTo("127.0.0.1");
+    await expect(signedLink(`http://localtest.me:${insidePort}/api/download/models/1`, {})).rejects.toThrow(/inside your own network/);
+    expect(asked).toBe(0);
   });
 
   it("lets a name through whose addresses are all on the internet", async () => {
