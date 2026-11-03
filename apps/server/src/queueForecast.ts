@@ -137,7 +137,7 @@ export class Forecasts {
    * after FORECASTS_MS for what else moves a graph (a ComfyUI back with other nodes or files).
    */
   private graphs: { at: number; by: Map<string, Promise<BuiltGraph | null>> } = { at: 0, by: new Map() };
-  private builds(): Map<string, Promise<BuiltGraph | null>> {
+  builds(): Map<string, Promise<BuiltGraph | null>> {
     if (Date.now() - this.graphs.at > FORECASTS_MS) this.graphs = { at: Date.now(), by: new Map() };
     return this.graphs.by;
   }

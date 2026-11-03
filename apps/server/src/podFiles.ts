@@ -491,7 +491,7 @@ export class PodFiles {
     const listed = await this.onPod(machine, e);
     if (!this.current(machine, e)) return;
     if (listed) await this.ready(machine, e, false);
-    else this.retryLater(machine, e, "a copy of it is still on its way to the pod");
+    else this.retryLater(machine, e, listed === null ? "its ComfyUI did not list its folder" : "a copy of it is still on its way to the pod");
   }
 
   /**
@@ -907,8 +907,27 @@ export class PodFiles {
           if (size !== ASSUMED_BYTES) e.total = size;
         }
         if (e.total) {
-          // a file for later deletes nothing to come: left out quietly, and asked again if a job comes to need it
-          const full = await this.roomFor(machine, e.total, e, e.tier === "need");
+          // no room for it: the pod's own list first. A file a network volume held from an earlier session has no entry here,
+          // and a listing blip at a submit or a plan asks for it as missing (queueSubmit.ts podHeld): Make room deleted other
+          // files for 16 GB already there, or it was failed "its volume is full" for good, the pack's 409 never asked
+          let full = await this.roomFor(machine, e.total, e, false);
+          if (full) {
+            const listed = await this.onPod(machine, e);
+            if (!this.current(machine, e)) continue;
+            if (listed) {
+              await this.ready(machine, e, false);
+              changed = true;
+              continue;
+            }
+            // not known (its folders did not answer): nothing deleted, nothing failed for it yet, asked again a little later
+            if (listed === null && e.tier === "need") {
+              this.retryLater(machine, e, "its ComfyUI did not list its folder, and there is no room for it");
+              changed = true;
+              continue;
+            }
+            // a file for later deletes nothing to come: left out quietly, and asked again if a job comes to need it
+            if (e.tier === "need") full = await this.roomFor(machine, e.total, e, true);
+          }
           if (full && e.tier === "ahead") {
             this.pods.get(machine)?.delete(keyOf(e.folder, e.file));
             changed = true;

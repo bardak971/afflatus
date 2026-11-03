@@ -313,16 +313,28 @@ export class McpTokens {
     // the sessions of those machines that may hold one of them: begun before the work's end, not ended before the month
     const sessions = await this.db.selectFrom("rent_sessions").select(["machine_id", "rate", "started_at", "ended_at", "mcp_token_id", "idle_minutes"])
       .where("machine_id", "in", machines).where((eb) => eb.or([eb("ended_at", "is", null), eb("ended_at", ">=", from)])).execute();
-    // when each of those machines took its next job (anyone's): what ends the idle time a token's work left there
-    const starts = await this.db.selectFrom("jobs").select(["id", "machine_id", "started_at"])
-      .where("machine_id", "in", machines).where("started_at", ">=", from).execute();
+    // when each rented one took its next job (anyone's): what ends the idle time a token's work left there. A machine with no
+    // session (the user's own: nothing rented there) is never read: every job of the owner's PC this month was, at each
+    // Settings › Agents poll, each pod poll and each MCP render (card #243). Through jobs_by_machine_start, each machine's
+    // sorted once
+    const rented = [...new Set(sessions.map((x) => x.machine_id))];
+    if (!rented.length) return out;
+    const startsOf = new Map<string, Array<{ id: string; at: number }>>();
+    for (const j of await this.db.selectFrom("jobs").select(["id", "machine_id", "started_at"]).where("machine_id", "in", rented).where("started_at", ">=", from).execute()) {
+      const at = j.started_at ? Date.parse(j.started_at) : NaN;
+      if (!j.machine_id || !Number.isFinite(at)) continue;
+      let list = startsOf.get(j.machine_id);
+      if (!list) startsOf.set(j.machine_id, (list = []));
+      list.push({ id: j.id, at });
+    }
+    for (const list of startsOf.values()) list.sort((a, b) => a.at - b.at);
     for (const w of work) {
       const s = sessions.find((x) => x.machine_id === w.machine && Date.parse(x.started_at) <= w.start && (!x.ended_at || Date.parse(x.ended_at) >= w.start));
       // work on a run this token started is counted with that run
       if (!s || s.mcp_token_id === w.token) continue;
       // the pod's idle time after it, until its next job, its idle stop or the run's end, whichever came first: a cheap
       // render every few minutes keeps a dear pod up, and that is this token's doing (nothing when it never stops idle)
-      const next = Math.min(...starts.filter((j) => j.machine_id === w.machine && j.id !== w.id && j.started_at && Date.parse(j.started_at) > w.start).map((j) => Date.parse(j.started_at!)));
+      const next = nextStart(startsOf.get(w.machine!) ?? [], w.start, w.id);
       const stop = Math.min(next, s.ended_at ? Date.parse(s.ended_at) : now, now, w.end + (s.idle_minutes ?? 0) * 60_000);
       const tail = (s.idle_minutes ?? 0) > 0 ? Math.max(0, stop - w.end) : 0;
       out.set(w.token!, (out.get(w.token!) ?? 0) + ((w.end - w.start + tail) / HOUR) * s.rate);
@@ -364,4 +376,17 @@ export function spendSaid(said: SpendSaid): string {
   const committed = said.committed.filter((c) => c.usd > 0);
   const ahead = committed.length ? `Committed: ${committed.map((c) => `${dollars(c.usd)}, ${c.what}`).join("; ")}` : "Nothing else committed";
   return `${ahead}. This call adds ${dollars(said.adds.usd)}: ${said.adds.what}`;
+}
+
+/** The first of a machine's job starts (sorted) after `after` that is not `but`'s own; Infinity when none came after it. */
+function nextStart(starts: ReadonlyArray<{ id: string; at: number }>, after: number, but: string): number {
+  let lo = 0;
+  let hi = starts.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (starts[mid]!.at > after) hi = mid;
+    else lo = mid + 1;
+  }
+  while (lo < starts.length && starts[lo]!.id === but) lo++;
+  return lo < starts.length ? starts[lo]!.at : Infinity;
 }

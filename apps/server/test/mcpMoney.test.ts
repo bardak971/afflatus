@@ -196,6 +196,48 @@ describe("a token with Spend", () => {
     await c.close();
   });
 
+  // card #243: every Queue read (once a second a tab during a render) and every pass priced each of a token's waiting jobs
+  // again, a whole forecast each, and read its month's spend: 100 waiting agent jobs added up to half a second a read
+  it("prices its waiting work once for the reads of a moment, its jobs of one form once, and anew as soon as its cap changes", async () => {
+    const { token, id } = await made("spend", { spendCapUsd: 1 });
+    const c = await connect(token);
+    await pause();
+    expect((await call(c, "render", { ...FORM, takes: 2 })).isError).toBeFalsy();
+    // the cap lowered under them: the first still fits (about $0.47 with the pod's idle time after), the second waits
+    expect((await t.app.inject({ method: "POST", url: `/api/mcp/tokens/${id}`, payload: { spendCapUsd: 0.5 } })).statusCode).toBe(200);
+    const spent = vi.spyOn(t.services.mcp.tokens, "spentThisMonth");
+    const priced = vi.spyOn(t.services.queue, "forecastToPrice");
+    const held = async () => (await t.services.queue.status()).waiting.filter((w) => w.lacks?.[pod]?.why?.startsWith(CAP_FULL)).length;
+    expect(await held()).toBe(1);
+    for (let i = 0; i < 4; i++) expect(await held()).toBe(1);
+    expect(spent).toHaveBeenCalledTimes(1);
+    expect(priced).toHaveBeenCalledTimes(1);
+    // the cap raised: the very next read says it, nothing kept of the old one
+    expect((await t.app.inject({ method: "POST", url: `/api/mcp/tokens/${id}`, payload: { spendCapUsd: 5 } })).statusCode).toBe(200);
+    expect(await held()).toBe(0);
+    await c.close();
+  });
+
+  it("holds its waiting jobs while its spend cannot be read, and reads it again at the next read", async () => {
+    const { token } = await made("spend", { spendCapUsd: 5 });
+    const c = await connect(token);
+    await pause();
+    const job = JSON.parse(textOf(await call(c, "render", FORM))).jobs[0] as string;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // (what the pass after its queueing made is kept a moment: it is read again once that is over)
+    const spent = vi.spyOn(t.services.mcp.tokens, "spentThisMonth").mockRejectedValue(new Error("database is locked"));
+    const why = async () => (await t.services.queue.status()).waiting.find((w) => w.id === job)?.lacks?.[pod]?.why;
+    await until(async () => /spend cap could not be read/.test((await why()) ?? ""), 10_000, 100);
+    // read again at each read while it fails, never kept; readable again, the job may go
+    const asked = spent.mock.calls.length;
+    expect(await why()).toMatch(/spend cap could not be read/);
+    expect(spent.mock.calls.length).toBeGreaterThan(asked);
+    spent.mockRestore();
+    expect(await why()).toBeUndefined();
+    warn.mockRestore();
+    await c.close();
+  });
+
   it("has its waiting jobs kept off the pods when Spend is unticked after they were queued", async () => {
     const { token, id } = await made("spend");
     const c = await connect(token);

@@ -488,9 +488,12 @@ export const h3Swap = defineRecipe<H3Swap>({
   presets: SWAP_PRESETS,
   starts: SWAP_STARTS,
   needs: ["swapLora", "swapUnet"],
+  // Show the mask and a take's Face refine alone sample nothing: neither the LoRA nor the model is loaded (card #226: Show
+  // the mask waited for some 20 GB on a pod, its RIFE too)
+  unneeded: (input) => (input.maskPreview || refinesOnly(input) ? ["swapLora", "swapUnet"] : []),
   // as every other file and node: SAM 3 with the Mask on (off, nothing tracks the person), Veda's predictor when it is on, and a turbo LoRA when Turbo is on a model that is not
-  // distilled (the reference one asked for, either taken)
-  needsWith: (input, slots = {}) => [
+  // distilled (the reference one asked for, either taken). Show the mask runs SAM 3 and the masks alone
+  needsWith: (input, slots = {}) => input.maskPreview ? ["swapSam"] : [
     ...(input.maskOn || input.maskPreview ? ["swapSam"] : []),
     ...(input.veda ? ["veda"] : []),
     // H3's latent upscaler for a finish that enlarges with it: the swap is built as a clip (buildH3), and a pod finishing
@@ -517,9 +520,11 @@ export const h3Swap = defineRecipe<H3Swap>({
     // them (model.ts), so their lack there is no reason to fail it (a pod's Face refine of a swap, 2026-10-23)
     const only = refinesOnly(input);
     const swapLora = input.swapLora ?? ctx.slots.swapLora ?? null;
-    if (!swapLora && !only) throw new Error("The swap needs the Character-Swap LoRA: h3_character_swap_v1.5.safetensors in ComfyUI's models/loras folder (Settings › Models has it).");
+    // nor for Show the mask, whose graph keeps the tracking and the masks alone (unneeded: a pod is not sent them either)
+    const sampleless = only || input.maskPreview;
+    if (!swapLora && !sampleless) throw new Error("The swap needs the Character-Swap LoRA: h3_character_swap_v1.5.safetensors in ComfyUI's models/loras folder (Settings › Models has it).");
     const unet = input.swapModel ?? ctx.slots.swapUnet;
-    if (!unet && !only) throw new Error("The swap needs MiniMax H3's reference model, the one its LoRA was trained on: minimax_h3_ref2va_*.safetensors in ComfyUI's models/diffusion_models folder (Settings › Models has it).");
+    if (!unet && !sampleless) throw new Error("The swap needs MiniMax H3's reference model, the one its LoRA was trained on: minimax_h3_ref2va_*.safetensors in ComfyUI's models/diffusion_models folder (Settings › Models has it).");
     // the prompt written for the file that renders: the fused turbo's own sentences went with the form's Model only, and
     // were left out when the model was the slot's
     const asSent = { ...input, swapModel: unet };

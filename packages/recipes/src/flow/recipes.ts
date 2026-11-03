@@ -12,8 +12,8 @@ export { flowKit, type FlowBase, type FlowSpec } from "./kit";
 /** The six operations of a picture model, from what is said about it once (see FlowSpec). */
 export function flowRecipes(spec: FlowSpec): { picture: Recipe<FlowPicture>; redraw: Recipe<FlowRedraw>; paintOver: Recipe<FlowPaintOver>; outpaint: Recipe<FlowOutpaint>; sharper: Recipe<FlowSharper>; fixFace: Recipe<FlowFixFace> } {
   const kit = flowKit(spec);
-  // Turbo's LoRA asked of the machine for each of them (kit.turboNeeds)
-  const turbo = <T extends Recipe<any>>(r: T): T => ({ ...r, needsWith: kit.turboNeeds });
+  // Turbo's LoRA asked of the machine for each of them (kit.turboNeeds), beside what the operation asks for itself
+  const turbo = <T extends Recipe<any>>(r: T): T => ({ ...r, needsWith: (input, slots, where) => [...kit.turboNeeds(input, slots), ...(r.needsWith?.(input, slots, where) ?? [])] });
   return {
     picture: turbo(flowPicture(spec, kit)),
     redraw: turbo(flowRedraw(spec, kit)),

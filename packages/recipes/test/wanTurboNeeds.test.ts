@@ -6,7 +6,8 @@ describe("Wan's Turbo needs", () => {
   const needs = (input: Record<string, unknown>) => wanVideo.needsWith!({ start: "p", fast: true, turboIn: "From the name", model: "High\DasiwaWAN22I2V14BTruevision_snatchkissHighV11.safetensors", ...input } as never);
   it("asks the i2v LoRAs for a picture's clip, the t2v ones for words alone", () => {
     expect(needs({})).toEqual(["i2vTurboHigh", "i2vTurboLow"]);
-    expect(needs({ start: undefined })).toEqual(["t2vTurboHigh", "t2vTurboLow"]);
+    // (and, the I2V model picked being no model for words, the two t2v models the clip loads in its place: card #226)
+    expect(needs({ start: undefined })).toEqual(["t2vTurboHigh", "t2vTurboLow", "t2vHigh", "t2vLow"]);
   });
   it("asks nothing with Turbo off, or a model made for few steps (by its name, or said so)", () => {
     expect(needs({ fast: false })).toEqual([]);

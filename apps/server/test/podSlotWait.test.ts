@@ -72,6 +72,14 @@ const job = (id: string) => t.db.selectFrom("jobs").selectAll().where("id", "=",
 const pinned = async (machine: string, smooth = false) => (await post(t.app, "/api/jobs", { recipe: "h3.video", input: { description: "a red ball rolls", seconds: 5, model: DASIWA, smooth }, machine })).json().ids[0] as string;
 /** The pod's ComfyUI as Afflatus asks it. */
 const podComfy = async (id: string) => (await t.services.machines()).find((m) => m.machine.id === id)!.comfy;
+/** Its folders read anew at a submit of job `a` (`when`), not taken from the plan's scan. */
+function atSubmit(comfy: Awaited<ReturnType<typeof podComfy>>, a: () => string, when: () => boolean): void {
+  const scan = comfy.scan.bind(comfy);
+  comfy.scan = async (...args) => {
+    if (a() !== "" && when() && (await job(a())).status === "running") comfy.forgetFiles();
+    return scan(...args);
+  };
+}
 
 describe("a render pinned to a pod, a family file its graph reads not listed at its submit", () => {
   it("there whole by the pod's word, its folder's listing failing once: read again, and the job runs (it was failed for it)", async () => {
@@ -166,6 +174,51 @@ describe("a render pinned to a pod, a family file its graph reads not listed at 
     const graph = [...pod.prompts.values()][0] as unknown as Record<string, { class_type: string }>;
     expect(Object.values(graph).some((n) => n.class_type === "FrameInterpolationModelLoader")).toBe(false);
     expect((await job(a)).attempts).toBe(1);
+  });
+
+  // card #235: a file a network volume held from an earlier session is no entry of the pod's files (its state unknown). A
+  // listing blip at the submit asked for it as missing: 16 GB fetched again, Make room deleting for it, or failed for good
+  it("never asked for there and on its volume, its folder's listing failing at the submit: read again, never asked for, and the job runs", async () => {
+    const id = await deployed();
+    const { fetch, asked } = pretendFetch(new Map());
+    t.services.queue.podFetch = fetch;
+    const comfy = await podComfy(id);
+    const real = comfy.client.models.bind(comfy.client);
+    let a = "";
+    let failing = 1;
+    // the submit's scan read anew (not the plan's, kept), its text encoders' listing failing once
+    atSubmit(comfy, () => a, () => failing > 0);
+    comfy.client.models = async (folder) => {
+      if (folder === "text_encoders" && a !== "" && (await job(a)).status === "running" && failing-- > 0) throw new Error("fetch failed");
+      return real(folder);
+    };
+    a = await pinned(id);
+    await until(() => pod.prompts.size === 1, 15_000);
+    expect(failing).toBeLessThan(1);
+    expect(asked.filter((x) => x.file === TE)).toEqual([]);
+    expect(await job(a)).toMatchObject({ status: "running", error: null, attempts: 1 });
+  });
+
+  it("never asked for there, its folder not answering at any submit: never asked for, back in line, failed once its attempts are spent, saying so", async () => {
+    const id = await deployed();
+    const { fetch, asked } = pretendFetch(new Map());
+    t.services.queue.podFetch = fetch;
+    const comfy = await podComfy(id);
+    const real = comfy.client.models.bind(comfy.client);
+    let a = "";
+    atSubmit(comfy, () => a, () => true);
+    comfy.client.models = async (folder) => {
+      if (folder === "text_encoders" && a !== "" && (await job(a)).status === "running") throw new Error("fetch failed");
+      return real(folder);
+    };
+    a = await pinned(id);
+    await until(async () => (await job(a)).status === "failed", 20_000);
+    const row = await job(a);
+    expect(row.attempts).toBe(3);
+    expect(row.error).toContain("a model file MiniMax H3 needs was not found");
+    expect(row.error).toContain("its pod's ComfyUI did not list its text_encoders folder");
+    expect(asked.filter((x) => x.file === TE)).toEqual([]);
+    expect(pod.prompts.size).toBe(0);
   });
 
   it("that failed on the pod: refused, with why", async () => {

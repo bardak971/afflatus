@@ -11,6 +11,11 @@ import type { ComfyClient } from "@afflatus/comfy";
 export const PACK_UPLOADS = "0.14.0";
 /** What a 404 to the pack's upload routes is said as when the pack does not answer beside it (a failure that passes: downloads.ts PASSING). */
 const PROXY_404 = "ComfyUI is not answering behind the pod's proxy (a 404 to the node pack's upload route, which the pack never gives there)";
+/**
+ * What a 404 with a body to the node pack's download or upload route is said as: ComfyUI's own answer for a route it lacks,
+ * its Afflatus node pack not loaded. Not a failure that passes (PASSING): asking again gets the same.
+ */
+export const noPackRoute = (what: "download" | "upload", said: string) => `The pod's ComfyUI has no Afflatus node pack ${what} route (404: ${said.slice(0, 200)}): its node pack did not load`;
 /** How much one piece holds: the pack takes up to 64 MB. */
 export const PIECE = 32 * 2 ** 20;
 
@@ -44,9 +49,10 @@ export async function uploadFile(o: UploadOptions): Promise<void> {
   try {
     const started = await o.client.raw("/afflatus/upload", { method: "POST", headers: json, body: JSON.stringify({ folder: o.folder, filename: o.file.replace(/\\/g, "/"), total }), signal: AbortSignal.timeout(30_000) });
     // a 404 the pack never gives that route: the pod's proxy, ComfyUI not behind it for a moment (downloads.ts PROXY_404)
+    // (an empty one only: ComfyUI's own has a body, its pack not loaded, and asking again gets the same, noPackRoute)
     if (started.status === 404) {
-      await started.body?.cancel().catch(() => {});
-      throw new Error(PROXY_404);
+      const said = (await started.text().catch(() => "")).trim();
+      throw new Error(said ? noPackRoute("upload", said) : PROXY_404);
     }
     if (!started.ok) throw new Error(`The pod's node pack refused the upload (${started.status}: ${(await started.text()).slice(0, 200)})`);
     ({ id } = (await started.json()) as { id: string });
