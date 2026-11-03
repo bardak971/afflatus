@@ -20,10 +20,42 @@ describe("a timeline made of items, the one way", () => {
     const io = {
       create: async () => (calls.push("create"), { id: "t-new", name: "Timeline 3" }),
       add: async (t: string, body: { asset: string }) => void calls.push(`${t}+${body.asset}`),
+      music: async (t: string, asset: string) => void calls.push(`${t}♪${asset}`),
     };
     expect(await timelineOf({ assets: [video, picture] }, io)).toEqual({ id: "t-new", name: "Timeline 3" });
     expect(await timelineOf({ assets: [picture], into: { id: "t1", name: "Trip" } }, io)).toEqual({ id: "t1", name: "Trip" });
     expect(calls).toEqual(["create", "t-new+v", "t-new+p", "t1+p"]);
+  });
+
+  it("makes a sound the timeline's music, the video track taking none", async () => {
+    const sound = { id: "s", kind: "audio" };
+    expect(clipsOf({ assets: [video, sound, picture] })).toEqual([{ asset: "v" }, { music: "s" }, { asset: "p" }]);
+    const calls: string[] = [];
+    const io = {
+      create: async () => ({ id: "t-new", name: "Timeline 3" }),
+      add: async (t: string, body: { asset: string }) => void calls.push(`${t}+${body.asset}`),
+      music: async (t: string, asset: string) => void calls.push(`${t}♪${asset}`),
+    };
+    await timelineOf({ assets: [sound, video], into: { id: "t1", name: "Trip" } }, io);
+    expect(calls).toEqual(["t1♪s", "t1+v"]);
+  });
+
+  it("stops at the first refusal, unless each is said on its own and the rest still go", async () => {
+    const calls: string[] = [];
+    const io = {
+      create: async () => ({ id: "t-new", name: "Timeline 3" }),
+      add: async (t: string, body: { asset: string }) => {
+        if (body.asset === "v") throw new Error("refused");
+        calls.push(`${t}+${body.asset}`);
+      },
+      music: async () => {},
+    };
+    await expect(timelineOf({ assets: [video, picture], into: { id: "t1", name: "Trip" } }, io)).rejects.toThrow("refused");
+    expect(calls).toEqual([]);
+    const refused: string[] = [];
+    expect(await timelineOf({ assets: [video, picture], into: { id: "t1", name: "Trip" }, refused: (a, err) => refused.push(`${a.id}: ${err.message}`) }, io)).toEqual({ id: "t1", name: "Trip" });
+    expect(calls).toEqual(["t1+p"]);
+    expect(refused).toEqual(["v: refused"]);
   });
 });
 

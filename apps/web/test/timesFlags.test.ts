@@ -19,7 +19,7 @@ const summary = (over: { tiles?: Partial<TimesSummary["tiles"]>; models?: Model[
     loadMs: 3_600_000 / 2, loads: 20, loadUsualMs: null, waitedUsualMs: null, waitedSlowMs: null, off: null,
     vramPeak: 80, vramUsual: 70, heatPeak: 70, heatUsual: 65, ...over.tiles,
   },
-  finished: { images: [], videos: [], bad: [] }, phases: { loading: [], sampling: [], refining: [], finishing: [] },
+  finished: { images: [], videos: [], bad: [], videoMs: [] }, phases: { loading: [], sampling: [], refining: [], finishing: [] },
   wait: { usual: [], slow: [] }, gpu: { vram: [], heat: [] }, models: over.models ?? [model()],
 });
 

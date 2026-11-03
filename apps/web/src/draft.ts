@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { create } from "zustand";
-import { formsWithout } from "@afflatus/core";
+import { BATCH, formsWithout } from "@afflatus/core";
 import { api, failure, lookAdds, raw, type Draft } from "./api";
 import { editCount, fieldKey, keptSaid, laidOver, undone, unsavedFields, useAgentEdits } from "./agentEdits";
 import { KEEPALIVE_MAX, useAutosave } from "./autosave";
@@ -32,8 +32,6 @@ const holdsNothing = (d: Draft) =>
   !d.name && !d.chat.length && !lookAdds(d.look) && Object.values(d.forms).every((form) => Object.keys(form).length === 0);
 
 /** What a save sends: the whole of what the page holds of the draft. */
-/** How many renders one Generate asks for: the batch count's bounds (the stepper stops at them). */
-export const BATCH = { least: 1, most: 8 } as const;
 
 export const saveBodyOf = (d: Draft) => ({ recipe: d.recipe, forms: d.forms, count: d.count, look: d.look, chat: d.chat, designer: d.designer });
 

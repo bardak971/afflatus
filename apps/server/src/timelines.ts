@@ -1000,7 +1000,7 @@ export class Timelines {
       } else drop.push(p.clip.id);
     }
     // an empty clip the source is cut again for (given the source's model after its clips: the owner removed clip 3, added a
-    // clip and picked Swap motion, 2026-10-20): the next window goes in its place, from where the kept ones end
+    // clip and picked the source's swap, 2026-10-20): the next window goes in its place, from where the kept ones end
     const empty = plan.clip ? all.find((p) => p.clip.id === plan.clip && !ofSource.includes(p.clip.id) && !p.clip.take_id && !p.active) : undefined;
     if (empty) drop.push(empty.clip.id);
     if (!drop.length) throw httpError("Every clip of the source is rendered or in the queue: nothing is left to cut again.");

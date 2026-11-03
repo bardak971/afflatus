@@ -74,10 +74,6 @@ describe("Create as the app loads (store.ts)", () => {
     expect(await load()).toMatchObject({ form: true, folded: false });
     expect(await load({ state: { form: false, folded: true }, version: 1 })).toMatchObject({ form: false, folded: true });
   });
-
-  it("opens as it did in a browser that used the Studio before it was remembered: it knows where Create is", async () => {
-    expect(await load({ state: { form: false, size: "L" }, version: 0 })).toMatchObject({ form: false, folded: true, size: "L" });
-  });
 });
 
 describe("the empty library", () => {

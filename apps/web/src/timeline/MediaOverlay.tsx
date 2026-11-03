@@ -209,7 +209,7 @@ export function MediaOverlay({ timeline, placeItems }: {
     aspect: aspectOf(a),
     render: () => (
       <div className={cx("h-full rounded-xl", used.roles.get(a.id)?.plays && "ring-2 ring-accent/60")}>
-        <Tile fill asset={a} onOpen={() => setViewing(a)} onMenu={(e) => menu.open(e, a)} />
+        <Tile asset={a} onOpen={() => setViewing(a)} onMenu={(e) => menu.open(e, a)} />
       </div>
     ),
   });
@@ -221,7 +221,7 @@ export function MediaOverlay({ timeline, placeItems }: {
       const n = used.pinned.get(a.id);
       return (
         <div className="relative h-full">
-          <Tile fill asset={a} onOpen={() => setViewing(a)} onMenu={(e) => menu.open(e, a)} />
+          <Tile asset={a} onOpen={() => setViewing(a)} onMenu={(e) => menu.open(e, a)} />
           {n && <span className="pointer-events-none absolute top-1.5 left-1.5 z-10 flex h-5 items-center rounded-full bg-ground px-[7px] text-meta font-bold text-accent">pinned · clip {n}</span>}
         </div>
       );

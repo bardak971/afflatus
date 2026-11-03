@@ -58,17 +58,15 @@ function useSteadySrc(url: string | null): string | null {
 }
 
 /** A picture of the card: the last one loaded stays up until the next one is ready, on the stage, never stretched. */
-export function PeekFrame({ url, under, w, h, className }: {
+export function PeekFrame({ url, w, h, className }: {
   url: string | null;
-  /** A picture already at hand, drawn under it while it loads (a pinned picture's small version). */
-  under?: string;
   w: number;
   h: number;
   className?: string;
 }) {
   const src = useSteadySrc(url);
   return (
-    <span className={cx("relative block shrink-0 overflow-hidden rounded-control bg-stage", className)} style={{ width: w, height: h, backgroundImage: under ? `url(${under})` : undefined, backgroundSize: "contain", backgroundPosition: "center", backgroundRepeat: "no-repeat" }}>
+    <span className={cx("relative block shrink-0 overflow-hidden rounded-control bg-stage", className)} style={{ width: w, height: h }}>
       {src && <img src={src} alt="" draggable={false} className="absolute inset-0 h-full w-full object-contain" />}
     </span>
   );
@@ -83,13 +81,12 @@ export function PeekEmpty({ children, w = 300 }: { children: ReactNode; w?: numb
   );
 }
 
-/** The card's footer: what it shows on the left, in bold, then a dim detail; on the right, the moment or a note. */
-export function PeekFooter({ title, detail, right, mono, hint }: { title: string; detail?: string; right?: string; mono?: boolean; hint?: string }) {
+/** The card's footer: what it shows on the left, in bold; on the right, the moment or a note. */
+export function PeekFooter({ title, right, mono, hint }: { title: string; right?: string; mono?: boolean; hint?: string }) {
   return (
     <>
       <span className="flex items-center gap-2 px-1 pt-[9px] pb-0.5 text-xs">
         <span className="min-w-0 truncate font-semibold text-ink">{title}</span>
-        {detail && <span className="shrink-0 text-ink-3">{detail}</span>}
         <span className="grow" />
         {right && <span className={cx("shrink-0", mono ? "font-mono text-accent" : "text-meta text-ink-3")}>{right}</span>}
       </span>

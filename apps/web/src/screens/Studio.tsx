@@ -198,7 +198,6 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
     return (
       <div className="relative isolate h-full">
         <Tile
-          fill
           asset={a}
           onOpen={setOpen}
           selected={pickedSet.has(a.id)}

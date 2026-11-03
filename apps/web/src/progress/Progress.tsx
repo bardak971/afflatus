@@ -114,11 +114,11 @@ function ringMoves(from: number, to: number, ms: number, ease: string) {
  * by `rotate` inside two half clips, with a dot for each round end: it moves on the compositor as the bars do, where
  * an eased SVG dash was painted on every frame. Steps: dots round the icon, one lit per step.
  */
-export function ProgressRing({ value, steps, loading = false, className, styleAs }: { value: number; steps?: number; loading?: boolean; className?: string; styleAs?: ProgressStyle }) {
+export function ProgressRing({ value, steps, loading = false, styleAs }: { value: number; steps?: number; loading?: boolean; styleAs?: ProgressStyle }) {
   const chosen = useProgressStyle();
   const style = styleAs ?? chosen;
   const move = useMove(loading ? 0 : value, style, false);
-  const box = cx("pointer-events-none absolute size-[30px]", className);
+  const box = "pointer-events-none absolute size-[30px]";
   if (style === "steps") {
     const n = ticksOf(steps, 20);
     const lit = loading ? 0 : litOf(value, n);

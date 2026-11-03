@@ -2,7 +2,6 @@ import { useId, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "./api";
 import { clock } from "./format";
-import { pausesIn } from "./pauses";
 import { queryKeys } from "./queryKeys";
 import { partCommitted } from "./snap";
 import { RangeSlider, PastWhatFits } from "./RangeSlider";
@@ -25,15 +24,21 @@ const INTO = 0.2;
 
 export type Pause = { from: number; to: number };
 
-/** The sound's loudness and its pauses in seconds, measured once (the library's waveform and the timelines' key). */
+/**
+ * The pauses a part snaps to: the server's own (GET /assets/:id/pauses, read once and kept), those a recording is cut into
+ * clips at (core PAUSE), so that a part chosen here ends where a cut would. As `from`/`to` seconds.
+ */
+export const pausesOfSound = (said: { pauses: Array<{ start: number; end: number }> } | undefined): Pause[] => (said?.pauses ?? []).map((p) => ({ from: p.start, to: p.end }));
+
+/** The sound's loudness (its waveform) and its pauses in seconds, each read once (the library's waveform and the timelines' key). */
 export function useSoundMarks(asset: string | null) {
   const motion = useQuery({ queryKey: queryKeys.motion(asset), queryFn: () => api.motion(asset!), enabled: Boolean(asset), staleTime: Infinity, retry: 0 });
+  const said = useQuery({ queryKey: queryKeys.pauses(asset ?? ""), queryFn: () => api.pauses(asset!), enabled: Boolean(asset), staleTime: Infinity, retry: 0 });
   return useMemo(() => {
     const sound = motion.data?.sound ?? null;
-    const rate = motion.data?.rate ?? 10;
-    const pauses: Pause[] = sound ? pausesIn(sound).map((p) => ({ from: p.from / rate, to: p.to / rate })) : [];
-    return { sound, pauses, ready: motion.isFetched };
-  }, [motion.data, motion.isFetched]);
+    // a sound whose pauses could not be read has none to snap to: its part is still chosen, knob by knob
+    return { sound, pauses: pausesOfSound(said.data), ready: motion.isFetched && said.isFetched };
+  }, [motion.data, motion.isFetched, said.data, said.isFetched]);
 }
 
 /** Where a part that ends in this pause ends, and where one that starts in it starts. */

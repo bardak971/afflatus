@@ -66,8 +66,7 @@ describe("what an optional file is for", () => {
     expect(forSaid("Optional, for Pose from SDPose: ComfyUI's own whole-body pose model.")).toBe("for Pose from SDPose");
     expect(forSaid("For Swap character: akatz-ai's Character-Swap LoRA")).toBe("for Swap character");
   });
-  it("is the operations it alone serves, else nothing", () => {
-    expect(forSaid("Without it, Turbo is off.", ["Motion transfer"])).toBe("for Motion transfer only");
+  it("is nothing when its hint does not say it", () => {
     expect(forSaid("Without it, Turbo is off.")).toBeNull();
   });
 });

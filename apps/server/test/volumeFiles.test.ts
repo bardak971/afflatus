@@ -107,10 +107,16 @@ describe("reading a volume", () => {
   });
 
   it("says a refused key as such", async () => {
-    await t.app.inject({ method: "PUT", url: "/api/settings", payload: { runpodS3User: "user_someoneelse", runpodS3Secret: "rps_secret_0123456789" } });
-    const res = await get(t.app, "/api/runpod/volumes/vol-ro/files");
-    expect(res.statusCode).toBe(502);
-    expect(res.json().error).toMatch(/refused the S3 key/);
+    await withKey();
+    // RunPod takes a key of another account's (one deleted and made again on RunPod's page, say)
+    s3.user = "user_someoneelse";
+    try {
+      const res = await get(t.app, "/api/runpod/volumes/vol-ro/files");
+      expect(res.statusCode).toBe(502);
+      expect(res.json().error).toMatch(/refused the S3 key/);
+    } finally {
+      s3.user = USER;
+    }
   });
 
   it("says when a render on one of the volume's pods last used a file, and which file one running now needs", async () => {

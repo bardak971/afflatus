@@ -1,18 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Folder } from "../src/api";
-import { migrateProject } from "../src/project";
 import { livePins, movePin } from "../src/projects/pins";
 import { crumbsOf, foldCrumbs } from "../src/screens/library/FolderPanel";
-
-describe("the project worked in", () => {
-  it("moves a browser left on the old All (null) to the Inbox, and keeps a project or the Inbox as they were", () => {
-    expect(migrateProject({ id: null })).toEqual({ id: "none" });
-    expect(migrateProject(undefined)).toEqual({ id: "none" });
-    expect(migrateProject({ id: "" })).toEqual({ id: "none" });
-    expect(migrateProject({ id: "p1" })).toEqual({ id: "p1" });
-    expect(migrateProject({ id: "none" })).toEqual({ id: "none" });
-  });
-});
 
 describe("the rail's pins", () => {
   const projects = [{ id: "a", archivedAt: null }, { id: "b", archivedAt: "2026-10-01" }, { id: "c", archivedAt: null }, { id: "d", archivedAt: null }, { id: "e", archivedAt: null }];

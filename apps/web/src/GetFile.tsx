@@ -5,7 +5,7 @@ import { api, type Download } from "./api";
 import { civitaiExact } from "./findModels/store";
 import { FileState, GoesTo } from "./DownloadsLine";
 import { useQueue } from "./data";
-import { about, fileLabel, siteName, size } from "./format";
+import { about, fileLabel, siteName, size, verb } from "./format";
 import { machineName, severalMachines } from "./machines";
 import { Bar, buttonClass, CloseButton, cx, Failed } from "./ui";
 import { coming } from "./downloadLine";
@@ -206,7 +206,7 @@ export function GetFile({ file, folder, url, civitai, pick, hints, auto, buttons
           ))}
         </>
       )}
-      {find.data && find.data.items.length === 0 && find.data.exact.length === 0 && <span className="text-ink-2">No match for that filename ({find.data.asked.join(", ")} {find.data.asked.length === 1 ? "was" : "were"} asked). It may be under another name.</span>}
+      {find.data && find.data.items.length === 0 && find.data.exact.length === 0 && <span className="text-ink-2">No match for that filename ({find.data.asked.join(", ")} {verb(find.data.asked.length, "was", "were")} asked). It may be under another name.</span>}
       {find.data && find.data.items.length > 0 && find.data.exact.length > 0 && <span className="pt-1 text-ink-2">Other models with a close name, on Civitai (not needed when the file above is the one):</span>}
       {find.data && find.data.items.length > 0 && find.data.exact.length === 0 && (
         <span className="text-ink-2">

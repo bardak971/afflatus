@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { formGap } from "@afflatus/core";
 import { api, ApiError, raw, type Clip, type FamilyInfo, type RecipeInfo, type Timeline } from "../api";
 import { KEEPALIVE_MAX, useKeyedAutosave } from "../autosave";
 import type { useModelSettings, useRecipes, useSetup } from "../data";
@@ -179,16 +180,9 @@ export function useClipEdits({ timeline: t, clips, recipes, setup, settings, com
       // a Lip sync clip waits for its voice first: said with where it goes (the clip's Audio cell on the track), a to-do
       const voice = voiceInput(recipe);
       if (voice && !input[voice.id]) return { why: `Drop a voice recording on clip ${at + 1}'s Audio cell, or choose one.`, voice: true };
-      for (const i of recipe.inputs) {
-        if (i.type === "prompt" && ((!i.optional && i.default === undefined) || i.example) && !String(input[i.id] ?? "").trim()) return { why: `Write ${i.label.toLowerCase()} first.` };
-        // a clip that picks up from the last frame of the one before, or opens on the picture before it, needs no opening picture
-        // of its own; nor one whose picture only a clip that opens needs (Motion transfer after a swap)
-        const given = carries && i.type === "image" && ((i.role === "start" && (recipe.traits?.continues === "frame" || before?.kind === "still")) || Boolean(i.opensOnly));
-        if (i.type === "image" && !i.optional && !input[i.id] && !given) return { why: `Choose the ${i.label.toLowerCase()} first.` };
-        // a source video (Motion transfer's driving video) comes from the timeline's source lane
-        if (i.type === "clip" && i.role === "source" && !i.optional && !input[i.id]) return { why: `It has no ${i.label.toLowerCase()}: drop one on the Source lane under the track.` };
-      }
-      return { input };
+      // the server's "ready to render" reads the same rule (formFilled)
+      const gap = formGap(recipe, input, { carries, afterStill: before?.kind === "still" });
+      return gap ? { why: gap } : { input };
     }),
     [recipes.data, setup.data, setup.isSuccess, comfyOnline, inputsOf, settings.data, clips],
   );

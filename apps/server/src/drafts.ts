@@ -1,5 +1,5 @@
 import { chatJson } from "./llm";
-import { formModelInput, formsWithout, type Recipe } from "@afflatus/core";
+import { BATCH, formModelInput, formsWithout, type Recipe } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { NOT_IN_LIBRARY } from "./library";
@@ -20,7 +20,7 @@ const forms = z.record(z.string(), z.record(z.string(), z.unknown()));
 export const createBody = z.strictObject({
   recipe: z.string().min(1),
   forms: forms.default({}),
-  count: z.number().int().min(1).max(8).default(1),
+  count: z.number().int().min(BATCH.least).max(BATCH.most).default(1),
   look: lookSchema.nullable().optional(),
   /** The project it is made in; null or left out: the Inbox. */
   project: z.string().nullable().optional(),
@@ -31,7 +31,7 @@ export const createBody = z.strictObject({
 export const saveBody = z.strictObject({
   recipe: z.string().min(1).optional(),
   forms: forms.optional(),
-  count: z.number().int().min(1).max(8).optional(),
+  count: z.number().int().min(BATCH.least).max(BATCH.most).optional(),
   look: lookSchema.nullable().optional(),
   project: z.string().nullable().optional(),
   /** The conversation with the designer about this draft: kept as it is, the server does not read it. */

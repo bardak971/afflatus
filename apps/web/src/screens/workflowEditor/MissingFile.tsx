@@ -3,7 +3,7 @@ import { ChevronRight, Download as DownloadIcon } from "lucide-react";
 import { folderOfFileInput } from "@afflatus/core";
 import { api } from "../../api";
 import { civitaiExact } from "../../findModels/store";
-import { fileLabel, plural, size } from "../../format";
+import { fileLabel, plural, size, verb } from "../../format";
 import { CivitaiMatch, civitaiSays, civitaiTip, DownloadRow, HfMatch } from "../../GetFile";
 import { Select } from "../../Select";
 import { Button, cx, Failed, Help } from "../../ui";
@@ -119,7 +119,7 @@ export function MissingFile({ f, m, hints, where }: { f: MissingFileOf; m: Mappi
           {start.isError && <Failed inline what="Not downloaded" error={start.error} />}
           {find.isError && <Failed inline what="Not searched" error={find.error} />}
           {find.data && !find.data.items.length && !find.data.exact.length && (
-            <span className="text-xs text-ink-2">No match for that filename ({find.data.asked.join(", ")} {find.data.asked.length === 1 ? "was" : "were"} asked). It may be under another name.</span>
+            <span className="text-xs text-ink-2">No match for that filename ({find.data.asked.join(", ")} {verb(find.data.asked.length, "was", "were")} asked). It may be under another name.</span>
           )}
           {mine && <DownloadRow d={mine} />}
           {find.data && more > 0 && (

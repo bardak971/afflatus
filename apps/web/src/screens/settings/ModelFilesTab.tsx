@@ -357,7 +357,8 @@ function SpaceBar({ bands, idle, onBand }: { bands: ReturnType<typeof figures>["
 }
 
 /** What needs a file, two at most and a count: presets and sets first (Delete asks for them), then families. */
-export function NeedChips({ f, most = 2 }: { f: ModelFile; most?: number }) {
+export function NeedChips({ f }: { f: ModelFile }) {
+  const most = 2;
   const order = { preset: 0, set: 1, family: 2 } as const;
   const needs = [...f.needs].sort((a, b) => order[a.kind] - order[b.kind]);
   const tip = needs.map((n) => `${n.kind === "preset" ? "Preset" : n.kind === "set" ? "Model set" : "Family"}: ${n.name}`).join("\n");

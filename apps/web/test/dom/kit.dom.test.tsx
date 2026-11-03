@@ -160,10 +160,9 @@ describe("the kit's marks and states", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Queue" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Pause all" })).toBeTruthy();
   });
-  it("titles a section and a group in two looks", () => {
-    draw(<><SectionTitle>Output</SectionTitle><SectionTitle level="group">After sampling</SectionTitle></>);
+  it("titles a section in small capitals", () => {
+    draw(<SectionTitle>Output</SectionTitle>);
     expect(screen.getByText("Output").className).toContain("uppercase");
-    expect(screen.getByText("After sampling").className).not.toContain("uppercase");
   });
   it("stands its spinner still under reduce motion", () => {
     const { container } = draw(<Spinner size={14} />);

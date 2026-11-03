@@ -1,15 +1,11 @@
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
-import { folderOfFileInput, pickedFiles, sameFile, isMissingSlotFile, isShown, neededSlots, packOfNode, SOFT_SLOTS, TOOLS_FAMILY, type Family, type GraphFile, type LoraValue, type Recipe } from "@afflatus/core";
+import { familyOnFor, folderOfFileInput, pickedFiles, sameFile, isMissingSlotFile, isShown, neededSlots, packOfNode, SOFT_SLOTS, TOOLS_FAMILY, type Family, type GraphFile, type LoraValue, type Recipe } from "@afflatus/core";
 import type { Loaded } from "./jobFiles";
 import type { Machine, Settings } from "./settings";
 
-/**
- * Whether a family is on for one machine: switched there by hand, else by the switch of every machine, else by its files
- * there (`found`: one of its recipes is ready on it). The same rule as the page's (web machines.ts familyOnFor).
- */
+/** Whether a family is on for one machine (core's familyOnFor, the page's rule too), by these settings. */
 export function familyOn(settings: Pick<Settings, "families"> & { allFamilies?: boolean }, machine: Pick<Machine, "families">, family: string, found: boolean): boolean {
-  // `allFamilies` (a new install's): a family not switched by hand is on whatever is there, its files fetched or downloaded
-  return machine.families[family] ?? settings.families[family] ?? (Boolean(settings.allFamilies) || found);
+  return familyOnFor(machine.families, settings.families, family, found, Boolean(settings.allFamilies));
 }
 
 /** Whether a family has a recipe ready in a machine's scan. */

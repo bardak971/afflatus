@@ -10,7 +10,8 @@ import { askText } from "./Confirm";
 import type { MenuItem } from "./ContextMenu";
 import { useFolders, useProjects, useTimelines } from "./data";
 import { plural, when } from "./format";
-import { tree } from "./screens/library/tree";
+import { tree as foldersTree } from "./screens/library/tree";
+import { useTreeActions } from "./projects/useTreeActions";
 import { copyPicture, copyText } from "./secureContext";
 import { failedBanner, useSayFailed } from "./sayFailed";
 import { useBanners } from "./store";
@@ -22,12 +23,12 @@ import { queryKeys } from "./queryKeys";
  * why, with Retry; a move or a bin says so with Undo). What else fails is said in a banner.
  */
 export function useItemMutations() {
-  const client = useQueryClient();
   const failed = useSayFailed({ id: "item", href: "/", go: "Open the library" });
   const say = useBanners((b) => b.push);
   const projects = (useProjects().data?.items ?? []).filter((p) => !p.archivedAt);
   const folders = useFolders().data?.items ?? [];
   const change = useAssetChange();
+  const tree = useTreeActions();
   /** A name of the user's own, asked for in a box; the library shows it and the search goes by it. */
   const rename = (id: string, name: string) => void change({ kind: "rename", ids: [id], name });
   const renameIt = async (of: Asset) => {
@@ -38,15 +39,6 @@ export function useItemMutations() {
   const bin = (ids: string[]) => void change({ kind: "bin", ids });
   const restore = (ids: string[]) => void change({ kind: "restore", ids });
   const moveTo = (ids: string[], folder: string | null) => void change({ kind: "move", ids, folder });
-  // a folder made on the spot, the item moved into it at once
-  const makeFolder = useMutation({
-    mutationFn: async (v: { ids: string[]; name: string; parent: string | null; project: string | null }) => {
-      const folder = await api.createFolder(v.name, v.parent, v.project);
-      await api.moveAssets(v.ids, folder.id);
-    },
-    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.projects.all() }),
-    onError: failed("Could not make the folder"),
-  });
   /**
    * The Move to submenu: each project with its root folder and its folders (a project with none is one line), then
    * the Inbox; where it is now is off, and says "here". `ids`: several items moved together (the item's own when left out).
@@ -57,7 +49,7 @@ export function useItemMutations() {
     return [
       ...projects.map((p): MenuItem => {
         // the folders under its root folder, in reading order; a folder inside another shows where it is
-        const inside = tree(folders.filter((f) => f.projectId === p.id && f.id !== p.folderId));
+        const inside = foldersTree(folders.filter((f) => f.projectId === p.id && f.id !== p.folderId));
         const pathOf = (id: string | null): string[] => {
           const f = folders.find((x) => x.id === id);
           return !f || f.id === p.folderId ? [] : [...pathOf(f.parentId), f.name];
@@ -73,13 +65,15 @@ export function useItemMutations() {
       { label: "The Inbox", icon: <Inbox size={14} />, note: here(null) ? "here" : "out of every project", disabled: here(null), run: go(null) },
     ];
   };
-  /** A new folder, asked for by name, in the item's project (under its root folder) or the Inbox; the item goes into it. */
+  /**
+   * A new folder, asked for by name, in the item's project (under its root folder) or the Inbox, as the Projects panel
+   * makes one there (useTreeActions): the item goes into it once made, as Move to sends it, with Undo.
+   */
   const newFolderFor = async (asset: Pick<Asset, "id" | "folderId">) => {
-    const name = await askText({ title: "New folder", value: "", placeholder: "Folder name", yes: "Create and move" });
-    if (!name?.trim()) return;
     const at = folders.find((f) => f.id === asset.folderId);
     const project = at?.projectId ? projects.find((p) => p.id === at.projectId) : undefined;
-    makeFolder.mutate({ ids: [asset.id], name: name.trim(), parent: project?.folderId ?? null, project: project?.id ?? null });
+    const made = await tree.newFolder({ name: project?.name ?? "the Inbox", parent: project?.folderId ?? null, project: project?.id ?? null, yes: "Create and move" });
+    if (made) moveTo([asset.id], made.id);
   };
   const openInComfy = useOpenInComfy((asset: Asset) => api.openRender(asset.id), {
     onSuccess: (r) => { if (!r.direct) say({ id: `menu:${Date.now()}`, tone: "good", title: "Saved in ComfyUI", text: `${r.path}: open the Workflows sidebar there (key W) and pick it under "afflatus".`, href: "/settings", go: "Open Settings" }); },

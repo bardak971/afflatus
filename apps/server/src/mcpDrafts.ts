@@ -1,4 +1,4 @@
-import { matchFiles, nameKey, ownValues, pickedFile, plural, schemaFor, type InputSpec, type Recipe } from "@afflatus/core";
+import { BATCH, matchFiles, nameKey, ownValues, pickedFile, plural, schemaFor, type InputSpec, type Recipe } from "@afflatus/core";
 import { z } from "zod";
 import { createBody, createDraft, deleteDraft, draftsList, draftView, findDraft, saveDraft, type DraftView, type saveBody } from "./drafts";
 import { emptyLook, lookSchema, type Look } from "./entities";
@@ -279,7 +279,7 @@ const editDraft = tool({
     loras: z.array(z.object({ file: z.string().min(1), weight: z.number() })).optional().describe("The form's LoRA list, whole."),
     references: z.array(z.object({ asset: z.string().min(1), role: z.string() })).optional().describe("The form's reference pictures, whole."),
     cast: z.array(z.string()).optional().describe("The cast, whole: Prompt kit people by name or id ([] for nobody)."),
-    takes: z.number().int().min(1).max(8).optional().describe("The batch: how many takes Render makes."),
+    takes: z.number().int().min(BATCH.least).max(BATCH.most).optional().describe("The batch: how many takes Render makes."),
     name: z.string().max(80).optional(),
   },
   async run(args, ctx) {

@@ -1,6 +1,6 @@
 import { ChevronRight } from "lucide-react";
 import { folderOfFileInput } from "@afflatus/core";
-import { fileLabel, plural } from "../../format";
+import { fileLabel, plural, verb } from "../../format";
 import { Select } from "../../Select";
 import { Button, cx, Help } from "../../ui";
 import { MissingPacks, notInstallable } from "../MissingPacks";
@@ -120,7 +120,7 @@ export function BeforeItRuns({ m }: { m: Mapping }) {
           Stand-ins: {found.replaced.map((x) => `${x.from} #${x.node} → ${x.to}`).join(", ")}
           <Help
             title="Stand-ins"
-            text={`${found.replaced.map((x) => `${x.from}${found.packs[x.from] ? ` (${found.packs[x.from]})` : ""} #${x.node}`).join(", ")} ${found.replaced.length === 1 ? "is" : "are"} not in this ComfyUI: ComfyUI's own ${found.replaced.map((x) => x.to).filter((v, i, a) => a.indexOf(v) === i).join(" and ")} stands in${found.replaced.some((x) => /^Save/.test(x.to)) ? ". Afflatus saves and names what it keeps itself" : ", with the same value"}.`}
+            text={`${found.replaced.map((x) => `${x.from}${found.packs[x.from] ? ` (${found.packs[x.from]})` : ""} #${x.node}`).join(", ")} ${verb(found.replaced.length, "is", "are")} not in this ComfyUI: ComfyUI's own ${found.replaced.map((x) => x.to).filter((v, i, a) => a.indexOf(v) === i).join(" and ")} stands in${found.replaced.some((x) => /^Save/.test(x.to)) ? ". Afflatus saves and names what it keeps itself" : ", with the same value"}.`}
           />
         </span>
       )}

@@ -40,7 +40,6 @@ const SECRETS: Record<string, string> = {
   civitaiKey: "Civitai's API key",
   huggingFaceToken: "the Hugging Face token",
   runpodKey: "the RunPod API key",
-  runpodS3User: "RunPod's S3 API key",
   runpodS3Secret: "RunPod's S3 API key",
 };
 

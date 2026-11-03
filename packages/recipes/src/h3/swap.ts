@@ -7,12 +7,6 @@ import { H3_SOUND_CHAPTER, h3Inputs, SOURCE_SOUND_INPUTS, SOURCE_START, type H3V
 import { SWAP_MODEL_TURBO, SWAP_TURBO_ROW } from "./turboRow";
 /** Said in the "?" of a swap's parts (card #49): the tags are written for them. */
 const PART_NO_TAGS = "No <Video 1> or <Picture 1> to type: Afflatus adds them";
-/**
- * What happens heads the swap's Prompt card, with the Designer and Snippets, as on every H3 form (card #170, the owner's
- * "we try whether it looks better", 2026-10-30). False puts it back: Track, the one text that must be written, is then the
- * form's main text, and the Prompt card has no heading.
- */
-const SWAP_MAIN_HAPPENS = true;
 import { buildH3, h3Video, refinesOnly, SHOT_WORDS, type H3Extra } from "./video";
 import { saveVideo } from "../shared/out";
 import { rifeNeeds } from "../shared/finish";
@@ -160,8 +154,9 @@ export const swapInputs: InputSpec[] = [
   },
   { id: "swapStrength", type: "number", label: "Swap LoRA strength", min: 0, max: 2, step: 0.05, default: 1, note: "its author's 1.0; 2 gave artifacts" },
   // the prompt's parts (card #34, the owner's mock of 2026-10-20): each a few words, the prompt written from them by rules
-  // (swapFromParts); names mean nothing to H3, so the person in the source is said by how they look
-  { id: "happens", type: "prompt", weights: false, label: "What happens", style: "sentences", optional: true, noCast: true, designed: true, placeholder: "He dances and steps toward the camera.", note: `in this clip, in the present tense. Each window of a source keeps its own. ${PART_NO_TAGS}`, main: SWAP_MAIN_HAPPENS },
+  // (swapFromParts); names mean nothing to H3, so the person in the source is said by how they look. What happens heads
+  // the Prompt card, with the Designer and Snippets, as on every H3 form (card #170, 2026-10-30)
+  { id: "happens", type: "prompt", weights: false, label: "What happens", style: "sentences", optional: true, noCast: true, designed: true, placeholder: "He dances and steps toward the camera.", note: `in this clip, in the present tense. Each window of a source keeps its own. ${PART_NO_TAGS}`, main: true },
   { id: "look", type: "prompt", weights: false, label: "How they look", style: "sentences", line: true, optional: true, noCast: true, designed: true, placeholder: "a black leather jacket over a white t-shirt", note: `the one who goes in: what of them the picture does not say, or says otherwise (clothes, hair). Shared by a source's windows. ${PART_NO_TAGS}` },
   { id: "inSource", type: "prompt", weights: false, label: "In the source", style: "sentences", line: true, optional: true, noCast: true, designed: true, placeholder: "the man in the grey hoodie", note: `who the source shows and is replaced, by how they look (a name means nothing to H3). ${PART_NO_TAGS}` },
   {

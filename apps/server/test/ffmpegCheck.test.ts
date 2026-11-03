@@ -9,6 +9,15 @@ import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
  * is a build without libx264 (as the bundles' LGPL one was); `hangcut` hangs on the cut and `hangcount` on the frame count, each
  * ended as a run's timeout ends it, at once, its bounds written down in `bounds`. Any other path runs as it is.
  */
+/** Every folder listed, for a folder that must never be (a network share's, card #249). */
+const listed = vi.hoisted(() => [] as string[]);
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const real = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...real, readdir: ((path: Parameters<typeof real.readdir>[0], ...rest: unknown[]) => {
+    listed.push(String(path));
+    return (real.readdir as (...a: unknown[]) => unknown)(path, ...rest);
+  }) as typeof real.readdir };
+});
 const bounds: { kind: string; timeout?: number; signal?: AbortSignal }[] = [];
 (globalThis as { ffBounds?: typeof bounds }).ffBounds = bounds;
 vi.mock("node:child_process", async (importOriginal) => {
@@ -93,6 +102,13 @@ describe.skipIf(!ffmpegThere)("an ffmpeg that cuts a join's run-up a frame short
     const real = join(bins, process.platform === "win32" ? "ffmpeg-win-x86_64-v9.0.exe" : "ffmpeg-linux-x86_64-v9.0");
     writeFileSync(real, "");
     expect(await comfyFfmpegs(comfy)).toEqual([real]);
+    // a folder on a network share, or a relative one, is never listed (card #249): Windows would sign in to the share as
+    // this account at every check, and an ffmpeg found there be run
+    for (const dir of ["\\\\zz-test-host\\s\\ComfyUI", "//zz-test-host/s/ComfyUI", "ComfyUI"]) {
+      expect(await comfyFfmpegs(dir, "win32")).toEqual([]);
+      expect(await comfyFfmpegs(dir, "linux")).toEqual([]);
+    }
+    expect(listed.filter((p) => p.includes("zz-test-host") || p.startsWith("ComfyUI"))).toEqual([]);
     const short = toolsOf("short");
     const env = { PATH: short.dir };
     // the stand-in for imageio's file runs the real ffmpeg: it is matched by its folder, not run as an empty file

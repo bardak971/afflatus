@@ -61,7 +61,7 @@ async function s3Facts(s: Services, settings: Settings): Promise<{ user: string 
     facts = { key: settings.runpodKey, at: Date.now(), ...got };
   }
   // RunPod's own list when it gave one; the list its page gave otherwise
-  return { user: settings.runpodS3User || facts.user, dataCenters: facts.dataCenters ?? S3_DATA_CENTERS };
+  return { user: facts.user, dataCenters: facts.dataCenters ?? S3_DATA_CENTERS };
 }
 
 /** The S3 client of a volume, or why there is none. */

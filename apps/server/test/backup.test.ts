@@ -72,7 +72,6 @@ describe("a backup and the keys", () => {
     civitai: "zztestcivitaikey0123456789abcdef",
     hf: "hf_ZZTESTHUGGINGFACE0123456789",
     llm: "sk-zztest-llm-0123456789",
-    old: "sk-zztest-old-llm-0123456789",
     token: "zztest-comfy-lock-token-0123456789",
     telegram: "123456789:AAEzztestTelegramToken0123456789",
     discord: "https://discord.com/api/webhooks/1/zztest-discord-0123456789",
@@ -80,13 +79,11 @@ describe("a backup and the keys", () => {
   };
   beforeEach(async () => {
     await updateSettings(t.db, (c) => ({
-      runpodKey: SECRETS.runpod, civitaiKey: SECRETS.civitai, huggingFaceToken: SECRETS.hf, runpodS3User: "user_zztest", runpodS3Secret: SECRETS.s3,
+      runpodKey: SECRETS.runpod, civitaiKey: SECRETS.civitai, huggingFaceToken: SECRETS.hf, runpodS3Secret: SECRETS.s3,
       llms: [{ id: "main", baseUrl: "https://llm.example.com/v1", model: "zz-test", apiKey: SECRETS.llm }],
       machines: c.machines.map((m) => ({ ...m, token: SECRETS.token })),
       notify: { ...c.notify, telegramToken: SECRETS.telegram, telegramChat: "42", discordWebhook: SECRETS.discord },
     }));
-    // the one model from before there was a list, kept under its old key
-    await t.db.insertInto("settings").values({ key: "llm", value: JSON.stringify({ baseUrl: "https://old.example.com", apiKey: SECRETS.old }), updated_at: new Date().toISOString() }).execute();
   });
   const databaseOf = (zip: Buffer) => {
     const start = zip.indexOf(Buffer.from("SQLite format 3\0", "latin1"));
@@ -106,13 +103,30 @@ describe("a backup and the keys", () => {
     }
   };
 
+  it("holds no password's hash when asked for from another device, and keeps it on this computer (card #254)", async () => {
+    const PASSWORD = "zz-test password 0123";
+    const cookieOf = (res: { headers: Record<string, unknown> }) => ([res.headers["set-cookie"] ?? []].flat() as string[]).map((c) => c.split(";")[0]!).filter((c) => !c.endsWith("=")).join("; ");
+    const set = await t.app.inject({ method: "POST", url: "/api/session/password", payload: { password: PASSWORD } });
+    expect(set.statusCode).toBe(200);
+    const lan = { remoteAddress: "192.168.1.20", headers: { "user-agent": "Mozilla/5.0 (Windows NT 10.0) Chrome/130.0" } };
+    const signed = await t.app.inject({ method: "POST", url: "/api/session/sign-in", payload: { password: PASSWORD, remember: true }, ...lan });
+    expect(signed.statusCode).toBe(200);
+    // a session of another device (a stolen cookie): the copy could be guessed at offline, past the sign-in's limits
+    const away = await t.app.inject({ method: "GET", url: "/api/backup.zip", remoteAddress: lan.remoteAddress, headers: { ...lan.headers, cookie: cookieOf(signed) } });
+    expect(away.statusCode).toBe(200);
+    expect(settingsIn(databaseOf(away.rawPayload)).access.password).toBeNull();
+    expect(away.rawPayload.toString("latin1")).toMatch(/holds no password either/);
+    const here = await t.app.inject({ method: "GET", url: "/api/backup.zip", headers: { cookie: cookieOf(set) } });
+    expect(settingsIn(databaseOf(here.rawPayload)).access.password).toMatchObject({ hash: expect.any(String) });
+  });
+
   it("leaves every key and token out of the database's copy, without a trace in its bytes, and says so", async () => {
     const res = await get(t.app, "/api/backup.zip");
     expect(res.statusCode).toBe(200);
     const zip = res.rawPayload;
     for (const [what, secret] of Object.entries(SECRETS)) expect(zip.includes(Buffer.from(secret)), what).toBe(false);
     const kept = settingsIn(databaseOf(zip));
-    expect([kept.runpodKey, kept.civitaiKey, kept.huggingFaceToken, kept.runpodS3Secret, kept.llms[0].apiKey, kept.llm.apiKey, kept.notify.telegramToken, kept.notify.discordWebhook]).toEqual(["", "", "", "", "", "", "", ""]);
+    expect([kept.runpodKey, kept.civitaiKey, kept.huggingFaceToken, kept.runpodS3Secret, kept.llms[0].apiKey, kept.notify.telegramToken, kept.notify.discordWebhook]).toEqual(["", "", "", "", "", "", ""]);
     expect(kept.machines.map((m: { token: string }) => m.token).every((x: string) => x === "")).toBe(true);
     // the rest of the settings come back as they were
     expect(kept.llms[0]).toMatchObject({ baseUrl: "https://llm.example.com/v1", model: "zz-test" });

@@ -112,10 +112,10 @@ describe("the queue, arranged by hand", () => {
     await until(() => fake.prompts.size === 1);
     const sampler = Object.values([...fake.prompts.values()][0]!).find((n) => n.class_type === "KSampler")!;
     expect(sampler.inputs.steps).toBe(12);
-    expect((await t.app.inject({ method: "DELETE", url: `/api/jobs/${id}` })).statusCode).toBe(200);
+    expect((await post(t.app, "/api/jobs/dismiss", { ids: [id] })).json().dismissed).toBe(1);
     expect((await queue()).recent.map((r: { id: string }) => r.id)).not.toContain(id);
     // a job that is still running is not one to forget
-    expect((await t.app.inject({ method: "DELETE", url: `/api/jobs/${again}` })).statusCode).toBe(404);
+    expect((await post(t.app, "/api/jobs/dismiss", { ids: [again] })).json().dismissed).toBe(0);
   });
 });
 

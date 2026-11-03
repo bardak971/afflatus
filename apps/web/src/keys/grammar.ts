@@ -63,7 +63,7 @@ const isMouse = (key: string) => MOUSE.has(key);
 const isModifier = (key: string) => key === "Ctrl" || key === "Shift" || key === "Alt" || key === "Meta";
 
 /** "Ctrl+Shift+Z" → Ctrl, Shift, Z; "Ctrl++" → Ctrl, +; "+" → +. Null when a part is not a key. */
-function chordOf(token: string, lenient: boolean): Chord | null {
+function chordOf(token: string): Chord | null {
   const raw = token.split("+");
   const out: string[] = [];
   for (let i = 0; i < raw.length; i++) {
@@ -77,7 +77,7 @@ function chordOf(token: string, lenient: boolean): Chord | null {
       }
       return null;
     }
-    const name = keyName(part, lenient);
+    const name = keyName(part);
     if (!name) return null;
     out.push(name);
   }
@@ -85,7 +85,7 @@ function chordOf(token: string, lenient: boolean): Chord | null {
 }
 
 /** One way: its words split on spaces, "Alt + ←" joined back into one chord, each chord read. */
-function wayOf(text: string, lenient: boolean): Way | null {
+function wayOf(text: string): Way | null {
   const words = text.trim().split(/\s+/).filter(Boolean);
   const tokens: string[] = [];
   for (let i = 0; i < words.length; i++) {
@@ -101,7 +101,7 @@ function wayOf(text: string, lenient: boolean): Way | null {
   if (!tokens.length) return null;
   const pair: Chord[] = [];
   for (const t of tokens) {
-    const chord = chordOf(t, lenient);
+    const chord = chordOf(t);
     if (!chord) return null;
     pair.push(chord);
   }
@@ -112,14 +112,14 @@ function wayOf(text: string, lenient: boolean): Way | null {
 }
 
 /** A key string read with the grammar; null when it does not follow it. */
-export function parseKeys(text: string, opts: { lenient?: boolean } = {}): Parsed | null {
+export function parseKeys(text: string): Parsed | null {
   const s = text.trim();
   if (!s) return null;
   // syntax to type ({a|b|c}): code, not keys
   if (/^\{.*\}$/.test(s)) return { code: s };
   const ways: Way[] = [];
   for (const alt of s.split(/\s*\|\s*|\s+or\s+/)) {
-    const way = wayOf(alt, Boolean(opts.lenient));
+    const way = wayOf(alt);
     if (!way) return null;
     ways.push(way);
   }

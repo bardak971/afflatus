@@ -1,3 +1,5 @@
+import { looksLikePicture } from "./media";
+
 /** Longest edge of a library thumbnail: enough for a grid tile on a dense screen. */
 const EDGE = 512;
 /**
@@ -26,6 +28,9 @@ function sharp(): Promise<Sharp | null> {
 
 /** A small WebP of a picture, `edge` at most on its longest side, or null when it cannot be made (not a picture, a damaged file, no image library). */
 export async function makeThumb(bytes: Uint8Array, edge = EDGE): Promise<Uint8Array | null> {
+  // a PNG, a JPEG or a WebP only, as an upload is checked: what ComfyUI or a pod sends is handed to the image library's
+  // decoders of every other format otherwise (card #254)
+  if (!looksLikePicture(bytes)) return null;
   const lib = await sharp();
   if (!lib) return null;
   try {
@@ -40,6 +45,7 @@ export async function makeThumb(bytes: Uint8Array, edge = EDGE): Promise<Uint8Ar
  * everywhere, a WebP not always. Null when it cannot be made.
  */
 export async function makeStill(bytes: Uint8Array, edge = 1280): Promise<Uint8Array | null> {
+  if (!looksLikePicture(bytes)) return null;
   const lib = await sharp();
   if (!lib) return null;
   try {

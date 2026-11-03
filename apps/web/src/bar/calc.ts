@@ -1,4 +1,4 @@
-import { gridAtLeast, gridNearest, onGrid, type FrameGrid } from "@afflatus/core";
+import { gridAtLeast, gridNearest, megapixels, onGrid, type FrameGrid } from "@afflatus/core";
 
 /**
  * The bar's calculator (`=`): the figures video work needs, on the grid of the model in play (its frames on
@@ -36,10 +36,6 @@ export function ratioOf(w: number, h: number): string {
   const near = RATIOS.find(([a, b]) => Math.abs(w / h - a / b) / (a / b) < 0.012);
   return near ? `≈ ${near[0]}:${near[1]}` : `${(w / h).toFixed(3)}:1`;
 }
-const mp = (w: number, h: number) => {
-  const v = (w * h) / 1e6;
-  return `${v.toFixed(v < 1 ? 2 : 1)} MP`;
-};
 const secs = (s: number) => `${s.toFixed(2).replace(/\.?0+$/, "")} s`;
 /**
  * A frame from proportions and a number of pixels, each edge on the grid: the long edge snapped first, the
@@ -100,10 +96,10 @@ export function calc(text: string, grid: Grid): CalcCard[] | null {
     const w = Number(size[1]);
     const h = Number(size[2]);
     const cards: CalcCard[] = [
-      { label: "pixels", value: mp(w, h), note: `${ratioOf(w, h)} · ${w}×${h} · Enter copies`, copy: `${w}x${h}` },
+      { label: "pixels", value: megapixels(w, h), note: `${ratioOf(w, h)} · ${w}×${h} · Enter copies`, copy: `${w}x${h}` },
     ];
     const snapped = { width: Math.max(grid.size, Math.round(w / grid.size) * grid.size), height: Math.max(grid.size, Math.round(h / grid.size) * grid.size) };
-    if (snapped.width !== w || snapped.height !== h) cards.push({ label: `on the ${grid.name} grid`, value: `${snapped.width}×${snapped.height}`, note: `edges on ${grid.size} · ${mp(snapped.width, snapped.height)}`, copy: `${snapped.width}x${snapped.height}` });
+    if (snapped.width !== w || snapped.height !== h) cards.push({ label: `on the ${grid.name} grid`, value: `${snapped.width}×${snapped.height}`, note: `edges on ${grid.size} · ${megapixels(snapped.width, snapped.height)}`, copy: `${snapped.width}x${snapped.height}` });
     else cards.push({ label: `on the ${grid.name} grid`, value: "yes", note: `both edges are multiples of ${grid.size}`, copy: `${w}x${h}` });
     return cards;
   }
@@ -117,7 +113,7 @@ export function calc(text: string, grid: Grid): CalcCard[] | null {
     const pixels = (mpMatch ? n(mpMatch[1]!) : 1) * 1e6;
     if (!(pixels > 0) || pixels > 64e6) return null;
     const s = sizeFor(rw, rh, pixels, grid.size);
-    return [{ label: `${rw}:${rh} at ${mpMatch ? mpMatch[1] : "1"} MP`, value: `${s.width}×${s.height}`, note: `snapped to ${grid.size} for ${grid.name} · ${mp(s.width, s.height)} · Enter copies`, copy: `${s.width}x${s.height}` }];
+    return [{ label: `${rw}:${rh} at ${mpMatch ? mpMatch[1] : "1"} MP`, value: `${s.width}×${s.height}`, note: `snapped to ${grid.size} for ${grid.name} · ${megapixels(s.width, s.height)} · Enter copies`, copy: `${s.width}x${s.height}` }];
   }
 
   const value = arithmetic(t);

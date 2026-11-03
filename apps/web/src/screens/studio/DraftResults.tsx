@@ -215,7 +215,7 @@ function StripItems({ items, byModel, shown, onPick, onMenu }: { items: Asset[];
           <div className={cx("flex flex-col gap-1.5 rounded-xl p-1.5", on ? "bg-accent-wash shadow-[inset_0_0_0_1px_var(--color-accent)]" : "hover:shadow-[inset_0_0_0_1px_var(--color-line-strong)]")}>
             <div data-strip-tile style={{ aspectRatio: shapeOf(a), width: `min(100%, ${Math.round(TILE_H * shapeOf(a))}px)` }} className="mx-auto">
               <ThumbWidth.Provider value={Math.min(room.current.width || Infinity, Math.round(TILE_H * shapeOf(a)))}>
-                <Tile fill plain asset={a} onOpen={() => onPick(a)} onMenu={(e) => onMenu(e, a)} />
+                <Tile plain asset={a} onOpen={() => onPick(a)} onMenu={(e) => onMenu(e, a)} />
               </ThumbWidth.Provider>
             </div>
             {/* what it is, under the picture: its name, then its clip and its length (or size) */}

@@ -41,7 +41,7 @@ const missingTip = (a: Asset) => `${a.path ?? a.name} is not in its folder on th
  * One item of a grid. Drawn again only when what it is handed changes: a grid hands every tile the same callbacks, each
  * told which item it is for, so ticking one item, or a page arriving, does not draw the hundreds of others again.
  */
-export const Tile = memo(function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, onMenu, fill, corner, plain }: {
+export const Tile = memo(function Tile({ asset, onOpen, selected, selecting, onSelect, dragIds, onMenu, corner, plain }: {
   asset: Asset;
   onOpen(asset: Asset): void;
   /** It is one of the items ticked; and whether any is: a click then ticks instead of opening. */
@@ -53,8 +53,6 @@ export const Tile = memo(function Tile({ asset, onOpen, selected, selecting, onS
   dragIds?: string[];
   /** A right-click: the menu of what can be done with it. */
   onMenu?(e: React.MouseEvent, asset: Asset): void;
-  /** It fills the box it is put in (the library's justified rows size it at the item's own shape); else it is a 3:4 card. */
-  fill?: boolean;
   /** A control for its top-right corner, beside the not-kept clock (a stack's "3 takes" button). */
   corner?: ReactNode;
   /** Nothing written over the picture (its length, its clip, its name on hover, the hover card): what it is is said under it (the draft's results column). */
@@ -90,7 +88,7 @@ export const Tile = memo(function Tile({ asset, onOpen, selected, selecting, onS
   );
   const sound = asset.kind === "audio";
   return (
-    <div className={cx("group relative select-none", fill && "h-full")}>
+    <div className="group relative h-full select-none">
     {tip.tip && !plain && <TileTip asset={asset} at={tip.tip} />}
     <button
       type="button"
@@ -122,7 +120,7 @@ export const Tile = memo(function Tile({ asset, onOpen, selected, selecting, onS
         plain ? "rounded-md" : "rounded-xl",
         // in the draft's results column the card around it marks the hover: a ring of its own drew a second border inside it
         !plain && "hover:ring-2 hover:ring-accent",
-        fill ? "h-full" : "aspect-[3/4]",
+        "h-full",
         selected && "ring-2 ring-accent",
       )}
     >
@@ -153,7 +151,7 @@ export const Tile = memo(function Tile({ asset, onOpen, selected, selecting, onS
         <HoverVideo
           asset={asset.id}
           video={asset.kind === "video"}
-          shaped={fill}
+          shaped
           at={asset.kind === "video" ? at : undefined}
           onNoFrame={() => setNoFrame(true)}
           onPlaying={(on, muted) => setPlaying(on ? { muted } : null)}

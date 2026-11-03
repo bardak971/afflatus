@@ -5,6 +5,8 @@ import { Thumb } from "./Thumb";
 
 /** The fewest milliseconds between two seeks while the pointer scrubs: a seek waits for the one before anyway. */
 const SEEK_EVERY_MS = 60;
+/** Milliseconds the mouse rests before a tile plays: a sweep across tiles starts nothing. */
+const REST_MS = 250;
 
 /**
  * A media element sent where the pointer is along its tile (`at`, 0 to 1), cheaply: one seek at a time,
@@ -46,14 +48,10 @@ function useScrub(el: React.RefObject<HTMLMediaElement | null>, at: number | nul
  * follows the pointer as it moves; it stops when the mouse leaves. Draws nothing but the element: the tile
  * draws the card (its waveform). Off when sounds on hover are turned off in Settings → Appearance.
  */
-export function HoverAudio({ asset, at, delay = 250, onPlaying, onTime }: {
+export function HoverAudio({ asset, at }: {
   asset: string;
   /** The pointer's place along the tile, 0 to 1; null: the pointer is not on it. */
   at: number | null;
-  delay?: number;
-  onPlaying?(playing: boolean): void;
-  /** Where it is as it plays, 0 to 1. */
-  onTime?(at: number): void;
 }) {
   const allowed = useHoverPlay((s) => s.sound);
   const [playing, setPlaying] = useState(false);
@@ -61,13 +59,12 @@ export function HoverAudio({ asset, at, delay = 250, onPlaying, onTime }: {
   const hovering = at !== null;
   useEffect(() => {
     if (!allowed || !hovering) return;
-    const t = window.setTimeout(() => setPlaying(true), delay);
+    const t = window.setTimeout(() => setPlaying(true), REST_MS);
     return () => {
       window.clearTimeout(t);
       setPlaying(false);
     };
-  }, [allowed, hovering, delay]);
-  useEffect(() => onPlaying?.(playing), [playing]); // eslint-disable-line react-hooks/exhaustive-deps -- the parent's callback is told when playing changes, not when it is passed anew
+  }, [allowed, hovering]);
   const seek = useScrub(el, at, playing);
   if (!playing) return null;
   return (
@@ -80,7 +77,6 @@ export function HoverAudio({ asset, at, delay = 250, onPlaying, onTime }: {
         e.currentTarget.play().catch(() => setPlaying(false));
       }}
       onSeeked={seek}
-      onTimeUpdate={(e) => onTime?.(e.currentTarget.duration ? e.currentTarget.currentTime / e.currentTarget.duration : 0)}
       onEnded={() => setPlaying(false)}
     />
   );
@@ -93,15 +89,12 @@ export function HoverAudio({ asset, at, delay = 250, onPlaying, onTime }: {
  * place along the tile, it scrubs: the video goes where the pointer is and plays on from there. Fills its
  * box: put it in a box with `relative` and a size (an aspect ratio).
  */
-export function HoverVideo({ asset, video, alt = "", delay = 250, at, shaped, onNoFrame, onPlaying }: {
+export function HoverVideo({ asset, video, at, shaped, onNoFrame, onPlaying }: {
   asset: string;
   /** Its box has the item's own shape (the library's justified grid): the smaller thumbnail may stand in (Thumb). */
   shaped?: boolean;
   /** It is a video: it plays on hover. An image only shows. */
   video: boolean;
-  alt?: string;
-  /** Milliseconds the mouse rests before the video starts: a sweep across tiles starts nothing. */
-  delay?: number;
   /** The pointer's place along the tile, 0 to 1, for a tile that scrubs (its own pointer events then start it); null: off it. */
   at?: number | null;
   /** The preview frame could not be shown (a video the server could not read a frame from). */
@@ -126,12 +119,12 @@ export function HoverVideo({ asset, video, alt = "", delay = 250, at, shaped, on
   useEffect(() => {
     if (!scrubs || !video || !hover.video) return;
     if (!over) return stop();
-    timer.current = window.setTimeout(() => setPlaying(true), delay);
+    timer.current = window.setTimeout(() => setPlaying(true), REST_MS);
     return () => {
       if (timer.current !== null) window.clearTimeout(timer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- scrubs is part of over; stop and setPlaying are new at every render and read refs
-  }, [over, video, hover.video, delay]);
+  }, [over, video, hover.video]);
   const report = useRef(onPlaying);
   report.current = onPlaying;
   useEffect(() => {
@@ -160,11 +153,11 @@ export function HoverVideo({ asset, video, alt = "", delay = 250, at, shaped, on
       onPointerEnter={(e) => {
         if (scrubs || !video || !hover.video || e.pointerType !== "mouse") return;
         if (timer.current !== null) window.clearTimeout(timer.current);
-        timer.current = window.setTimeout(() => setPlaying(true), delay);
+        timer.current = window.setTimeout(() => setPlaying(true), REST_MS);
       }}
       onPointerLeave={scrubs ? undefined : stop}
     >
-      <Thumb src={thumbUrl(asset)} large={!shaped} alt={alt} loading="lazy" decoding="async" draggable={false} onError={onNoFrame} className="h-full w-full object-cover" />
+      <Thumb src={thumbUrl(asset)} large={!shaped} alt="" loading="lazy" decoding="async" draggable={false} onError={onNoFrame} className="h-full w-full object-cover" />
       {playing && <video ref={el} src={fileUrl(asset)} loop playsInline preload="auto" aria-label="Playing on hover" onLoadedMetadata={seek} onSeeked={seek} className="absolute inset-0 h-full w-full object-cover" />}
     </span>
   );

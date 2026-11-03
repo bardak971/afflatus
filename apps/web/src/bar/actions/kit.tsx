@@ -2,9 +2,8 @@ import { Bookmark, Clapperboard, Copy, Eye, PenLine, Search, UserPlus } from "lu
 import type { CommandEntry, PromptHistoryItem } from "../../api";
 import { mainTextOf } from "../../form";
 import { kitHref } from "../../screens/kit/link";
-import { copyText } from "../../secureContext";
 import { castPlace, withPerson } from "../castTo";
-import type { Action, BarCtx, Person } from "./ctx";
+import { copySaid, type Action, type BarCtx, type Person } from "./ctx";
 import { retype } from "./retype";
 import { valueText } from "../search";
 
@@ -51,7 +50,7 @@ export function kitActions(x: BarCtx, k: Extract<CommandEntry, { kind: "kit" }>)
   if (k.entity === "preset") return [open, { label: "Apply in Studio", icon: <Bookmark size={14} />, note: "on the open draft", run: () => applyPreset(x, { id: k.id, name: k.label }) }];
   if (k.entity === "snippet") {
     const text = entity?.kind === "snippet" ? entity.def.text : "";
-    return [open, { label: "Copy its text", icon: <Copy size={14} />, stay: true, disabled: !text, note: text ? text.slice(0, 60) : "empty", run: () => copyText(text).then(() => x.onCopied(`${k.label}`), () => x.onCopied("")) }];
+    return [open, { label: "Copy its text", icon: <Copy size={14} />, stay: true, disabled: !text, note: text ? text.slice(0, 60) : "empty", run: () => copySaid(x, k.label, text) }];
   }
   if (k.entity === "person" && entity?.kind === "person") return [open, ...castActions(x, entity)];
   return [open];
@@ -84,6 +83,6 @@ export function historyActions(x: BarCtx, h: PromptHistoryItem): Action[] {
     },
     // its renders: the line's prompt: with its first words (the library's words find those that hold them all)
     { label: "Its renders", icon: <Search size={14} />, note: "prompt: with its first words", stay: true, run: retype(`prompt:${valueText(h.prompt.replace(/["\s]+/g, " ").trim().split(" ").slice(0, 6).join(" "))} `) },
-    { label: "Copy the prompt", icon: <Copy size={14} />, stay: true, run: () => copyText(h.prompt).then(() => x.onCopied("the prompt"), () => x.onCopied("")) },
+    { label: "Copy the prompt", icon: <Copy size={14} />, stay: true, run: () => copySaid(x, "the prompt", h.prompt) },
   ];
 }

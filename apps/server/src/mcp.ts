@@ -2,6 +2,7 @@ import { createMcpHandler, McpServer, type CallToolResult, type McpRequestContex
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z, ZodError } from "zod";
 import { VERSION } from "./config";
+import { scrubbed, secretsOf } from "./logScrub";
 import { isNever, NEVER, quoted, Rich, type NeverSubject, type Tool, type ToolCtx } from "./mcpTool";
 import { selfUrl } from "./fetchFile";
 import { refusal, SCOPE_WORDS, type McpToken } from "./mcpTokens";
@@ -9,6 +10,7 @@ import { UPLOAD_MOST } from "./mcpLibrary";
 import { cancelTask, getTask, takesTasks, taskOf, TASKS_EXTENSION } from "./mcpTasks";
 import { TOOLS } from "./mcpTools";
 import type { Services } from "./services";
+import { readSettings } from "./settings";
 
 /**
  * Afflatus from outside: /mcp, on the same port as the app, where an MCP client (Claude Code, Cursor…)
@@ -83,7 +85,12 @@ async function call(t: Tool, raw: unknown, s: Services, token: McpToken, ip: str
     for (const subject of typeof t.touches === "function" ? t.touches(args) : (t.touches ?? [])) ctx.never(subject);
     value = await t.run(args, ctx);
   } catch (err) {
-    const { why, failed } = errorSaid(err, t.name);
+    const told = errorSaid(err, t.name);
+    // no answer carries a path on the disk nor a secret (SECURITY.md, card #254): a refusal may quote a folder ("… cannot be
+    // read"), ComfyUI's or ffmpeg's text a file, the activity's line too
+    const secrets = await readSettings(s.db).then(secretsOf, () => [] as string[]);
+    const why = scrubbed(told.why, secrets, { shapes: false });
+    const { failed } = told;
     await s.mcp.tokens.record({ tokenId: token.id, tool: t.name, said, refused: !failed, failed, why }).catch((e) => console.warn("[mcp] activity not written:", (e as Error).message));
     return { content: [{ type: "text", text: why }], isError: true };
   }

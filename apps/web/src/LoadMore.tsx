@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react";
-import { cx } from "./ui";
 
 /**
  * The box a list scrolls in: the nearest one up the page that scrolls on its own, or null for the page itself. The
@@ -19,7 +18,7 @@ export function scrollBoxOf(el: HTMLElement): HTMLElement | null {
  * page is asked for, so a long library is read by scrolling and the page is there before the end is reached. A
  * quiet line while a page loads; a click asks too, for a list that fits its box without scrolling.
  */
-export function LoadMore({ more, busy, onMore, size = "md" }: { more: boolean; busy: boolean; onMore(): void; size?: "md" | "sm" }) {
+export function LoadMore({ more, busy, onMore }: { more: boolean; busy: boolean; onMore(): void }) {
   const ref = useRef<HTMLButtonElement>(null);
   // the callers hand a new onMore at every draw: the observer calls the latest one, and is made again only when the list
   // gains or loses a page to ask for, not at each draw (a new one says at once that the end is in view, and asked again)
@@ -36,7 +35,7 @@ export function LoadMore({ more, busy, onMore, size = "md" }: { more: boolean; b
   }, [more, busy]);
   if (!more) return null;
   return (
-    <button type="button" ref={ref} onClick={onMore} disabled={busy} aria-label="More" className={cx("flex w-full justify-center text-ink-3 hover:text-ink-2", size === "sm" ? "py-2 text-meta" : "py-4 text-xs")}>
+    <button type="button" ref={ref} onClick={onMore} disabled={busy} aria-label="More" className="flex w-full justify-center py-4 text-xs text-ink-3 hover:text-ink-2">
       {busy ? "Loading…" : "more"}
     </button>
   );

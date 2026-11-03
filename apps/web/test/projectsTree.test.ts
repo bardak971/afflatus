@@ -3,9 +3,9 @@ import type { Asset, DraftLeaf, FolderNode, ProjectsTree, TreeGroup } from "../s
 import { draftLabel, flatten, folderMeta, groupMeta, pathEnd, whyRefused, itemLabel, itemMeta, itemsOrder, nextSort, planBin, planDrop, rangePick, rowHeight, rowOffsets, rowWindow, siblings, step, type Moving, type Piece, type Target } from "../src/projects/tree";
 import { shortDate } from "../src/format";
 
-const folder = (id: string, children: FolderNode[] = [], linked = false): FolderNode => ({ id, name: id, linked, items: 1, totalItems: 1 + children.length, bytes: 2 ** 20, children });
+const folder = (id: string, children: FolderNode[] = [], linked = false): FolderNode => ({ id, name: id, linked, items: 1, totalItems: 1 + children.length, bytes: 2 ** 20, createdAt: "", children });
 const group = (id: string | null, over: Partial<TreeGroup> = {}): TreeGroup => ({
-  id, kind: id ? "project" : "inbox", name: id ?? "Inbox", archived: false, rootFolderId: id ? `root-${id}` : null,
+  id, kind: id ? "project" : "inbox", name: id ?? "Inbox", archived: false, rootFolderId: id ? `root-${id}` : null, createdAt: id ? "" : null,
   counts: { drafts: 0, timelines: 0, items: 0 }, bytes: 0, folders: [], timelines: [], ...over,
 });
 const tree: ProjectsTree = {
@@ -285,7 +285,7 @@ describe("one kind of item shown", () => {
 describe("the columns", () => {
   const leaf = (id: string, name: string, createdAt: string, bytes: number, folderId: string | null = null) =>
     ({ id, name, folderId, clips: 1, durationMs: 4000, bytes, exported: false, unusedTakes: 0, unusedBytes: 0, createdAt, updatedAt: createdAt });
-  const sized = (id: string, bytes: number, children: FolderNode[] = []): FolderNode => ({ id, name: id, linked: false, items: 1, totalItems: 1, bytes, children });
+  const sized = (id: string, bytes: number, children: FolderNode[] = []): FolderNode => ({ id, name: id, linked: false, items: 1, totalItems: 1, bytes, createdAt: "", children });
   const sorted: ProjectsTree = {
     totalBytes: 1,
     groups: [group("p", {
@@ -333,14 +333,12 @@ describe("the columns", () => {
     expect(rows.find((r) => r.key === "t:t1")?.created).toBe("2026-10-01T10:00:00Z");
     expect(rows.find((r) => r.key === "dr:x")?.created).toBe("2026-10-01T00:00:00Z");
     expect(rows.find((r) => r.key === "dr:z")?.created).toBe("2026-10-02T00:00:00Z");
-    expect(rows.find((r) => r.key === "f:beta")?.created).toBeUndefined();
-    expect(rows.find((r) => r.key === "g:p")?.created).toBeUndefined();
   });
 });
 
 describe("empty rows and unused takes", () => {
   it("dim a group or folder with nothing in it, and only those", () => {
-    const empty = (id: string): FolderNode => ({ id, name: id, linked: false, items: 0, totalItems: 0, bytes: 0, children: [] });
+    const empty = (id: string): FolderNode => ({ id, name: id, linked: false, items: 0, totalItems: 0, bytes: 0, createdAt: "", children: [] });
     const t: ProjectsTree = {
       totalBytes: 0,
       groups: [
