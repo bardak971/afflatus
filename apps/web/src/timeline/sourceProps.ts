@@ -22,17 +22,17 @@ export function trackSourceProps(e: LoadedEditor): Pick<ComponentProps<typeof Tr
       const chosen = sourceDropClip(e.t, e.videoRecipes, e.selection.current);
       const model = of(chosen?.recipe) ?? of(e.t.source?.recipe) ?? e.videoRecipes.find((r) => r.traits?.windows?.sourceDefault && windowed(r));
       if (!model) {
-        e.edit.mutate({ source: { asset } });
+        e.actions.edit.mutate({ source: { asset } });
         return e.selection.openSource();
       }
       const source = { asset, recipe: model.id, ...(chosen ? { clip: chosen.id } : {}) };
       // a model with a Picture of its own (Motion transfer) waits for it in the source panel; a swap has no source form (the
       // owner, 2026-10-18): dropped, the video is made into its clips at once, nothing rendered, the first opened
       if (model.inputs.some((i) => i.type === "image" && i.role === "source")) {
-        e.edit.mutate({ source });
+        e.actions.edit.mutate({ source });
         return e.selection.openSource();
       }
-      e.edit.mutate({ source }, { onSuccess: () => e.sourceLane.makeSource.run(false) });
+      e.actions.edit.mutate({ source }, { onSuccess: () => e.sourceLane.makeSource.run(false) });
     },
     sourceSelected: e.selection.sourceOpen,
     // the source plays on the stage, as ever; once made, the column shows no form of its own but the clip made from it
@@ -101,7 +101,7 @@ export function clipSourceOf(e: LoadedEditor, current: Clip): ClipSource | undef
   if (!source || !made.some((c) => c.id === current.id)) return undefined;
   const w = windowed(e.videoRecipes.find((r) => r.id === current.recipe), source?.inputs);
   const driving = w ? e.videoRecipes.find((r) => r.id === current.recipe)?.inputs.find((i) => i.id === w.driving) : undefined;
-  const patchClip = (share: "inLine" | "toAll") => void e.save(current.id).then(() => e.patch.mutate({ clip: current.id, patch: { share } }));
+  const patchClip = (share: "inLine" | "toAll") => void e.save(current.id).then(() => e.actions.patch.mutate({ clip: current.id, patch: { share } }));
   const recipe = e.videoRecipes.find((r) => r.id === current.recipe);
   const runUp = recipe?.traits?.windows?.runUp;
   const own = recipe?.traits?.windows?.own ?? [];
@@ -170,7 +170,7 @@ export function clipSourceOf(e: LoadedEditor, current: Clip): ClipSource | undef
     cutting: e.sourceLane.cutSource.pending,
     picking: e.sourceLane.whoPicking,
     onPicking: e.sourceLane.setWhoPicking,
-    onClearPick: () => e.edit.mutate({ source: { pick: null } }),
+    onClearPick: () => e.actions.edit.mutate({ source: { pick: null } }),
     kept: e.keptToClip(current.id),
     onKept: (on) => e.keepToClip(current.id, on),
     onInLine: () => patchClip("inLine"),

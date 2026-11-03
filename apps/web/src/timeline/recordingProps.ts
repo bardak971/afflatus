@@ -98,8 +98,8 @@ export function recordingPanelProps(e: LoadedEditor, place: NonNullable<LoadedEd
     timelineId: e.t.id,
     recording: recording.asset,
     place,
-    newClips: { value: newForm, options: recordingFormOptions(e.videoRecipes, families, undefined), onChange: (to) => e.m.recordingNewClips.mutate({ asset, recipe: to }), pending: e.m.recordingNewClips.isPending },
-    forms: { of: formOptions, change: (clip, to) => e.patch.mutate({ clip, patch: { recipe: to } }) },
+    newClips: { value: newForm, options: recordingFormOptions(e.videoRecipes, families, undefined), onChange: (to) => e.actions.recordingNewClips.mutate({ asset, recipe: to }), pending: e.actions.recordingNewClips.isPending },
+    forms: { of: formOptions, change: (clip, to) => e.actions.patch.mutate({ clip, patch: { recipe: to } }) },
     clock: e.playhead.clock,
     onClose: () => e.selection.setRecordingOpen(null),
     onUses: (fromMs, toMs) => void e.recordings.recordingTrim.run(asset, mine, fromMs, toMs),
@@ -116,14 +116,14 @@ export function recordingPanelProps(e: LoadedEditor, place: NonNullable<LoadedEd
       pending: e.recordings.recordingCut.pending,
     },
     onSelectClip: (id) => e.selection.select(id),
-    opens: { before: at > 0 ? at : null, joined: first.joined, onJoined: (joined) => e.patch.mutate({ clip: first.id, patch: { joined } }) },
+    opens: { before: at > 0 ? at : null, joined: first.joined, onJoined: (joined) => e.actions.patch.mutate({ clip: first.id, patch: { joined } }) },
     shared,
     onShared: (inputs) => e.recordings.recordingShared.run(asset, inputs),
     sharing: e.recordings.recordingShared.pending,
     render: (() => {
       // with nothing to play and not sent: those that cannot render yet are said, with the first one's reason
       const waiting = mine.filter((c) => !c.take && !c.job && !left.includes(c));
-      return { left: left.length, queued: mine.filter((c) => c.job).length, waiting: waiting.length, why: left.length ? null : (waiting.map((c) => e.ready(c).why).find(Boolean) ?? null), run: () => e.render.mutate({ clips: left }), rendering: e.render.isPending };
+      return { left: left.length, queued: mine.filter((c) => c.job).length, waiting: waiting.length, why: left.length ? null : (waiting.map((c) => e.ready(c).why).find(Boolean) ?? null), run: () => e.actions.render.mutate({ clips: left }), rendering: e.actions.render.isPending };
     })(),
   };
 }

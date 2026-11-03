@@ -35,9 +35,11 @@ const NONE: RecipeInfo[] = [];
 
 /**
  * What the timeline editor holds: the timeline and the lists it is read with, what is selected, picked and open
- * (`selection`), the playhead (`playhead`), the range, the edits and the mutations, and the keys. Each concern is one
- * field, so that a part reads the piece it needs rather than a field of the whole. The editor
- * (screens/TimelineEditor.tsx) lays it out; editorProps.tsx hands each of its parts what it needs from here.
+ * (`selection`), the playhead (`playhead`), the source (`sourceLane`), the recordings (`recordings`), the mutations
+ * (`actions`), Finish and Export (`finish`), the range, the edits and the keys. Each concern is one field, so that a part
+ * reads the piece it needs rather than a field of the whole. The editor (screens/TimelineEditor.tsx) lays it out;
+ * editorProps.tsx hands each of its parts what it needs from here, with sourceProps.ts, recordingProps.ts and
+ * finishProps.tsx for theirs.
  */
 
 export function useTimelineEditor(id: string) {
@@ -135,7 +137,7 @@ export function useTimelineEditor(id: string) {
     timeline: t, clipsNow, recipes: recipes.data?.recipes ?? [], edits: { save, turn, ready, inputsOf, editInputs, dropEdits, savedElsewhere, sourceTyped }, firstRecipe,
     on: { note: setNote, select, unpick: () => setPicked(new Set()), writing: setWriting, open: setOpened, stepping: () => oneTrim.drop() },
   });
-  const { after, render, patch, fix, edit, add, remove, removeMany, bringBack, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan } = m;
+  const { after, render, patch, fix, edit, add, remove, removeMany, split, writeBetween, undo, redo } = m;
   // a change an MCP token made: said with Undo (that step alone), its clips ringed
   useAgentTimeline(id, { undo: (steps) => undo.mutate(steps), laid: agentLaid, selected });
   const pickedNow = useRef(picked);
@@ -354,12 +356,13 @@ export function useTimelineEditor(id: string) {
     id, timeline, t, shown, clips, recipes, setup, settings, videoRecipes, running, panelWidth, folded, slots, total, selection, playhead,
     sourceLane, recordings, openRecordingAt, pps, setPps, trackView,
     preview, setPreview, opened, setOpened, picking, setPicking, casting, setCasting, mood, setMood, setDesigning, designed,
-    talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, exp, setExp, fin, setFin, writing, player,
-    liveShown, saveFailed, save, inputsOf, editInputs, formOf, ready, keptToClip, keepToClip, sayOf, say, m, range, setRange, loopRange, snapQuiet,
+    talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, writing, player,
+    liveShown, saveFailed, save, inputsOf, editInputs, formOf, ready, keptToClip, keepToClip, sayOf, say, actions: m, range, setRange, loopRange, snapQuiet,
     toggleSnapQuiet, emptyRange, toggle, toggleLoop, rangeAct, rangeItems, clipMenu, soundMenu, pinMenu, musicMenu, rangeMenu, onClip,
     newClip, move, missing, renderable, takes, takesOn, allMs, allOn, allBlocked, checks,
-    trackKeys, jump, splitAt, stepTake, continueFrom, continueHere, misfits, finishedSize, fixFirst, exportNow, clipHead,
-    after, render, patch, fix, edit, add, remove, removeMany, bringBack, split, writeBetween, removeTake, stop, undo, redo, duplicate, exportIt, frame, loop, plan,
+    trackKeys, jump, splitAt, stepTake, continueFrom, continueHere, clipHead,
+    // Finish and Export: their dialogs, what they are asked with, and what they say of the timeline
+    finish: { exp, setExp, fin, setFin, exportNow, fixFirst, misfits, finishedSize },
   };
 }
 

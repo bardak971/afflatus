@@ -25,7 +25,8 @@ import { clipMenuItems } from "../timeline/menus";
 import { FoldedColumn, OverviewColumn } from "../timeline/EditorColumns";
 import { RangeBar } from "../timeline/RangeBar";
 import { SoundMenus } from "../timeline/SoundMenus";
-import { clipActs, exportProps, pinMenuProps, finishProps, headerProps, inspectorProps, overviewProps, placeItemsOf, playerProps, soundMenusProps, trackProps, transportProps } from "../timeline/editorProps";
+import { clipActs, pinMenuProps, headerProps, inspectorProps, overviewProps, placeItemsOf, playerProps, soundMenusProps, trackProps, transportProps } from "../timeline/editorProps";
+import { exportProps, finishProps } from "../timeline/finishProps";
 import { recordingPanelProps } from "../timeline/recordingProps";
 import { useTimelineEditor } from "../timeline/useTimelineEditor";
 
@@ -58,7 +59,7 @@ function Editor({ id }: { id: string }) {
   if (!t || !shown) return <EditorSkeleton id={id} />;
 
   const e = { ...editor, t, shown };
-  const { clips, range, clipMenu, rangeMenu, exp, selection: { current, musicOpen } } = e;
+  const { clips, range, clipMenu, rangeMenu, selection: { current, musicOpen }, finish: { exp } } = e;
   const pinMenu = pinMenuProps(e);
   // the clips made from the source: its panel renders those with nothing to play once they are made
   const fromSource = new Set(madeFromSource(t, e.videoRecipes).map((c) => c.id));
@@ -102,7 +103,7 @@ function Editor({ id }: { id: string }) {
                 pick={t.source.pick ?? null}
                 picking={e.sourceLane.whoPicking}
                 onPick={(pick) => {
-                  e.edit.mutate({ source: { pick } });
+                  e.actions.edit.mutate({ source: { pick } });
                   e.sourceLane.setWhoPicking(false);
                 }}
                 onPickEnd={() => e.sourceLane.setWhoPicking(false)}
@@ -148,16 +149,16 @@ function Editor({ id }: { id: string }) {
             timeline={t}
             place={e.sourceLane.place}
             clock={e.playhead.clock}
-            onLook={(look) => e.edit.mutate({ look })}
+            onLook={(look) => e.actions.edit.mutate({ look })}
             recipes={e.videoRecipes}
-            onEdit={(source) => e.edit.mutate({ source })}
+            onEdit={(source) => e.actions.edit.mutate({ source })}
             onType={(inputs) => e.sourceLane.typeSource(t.id, inputs)}
             typed={() => e.sourceLane.sourceTyped(t.id)}
             onMake={e.sourceLane.makeSource.run}
             making={e.sourceLane.makeSource.pending}
             made={{ left: sourceLeft.length, queued: clips.filter((c) => fromSource.has(c.id) && c.job).length }}
-            onRender={() => e.render.mutate({ clips: sourceLeft })}
-            rendering={e.render.isPending}
+            onRender={() => e.actions.render.mutate({ clips: sourceLeft })}
+            rendering={e.actions.render.isPending}
             onClose={() => e.selection.setSourceOpen(false)}
             picking={e.sourceLane.whoPicking}
             onPicking={e.sourceLane.setWhoPicking}
@@ -165,7 +166,7 @@ function Editor({ id }: { id: string }) {
         ) : recordingPanel ? (
           <RecordingPanel key={recordingPanel.recording.id} {...recordingPanel} />
         ) : musicOpen && t.music ? (
-          <MusicPanel timeline={t} onEdit={(p) => e.edit.mutate(p)} onClose={() => e.selection.setMusicOpen(false)} />
+          <MusicPanel timeline={t} onEdit={(p) => e.actions.edit.mutate(p)} onClose={() => e.selection.setMusicOpen(false)} />
         ) : current && e.selection.joinOpen === current.id && clips.indexOf(current) > 0 ? (
           <JoinPanel
             key={`join:${current.id}`}
@@ -173,8 +174,8 @@ function Editor({ id }: { id: string }) {
             index={clips.indexOf(current)}
             before={clips[clips.indexOf(current) - 1]!}
             recipes={e.videoRecipes}
-            onPatch={(p) => e.patch.mutate({ clip: current.id, patch: p })}
-            retake={current.kind === "video" ? { run: () => e.render.mutate({ clips: [current], takes: 1 }), why: current.job ? "A render of this clip is on its way" : e.render.isPending ? "Sending…" : e.ready(current).why ?? null } : undefined}
+            onPatch={(p) => e.actions.patch.mutate({ clip: current.id, patch: p })}
+            retake={current.kind === "video" ? { run: () => e.actions.render.mutate({ clips: [current], takes: 1 }), why: current.job ? "A render of this clip is on its way" : e.actions.render.isPending ? "Sending…" : e.ready(current).why ?? null } : undefined}
             onClose={() => e.selection.select(null)}
             onSelectClip={e.selection.select}
           />
@@ -191,14 +192,14 @@ function Editor({ id }: { id: string }) {
       <SoundMenus {...soundMenusProps(e)} />
 
       {exp && <ExportDialog {...exportProps(e, exp)} />}
-      {e.fin && <FinishDialog {...finishProps(e)} />}
-      {e.casting && <CastDialog timeline={t} mood={e.mood} onMood={e.setMood} onEdit={(p) => e.edit.mutate(p)} onClose={() => e.setCasting(false)} />}
+      {e.finish.fin && <FinishDialog {...finishProps(e)} />}
+      {e.casting && <CastDialog timeline={t} mood={e.mood} onMood={e.setMood} onEdit={(p) => e.actions.edit.mutate(p)} onClose={() => e.setCasting(false)} />}
       {e.picking && (
         <Picker
           title="Start from an image"
           onClose={() => e.setPicking(false)}
           onPick={(asset) => {
-            e.add.mutate({ asset, as: "clip" });
+            e.actions.add.mutate({ asset, as: "clip" });
             e.setPicking(false);
           }}
         />

@@ -1,7 +1,5 @@
 import type { ComponentProps, ComponentPropsWithoutRef } from "react";
 import { api, type Asset, type Clip } from "../api";
-import type { ExportDialog } from "./ExportDialog";
-import type { FinishDialog } from "./Finish";
 import type { Inspector } from "./Inspector";
 import type { OverviewColumn } from "./EditorColumns";
 import type { Player } from "./Player";
@@ -9,12 +7,10 @@ import type { SoundMenus } from "./SoundMenus";
 import type { Track } from "./Track";
 import type { TimelineHeader, Transport } from "./EditorBars";
 import { ClipDesigner } from "./ClipDesigner";
-import { AttentionNote } from "./Overview";
 import { PIN_WORDS, pinInputs, pinMirrorOf } from "./model";
 import { pinMenuItems, placeItems, type ClipMenuActions } from "./menus";
 import type { ContextMenu } from "../ContextMenu";
 import type { LoadedEditor } from "./useTimelineEditor";
-import { plural } from "../format";
 import { carriedOf, sameWindowGrid } from "@afflatus/core";
 import { windowed } from "./track/SourceLane";
 import { voiceInput } from "./track/RecordingBand";
@@ -26,7 +22,7 @@ import { clipRecordingOf, stageEndOf, trackRecordingProps } from "./recordingPro
 // that would otherwise fill the editor's layout, one builder a part.
 
 export function headerProps(e: LoadedEditor): ComponentProps<typeof TimelineHeader> {
-  const { t, clips, render, undo, redo, edit, selection: { picked } } = e;
+  const { t, clips, selection: { picked }, actions: { render, undo, redo, edit } } = e;
   return {
     t,
     clips,
@@ -46,18 +42,18 @@ export function headerProps(e: LoadedEditor): ComponentProps<typeof TimelineHead
     onRename: (name) => edit.mutate({ name }),
     onRenderMissing: () => render.mutate({ clips: e.missing }),
     onRenderPicked: () => { render.mutate({ clips: clips.filter(e.renderable) }); e.selection.setPicked(new Set()); },
-    onFinish: () => e.setFin(true),
-    onExport: () => e.exportNow(t),
+    onFinish: () => e.finish.setFin(true),
+    onExport: () => e.finish.exportNow(t),
   };
 }
 
 /** What a picture or a video dropped on the media overlay can become here: a clip, its sound, the music, a pinned frame. */
 export const placeItemsOf = (e: LoadedEditor) => (a: Asset) => placeItems(a, {
   current: e.selection.current, clips: e.clips, recipes: e.recipes.data?.recipes ?? [], music: Boolean(e.t.music), inputsOf: e.inputsOf, editInputs: e.editInputs, select: e.selection.select,
-  patch: (clip: string, p: { soundAsset: string }) => e.patch.mutate({ clip, patch: p }),
-  edit: (p: Parameters<typeof e.edit.mutate>[0]) => e.edit.mutate(p),
+  patch: (clip: string, p: { soundAsset: string }) => e.actions.patch.mutate({ clip, patch: p }),
+  edit: (p: Parameters<typeof e.actions.edit.mutate>[0]) => e.actions.edit.mutate(p),
   openMusic: () => e.selection.setMusicOpen(true),
-  add: (v: { asset: string; after?: string | null }) => e.add.mutate(v),
+  add: (v: { asset: string; after?: string | null }) => e.actions.add.mutate(v),
 });
 
 export function playerProps(e: LoadedEditor): ComponentPropsWithoutRef<typeof Player> {
@@ -74,10 +70,10 @@ export function playerProps(e: LoadedEditor): ComponentPropsWithoutRef<typeof Pl
     playhead: e.playhead.now,
     preview: e.preview,
     live: e.liveShown,
-    onStop: (job) => e.stop.mutate(job),
+    onStop: (job) => e.actions.stop.mutate(job),
     master: muted ? 0 : volume,
     screen: { clock: e.playhead.clock, total: e.total, playing: e.playhead.playing, volume, muted, onToggle: e.toggle, onSeek: (ms) => player.current?.seek(ms), onVolume: e.playhead.onVolume, onMute: e.playhead.onMute, onJump: e.jump, loop: range ? { on: e.loopRange, toggle: e.toggleLoop } : undefined },
-    onPickPreview: (take) => { if (e.selection.current) e.patch.mutate({ clip: e.selection.current.id, patch: { take: take.id } }); e.setPreview(null); },
+    onPickPreview: (take) => { if (e.selection.current) e.actions.patch.mutate({ clip: e.selection.current.id, patch: { take: take.id } }); e.setPreview(null); },
   };
 }
 
@@ -98,8 +94,8 @@ export function transportProps(e: LoadedEditor): ComponentProps<typeof Transport
     loopRange: e.loopRange,
     volume: e.playhead.volume,
     muted: e.playhead.muted,
-    adding: e.add.isPending,
-    saving: e.frame.isPending,
+    adding: e.actions.add.isPending,
+    saving: e.actions.frame.isPending,
     onJump: e.jump,
     onToggle: e.toggle,
     onToggleLoop: e.toggleLoop,
@@ -109,7 +105,7 @@ export function transportProps(e: LoadedEditor): ComponentProps<typeof Transport
     onExtend: e.continueHere,
     onSaveFrame: () => {
       const here = player.current?.where();
-      if (here?.clip.take) e.frame.mutate({ asset: here.clip.take.asset.id, at: Math.round(here.assetMs) });
+      if (here?.clip.take) e.actions.frame.mutate({ asset: here.clip.take.asset.id, at: Math.round(here.assetMs) });
       else if (here?.clip.still) e.setOpened(here.clip.still);
     },
   };
@@ -125,7 +121,7 @@ function setVoice(e: LoadedEditor, clip: Clip, asset: string) {
 }
 
 export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
-  const { t, patch, edit, add, render, selection: { musicOpen } } = e;
+  const { t, selection: { musicOpen }, actions: { patch, edit, add, render } } = e;
   return {
     timeline: e.shown,
     recipes: e.videoRecipes,
@@ -137,7 +133,7 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     onPick: e.selection.togglePick,
     clock: e.playhead.clock,
     running: e.running,
-    onStop: (job) => e.stop.mutate(job),
+    onStop: (job) => e.actions.stop.mutate(job),
     // a clip with nothing to play yet renders from the track itself, as from its menu
     renderOf: (c) => (c.kind === "video" && !c.job && e.ready(c).input && !render.isPending ? { run: () => render.mutate({ clips: [c] }), ms: e.takes(c) } : null),
     busy: add.isPending,
@@ -164,7 +160,7 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     onRecipe: (clip, recipe) => patch.mutate({ clip: clip.id, patch: { recipe } }),
     onSourceSettings: () => e.selection.openSource(),
     // a removed part's mark on its band or the Source lane: its clips back, before the clip it was kept with
-    onBringBack: (before) => e.bringBack.mutate(before),
+    onBringBack: (before) => e.actions.bringBack.mutate(before),
     // a recording's band: clicked, dragged, the clips made from it (recordingProps.ts)
     ...trackRecordingProps(e),
     // the source lane: a video dropped on it, the lane clicked, dragged and split (sourceProps.ts)
@@ -213,7 +209,7 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
 }
 
 export function inspectorProps(e: LoadedEditor, current: Clip): ComponentProps<typeof Inspector> {
-  const { t, clips, recipes, render, patch, designed, writeBetween } = e;
+  const { t, clips, recipes, designed, actions: { render, patch, writeBetween } } = e;
   return {
     fromSource: clipSourceOf(e, current),
     fromRecording: clipRecordingOf(e, current),
@@ -252,7 +248,7 @@ export function inspectorProps(e: LoadedEditor, current: Clip): ComponentProps<t
       // drifts, or where the lips must follow the source), its takes kept
       const next = e.videoRecipes.find((r) => r.id === recipe);
       const of = e.videoRecipes.find((r) => r.id === e.t.source?.recipe);
-      if (made && clipSourceOf(e, current) && e.keptToClip(current.id) && sameWindowGrid(of, next)) return e.m.windowForm.mutate({ clip: current.id, recipe });
+      if (made && clipSourceOf(e, current) && e.keptToClip(current.id) && sameWindowGrid(of, next)) return e.actions.windowForm.mutate({ clip: current.id, recipe });
       // the source's form, every window with it: on the same grid in place, its takes kept; else made anew, asked first (sourceForm)
       if (made && clipSourceOf(e, current)) return e.sourceLane.sourceForm.run(recipe);
       if (made && e.sourceLane.place?.made && !current.take && !current.job) return e.sourceLane.cutSource.run({ recipe, clip: current.id });
@@ -262,8 +258,8 @@ export function inspectorProps(e: LoadedEditor, current: Clip): ComponentProps<t
     onRender: (count) => render.mutate({ clips: [current], takes: count }),
     onMenu: (ev) => e.clipMenu.open(ev, current),
     onOpen: e.setOpened,
-    onRemoveTake: (takeId) => e.removeTake.mutate(takeId),
-    onStop: () => current.job && e.stop.mutate(current.job.id),
+    onRemoveTake: (takeId) => e.actions.removeTake.mutate(takeId),
+    onStop: () => current.job && e.actions.stop.mutate(current.job.id),
     onDesigner: () => e.setDesigning((d) => (d ? null : current.id)),
     designer: designed ? (
       <ClipDesigner
@@ -292,15 +288,15 @@ export function inspectorProps(e: LoadedEditor, current: Clip): ComponentProps<t
 }
 
 export function overviewProps(e: LoadedEditor): ComponentProps<typeof OverviewColumn> {
-  const { clips, render, add, plan } = e;
+  const { clips, actions: { render, add, plan } } = e;
   return {
     t: e.t,
     clips,
     checks: e.checks,
     width: e.panelWidth,
     picked: e.selection.picked,
-    rendering: render.isPending || e.fix.isPending,
-    onEdit: (p) => e.edit.mutate(p),
+    rendering: render.isPending || e.actions.fix.isPending,
+    onEdit: (p) => e.actions.edit.mutate(p),
     onPick: (id) => e.selection.select(id),
     onVoice: (id, asset) => {
       const clip = e.shown.clips.find((c) => c.id === id);
@@ -308,7 +304,7 @@ export function overviewProps(e: LoadedEditor): ComponentProps<typeof OverviewCo
     },
     onMusic: () => e.selection.setMusicOpen(true),
     onCast: () => e.setCasting(true),
-    onFix: (f) => e.fix.mutate(f),
+    onFix: (f) => e.actions.fix.mutate(f),
     onRenderPicked: () => { render.mutate({ clips: clips.filter(e.renderable) }); e.selection.setPicked(new Set()); },
     start: { busy: add.isPending, planning: plan.isPending, onPickImage: () => e.setPicking(true), onPlan: (idea, count) => plan.mutate({ idea, clips: count }), onNewClip: () => e.newClip() },
   };
@@ -334,7 +330,7 @@ export function pinMenuProps(e: LoadedEditor): ComponentProps<typeof ContextMenu
     label: `Actions on the ${words} of clip ${index + 1}`,
     head: { title: `Clip ${index + 1} · ${words}`, sub: pin.on ? "mirrored at render time" : "pinned", thumb: pin.asset },
     items: pinMenuItems(pin, {
-      mirror: (on) => e.patch.mutate({ clip: clip.id, patch: { pinMirror: { [pin.input]: on } } }),
+      mirror: (on) => e.actions.patch.mutate({ clip: clip.id, patch: { pinMirror: { [pin.input]: on } } }),
       open: asset ? () => e.setOpened(asset) : undefined,
       remove: () => e.editInputs(clip, Object.fromEntries(Object.entries(inputs).filter(([k]) => k !== pin.input))),
     }),
@@ -344,7 +340,7 @@ export function pinMenuProps(e: LoadedEditor): ComponentProps<typeof ContextMenu
 
 /** What a clip's menu reaches: the editor's mutations, by name. */
 export function clipActs(e: LoadedEditor): ClipMenuActions {
-  const { clips, render, split, duplicate, loop, add, frame, rangeAct, remove, removeMany, patch } = e;
+  const { clips, rangeAct, actions: { render, split, duplicate, loop, add, frame, remove, removeMany, patch } } = e;
   return {
     clips: e.shown.clips,
     recipes: e.recipes.data?.recipes ?? [],
@@ -374,7 +370,7 @@ export function clipActs(e: LoadedEditor): ClipMenuActions {
     toSource: (c) => {
       if (!c.take) return;
       // the source sits so that what the clip plays stays where it is; the clips made from it take its place
-      e.edit.mutate({ source: { asset: c.take.asset.id, atMs: c.atMs - c.take.startMs, fromMs: c.take.startMs, toMs: c.take.endMs, clip: c.id } });
+      e.actions.edit.mutate({ source: { asset: c.take.asset.id, atMs: c.atMs - c.take.startMs, fromMs: c.take.startMs, toMs: c.take.endMs, clip: c.id } });
       e.selection.openSource();
     },
   };
@@ -386,56 +382,10 @@ export function soundMenusProps(e: LoadedEditor): ComponentProps<typeof SoundMen
     clips: e.shown.clips,
     soundMenu: e.soundMenu,
     musicMenu: e.musicMenu,
-    onPatch: (clip, p) => e.patch.mutate({ clip, patch: p }),
-    onEdit: (p) => e.edit.mutate(p),
+    onPatch: (clip, p) => e.actions.patch.mutate({ clip, patch: p }),
+    onEdit: (p) => e.actions.edit.mutate(p),
     select: e.selection.select,
     openMusic: () => { e.selection.setSelected(null); e.selection.setMusicOpen(true); },
     showMusic: () => e.selection.setMusicOpen(true),
-  };
-}
-
-export function exportProps(e: LoadedEditor, exp: NonNullable<LoadedEditor["exp"]>): ComponentProps<typeof ExportDialog> {
-  const { t, clips } = e;
-  return {
-    timeline: t,
-    clips,
-    ask: exp,
-    onChange: e.setExp,
-    range: e.range,
-    emptyRange: e.emptyRange,
-    finishedSize: e.finishedSize,
-    misfits: e.misfits,
-    exporting: e.exportIt.isPending,
-    attention: <AttentionNote timeline={t} clips={clips} {...e.checks} onFixFirst={(plan) => e.fixFirst(plan, () => e.setExp(null))} />,
-    onExport: (v) => e.exportIt.mutate(v),
-    onFinishFirst: () => {
-      e.setExp(null);
-      e.setFin(true);
-    },
-    onOpen: e.setOpened,
-    onClose: () => e.setExp(null),
-  };
-}
-
-export function finishProps(e: LoadedEditor): ComponentProps<typeof FinishDialog> {
-  const { t, clips, setNote } = e;
-  return {
-    timeline: e.id,
-    clips,
-    // ComfyUI's upscale_models, as any recipe with an upscale model to pick lists them
-    upscaleModels: e.setup.data?.recipes.find((r) => r.options.upscaleModel?.length)?.options.upscaleModel ?? [],
-    // and the files the H3 forms' Face refine and latent upscaler, and the SeedVR2 route, offer (card #159)
-    models: {
-      face: e.setup.data?.recipes.find((r) => r.id === "h3.video")?.options.faceRefineModel ?? [],
-      latent: e.setup.data?.recipes.find((r) => r.id === "h3.video")?.options.upscaleLatentModel ?? [],
-      seedvr: e.setup.data?.recipes.find((r) => r.options.seedvrModel?.length)?.options.seedvrModel ?? [],
-    },
-    attention: <AttentionNote timeline={t} clips={clips} {...e.checks} onFixFirst={(plan) => e.fixFirst(plan, () => e.setFin(false))} />,
-    onClose: () => e.setFin(false),
-    onQueued: (r) => {
-      e.after();
-      e.setFin(false);
-      setNote(`${plural(r.jobs.length, "finish job")} in the queue${r.skipped.length ? `, ${r.skipped.length} skipped` : ""}`, `One job a clip (two with Face refine before an upscale); the finished takes arrive as they land.${r.skipped.length ? ` Skipped: ${r.skipped.map((x) => `clip ${x.clip} (${x.why})`).join(", ")}.` : ""}`);
-    },
   };
 }
