@@ -8,7 +8,7 @@ import { civitaiSites } from "./civitai";
 import { hashOf, isInside, sleep } from "./fsUtil";
 import { isNetworkPath } from "./linked";
 import { modelDirs } from "./modelFiles";
-import { cannotReach, failCode, fetchFailure, fetchPublic } from "./outbound";
+import { cannotReach, failCode, fetchFailure, fetchPublic, hostOf } from "./outbound";
 import type { ComfyClient } from "@afflatus/comfy";
 
 /**
@@ -22,6 +22,10 @@ import type { ComfyClient } from "@afflatus/comfy";
 
 /** A failure that trying again would not change: the site refused, the disk is full, the file is wrong. */
 export class Refused extends Error {}
+/** Tried and failed too many times in a row on something that passes (a cut, a 5xx, nothing coming): what came may be carried on from. */
+export class Passing extends Refused {}
+/** What came is not the file (another size, another SHA-256, not a safetensors): its .part is never carried on from. */
+class Wrong extends Refused {}
 
 export const REFUSED = "The site refused the download. For Civitai, save a key in Settings › Models › Civitai API key: some files need an account.";
 /** Hugging Face's refusal of a gated file: an account that accepted the model's licence, through its token, is what it wants. */
@@ -91,6 +95,19 @@ export const NOT_MODELS = new Set(["custom_nodes", "configs"]);
 
 /** What a file's name must not hold on any system: a drive's colon, Windows' reserved characters, control characters. */
 export const BAD_NAME = /[:*?"<>|\x00-\x1f]/;
+/** A name made safe to save under: a path's separators and whatever BAD_NAME refuses made "_". */
+export const cleanName = (name: string): string => name.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_");
+
+/** A SHA-256 as a site lists it: 64 hex digits, either case. */
+export const SHA256_HEX = /^[0-9a-f]{64}$/i;
+/** A SHA-256 a site lists, in lower case; "" for anything else. */
+export const shaOf = (x: unknown): string => (typeof x === "string" && SHA256_HEX.test(x) ? x.toLowerCase() : "");
+
+/**
+ * More than any model file is (the largest are some tens of GB): a site saying more is not believed. A Content-Range of
+ * 10^21 bytes once built a list of pieces that would never end.
+ */
+export const MOST = 512 * 2 ** 30;
 
 /** What is kept free on the disk beyond the file itself: a disk filled to its last byte troubles everything on it. */
 const SPARE = 256 * 2 ** 20;
@@ -101,11 +118,20 @@ export async function freeBytes(dir: string): Promise<number> {
   return Number(s.bavail) * Number(s.bsize);
 }
 
-/** Refuse a download the disk has no room for, before a byte of it is written. */
-export async function assertRoom(dir: string, need: number, free: (dir: string) => Promise<number> = freeBytes): Promise<void> {
-  if (need <= 0) return;
-  const has = await free(dir).catch(() => Number.POSITIVE_INFINITY);
-  if (has < need + SPARE) throw new Refused(`Not enough free space for it: the file is ${sizeText(need)}, and the disk of ${dir} has ${sizeText(has)} free. Make room, then press Download again.`);
+/**
+ * Refuse a download the disk has no room for, before a byte of it is written: beside `kept`, what the other downloads under
+ * way still have to write there, and SPARE. A disk whose free space cannot be read is refused too (it was taken as
+ * endless). Gives the room left for this one.
+ */
+export async function assertRoom(dir: string, need: number, free: (dir: string) => Promise<number> = freeBytes, kept = 0): Promise<number> {
+  const has = await free(dir).catch((err: unknown) => {
+    throw new Refused(`The free space of the disk of ${dir} could not be read (${failCode(err) ?? (err as Error).message}).`);
+  });
+  if (need > 0 && has - kept < need + SPARE) {
+    const others = kept > 0 ? `, ${sizeText(kept)} of it kept for the other download under way` : "";
+    throw new Refused(`Not enough free space for it: the file is ${sizeText(need)}, and the disk of ${dir} has ${sizeText(has)} free${others}. Make room, then press Download again.`);
+  }
+  return has - kept - SPARE;
 }
 
 export interface FetchTo {
@@ -132,6 +158,14 @@ export interface FetchTo {
   size?: number;
   /** The file's SHA-256 as its source lists it (Civitai): checked before the file is named, as Hugging Face's is. */
   sha256?: string;
+  /** A failure leaves what came in the .part (one whose bytes are wrong aside), for the next download of the file to carry on from. */
+  keepPart?: boolean;
+  /** Carry on from the .part an earlier try left, when there is one: else it is removed first. */
+  takeOver?: boolean;
+  /** What the other downloads under way still have to write on the same disk: room this one cannot count on. */
+  reserved?(): number;
+  /** How long a request may bring nothing before it is taken for cut (STALL_MS; shorter in tests). */
+  stallMs?: number;
 }
 
 /**
@@ -204,38 +238,129 @@ export interface Parts {
 }
 
 /**
+ * How long a request may bring nothing (no answer, no byte) before it is taken for a cut connection, as the node pack's 60 s
+ * (downloads.py run): undici alone waits five minutes a try, and five silent tries held a download for 25 minutes.
+ */
+const STALL_MS = 60_000;
+
+/** A request's own end when nothing comes for `ms`: tried again as a cut. `poke` as each block comes. */
+function stallGuard(signal: AbortSignal, ms: number) {
+  const own = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const poke = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => own.abort(new Error(`nothing came for ${ms >= 1000 ? `${Math.round(ms / 1000)} s` : `${ms} ms`}`)), ms);
+  };
+  poke();
+  return { signal: AbortSignal.any([signal, own.signal]), poke, done: () => clearTimeout(timer) };
+}
+
+/** What Hugging Face says of a file on its answer that sends on to the bytes: its size and SHA-256 (x-linked-size, x-linked-etag). */
+export function linkedOf(res: Response): { size?: number; sha256?: string } {
+  const size = Number(res.headers.get("x-linked-size"));
+  const sha256 = shaOf(/^(?:W\/)?"?([0-9a-f]{64})"?$/i.exec(res.headers.get("x-linked-etag") ?? "")?.[1]);
+  return { ...(size > 0 ? { size } : {}), ...(sha256 ? { sha256 } : {}) };
+}
+
+/** A 206's Content-Range ("bytes 0-99/1000"): its first and last byte, and the file's size (null for "*"); null when it says none. */
+export function rangeOf(res: Response): { start: number; end: number; size: number | null } | null {
+  const got = /^bytes (\d+)-(\d+)\/(\d+|\*)$/.exec(res.headers.get("content-range") ?? "");
+  return got ? { start: Number(got[1]), end: Number(got[2]), size: got[3] === "*" ? null : Number(got[3]) } : null;
+}
+
+/**
+ * Why an answer is not the file: a refusal (a 401, a 403, or a page: a sign-in), in the site's words (refusalOf); another
+ * status; or JSON in place of the bytes. Null for an answer that is the file, or a part of it. Its body is let go when it is not.
+ */
+export async function notTheFile(res: Response, source: string, headers: Record<string, string>): Promise<{ said: string; refused: boolean } | null> {
+  const type = res.headers.get("content-type") ?? "";
+  if (res.ok && res.body && !/text\/html|application\/json/.test(type)) return null;
+  const refused = res.status === 401 || res.status === 403 || /text\/html/.test(type);
+  if (refused) return { said: await refusalOf(res, source, headers), refused };
+  await res.body?.cancel().catch(() => {});
+  return { said: `The site answered ${res.status}.`, refused };
+}
+
+/** What undici says of a cut connection, in its own words ("terminated", "other side closed"). */
+const CUT = /terminated|other side closed|ECONNRESET|socket|fetch failed|EPIPE/i;
+
+/**
+ * Why a request failed, said plainly: a cut connection as one, and, given how much of the file came (`at`), where; before
+ * any came, what kept it from coming (a host not reached).
+ */
+function whyFailed(err: unknown, at?: { have: number; source: string }): string {
+  const said = (err as Error).message.replace(/\.$/, "");
+  if (!CUT.test(said)) return said;
+  if (!at) return "the connection was cut";
+  if (at.have) return `the connection was cut at ${sizeText(at.have)}`;
+  return /fetch failed/i.test(said) ? fetchFailure(err, at.source) : "the connection was cut before any of the file came";
+}
+
+/** A disk with no room left: no try after this one fares better (the node pack's DISK_FULL). */
+const DISK_FULL = new Set(["ENOSPC", "EDQUOT"]);
+const diskFull = (err: unknown) => DISK_FULL.has(String((err as { code?: unknown }).code));
+const DISK_FULL_SAID = (err: unknown) => `The disk is full (${(err as { code?: unknown }).code}): make room, then press Download again.`;
+
+/** Tries in a row that gain nothing, counted for one request after another: past the last, given up (Passing) with why. */
+class Tries {
+  private fails = 0;
+
+  constructor(private readonly attempts: number, private readonly backoff: number) {}
+
+  /** One more try that failed (`gained`: some of the file came in it): how long to wait before the next, or Passing past the last. */
+  failed(why: string, gained: boolean, then: string): number {
+    this.fails = gained ? 1 : this.fails + 1;
+    if (this.fails >= this.attempts) throw new Passing(`The download failed ${this.attempts} times in a row (${why}). ${then}`);
+    return this.backoff * 2 ** (this.fails - 1);
+  }
+
+  /** The try that comes next, said as "(2 of 5)". */
+  get next(): string {
+    return `(${this.fails + 1} of ${this.attempts})`;
+  }
+
+  succeeded(): void {
+    this.fails = 0;
+  }
+}
+
+/**
  * Download `source` into `dest`: written as it comes to `<dest>.part`, picked up with a Range request where it
  * stopped when the connection is cut (from the start again when the site ignores Range), tried again with a
- * growing wait on a cut or a 5xx, and renamed to `dest` only once all of it is there and checked. A stop (the
- * signal) or a failure removes the .part. Refused is thrown for what trying again would not change. A big file the
- * site serves in parts comes over several connections first (`parts`, inParts), and over one from where they left it.
+ * growing wait on a cut, a 5xx or nothing coming for a while, and renamed to `dest` only once all of it is there and
+ * checked. A stop (the signal) removes the .part, and so does a failure, unless `keepPart`: then only one whose bytes are
+ * wrong does, and the next download of the file carries on from it (`takeOver`). Refused is thrown for what trying again
+ * would not change. A big file the site serves in parts comes over several connections first (`parts`, inParts), and
+ * over one from where they left it.
  */
 export async function fetchToFile(o: FetchTo): Promise<{ bytes: number; sha256: string }> {
   const part = `${o.dest}.part`;
-  const attempts = o.attempts ?? 5;
-  const backoff = o.backoffMs ?? 2000;
+  const tries = new Tries(o.attempts ?? 5, o.backoffMs ?? 2000);
+  const stallMs = o.stallMs ?? STALL_MS;
   let have = 0;
   let total = 0;
   let hash = createHash("sha256");
   // what Hugging Face says of the file on its first answer, before it sends on to where the bytes are
-  let expectSize = 0;
-  let expectSha = "";
+  const expect = { size: 0, sha: "" };
   // what the source lists (Civitai) is the one held to; Hugging Face's own, read on the way, otherwise
-  const listed = o.sha256 && /^[0-9a-f]{64}$/i.test(o.sha256) ? o.sha256.toLowerCase() : "";
+  const listed = shaOf(o.sha256);
   let roomChecked = false;
-  let fails = 0;
+  // the most this one connection may write when the site says no size: what the disk has free (assertRoom)
+  let most = MOST;
   const removePart = () => rm(part, { force: true }).catch(() => {});
   const seen = (res: Response) => {
-    const size = Number(res.headers.get("x-linked-size"));
-    if (size > 0) expectSize = size;
-    const etag = /^(?:W\/)?"?([0-9a-f]{64})"?$/i.exec(res.headers.get("x-linked-etag") ?? "")?.[1];
-    if (etag) expectSha = etag.toLowerCase();
+    const { size, sha256 } = linkedOf(res);
+    if (size) expect.size = size;
+    if (sha256) expect.sha = sha256;
   };
   const parts = o.parts && o.parts.connections > 1 && !(o.size && o.size < (o.parts.from ?? PARTS_FROM)) ? { ...o.parts, slots: o.parts.slots ?? SLOTS } : null;
-  await removePart();
+  // what an earlier try left, carried on from (never more than the file is said to be: that one is not of this file)
+  if (o.takeOver) have = await stat(part).then((s) => (s.isFile() && !(o.size && s.size > o.size) ? s.size : 0), () => 0);
+  if (have) hash = await hashOf(part, have);
+  else await removePart();
   try {
     if (parts) {
-      const got = await inParts(o, parts, part, seen);
+      const got = await inParts(o, parts, part, seen, expect, { have, hash });
       if (got) {
         ({ have, total, hash } = got);
         roomChecked = true;
@@ -247,27 +372,34 @@ export async function fetchToFile(o: FetchTo): Promise<{ bytes: number; sha256: 
       let file: Awaited<ReturnType<typeof open>> | null = null;
       // over several connections, one request takes one of those all downloads share, for as long as it reads
       let release: (() => void) | null = null;
+      const stall = stallGuard(o.signal, stallMs);
       try {
         if (parts) release = await parts.slots.take(o.signal);
-        const res = await fetchPublic(o.source, { headers: { "User-Agent": "afflatus", Accept: "*/*", ...o.headers, ...(have ? { Range: `bytes=${have}-` } : {}) }, signal: o.signal }, o.allow, 5, seen);
-        const type = res.headers.get("content-type") ?? "";
-        if (res.status === 416 && have && have === (total || expectSize)) {
-          // asked for what comes after the last byte: it was all there already
+        stall.poke();
+        const res = await fetchPublic(o.source, { headers: { "User-Agent": "afflatus", Accept: "*/*", ...o.headers, ...(have ? { Range: `bytes=${have}-` } : {}) }, signal: stall.signal }, o.allow, 5, seen);
+        if (res.status === 416 && have) {
           await res.body?.cancel().catch(() => {});
-          break;
+          // asked for what comes after the last byte: it was all there already
+          const size = Number(/^bytes \*\/(\d+)$/.exec(res.headers.get("content-range") ?? "")?.[1] ?? 0);
+          if (have === (size || total || expect.size || o.size)) {
+            total = have;
+            break;
+          }
+          // what an earlier try left does not end where the file does: from the start again
+          have = 0;
+          hash = createHash("sha256");
+          await removePart();
+          throw new Error("the site would not carry on from where the file had stopped");
         }
         if (res.status >= 500 || res.status === 429) {
           await res.body?.cancel().catch(() => {});
           throw new Error(`the site answered ${res.status}`);
         }
-        if (!res.ok || !res.body || /text\/html|application\/json/.test(type)) {
-          if (res.status === 401 || res.status === 403 || /text\/html/.test(type)) throw new Refused(await refusalOf(res, o.source, o.headers));
-          await res.body?.cancel().catch(() => {});
-          throw new Refused(`The site answered ${res.status}.`);
-        }
-        const range = res.status === 206 ? /^bytes (\d+)-\d+\/(\d+|\*)$/.exec(res.headers.get("content-range") ?? "") : null;
-        if (res.status === 206 && range && Number(range[1]) === have) {
-          total = range[2] === "*" ? total : Number(range[2]);
+        const wrong = await notTheFile(res, o.source, o.headers);
+        if (wrong || !res.body) throw new Refused(wrong?.said ?? `The site answered ${res.status}.`);
+        const range = res.status === 206 ? rangeOf(res) : null;
+        if (range && range.start === have) {
+          total = range.size ?? total;
         } else {
           if (res.status === 206) {
             // a piece of the file, but not from where it was asked: asked again for the whole
@@ -283,11 +415,14 @@ export async function fetchToFile(o: FetchTo): Promise<{ bytes: number; sha256: 
           hash = createHash("sha256");
           total = Number(res.headers.get("content-length")) || 0;
         }
-        if (!total && expectSize) total = expectSize;
-        if (expectSize && total && expectSize !== total) throw new Refused(`The site says the file is ${expectSize} bytes, and sends ${total}.`);
+        if (!total && expect.size) total = expect.size;
+        if (expect.size && total && expect.size !== total) throw new Wrong(`The site says the file is ${expect.size} bytes, and sends ${total}.`);
+        heldTo(total, o.size);
         if (!roomChecked) {
           await mkdirFor(o.dest);
-          await assertRoom(dirOf(o.dest), total - have, o.free);
+          const free = await assertRoom(dirOf(o.dest), total - have, o.free, o.reserved?.() ?? 0);
+          // a size not said: written no further than the disk has room for, never till it is full
+          if (!total) most = Math.min(MOST, have + free);
           roomChecked = true;
         }
         file = await open(part, have ? "a" : "w");
@@ -297,6 +432,11 @@ export async function fetchToFile(o: FetchTo): Promise<{ bytes: number; sha256: 
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
+          stall.poke();
+          if (!total && have + value.length > most) {
+            await reader.cancel().catch(() => {});
+            throw new Refused(`The site did not say the file's size, and it came past the room the disk of ${dirOf(o.dest)} has (${sizeText(have)}): make room, then press Download again.`);
+          }
           await file.write(value);
           hash.update(value);
           have += value.length;
@@ -305,15 +445,17 @@ export async function fetchToFile(o: FetchTo): Promise<{ bytes: number; sha256: 
         await file.close();
         file = null;
         if (total && have < total) throw new Error(`the connection was cut at ${sizeText(have)} of ${sizeText(total)}`);
-        if (total && have > total) throw new Refused(`The site sent more than the ${total} bytes it said.`);
+        if (total && have > total) throw new Wrong(`The site sent more than the ${total} bytes it said.`);
         break;
       } catch (err) {
+        stall.done();
         release?.();
         await file?.close().catch(() => {});
         if (o.signal.aborted) throw err;
         if (err instanceof Refused) throw err;
         // a redirect refused on the way (into the network, down to http, one too many): the same again next time
         if (typeof (err as { statusCode?: unknown }).statusCode === "number") throw new Refused((err as Error).message);
+        if (diskFull(err)) throw new Refused(DISK_FULL_SAID(err));
         // a write that failed half way leaves the .part shorter than counted: picked up from what is really there
         const onDisk = await stat(part).then((s) => s.size, () => 0);
         if (onDisk !== have) {
@@ -322,36 +464,35 @@ export async function fetchToFile(o: FetchTo): Promise<{ bytes: number; sha256: 
         }
         // a host that cannot be reached at all (refused, unknown, a bad certificate) before a byte came: trying again changes nothing
         if (!have && cannotReach(err)) throw new Refused(`Could not reach ${hostOf(o.source)} (${failCode(err)}). Check the address, then press Download again.`);
-        fails = have > before ? 1 : fails + 1;
-        // undici says a cut connection in its own words ("terminated", "other side closed"): said plainly here, and
-        // a cut only once some of the file came; before that, what kept it from coming is said
-        const said = (err as Error).message.replace(/\.$/, "");
-        const why = !/terminated|other side closed|ECONNRESET|socket|fetch failed|EPIPE/i.test(said)
-          ? said
-          : have
-            ? `the connection was cut at ${sizeText(have)}`
-            : /fetch failed/i.test(said)
-              ? fetchFailure(err, o.source)
-              : "the connection was cut before any of the file came";
-        if (fails >= attempts) throw new Refused(`The download failed ${attempts} times in a row (${why}). Press Download again to start over.`);
-        o.onRetry?.(`${why[0]!.toUpperCase()}${why.slice(1)}: trying again${have ? ` from ${sizeText(have)}` : ""} (${fails + 1} of ${attempts}).`);
-        await sleep(backoff * 2 ** (fails - 1), o.signal);
+        const why = whyFailed(err, { have, source: o.source });
+        const wait = tries.failed(why, have > before, o.keepPart && have ? `Press Download again to carry on from ${sizeText(have)}.` : "Press Download again to start over.");
+        o.onRetry?.(`${why[0]!.toUpperCase()}${why.slice(1)}: trying again${have ? ` from ${sizeText(have)}` : ""} ${tries.next}.`);
+        await sleep(wait, o.signal);
       } finally {
+        stall.done();
         release?.();
       }
     }
-    if (expectSize && have !== expectSize) throw new Refused(`The file came incomplete: ${have} of ${expectSize} bytes. Press Download again.`);
+    if (expect.size && have !== expect.size) throw new Wrong(`The file came incomplete: ${have} of ${expect.size} bytes. Press Download again.`);
     const sha256 = hash.digest("hex");
-    if ((listed || expectSha) && sha256 !== (listed || expectSha)) throw new Refused(`The file came damaged: its SHA-256 is not the one ${listed ? "the site" : "Hugging Face"} lists. Press Download again.`);
-    if (SAFETENSORS.test(o.dest) && !(await looksLikeSafetensors(part, have))) throw new Refused("What came is not a safetensors file (the site sent something else under that name). Check the address.");
+    if ((listed || expect.sha) && sha256 !== (listed || expect.sha)) throw new Wrong(`The file came damaged: its SHA-256 is not the one ${listed ? "the site" : "Hugging Face"} lists. Press Download again.`);
+    if (SAFETENSORS.test(o.dest) && !(await looksLikeSafetensors(part, have))) throw new Wrong("What came is not a safetensors file (the site sent something else under that name). Check the address.");
     // never over a file that is there: ComfyUI may have it in use, and it was asked for as missing
-    if (await stat(o.dest).then(() => true, () => false)) throw new Refused("A file of that name is in the folder already.");
+    if (await stat(o.dest).then(() => true, () => false)) throw new Wrong("A file of that name is in the folder already.");
     await rename(part, o.dest);
     return { bytes: have, sha256 };
   } catch (err) {
-    await removePart();
+    // kept for the next try to carry on from: what came, unless it was stopped or its bytes are wrong
+    const keep = o.keepPart && !o.signal.aborted && !(err instanceof Wrong) && (await stat(part).then((s) => s.size > 0, () => false));
+    if (!keep) await removePart();
     throw err;
   }
+}
+
+/** The site's size for the file held to the one its source lists (Civitai), and to what a model file can be. */
+function heldTo(total: number, listed?: number): void {
+  if (listed && total && total !== listed) throw new Wrong(`The site sends ${total} bytes, and lists the file as ${listed}. Press Download again.`);
+  if (total > MOST) throw new Wrong(`The site says the file is ${sizeText(total)}: no model file is that big.`);
 }
 
 /** The site no longer answers parts of the file (a 200 to a Range, a 429, its link refused again and again): the rest over one connection. */
@@ -371,27 +512,27 @@ interface Piece {
   done: number;
 }
 
-/** What undici says of a cut connection ("terminated", "other side closed"), said plainly. */
-const cutWords = (err: unknown) => {
-  const said = (err as Error).message.replace(/\.$/, "");
-  return /terminated|other side closed|ECONNRESET|socket|fetch failed|EPIPE/i.test(said) ? "the connection was cut" : said;
-};
-
 /**
  * A big file over several connections at once, as the node pack fetches one on a pod (downloads.py _in_parts, card #199):
  * the source is asked for one byte first, with the key, and a 206 saying the file's size, from the link it sends on to (the
- * file server's signed link: the key never goes there), splits the file into pieces, each asked for with its own Range by
- * `connections` at once and written at its place in the .part. Each request takes one of the connections every download
- * shares. The SHA-256 is read as the bytes become whole from the first on, so the check costs no wait at the end. A link
- * refused (it expired: Civitai's last 24 h) is asked for again at the source, by one connection while the others wait.
+ * file server's signed link: the key never goes there), splits the rest of the file (from `from.have`, what an earlier try
+ * left) into pieces, each asked for with its own Range by `connections` at once and written at its place in the .part. Each
+ * request takes one of the connections every download shares. The SHA-256 is read as the bytes become whole from the first
+ * on, so the check costs no wait at the end. A link refused (it expired: Civitai's last 24 h) is asked for again at the
+ * source, by one connection while the others wait. A piece answered shorter than asked (a server that caps its parts) is
+ * taken as far as it goes, and the rest of it asked for next.
  *
  * Null when the site does not answer a part (one connection says what is wrong then). However it ends, the .part is cut back
- * to its bytes whole from the first on; a stop or a failure throws (fetchToFile removes it), a site that stops answering parts
- * gives back those bytes, for one connection to carry on from.
+ * to its bytes whole from the first on; a stop or a failure throws, a site that stops answering parts gives back those
+ * bytes, for one connection to carry on from.
  */
-async function inParts(o: FetchTo, p: Required<Pick<Parts, "connections" | "slots">> & Parts, part: string, seen: (res: Response) => void): Promise<{ have: number; total: number; hash: ReturnType<typeof createHash> } | null> {
+async function inParts(
+  o: FetchTo, p: Required<Pick<Parts, "connections" | "slots">> & Parts, part: string, seen: (res: Response) => void,
+  expect: { size: number }, from: { have: number; hash: ReturnType<typeof createHash> },
+): Promise<{ have: number; total: number; hash: ReturnType<typeof createHash> } | null> {
   const attempts = o.attempts ?? 5;
   const backoff = o.backoffMs ?? 2000;
+  const stallMs = o.stallMs ?? STALL_MS;
   // whatever ends one connection ends them all: a stop, a refusal, the site no longer answering parts
   const quit = new AbortController();
   const stop = () => quit.abort(o.signal.reason);
@@ -403,11 +544,16 @@ async function inParts(o: FetchTo, p: Required<Pick<Parts, "connections" | "slot
   const ask = async (refused: boolean): Promise<{ link: string; total: number } | null> => {
     const release = await p.slots.take(quit.signal);
     try {
-      const res = await fetchPublic(o.source, { headers: { "User-Agent": "afflatus", Accept: "*/*", ...o.headers, Range: "bytes=0-0" }, signal: quit.signal }, o.allow, 5, seen);
-      const size = /^bytes 0-0\/(\d+)$/.exec(res.headers.get("content-range") ?? "")?.[1];
-      if (refused && (res.status === 401 || res.status === 403)) throw new Refused(await refusalOf(res, o.source, o.headers));
+      const res = await fetchPublic(o.source, { headers: { "User-Agent": "afflatus", Accept: "*/*", ...o.headers, Range: "bytes=0-0" }, signal: AbortSignal.any([quit.signal, AbortSignal.timeout(stallMs)]) }, o.allow, 5, seen);
+      const range = res.status === 206 ? rangeOf(res) : null;
+      if (range?.start === 0 && range.end === 0 && range.size) {
+        await res.body?.cancel().catch(() => {});
+        return { link: res.url || o.source, total: range.size };
+      }
+      const wrong = refused ? await notTheFile(res, o.source, o.headers) : null;
+      if (wrong?.refused) throw new Refused(wrong.said);
       await res.body?.cancel().catch(() => {});
-      return res.status === 206 && size ? { link: res.url || o.source, total: Number(size) } : null;
+      return null;
     } finally {
       release();
     }
@@ -427,13 +573,26 @@ async function inParts(o: FetchTo, p: Required<Pick<Parts, "connections" | "slot
     o.signal.removeEventListener("abort", stop);
     return null;
   }
+  try {
+    // the size Hugging Face said on the way, the one the source lists and what a model can be: before a piece is asked
+    if (expect.size && expect.size !== total) throw new Wrong(`The site says the file is ${expect.size} bytes, and sends ${total}.`);
+    heldTo(total, o.size);
+    if (from.have > total) throw new Wrong(`What an earlier try left is ${sizeText(from.have)}, more than the ${sizeText(total)} of the file.`);
+    await mkdirFor(o.dest);
+    await assertRoom(dirOf(o.dest), total - from.have, o.free, o.reserved?.() ?? 0);
+  } catch (err) {
+    o.signal.removeEventListener("abort", stop);
+    throw err;
+  }
+  if (from.have === total) {
+    o.signal.removeEventListener("abort", stop);
+    return { have: total, total, hash: from.hash };
+  }
   let link = first.link;
-  await mkdirFor(o.dest);
-  await assertRoom(dirOf(o.dest), total, o.free);
 
-  const size = p.piece ?? Math.min(PIECE_MAX, Math.max(PIECE_MIN, Math.floor(total / (p.connections * 4))));
+  const size = p.piece ?? Math.min(PIECE_MAX, Math.max(PIECE_MIN, Math.floor((total - from.have) / (p.connections * 4))));
   const pieces: Piece[] = [];
-  for (let at = 0; at < total; at += size) pieces.push({ start: at, end: Math.min(total, at + size), done: 0 });
+  for (let at = from.have; at < total; at += size) pieces.push({ start: at, end: Math.min(total, at + size), done: 0 });
   const todo = [...pieces];
   const left = (piece: Piece) => piece.end - piece.start - piece.done;
   // the bytes whole from the first on: up to the first piece not all there, and what of it came
@@ -441,7 +600,7 @@ async function inParts(o: FetchTo, p: Required<Pick<Parts, "connections" | "slot
     for (const piece of pieces) if (left(piece)) return piece.start + piece.done;
     return total;
   };
-  let counted = 0;
+  let counted = from.have;
   let ended: unknown = null;
   const end = (err: unknown) => {
     ended ??= err;
@@ -459,46 +618,54 @@ async function inParts(o: FetchTo, p: Required<Pick<Parts, "connections" | "slot
       // a blip on the way is not the site's answer: one connection asks it again, with its own tries
       const fresh = await ask(true).catch((err: unknown) => {
         if (err instanceof Refused || quit.signal.aborted) throw err;
-        throw new NoParts(`the link could not be asked for again (${cutWords(err)})`);
+        throw new NoParts(`the link could not be asked for again (${whyFailed(err)})`);
       });
       if (!fresh) throw new NoParts("the site no longer answers parts of the file");
-      if (fresh.total !== total) throw new Refused(`The site says the file is ${fresh.total} bytes now, and said ${total}. Press Download again.`);
+      if (fresh.total !== total) throw new Wrong(`The site says the file is ${fresh.total} bytes now, and said ${total}. Press Download again.`);
       link = fresh.link;
     })().finally(() => (renewing = null));
     return renewing;
   };
 
-  const file = await open(part, "w");
+  const file = await open(part, from.have ? "r+" : "w");
   const readPiece = async (piece: Piece, url: string) => {
     const at = piece.start + piece.done;
     // the key to the site's own host alone: a file server's link holds what it needs
     const headers = { "User-Agent": "afflatus", Accept: "*/*", ...(new URL(url).host === firstHost ? o.headers : {}), Range: `bytes=${at}-${piece.end - 1}` };
-    const res = await fetchPublic(url, { headers, signal: quit.signal }, o.allow);
-    if (res.status !== 206 || !res.body) {
-      await res.body?.cancel().catch(() => {});
-      throw res.status === 200 ? new NoParts("the site sent the whole file to a request for part of it") : new Answered(res.status);
+    const stall = stallGuard(quit.signal, stallMs);
+    try {
+      const res = await fetchPublic(url, { headers, signal: stall.signal }, o.allow);
+      if (res.status !== 206 || !res.body) {
+        await res.body?.cancel().catch(() => {});
+        throw res.status === 200 ? new NoParts("the site sent the whole file to a request for part of it") : new Answered(res.status);
+      }
+      // from the byte asked, up to the piece's end at most: a server that caps the size of its parts sends less
+      const got = rangeOf(res);
+      if (!got || got.start !== at || got.end < at || got.end > piece.end - 1 || (got.size !== null && got.size !== total)) {
+        await res.body.cancel().catch(() => {});
+        throw new Refused(`The site sent bytes ${got ? `${got.start}-${got.end}/${got.size ?? "*"}` : "with no range"} for ${at}-${piece.end - 1}/${total}.`);
+      }
+      const ends = got.end + 1;
+      // each block written at its place before it is counted: what was counted is what the .part holds
+      const reader = res.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        stall.poke();
+        if (piece.start + piece.done + value.length > ends) throw new Refused("The site sent more than the part asked for.");
+        await file.write(value, 0, value.length, piece.start + piece.done);
+        piece.done += value.length;
+        counted += value.length;
+        o.onBytes(counted, total);
+      }
+      if (piece.start + piece.done < ends) throw new Error(`the connection was cut ${sizeText(ends - piece.start - piece.done)} before the end of a part`);
+    } finally {
+      stall.done();
     }
-    const got = /^bytes (\d+)-(\d+)\/(\d+|\*)$/.exec(res.headers.get("content-range") ?? "");
-    if (!got || Number(got[1]) !== at || Number(got[2]) !== piece.end - 1 || (got[3] !== "*" && Number(got[3]) !== total)) {
-      await res.body.cancel().catch(() => {});
-      throw new Refused(`The site sent bytes ${got ? `${got[1]}-${got[2]}/${got[3]}` : "with no range"} for ${at}-${piece.end - 1}/${total}.`);
-    }
-    // each block written at its place before it is counted: what was counted is what the .part holds
-    const reader = res.body.getReader();
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value.length > left(piece)) throw new Refused("The site sent more than the part asked for.");
-      await file.write(value, 0, value.length, piece.start + piece.done);
-      piece.done += value.length;
-      counted += value.length;
-      o.onBytes(counted, total);
-    }
-    if (left(piece)) throw new Error(`the connection was cut ${sizeText(left(piece))} before the end of a part`);
   };
 
   const connection = async () => {
-    let fails = 0;
+    const tries = new Tries(attempts, backoff);
     while (!ended && todo.length) {
       const piece = todo.shift()!;
       try {
@@ -513,13 +680,14 @@ async function inParts(o: FetchTo, p: Required<Pick<Parts, "connections" | "slot
             } finally {
               release();
             }
-            fails = 0;
+            tries.succeeded();
             continue;
           } catch (err) {
             if (ended || quit.signal.aborted) return;
             if (err instanceof Refused || err instanceof NoParts) throw err;
             // a redirect refused on the way (into the network, down to http): the same again next time
             if (typeof (err as { statusCode?: unknown }).statusCode === "number") throw new Refused((err as Error).message);
+            if (diskFull(err)) throw new Refused(DISK_FULL_SAID(err));
             if (err instanceof Answered) {
               // the signed link refused: it expired
               if (err.status === 401 || err.status === 403 || err.status === 410) {
@@ -529,12 +697,11 @@ async function inParts(o: FetchTo, p: Required<Pick<Parts, "connections" | "slot
               if (err.status === 429) throw new NoParts("the site answered 429 to several connections at once");
               if (err.status < 500) throw new Refused(`The site answered ${err.status}.`);
             }
-            why = cutWords(err);
+            why = whyFailed(err);
           }
-          fails = piece.done > before ? 1 : fails + 1;
-          if (fails >= attempts) throw new Refused(`The download failed ${attempts} times in a row (${why}). Press Download again to start over.`);
-          o.onRetry?.(`${why[0]!.toUpperCase()}${why.slice(1)}: trying that part again (${fails + 1} of ${attempts}).`);
-          await sleep(backoff * 2 ** (fails - 1), quit.signal);
+          const wait = tries.failed(why, piece.done > before, o.keepPart ? "Press Download again to carry on from where it stopped." : "Press Download again to start over.");
+          o.onRetry?.(`${why[0]!.toUpperCase()}${why.slice(1)}: trying that part again ${tries.next}.`);
+          await sleep(wait, quit.signal);
         }
       } finally {
         if (left(piece)) todo.unshift(piece);
@@ -542,23 +709,25 @@ async function inParts(o: FetchTo, p: Required<Pick<Parts, "connections" | "slot
     }
   };
 
-  // the SHA-256 read as the bytes become whole from the first on (the pages just written, still in memory)
-  const hash = createHash("sha256");
-  let hashed = 0;
+  // the SHA-256 read as the bytes become whole from the first on (the pages just written, still in memory); a stop or a
+  // failure ends it at once: what is whole is never named then, and a Stop then Download again waited for it (card #236)
+  const hash = from.hash;
+  let hashed = from.have;
   let over = false;
+  const given = () => o.signal.aborted || (ended !== null && !(ended instanceof NoParts));
   const follow = async () => {
     const reader = await open(part, "r");
     const block = Buffer.allocUnsafe(8 * 2 ** 20);
     try {
       for (;;) {
         const edge = whole();
-        while (hashed < edge) {
+        while (hashed < edge && !given()) {
           const { bytesRead } = await reader.read(block, 0, Math.min(block.length, edge - hashed), hashed);
           if (!bytesRead) throw new Error("the .part is shorter than what was written to it");
           hash.update(block.subarray(0, bytesRead));
           hashed += bytesRead;
         }
-        if (hashed >= total || (over && hashed >= whole())) return;
+        if (given() || hashed >= total || (over && hashed >= whole())) return;
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
     } finally {
@@ -568,7 +737,7 @@ async function inParts(o: FetchTo, p: Required<Pick<Parts, "connections" | "slot
 
   let have = 0;
   try {
-    o.onBytes(0, total);
+    o.onBytes(counted, total);
     const following = follow().catch(() => {});
     await Promise.all(Array.from({ length: Math.min(p.connections, pieces.length) }, () => connection().catch(end)));
     over = true;
@@ -602,14 +771,6 @@ export async function looksLikeSafetensors(path: string, size: number): Promise<
     await file.close();
   }
 }
-
-const hostOf = (url: string) => {
-  try {
-    return new URL(url).host;
-  } catch {
-    return url;
-  }
-};
 
 const dirOf = (path: string) => path.replace(/[\\/][^\\/]*$/, "");
 const mkdirFor = (path: string) => mkdir(dirOf(path), { recursive: true });

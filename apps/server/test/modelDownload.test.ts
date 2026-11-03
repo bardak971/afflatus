@@ -54,6 +54,28 @@ beforeEach(async () => {
       res.writeHead(503);
       return res.end();
     }
+    // cut a third of the way, then 503 to every request after
+    if (req.url === "/cut-then-fails") {
+      if (cuts++ === 0) return send(res, at, at > 0, Math.floor(SIZE / 3));
+      res.writeHead(503);
+      return res.end();
+    }
+    // a first part, then nothing more on that connection, never closed; the next request is answered whole
+    if (req.url === "/stall-once") {
+      if (cuts++ > 0) return send(res, at, at > 0);
+      res.writeHead(200, { "content-type": "application/octet-stream", "content-length": SIZE });
+      return res.write(FILE.subarray(0, 100_000));
+    }
+    // the file with no size said (chunked)
+    if (req.url === "/chunked") {
+      res.writeHead(200, { "content-type": "application/octet-stream" });
+      return res.end(FILE);
+    }
+    // a size no model file has
+    if (req.url === "/huge") {
+      res.writeHead(200, { "content-type": "application/octet-stream", "content-length": String(2 ** 50) });
+      return res.write(FILE.subarray(0, 10));
+    }
     // a first part, then nothing more for a long while: a download to stop
     if (req.url === "/slow") {
       res.writeHead(200, { "content-type": "application/octet-stream", "content-length": SIZE });
@@ -198,6 +220,70 @@ describe("Afflatus downloading a model file itself", () => {
     // nothing came is said as nothing, never as "1 MB"
     expect(sizeText(0)).toBe("0 MB");
     expect(sizeText(1)).toBe("1 MB");
+  });
+
+  it("keeps what came through a failure that passes, and the next download carries on from it (card #256)", async () => {
+    const first = fetchTo("/cut-then-fails", { attempts: 2, keepPart: true });
+    await expect(first.done).rejects.toThrow(/^The download failed 2 times in a row \(the site answered 503\)\. Press Download again to carry on from \d+ MB\.$/);
+    const kept = readFileSync(`${first.dest}.part`);
+    expect(kept.length).toBeGreaterThan(0);
+    expect(kept.equals(FILE.subarray(0, kept.length))).toBe(true);
+    asked = [];
+    const again = fetchTo("/plain", { takeOver: true, keepPart: true });
+    await expect(again.done).resolves.toMatchObject({ bytes: SIZE, sha256: SHA });
+    // asked from the byte it had, never from the first
+    expect(asked.map((a) => a.range)).toEqual([`bytes=${kept.length}-`]);
+    expect(readFileSync(again.dest).equals(FILE)).toBe(true);
+    expect(readdirSync(dir)).toEqual(["model.safetensors"]);
+  });
+
+  it("still removes the .part at a stop, and of a file whose bytes are wrong, though it keeps what came otherwise", async () => {
+    const stop = new AbortController();
+    const slow = fetchTo("/slow", { signal: stop.signal, keepPart: true });
+    await until(() => existsSync(`${slow.dest}.part`) && readFileSync(`${slow.dest}.part`).length === 100_000);
+    stop.abort();
+    await expect(slow.done).rejects.toThrow();
+    expect(readdirSync(dir)).toEqual([]);
+    await expect(fetchTo("/hf-wrong", { keepPart: true }).done).rejects.toThrow(/came damaged/);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("takes a site that stops sending for a cut, and carries on, instead of waiting minutes a try (card #256)", async () => {
+    const { done, notes, dest } = fetchTo("/stall-once", { stallMs: 300 });
+    await expect(done).resolves.toMatchObject({ bytes: SIZE, sha256: SHA });
+    expect(notes).toEqual([expect.stringMatching(/^Nothing came for 300 ms: trying again from \d+ MB \(2 of 5\)\.$/)]);
+    expect(from(asked[1]!.range)).toBeGreaterThan(0);
+    expect(readFileSync(dest).equals(FILE)).toBe(true);
+  });
+
+  it("stops a file whose size the site does not say once it outgrows the free space, never filling the disk (card #252)", async () => {
+    const { done } = fetchTo("/chunked", { free: async () => 256 * 2 ** 20 + 2 ** 20 });
+    await expect(done).rejects.toThrow(/did not say the file's size, and it came past the room the disk of .* has \(1 MB\)/);
+    expect(readdirSync(dir)).toEqual([]);
+    // with the room, it comes
+    await expect(fetchTo("/chunked").done).resolves.toMatchObject({ bytes: SIZE, sha256: SHA });
+  });
+
+  it("refuses a size other than the one the source lists, and one no model file has, keeping nothing (card #252)", async () => {
+    await expect(fetchTo("/plain", { size: SIZE - 1, keepPart: true }).done).rejects.toThrow(`The site sends ${SIZE} bytes, and lists the file as ${SIZE - 1}. Press Download again.`);
+    expect(readdirSync(dir)).toEqual([]);
+    await expect(fetchTo("/huge", { free: async () => 2 ** 60 }).done).rejects.toThrow("The site says the file is 1048576.0 GB: no model file is that big.");
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("refuses when the disk's free space cannot be read, rather than taking it for endless (card #252)", async () => {
+    const free = async () => {
+      throw Object.assign(new Error("statfs failed"), { code: "ENOSYS" });
+    };
+    await expect(fetchTo("/plain", { free }).done).rejects.toThrow(/^The free space of the disk of .* could not be read \(ENOSYS\)\.$/);
+    expect(asked).toHaveLength(1);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("counts what the other download under way still has to write on the disk (card #256)", async () => {
+    const free = async () => SIZE + 256 * 2 ** 20 + 2 ** 20;
+    await expect(fetchTo("/plain", { free, reserved: () => 2 * 2 ** 20 }).done).rejects.toThrow(/the file is 3 MB, and the disk of .* has 260 MB free, 2 MB of it kept for the other download under way/);
+    await expect(fetchTo("/plain", { free, reserved: () => 0 }).done).resolves.toMatchObject({ bytes: SIZE });
   });
 
   describe("Civitai's own reason for a refusal (card #163)", () => {
