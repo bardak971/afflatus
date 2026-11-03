@@ -100,16 +100,15 @@ full_speed()
 from comfy_api.latest import ComfyExtension, io  # noqa: E402
 
 from .continuation_nodes import (  # noqa: E402
-    MiniMaxH3AppendContinuation,
     MiniMaxH3GuidedContinuationWindow,
     MiniMaxH3LatentTailGuide,
 )
-from .latent_io import AfflatusH3LatentHeadGuide, AfflatusH3LatentLanding, AfflatusH3RunAnchor, AfflatusH3RunUpMatch, AfflatusH3SeamLatent, AfflatusH3TailGuide, AfflatusLoadH3Latent, AfflatusNormalizeH3Latent, AfflatusSaveH3Latent, AfflatusTrimH3Latent  # noqa: E402
+from .latent_io import AfflatusH3LatentHeadGuide, AfflatusH3LatentLanding, AfflatusH3RunAnchor, AfflatusH3RunUpMatch, AfflatusH3SeamLatent, AfflatusLoadH3Latent, AfflatusNormalizeH3Latent, AfflatusSaveH3Latent, AfflatusTrimH3Latent  # noqa: E402
 from .latent_ltx import AfflatusLoadLTXLatent, AfflatusLTXContinuation, AfflatusLTXSeamLatent, AfflatusSaveLTXLatent, AfflatusTrimLTXLatent  # noqa: E402
 from .face_match import AfflatusFaceAt, AfflatusFaceBackdrop, AfflatusFaceCrop, AfflatusFaceFrame, AfflatusFaceMatch, available as face_available  # noqa: E402
 from .swap_mask import AfflatusSwapMask, AfflatusSwapMaskPreview, AfflatusSwapMatch, AfflatusSwapPaste  # noqa: E402
 from .face_refine import AfflatusH3AudioLock  # noqa: E402
-from .colour_follow import AfflatusColorFollow, AfflatusMatchPicture  # noqa: E402
+from .colour_follow import AfflatusColorFollow  # noqa: E402
 from .room_tone import AfflatusRoomTone  # noqa: E402
 from .text_encoder import AfflatusFreeTextEncoder  # noqa: E402
 from .face_pass import AfflatusFaceDetailKeep, AfflatusFaceMaskStride, AfflatusH3InjectRegion, AfflatusH3ReferenceLatents, AfflatusH3ReferencePrompt  # noqa: E402
@@ -135,7 +134,6 @@ class AfflatusExtension(ComfyExtension):
             AfflatusLoadH3Latent,
             AfflatusNormalizeH3Latent,
             AfflatusTrimH3Latent,
-            AfflatusH3TailGuide,
             AfflatusH3LatentHeadGuide,
             AfflatusH3LatentLanding,
             AfflatusH3SeamLatent,
@@ -145,7 +143,6 @@ class AfflatusExtension(ComfyExtension):
             AfflatusH3RunAnchor,
             MiniMaxH3GuidedContinuationWindow,
             MiniMaxH3LatentTailGuide,
-            MiniMaxH3AppendContinuation,
             # an LTX clip kept and continued from its own latent, its join decoded as one piece with the clip before
             AfflatusSaveLTXLatent,
             AfflatusLoadLTXLatent,
@@ -162,8 +159,6 @@ class AfflatusExtension(ComfyExtension):
             AfflatusH3AudioLock,
             # a Motion transfer clip's colours brought to its driving video's, moment by moment
             AfflatusColorFollow,
-            # a person's reference picture brought to the light of the frame an H3 continuation carries on from (pack 0.48.0, card #222)
-            AfflatusMatchPicture,
             AfflatusRoomTone,
             # H3's text encoder let go once its prompt is encoded, before the sampler (the RAM it held on 32 GB, card #202)
             AfflatusFreeTextEncoder,

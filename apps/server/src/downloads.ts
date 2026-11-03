@@ -10,10 +10,10 @@ import { civitaiSites } from "./civitai";
 import type { Comfy } from "./comfy";
 import { httpError } from "./errors";
 import { fileName } from "./media";
-import { assertRoom, BAD_NAME, comfyBase, comfyFolderPaths, CONNECTIONS, fetchToFile, freeBytes, modelRoot, NOT_MODELS, type OtherRoute, type Parts, placeIn, Refused, refusalOf, shownPlace } from "./modelDownload";
+import { assertRoom, BAD_NAME, comfyBase, comfyFolderPaths, CONNECTIONS, fetchToFile, freeBytes, linkedOf, modelRoot, NOT_MODELS, notTheFile, type OtherRoute, type Parts, placeIn, rangeOf, Refused, refusalOf, samePath, shaOf, shownPlace } from "./modelDownload";
 import { noPackRoute } from "./podUpload";
 import { olderThan } from "./version";
-import { assertPublicUrl, cannotReach, fetchFailure, fetchPublic } from "./outbound";
+import { assertPublicUrl, cannotReach, fetchFailure, fetchOnce, fetchPublic } from "./outbound";
 import { renameOver } from "./storage";
 
 /**
@@ -162,6 +162,12 @@ interface Download extends DownloadView {
   abort: AbortController;
   /** Afflatus's own: where the file goes (its .part beside it). */
   dest?: string;
+  /** Afflatus's own: carry on from the .part an earlier try of the same file left (leftover). */
+  takeOver?: boolean;
+  /** Afflatus's own: the disk it is written on (stat's dev), for the room the others under way keep there (reservedBy). */
+  dev?: number;
+  /** Afflatus's own, until its fetch has let go of its .part (a stop is said at once; the hash follower and the last writes end later). */
+  settling?: Promise<void>;
   /** A failure that passes is kept off the page's list: the pod's files ask for the file again (quietPassing). */
   quietPassing?: boolean;
   /** The pack's: the address Afflatus is reached at, and the download's id there. */
@@ -192,7 +198,7 @@ interface Download extends DownloadView {
  * What the state file keeps of a download: enough to list it again, the .part to remove of one cut short, and what it was
  * asked with: one still waiting its turn (`queued`) is asked again at the next start, in its place in the line.
  */
-type Kept = DownloadView & { finishedAt?: number; part?: string; order?: number; ask?: unknown; from?: string; queued?: true };
+type Kept = DownloadView & { finishedAt?: number; part?: string; partOf?: string; order?: number; ask?: unknown; from?: string; queued?: true };
 const INTERRUPTED = "Interrupted: Afflatus was stopped or restarted while it was downloading. Press Download again.";
 
 /** The folders ComfyUI-Manager knows by a type name; any other folder is given to it as a path under models/. */
@@ -249,21 +255,37 @@ export function directOk(address: string): boolean {
   return url.protocol === "https:" && !url.username && !url.password && address.length <= 4000 && hostIs(url, DIRECT_HOSTS);
 }
 
+/** A source's own signed link, with what Hugging Face says of its file on the way (its size and SHA-256), for the pack to check. */
+export interface SignedLink {
+  url: string;
+  sha256?: string;
+  size?: number;
+}
+
+/** How signedLink asks: one request, its redirects read, not followed (a test's stand-in). */
+type Ask = (url: string, init: RequestInit) => Promise<Response>;
+/** Through the guarded agent (outbound.ts): a source's name that resolves inside the network is refused where it connects. */
+const guardedAsk: Ask = (url, init) => fetchOnce(url, init, civitaiSites());
+
 /**
  * The source's own temporary download link, asked for here with the key: Hugging Face and Civitai answer a download with
  * a redirect to a signed link on their file servers, which holds no key and lasts an hour or so. The redirects are read,
  * not followed into the file: a page of theirs that sends it on to another of their pages is asked again (the key only to
  * the host first asked), and the first link on a file server is the one. Null when the source answers otherwise, or the
  * link would carry a secret: then the pack fetches through Afflatus, as before. A Refused, with the site's reason, when
- * it refuses the download itself (401 or 403): a rented GPU, which only takes such a link, is told why.
+ * it refuses the download itself (401 or 403): a rented GPU, which only takes such a link, is told why. Hugging Face's
+ * size and SHA-256 of the file (x-linked-size, x-linked-etag on its redirect) come with it: a pod checks the file against
+ * them as Afflatus does its own, so a page of the right size is never named as the model.
  */
-export async function signedLink(source: string, headers: Record<string, string>, fetcher: typeof fetch = fetch): Promise<string | null> {
+export async function signedLink(source: string, headers: Record<string, string>, fetcher: Ask = guardedAsk): Promise<SignedLink | null> {
   const first = new URL(source).host;
   const secrets = Object.values(headers).map((v) => v.replace(/^bearer\s+/i, "").trim()).filter((v) => v.length >= 8);
+  const said: Omit<SignedLink, "url"> = {};
   let at = source;
   for (let hop = 0; hop < 4; hop++) {
     const res = await fetcher(at, { method: "HEAD", headers: { "User-Agent": "afflatus", ...(new URL(at).host === first ? headers : {}) }, redirect: "manual", signal: AbortSignal.timeout(15_000) });
     await res.body?.cancel().catch(() => {});
+    Object.assign(said, linkedOf(res));
     const location = res.headers.get("location");
     // refused: asked again in full, as a HEAD has no body to say why (Civitai's Early Access, a key it refuses), and said
     // at once if the answer is the same; a host that refuses only HEADs (a signed link of another site) is fetched as before
@@ -277,12 +299,12 @@ export async function signedLink(source: string, headers: Record<string, string>
       const next = new URL(location, at);
       if (!directOk(next.href) || secrets.some((s) => next.href.includes(s))) return null;
       // a file server's link is the one; a page of theirs is asked again
-      if (!apiPage(next)) return next.href;
+      if (!apiPage(next)) return { url: next.href, ...said };
       at = next.href;
       continue;
     }
     // the file itself, with no key needed: the address is a download link as it is
-    return res.ok && hop === 0 && !Object.keys(headers).length && directOk(source) ? source : null;
+    return res.ok && hop === 0 && !Object.keys(headers).length && directOk(source) ? { url: source, ...said } : null;
   }
   return null;
 }
@@ -308,6 +330,8 @@ export function chooseRoute(o: { root: string | null; pack: boolean; source: str
 
 const unreachable = (err: unknown) => /fetch failed|ECONNREFUSED|did not answer/i.test((err as Error).message);
 const running = (d: DownloadView) => d.status === "starting" || d.status === "downloading";
+/** Which file a download's .part holds: its SHA-256 when its source lists one, else its source's address (leftover). */
+const partOf = (d: { sha256?: string; source: string }) => d.sha256 ?? d.source;
 /** Whether a time is on today's date, here. */
 const today = (at: number, now: number) => new Date(at).toDateString() === new Date(now).toDateString();
 /**
@@ -340,7 +364,7 @@ export class Downloads {
   packBusyEveryMs = 3000;
   packBusyMs = PACK_BUSY_MS;
   /** Where a source's own signed link is asked for (signedLink): a test's stand-in. */
-  signer: (source: string, headers: Record<string, string>) => Promise<string | null> = signedLink;
+  signer: (source: string, headers: Record<string, string>) => Promise<SignedLink | null> = signedLink;
   packSilentMs = 120_000;
   /** Tries in a row that gain nothing before Afflatus gives a download up, and the first wait between them (shorter in tests). */
   attempts = 5;
@@ -349,12 +373,17 @@ export class Downloads {
   free: (dir: string) => Promise<number> = freeBytes;
   /** Afflatus's own downloads: a big file over several connections, all of them sharing CONNECTIONS (smaller in tests). */
   parts: Parts = { connections: CONNECTIONS };
+  /** How long one of Afflatus's own requests may bring nothing before it is tried again (modelDownload.ts STALL_MS; shorter in tests). */
+  stallMs?: number;
 
   constructor(private readonly events: EventEmitter, private readonly stateFile?: string) {
     this.restored = this.restore();
   }
 
-  /** The state file read: what was still under way when Afflatus last ran is listed as interrupted, and its .part removed. */
+  /**
+   * The state file read: what was still under way when Afflatus last ran is listed as interrupted, its .part kept for a
+   * Download again to carry on from (leftover), and removed once it leaves the list (dropPart).
+   */
   private async restore(): Promise<void> {
     if (!this.stateFile) return;
     try {
@@ -364,14 +393,13 @@ export class Downloads {
       const waiting = (k: Kept) => Boolean(k && k.queued && k.status === "starting" && k.ask !== undefined && typeof k.from === "string");
       this.toResume = kept.filter(waiting).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
       for (const k of this.toResume) this.nextOrder = Math.max(this.nextOrder, (k.order ?? 0) + 1);
-      for (const k of kept) if (k && (k.status === "starting" || k.status === "downloading") && typeof k.part === "string" && k.part.endsWith(".part")) await rm(k.part, { force: true }).catch(() => {});
       this.past = kept
         .filter((k) => k && typeof k.id === "string" && !this.toResume.includes(k))
         // "saving": every byte was handed to ComfyUI or is in its folder already, and it lists it whether Afflatus runs or not
         .map((k) => (k.status === "saving" ? { ...k, status: "done" as const, finishedAt: now } : k))
         .map((k) => (k.status === "starting" || k.status === "downloading" ? { ...k, status: "error" as const, error: INTERRUPTED, finishedAt: now, waiting: undefined, note: undefined } : k))
-        .map(({ part: _p, queued: _q, order: _o, ...k }) => k)
-        .filter((k) => stillListed(k, now));
+        .map(({ queued: _q, order: _o, ...k }) => ({ ...k, ...(typeof k.part === "string" && k.part.endsWith(".part") ? {} : { part: undefined }) }))
+        .filter((k) => stillListed(k, now) || void this.dropPart(k.part));
       if (this.past.some((k) => k.error === INTERRUPTED)) this.tell(true);
     } catch {
       // no file yet, or one that cannot be read: nothing to restore
@@ -427,7 +455,7 @@ export class Downloads {
         // queue already (it is "starting" until Manager comes for the bytes): asked again, Manager was given it twice
         ...(d.status === "starting" && !d.begun && d.via !== "manager" ? { queued: true as const } : {}),
         ...(d.finishedAt ? { finishedAt: d.finishedAt } : {}),
-        ...(d.dest ? { part: `${d.dest}.part` } : {}),
+        ...(d.dest ? { part: `${d.dest}.part`, partOf: partOf(d) } : {}),
       };
     })];
     const file = this.stateFile;
@@ -500,9 +528,9 @@ export class Downloads {
   /** Newest first. What finished is forgotten after an hour, a failure nobody read after a day. */
   list(): DownloadView[] {
     const now = Date.now();
-    for (const [id, d] of this.all) if (!stillListed(d, now)) this.all.delete(id);
-    this.past = this.past.filter((k) => stillListed(k, now));
-    const strip = ({ finishedAt, ask, from: _from, order: _o, queued: _q, ...view }: Kept): DownloadView => ({
+    for (const [id, d] of this.all) if (!stillListed(d, now)) this.forget(id);
+    this.past = this.past.filter((k) => stillListed(k, now) || void this.dropPart(k.part));
+    const strip = ({ finishedAt, ask, from: _from, order: _o, queued: _q, part: _p, partOf: _po, ...view }: Kept): DownloadView => ({
       ...view,
       ...(finishedAt ? { at: finishedAt } : {}),
       ...((view.status === "error" || view.status === "stopped") && ask !== undefined ? { again: true as const } : {}),
@@ -533,7 +561,7 @@ export class Downloads {
     if (!d) {
       // one of an earlier run: taken off the list
       const was = this.past.length;
-      this.past = this.past.filter((k) => k.id !== id);
+      this.past = this.past.filter((k) => k.id !== id || void this.dropPart(k.part));
       if (this.past.length === was) return false;
       this.tell(true);
       return true;
@@ -549,9 +577,52 @@ export class Downloads {
       // the pack is told too, and removes its .part, or keeps it to carry on from
       if (d.packId) void d.comfy.client.raw(`/afflatus/download/${encodeURIComponent(d.packId)}${keepPart ? "?keep=1" : ""}`, { method: "DELETE", signal: AbortSignal.timeout(5000) }).catch(() => {});
       this.pump();
-    } else this.all.delete(id);
+    } else this.forget(id);
     this.tell(true);
     return true;
+  }
+
+  /** A finished download taken off the list, with what an earlier try of it left (dropPart). */
+  private forget(id: string): void {
+    const d = this.all.get(id);
+    if (!d) return;
+    this.all.delete(id);
+    if (d.dest && !running(d) && d.status !== "saving") void this.dropPart(`${d.dest}.part`);
+  }
+
+  /**
+   * The .part a download that failed or was interrupted left, removed once it leaves the list: kept until then for a Download
+   * again to carry on from. Never one another download of the file writes now (it took it over, or starts it again).
+   */
+  private async dropPart(part: string | undefined): Promise<void> {
+    if (!part?.endsWith(".part")) return;
+    if ([...this.all.values()].some((d) => d.dest && samePath(`${d.dest}.part`, part) && (running(d) || d.status === "saving" || d.settling))) return;
+    await rm(part, { force: true }).catch(() => {});
+  }
+
+  /**
+   * Whether a new download into `dest` carries on from what an earlier try of the same file left (its .part, kept on a
+   * failure that passes and through a restart): only one from the same source, or of the same SHA-256, never another file's
+   * bytes under its name. The earlier one lets go of it: its leaving the list no longer removes it.
+   */
+  private async leftover(dest: string, of: string): Promise<boolean> {
+    await this.restored;
+    const part = `${dest}.part`;
+    const ended = [...this.all.values()].find((d) => d.dest && samePath(`${d.dest}.part`, part) && (d.status === "error" || d.status === "stopped"));
+    if (ended) {
+      delete ended.dest;
+      return partOf(ended) === of;
+    }
+    const past = this.past.find((k) => k.part && samePath(k.part, part));
+    if (!past) return false;
+    delete past.part;
+    return past.partOf === of;
+  }
+
+  /** What the downloads under way on the same disk as `d` (but `but`) still have to write there: room `d` cannot count on. */
+  private reservedBy(d: { dev?: number }, but?: Download): number {
+    if (d.dev === undefined) return 0;
+    return [...this.all.values()].filter((o) => o !== but && o.via === "afflatus" && o.dev === d.dev && running(o)).reduce((sum, o) => sum + Math.max(0, o.total - o.bytes), 0);
   }
 
   /** The Manager answers by ComfyUI: a pod's Models tab and the first ComfyUI's banner, read in turn, each asked again (up to 5 s) with one kept. */
@@ -686,7 +757,7 @@ export class Downloads {
       ...(want.machine ? { machine: want.machine } : {}),
       ...(want.ask !== undefined ? { ask: want.ask, from: self } : {}),
       ...(want.place && route.via === "pack" ? { place: want.place } : {}),
-      ...(want.sha256 && /^[0-9a-f]{64}$/i.test(want.sha256) && route.via !== "manager" ? { sha256: want.sha256.toLowerCase() } : {}),
+      ...(shaOf(want.sha256) && route.via !== "manager" ? { sha256: shaOf(want.sha256) } : {}),
       ...(base ? { base } : {}),
       ...(want.directOnly ? { directOnly: true } : {}),
       ...(want.noSelf ? { noSelf: true } : {}),
@@ -700,9 +771,18 @@ export class Downloads {
     if (route.via === "afflatus") {
       try {
         const dest = await placeIn(route.root, sub, name);
+        // the same file stopped a moment ago lets go of its .part first (its hash follower, its last writes): this one's
+        // was removed under it once, and a 20 GB download failed at its end (card #236)
+        await Promise.all([...this.all.values()].filter((o) => o.dest && samePath(o.dest, dest) && !running(o)).map((o) => o.settling));
         if (await stat(dest).then(() => true, () => false)) throw new Refused(`${name} is in ${dirname(dest)} already.`);
+        d.dev = await stat(dirname(dest)).then((st) => st.dev, () => undefined);
         // refused before anything is fetched when the size is known (Civitai says it); else once the site says it
-        if (want.total) await assertRoom(dirname(dest), want.total, this.free);
+        if (want.total) await assertRoom(dirname(dest), want.total, this.free, this.reservedBy(d));
+        d.takeOver = await this.leftover(dest, partOf(d));
+        // the same file into the same folder once at a time, whichever ComfyUI asked: two that share a models folder wrote one
+        // .part, and the first's rename named the second's half as the model (card #236). Looked at with no wait before it is listed
+        const same = [...this.all.values()].find((o) => o.dest && samePath(o.dest, dest) && (running(o) || o.status === "saving" || o.settling));
+        if (same) return this.view(same);
         d.dest = dest;
         d.into = dirname(dest);
         d.shown = shownPlace(d.into, d.base ?? null);
@@ -853,9 +933,9 @@ export class Downloads {
   clearDone(mine: (d: DownloadView) => boolean = () => true): number {
     const ended = (d: DownloadView) => d.status === "done" || d.status === "error" || d.status === "stopped";
     const gone = [...this.all.values()].filter((d) => ended(d) && mine(d));
-    for (const d of gone) this.all.delete(d.id);
+    for (const d of gone) this.forget(d.id);
     const was = this.past.length;
-    this.past = this.past.filter((k) => !(ended(k) && mine(k)));
+    this.past = this.past.filter((k) => !(ended(k) && mine(k)) || void this.dropPart(k.part));
     const count = gone.length + was - this.past.length;
     if (count) this.tell(true);
     return count;
@@ -893,11 +973,15 @@ export class Downloads {
   /** Afflatus downloads it itself, into the folder ComfyUI reads (modelDownload.ts). */
   private async runHere(d: Download): Promise<void> {
     d.status = "downloading";
+    let settled = () => {};
+    d.settling = new Promise<void>((resolve) => (settled = resolve));
     this.tell(true);
     try {
       await fetchToFile({
         source: d.source, headers: d.headers, allow: civitaiSites(), dest: d.dest!, signal: d.abort.signal,
-        attempts: this.attempts, backoffMs: this.backoffMs, free: this.free, parts: this.parts,
+        attempts: this.attempts, backoffMs: this.backoffMs, free: this.free, parts: this.parts, stallMs: this.stallMs,
+        // what came is kept through a failure that passes, for a Download again to carry on from (card #256)
+        keepPart: true, takeOver: Boolean(d.takeOver), reserved: () => this.reservedBy(d, d),
         ...(d.total ? { size: d.total } : {}), ...(d.sha256 ? { sha256: d.sha256 } : {}),
         onBytes: (bytes, total) => {
           d.bytes = bytes;
@@ -935,6 +1019,8 @@ export class Downloads {
       if (d.abort.signal.aborted) return;
       this.fail(d, err instanceof Refused ? err.message : `The download did not finish: ${(err as Error).message}`, err instanceof Refused);
     } finally {
+      delete d.settling;
+      settled();
       this.pump();
     }
   }
@@ -953,7 +1039,11 @@ export class Downloads {
       if (!signed && d.noSelf) throw new Error(NO_SELF);
       // the place chosen for the folder, to a pack that takes one (an older one keeps to ComfyUI's first path)
       const dir = d.place && version && !olderThan(version, PACK_PLACE) ? { dir: d.place } : {};
-      const body = JSON.stringify({ url: signed ?? this.oneTime(d.self!, d), folder: d.folder, filename: d.file.replace(/\\/g, "/"), total: d.total, ...dir, ...(d.sha256 ? { sha256: d.sha256 } : {}) });
+      // what Hugging Face says of the file on the way to its link, when the source lists nothing: the pack holds the file to
+      // that size (0.44.1) and that SHA-256 (0.44.0), as Afflatus does its own (card #257)
+      if (!d.total && signed?.size) d.total = signed.size;
+      const sha256 = d.sha256 ?? signed?.sha256;
+      const body = JSON.stringify({ url: signed?.url ?? this.oneTime(d.self!, d), folder: d.folder, filename: d.file.replace(/\\/g, "/"), total: d.total, ...dir, ...(sha256 ? { sha256 } : {}) });
       const ask = () => d.comfy.client.raw("/afflatus/download", { method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(15_000), body });
       let res = await ask();
       // its line full (429: the pack takes so many at once): one just stopped there may not have heard its stop yet. Waited
@@ -1021,8 +1111,14 @@ export class Downloads {
           d.renewals = (d.renewals ?? 0) + 1;
           if (d.renewals > MAX_RENEWALS) throw new Error("The source kept refusing its own download links on ComfyUI's machine: press Download again.");
           d.renewedAt = Date.now();
-          const fresh = await this.signer(d.source, d.headers).catch(() => null);
-          if (fresh) await d.comfy.client.raw(`/afflatus/download/${encodeURIComponent(got.id)}/url`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: fresh }), signal: AbortSignal.timeout(10_000) }).catch(() => null);
+          const fresh = await this.signer(d.source, d.headers).catch((err: unknown) => {
+            // the source refuses the file now (a key revoked, a version made paid): said with its reason, and the pack's
+            // download stopped (what came kept), not left to say two minutes later that no fresh link was sent (card #257)
+            if (!(err instanceof Refused)) return null;
+            void d.comfy.client.raw(`/afflatus/download/${encodeURIComponent(got.id)}?keep=1`, { method: "DELETE", signal: AbortSignal.timeout(5000) }).catch(() => {});
+            throw err;
+          });
+          if (fresh) await d.comfy.client.raw(`/afflatus/download/${encodeURIComponent(got.id)}/url`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: fresh.url }), signal: AbortSignal.timeout(10_000) }).catch(() => null);
         }
         if (s.state === "error") throw new Error(`The Afflatus node pack could not download it: ${s.error ?? "no reason given"}`);
         if (s.state === "done") {
@@ -1074,23 +1170,27 @@ export class Downloads {
       if (final) this.fail(d, said);
       return { error: said, status: final ? 403 : 502 };
     }
-    const type = res.headers.get("content-type") ?? "";
-    if (!res.ok || !res.body || /text\/html|application\/json/.test(type)) {
-      const refused = res.status === 401 || res.status === 403 || /text\/html/.test(type);
-      if (!refused) await res.body?.cancel().catch(() => {});
-      const said = refused ? await refusalOf(res, d.source, d.headers) : `The site answered ${res.status}.`;
+    const wrong = await notTheFile(res, d.source, d.headers);
+    if (wrong || !res.body) {
+      const said = wrong?.said ?? `The site answered ${res.status}.`;
       // a 5xx or a 429 may pass, the pack asks again; anything else is the end of it, and the pack is told so with
       // the site's own 4xx (a 502 would have it try four times more)
       const final = d.via === "manager" || (res.status < 500 && res.status !== 429);
       if (final) this.fail(d, said);
-      return { error: said, status: res.status >= 400 && res.status < 500 && res.status !== 429 ? res.status : refused ? 403 : final ? 422 : 502 };
+      return { error: said, status: res.status >= 400 && res.status < 500 && res.status !== 429 ? res.status : wrong?.refused ? 403 : final ? 422 : 502 };
     }
     const size = Number(res.headers.get("content-length")) || 0;
-    const partial = from > 0 && res.status === 206 ? res.headers.get("content-range") ?? undefined : undefined;
-    const whole = partial ? Number(/\/(\d+)$/.exec(partial)?.[1]) || 0 : size;
+    const got = from > 0 && res.status === 206 ? rangeOf(res) : null;
+    // a part from another byte than the one asked is not the rest of the file: the pack asks again
+    if (got && got.start !== from) {
+      await res.body.cancel().catch(() => {});
+      return { error: `The site sent bytes from ${got.start} on, for a request from ${from}.`, status: 502 };
+    }
+    const partial = got ? (res.headers.get("content-range") ?? undefined) : undefined;
+    const whole = got ? (got.size ?? 0) : size;
     if (whole) d.total = whole;
     if (d.via === "manager" && d.total > BIG) d.note = MANAGER_BIG;
-    d.bytes = partial ? from : 0;
+    d.bytes = got ? from : 0;
     const counter = new Transform({
       transform: (chunk: Buffer, _enc, done) => {
         d.bytes += chunk.length;

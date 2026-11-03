@@ -1,4 +1,4 @@
-import { nodesOfPack, packVersion, repoOfPack } from "@afflatus/core";
+import { cloneAt, nodesOfPack, repoOfPack } from "@afflatus/core";
 import type { Comfy } from "./comfy";
 
 /**
@@ -449,9 +449,15 @@ export class PodPacks {
     if (!next.length || all.some((e) => e.state === "installing")) return false;
     const asked: Entry[] = [];
     for (const e of next) {
+      // a pack held at a commit (Krea2Edit 2.0, ahead of the Registry) is never asked of Manager, whose only way to it is
+      // its repository's head, whatever was pushed there last: the pod image has it built in, anywhere else it is cloned by hand
+      const byHand = cloneAt(e.name);
+      if (byHand) {
+        Object.assign(e, { state: "failed", failedAt: Date.now(), error: `not installed through ComfyUI-Manager, which would take its repository's latest, not checked: in ComfyUI's folder, ${byHand}, then restart ComfyUI` });
+        continue;
+      }
       const task = `afflatus-pack-${++this.seq}-${Date.now()}`;
-      // the Registry's latest, or the repository's head for a pack the forms need a newer version of (Krea2Edit 2.0)
-      const version = packVersion(e.name);
+      const version = "latest";
       const res = await comfy.client.raw("/v2/manager/queue/task", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(15_000),
         body: JSON.stringify({ ui_id: task, client_id: CLIENT, kind: "install", params: { id: e.name, version, selected_version: version, mode: "cache", channel: "default" } }),

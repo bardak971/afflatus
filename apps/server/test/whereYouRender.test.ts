@@ -296,6 +296,19 @@ describe("a family's official file missing on the user's own ComfyUI", () => {
     const other = await post(t.app, "/api/downloads", { file: "x.safetensors", folder: "checkpoints", url: "https://example.com/x.safetensors" });
     expect(other.json().error).toMatch(/turned off/);
   });
+
+  it("is checked against the bytes the family says, a pickle's (the 2026-11-02 review, M7)", async () => {
+    fake = await startFakeComfy({ catalog: referenceCatalog(), models: {} });
+    t = await makeApp({ comfyUrl: fake.url });
+    const asked: Array<{ source: string; sha256?: string }> = [];
+    vi.spyOn(t.services.downloads, "start").mockImplementation(async (_comfy, _self, o) => {
+      asked.push({ source: o.source, ...(o.sha256 ? { sha256: o.sha256 } : {}) });
+      return { id: "d1", file: o.file, folder: o.folder } as never;
+    });
+    const get = t.services.registry.family("h3")!.slots.find((s) => s.id === "faceDetector")!.get!;
+    expect((await post(t.app, "/api/downloads", { file: get.file, folder: "ultralytics", url: get.url })).statusCode).toBe(200);
+    expect(asked).toEqual([{ source: get.url, sha256: "717923c19b3f4bbf5250b728f1fa6b2cb72a33aed1d236ea9caf0e21ad943e5f" }]);
+  });
 });
 
 describe("finding a ComfyUI without saving it", () => {

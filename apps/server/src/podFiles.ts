@@ -767,7 +767,8 @@ export class PodFiles {
       }
       return 0;
     };
-    if (src.kind === "url" && !src.sha256) {
+    // a family's own file has its hash too (a pickle's), which says nothing of this computer's copy of that name
+    if (src.kind === "url" && (!src.sha256 || isOfficialFile(this.d.lookup.families(), { url: src.url, file: f.file }))) {
       const named = await presetSize();
       if (named) return named;
       if ((await this.d.settings().catch(() => null))?.civitaiLookups) {
@@ -1030,7 +1031,8 @@ export class PodFiles {
         const found = await civitaiVersion(src.version, src.pick ?? name, settings.civitaiKey, src);
         if (!found?.file.downloadUrl) throw new Error("Civitai lists no file of that version to download");
         source = found.file.downloadUrl;
-        headers = settings.civitaiKey ? { Authorization: `Bearer ${settings.civitaiKey}` } : undefined;
+        // the key to Civitai alone (keyFor): the address is the one its answer names, which may be any host's
+        headers = keyFor(source, settings);
         total = Math.round((found.file.sizeKB ?? 0) * 1024) || total;
         // the pack checks the file against it before naming it: a part written wrong is never a model ComfyUI loads
         sha256 = found.file.hashes?.SHA256 ?? src.sha256;

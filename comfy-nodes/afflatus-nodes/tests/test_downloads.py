@@ -23,8 +23,10 @@ RELAY = "/api/downloads/fetch/abc-123"
 class _Site:
     """Afflatus's one-time address: the file from the byte asked for, cut short `cuts` times; `ranges` ignores Range when false."""
 
-    def __init__(self, cuts=0, ranges=True, status=200, length=True, extra=0, expires=False):
+    def __init__(self, cuts=0, ranges=True, status=200, length=True, extra=0, expires=False, kind=None):
         self.cuts = cuts
+        # the Content-Type it answers with, when one is set (a sign-in page, an error in JSON)
+        self.kind = kind
         # a signed link that expires at its first cut: every request after it is refused (403)
         self.expires = expires
         self.expired = False
@@ -54,6 +56,8 @@ class _Site:
                 start = int(got.group(1)) if got and site.ranges else 0
                 body = FILE[start:] + bytes(site.extra)
                 self.send_response(206 if start else 200)
+                if site.kind:
+                    self.send_header("Content-Type", site.kind)
                 if site.length:
                     self.send_header("Content-Length", str(len(body)))
                 if start:
@@ -266,18 +270,20 @@ def test_old_parts_are_swept_and_nothing_else(tmp_path):
     fp = _FolderPaths(str(tmp_path))
     loras = tmp_path / "loras"
     (loras / "wan").mkdir()
-    names = ["old.safetensors.0123abcd.part", "wan/old.ckpt.part", "fresh.safetensors.part", "notes.txt.part", "kept.safetensors"]
+    names = ["old.safetensors.0123abcd.part", "wan/old.ckpt.part", "pc.safetensors.part", "fresh.safetensors.part", "notes.txt.part", "kept.safetensors"]
     for name in names:
         (loras / name).write_bytes(b"x")
     nodes = tmp_path / "custom_nodes" / "old.safetensors.part"
     nodes.write_bytes(b"x")
     now = os.path.getmtime(loras / "kept.safetensors")
-    # all of them but the fresh one untouched for two hours
+    # all of them but the fresh one untouched for two hours; an older pack's .part (no download's id) for eight days
     for path in [loras / n for n in names if not n.startswith("fresh")] + [nodes]:
         os.utime(path, (now - 7200, now - 7200))
+    os.utime(loras / "wan" / "old.ckpt.part", (now - 8 * 86400, now - 8 * 86400))
     removed = downloads.sweep_parts(fp, now=now)
     assert sorted(os.path.relpath(p, loras).replace(os.sep, "/") for p in removed) == ["old.safetensors.0123abcd.part", "wan/old.ckpt.part"]
-    assert sorted(os.listdir(loras)) == ["fresh.safetensors.part", "kept.safetensors", "notes.txt.part", "wan"]
+    # Afflatus's own .part (no download's id), two hours old: kept for its next try to carry on from (card #257)
+    assert sorted(os.listdir(loras)) == ["fresh.safetensors.part", "kept.safetensors", "notes.txt.part", "pc.safetensors.part", "wan"]
     assert nodes.exists()
 
 
@@ -356,6 +362,58 @@ def test_an_expired_link_without_a_fresh_one_gives_up_and_leaves_nothing(tmp_pat
     run(job, backoff=0.01, renew_wait=0.2)
     assert job.state == "error" and "expired" in job.error
     assert os.listdir(tmp_path / "loras") == []
+
+
+def test_a_4xx_is_said_by_its_status_and_only_a_404_or_410_as_gone(tmp_path, site):
+    # a 400, a 405, a 416 is no download that is gone (card #257)
+    for status in (400, 405, 416):
+        job = _fetch(tmp_path, site(status=status).url)
+        assert (job.state, job.error) == ("error", f"Afflatus answered {status}")
+    job = _fetch(tmp_path, site(status=410).url)
+    assert job.error == "Afflatus answered 410: the download is no longer there"
+
+
+def test_a_page_or_json_in_place_of_the_file_is_never_named_as_it(tmp_path, site):
+    # of the size said, a sign-in page was named as the model on a pod (card #257)
+    for kind in ("text/html; charset=utf-8", "application/json"):
+        s = site(kind=kind)
+        job = Job(s.url, str(tmp_path / "loras" / "model.safetensors"), SIZE)
+        run(job, backoff=0.01)
+        assert (job.state, job.error) == ("error", f"Afflatus sent {kind.split(';')[0]} in place of the file")
+        assert len(s.asked) == 1
+        assert os.listdir(tmp_path / "loras") == []
+    # a file's own type is fine
+    job = _fetch(tmp_path, site(kind="application/octet-stream").url)
+    assert job.state == "done"
+
+
+def test_a_host_that_cannot_be_reached_is_said_at_once_not_tried_five_times(tmp_path):
+    import socket as sockets
+
+    with sockets.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    job = Job(f"http://127.0.0.1:{port}{RELAY}?t=token", str(tmp_path / "loras" / "model.safetensors"), SIZE)
+    run(job, backoff=0.5)
+    assert job.state == "error" and job.error.startswith("could not reach 127.0.0.1 (")
+    # never a try after the first
+    assert job.note is None
+
+
+def test_an_older_folder_name_is_the_folder_comfyui_reads_it_as_never_a_new_one(tmp_path):
+    # ComfyUI keeps unet under diffusion_models (folder_paths.map_legacy): "unet" is no key of its own (card #257)
+    fp = _FolderPaths(str(tmp_path))
+    fp.models_dir = str(tmp_path / "models")
+    unet = tmp_path / "models" / "unet"
+    unet.mkdir(parents=True)
+    fp.folder_names_and_paths["diffusion_models"] = ([str(unet), str(tmp_path / "models" / "diffusion_models")], set())
+    fp.map_legacy = lambda name: {"unet": "diffusion_models", "clip": "text_encoders"}.get(name, name)
+    fp.get_folder_paths = lambda name: fp.folder_names_and_paths[fp.map_legacy(name)][0]
+    root, _path = target("unet", "wan.safetensors", fp)
+    assert root == os.path.realpath(unet)
+    assert "unet" not in fp.folder_names_and_paths
+    (unet / "wan.safetensors").write_bytes(b"x")
+    assert downloads.located("unet", "wan.safetensors", fp) == os.path.realpath(unet / "wan.safetensors")
 
 
 def test_afflatus_own_address_refused_is_still_gone(tmp_path, site):

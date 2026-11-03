@@ -56,6 +56,8 @@ import hashlib
 import os
 import shutil
 import re
+import socket
+import ssl
 import threading
 import time
 import urllib.error
@@ -68,6 +70,8 @@ MODEL_FILE = re.compile(r"\.(safetensors|ckpt|gguf|sft|pt|pth|bin|onnx)$", re.I)
 BAD_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 # a model download's .part: this pack's (with its download's id) or Afflatus's own
 PART = re.compile(r"\.(safetensors|ckpt|gguf|sft|pt|pth|bin|onnx)(\.[0-9a-f]{8})?\.parts?$", re.I)
+# this pack's own, with its download's id: an older pack's had none, as Afflatus's own still has
+OWN_PART = re.compile(r"\.[0-9a-f]{8}\.parts?$", re.I)
 RELAY = re.compile(r"^/api/downloads/fetch/[\w-]{1,64}$")
 # the hosts a signed download link of Hugging Face or Civitai is on (Civitai's files are served from Cloudflare R2)
 DIRECT_HOSTS = ("huggingface.co", "hf.co", "civitai.com", "r2.cloudflarestorage.com")
@@ -81,6 +85,9 @@ KEEP_S = 3600
 MAX_JOBS = 2
 # a .part not written to for this long belongs to no download under way: one cut short by ComfyUI stopping
 STALE_PART_S = 3600
+# a .part with no download's id (Afflatus's own, on a ComfyUI on its machine) is kept for its next try to carry on from, and
+# removed by Afflatus once its failure leaves the list: swept here only when it is a week old, an older pack's left behind
+STALE_BARE_PART_S = 7 * 24 * 3600
 # the connections all downloads of this ComfyUI share (measured on pods: 8 give 233–256 MB/s from Civitai, 16 up to 599
 # but no more on a pod's disk and line most of the time); a file from this size on is fetched over them, smaller over one
 CONNECTIONS = 8
@@ -146,16 +153,29 @@ NEW_FOLDER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 MODEL_EXTS = {".safetensors", ".ckpt", ".pt", ".pt2", ".pth", ".bin", ".pkl", ".sft", ".gguf", ".onnx"}
 
 
+def _current(folder, folder_paths):
+    """The name ComfyUI keeps a folder under: its older names (unet, clip) are read as diffusion_models and text_encoders
+    (folder_paths.map_legacy), and are no key of their own."""
+    mapped = getattr(folder_paths, "map_legacy", None)
+    if callable(mapped) and isinstance(folder, str):
+        try:
+            return mapped(folder)
+        except Exception:
+            return folder
+    return folder
+
+
 def known(folder, folder_paths):
     """
     Whether `folder` is a model folder downloads may go into. One ComfyUI does not know yet is made known as
     models/<folder>, the way a node pack registers its own when it loads (the Veda pack's models/veda): a file fetched
     before its pack is installed, or before ComfyUI restarts with it, then lands where the pack reads it, and is listed.
-    Only a plain folder name, in ComfyUI's models directory; never a folder of code or settings.
+    Only a plain folder name, in ComfyUI's models directory; never a folder of code or settings. A folder's older name
+    (unet, clip) is the folder ComfyUI reads it as: it was made a folder of its own, models/unet, beside it.
     """
     if not isinstance(folder, str) or folder in NOT_MODELS:
         return False
-    if folder in folder_paths.folder_names_and_paths:
+    if folder in folder_paths.folder_names_and_paths or _current(folder, folder_paths) in folder_paths.folder_names_and_paths:
         return True
     base = getattr(folder_paths, "models_dir", None)
     if not NEW_FOLDER.match(folder) or not base or not os.path.isdir(base):
@@ -254,7 +274,7 @@ def located(folder, filename, folder_paths):
     parts = re.split(r"[\\/]", filename)
     if any(p in ("", ".", "..") or BAD_NAME.search(p) for p in parts) or not MODEL_FILE.search(parts[-1]):
         raise Refused(f"{filename} is not a model file's name")
-    if not isinstance(folder, str) or folder in NOT_MODELS or folder not in folder_paths.folder_names_and_paths:
+    if not isinstance(folder, str) or folder in NOT_MODELS or _current(folder, folder_paths) not in folder_paths.folder_names_and_paths:
         raise Refused(f"{folder} is not a model folder")
     code = _code_dirs(folder_paths)
     for base in folder_paths.get_folder_paths(folder):
@@ -412,6 +432,31 @@ def _remove(path):
         pass
 
 
+# what a page or an API says, never a model file's bytes: a sign-in page, an error in JSON, of any size
+NOT_A_FILE = re.compile(r"text/html|application/json", re.I)
+
+
+def _a_file(res, where):
+    """Refused when the answer is a page or JSON in place of the file: of the size said, it was named as the model."""
+    kind = res.headers.get("Content-Type") or ""
+    if NOT_A_FILE.search(kind):
+        raise Refused(f"{where} sent {kind.split(';')[0].strip()} in place of the file")
+
+
+def _gone(where, code):
+    """A 4xx in words: a 404 or a 410 is a download that is no longer there; any other only the status (a 400, a 405, a 416)."""
+    return f"{where} answered {code}: the download is no longer there" if code in (404, 410) else f"{where} answered {code}"
+
+
+def _unreachable(e):
+    """Whether a request failed because its host cannot be reached at all (no such name, refused, a bad certificate), not a
+    cut: trying it again a moment later changes nothing. A name that does not resolve for now (EAI_AGAIN) is a blip."""
+    reason = getattr(e, "reason", e)
+    if isinstance(reason, socket.gaierror):
+        return reason.errno == getattr(socket, "EAI_NONAME", -2)
+    return isinstance(reason, (ConnectionRefusedError, ssl.SSLCertVerificationError))
+
+
 def _within(job, size):
     """The size a source says, held to the one Afflatus said: another is refused before anything of it is written. More
     would fill the disk past it; less was named as a whole model once whole (a short answer, without a sha256 to tell)."""
@@ -507,7 +552,7 @@ def _answers_parts(job, have, opener, timeout):
     try:
         with opener(req, timeout=timeout) as res:
             got = re.match(r"^bytes (\d+)-(\d+)/(\d+)$", res.headers.get("Content-Range") or "")
-            if res.status != 206 or not got or int(got.group(1)) != have:
+            if res.status != 206 or not got or int(got.group(1)) != have or NOT_A_FILE.search(res.headers.get("Content-Type") or ""):
                 return False
             job.total = _within(job, int(got.group(3)))
             return have < job.total
@@ -525,6 +570,7 @@ def _read_piece(job, url, piece, f, opener, chunk, timeout, moved):
         got = re.match(r"^bytes (\d+)-(\d+)/(\d+|\*)$", res.headers.get("Content-Range") or "")
         if res.status != 206 or not got:
             raise _NoParts("the source sent the whole file to a request for part of it")
+        _a_file(res, "the source")
         if int(got.group(1)) != at or int(got.group(2)) != piece.end - 1 or (got.group(3) != "*" and int(got.group(3)) != job.total):
             raise Refused(f"the source sent bytes {got.group(1)}-{got.group(2)}/{got.group(3)} for {at}-{piece.end - 1}/{job.total}")
         f.seek(at)
@@ -616,7 +662,7 @@ def _in_parts(job, have, opener, attempts, backoff, chunk, timeout, renew_wait, 
                                 if e.code == 429:
                                     raise _NoParts("the source answered 429 to several connections at once")
                                 if e.code < 500:
-                                    raise Refused(f"the source answered {e.code}: the download is no longer there")
+                                    raise Refused(_gone("the source", e.code))
                                 why = f"the source answered {e.code}"
                             except (_Stopped, Refused, _NoParts):
                                 raise
@@ -736,6 +782,7 @@ def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeou
             try:
                 req = urllib.request.Request(job.url, headers={"User-Agent": "afflatus-nodes", **({"Range": f"bytes={have}-"} if have else {})})
                 with _slot(job, slots), opener(req, timeout=timeout) as res:
+                    _a_file(res, "the source" if job.direct else "Afflatus")
                     got = re.match(r"^bytes (\d+)-\d+/(\d+|\*)$", res.headers.get("Content-Range") or "") if res.status == 206 else None
                     if have and got and int(got.group(1)) == have:
                         mode = "ab"
@@ -789,12 +836,17 @@ def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeou
                     continue
                 where = "the source" if job.direct else "Afflatus"
                 if e.code < 500 and e.code != 429:
-                    raise Refused(f"{where} answered {e.code}: the download is no longer there")
+                    raise Refused(_gone(where, e.code))
                 why = f"{where} answered {e.code}"
             except Exception as e:  # a cut, a timeout, a reset: tried again
                 # a full disk stays full: said at once (Afflatus fails the file, and makes room or sends its job elsewhere)
                 if isinstance(e, OSError) and e.errno in DISK_FULL:
                     raise Refused(f"the disk is full ({e.strerror or e})")
+                # a host that cannot be reached before a byte came: five tries and their waits changed nothing (Afflatus's own
+                # downloads say it at once too)
+                if not have and _unreachable(e):
+                    host = urllib.parse.urlsplit(job.url).hostname or "the source"
+                    raise Refused(f"could not reach {host} ({getattr(e, 'reason', e)})")
                 why = str(e) or type(e).__name__
             # what is on disk is what counts: a write cut half way leaves less than was read
             have = os.path.getsize(part) if os.path.exists(part) else 0
@@ -835,10 +887,11 @@ def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeou
         job.alive = False
 
 
-def sweep_parts(folder_paths, older_than=STALE_PART_S, now=None):
+def sweep_parts(folder_paths, older_than=STALE_PART_S, now=None, bare_older_than=STALE_BARE_PART_S):
     """Remove the .part files of model downloads left in the model folders by a ComfyUI that stopped half way: only
     those of a model file's name, not written to for `older_than` seconds (a download under way writes all the time,
-    Afflatus's own included). Returns the paths removed."""
+    Afflatus's own included). One with no download's id (Afflatus's own, kept for its next try to carry on from) only
+    after `bare_older_than`. Returns the paths removed."""
     now = time.time() if now is None else now
     removed = []
     for folder in list(folder_paths.folder_names_and_paths):
@@ -856,8 +909,9 @@ def sweep_parts(folder_paths, older_than=STALE_PART_S, now=None):
                     if not PART.search(name):
                         continue
                     path = os.path.join(top, name)
+                    age = older_than if OWN_PART.search(name) else bare_older_than
                     try:
-                        if now - os.path.getmtime(path) > older_than:
+                        if now - os.path.getmtime(path) > age:
                             os.remove(path)
                             removed.append(path)
                     except OSError:
