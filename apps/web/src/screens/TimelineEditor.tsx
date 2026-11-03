@@ -63,7 +63,7 @@ function Editor({ id }: { id: string }) {
   const fromSource = new Set(madeFromSource(t, e.videoRecipes).map((c) => c.id));
   const sourceLeft = e.missing.filter((c) => fromSource.has(c.id));
   // the selected clip's Show the mask, drawn over its window of the source while it is on
-  const maskVideo = current && e.masks[current.id]?.shown ? e.maskOfCurrent.data?.video : null;
+  const maskVideo = current && e.sourceLane.masks[current.id]?.shown ? e.sourceLane.maskOfCurrent.data?.video : null;
   const maskOverlay = current && maskVideo ? { src: fileUrl(maskVideo.id), startMs: Number(current.inputs.sourceStart ?? 0) * 1000, lengthMs: maskVideo.durationMs ?? Number(current.inputs.sourceSeconds ?? 0) * 1000 } : null;
   // the recording open (its band clicked): its stage and its panel, as the source's
   const recordingShown = e.recordingAt ? t.recordings?.find((r) => r.asset.id === e.selection.recordingOpen) ?? null : null;
@@ -80,11 +80,11 @@ function Editor({ id }: { id: string }) {
 
         <main className="flex min-w-0 grow flex-col">
             {/* the source on the stage: its lane opened, or the person a swap replaces being picked (from a clip's Source chapter too) */}
-            {(e.selection.sourceOpen || e.whoPicking || Boolean(maskOverlay)) && t.source && e.place ? (
+            {(e.selection.sourceOpen || e.sourceLane.whoPicking || Boolean(maskOverlay)) && t.source && e.sourceLane.place ? (
               <SourceStage
                 ref={e.player}
                 video={t.source.video}
-                atMs={e.place.atMs}
+                atMs={e.sourceLane.place.atMs}
                 fromMs={t.source.fromMs}
                 toMs={t.source.toMs}
                 frame={t.width && t.height ? { width: t.width, height: t.height } : null}
@@ -94,17 +94,17 @@ function Editor({ id }: { id: string }) {
                 // the playhead where it stands, when that is on the source; else the stretch's start
                 startAt={(() => {
                   const now = e.playhead.cursor ?? e.playhead.clock.get();
-                  return now >= e.place.atMs && now <= e.place.atMs + e.place.lengthMs ? now : e.place.atMs + t.source.fromMs;
+                  return now >= e.sourceLane.place.atMs && now <= e.sourceLane.place.atMs + e.sourceLane.place.lengthMs ? now : e.sourceLane.place.atMs + t.source.fromMs;
                 })()}
                 master={e.playhead.muted ? 0 : e.playhead.volume}
-                peekMs={e.sourcePeek}
+                peekMs={e.sourceLane.sourcePeek}
                 pick={t.source.pick ?? null}
-                picking={e.whoPicking}
+                picking={e.sourceLane.whoPicking}
                 onPick={(pick) => {
                   e.edit.mutate({ source: { pick } });
-                  e.setWhoPicking(false);
+                  e.sourceLane.setWhoPicking(false);
                 }}
-                onPickEnd={() => e.setWhoPicking(false)}
+                onPickEnd={() => e.sourceLane.setWhoPicking(false)}
                 overlay={maskOverlay}
                 removed={t.source.removed}
               />
@@ -142,24 +142,24 @@ function Editor({ id }: { id: string }) {
             label={recordingPanel ? "Recording" : musicOpen && t.music ? "Music" : current ? `${current.kind === "still" ? "Still" : "Clip"} ${clips.indexOf(current) + 1}` : "Overview"}
             {...e.checks}
           />
-        ) : e.selection.sourceOpen && !(e.place?.made && current) ? (
+        ) : e.selection.sourceOpen && !(e.sourceLane.place?.made && current) ? (
           <SourcePanel
             timeline={t}
-            place={e.place}
+            place={e.sourceLane.place}
             clock={e.playhead.clock}
             onLook={(look) => e.edit.mutate({ look })}
             recipes={e.videoRecipes}
             onEdit={(source) => e.edit.mutate({ source })}
-            onType={(inputs) => e.typeSource(t.id, inputs)}
-            typed={() => e.sourceTyped(t.id)}
-            onMake={e.makeSource.run}
-            making={e.makeSource.pending}
+            onType={(inputs) => e.sourceLane.typeSource(t.id, inputs)}
+            typed={() => e.sourceLane.sourceTyped(t.id)}
+            onMake={e.sourceLane.makeSource.run}
+            making={e.sourceLane.makeSource.pending}
             made={{ left: sourceLeft.length, queued: clips.filter((c) => fromSource.has(c.id) && c.job).length }}
             onRender={() => e.render.mutate({ clips: sourceLeft })}
             rendering={e.render.isPending}
             onClose={() => e.selection.setSourceOpen(false)}
-            picking={e.whoPicking}
-            onPicking={e.setWhoPicking}
+            picking={e.sourceLane.whoPicking}
+            onPicking={e.sourceLane.setWhoPicking}
           />
         ) : recordingPanel ? (
           <RecordingPanel key={recordingPanel.recording.id} {...recordingPanel} />

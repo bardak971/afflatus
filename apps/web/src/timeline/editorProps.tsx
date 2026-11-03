@@ -15,16 +15,15 @@ import { pinMenuItems, placeItems, type ClipMenuActions } from "./menus";
 import type { ContextMenu } from "../ContextMenu";
 import type { LoadedEditor } from "./useTimelineEditor";
 import { plural } from "../format";
-import { carriedOf, CUT_WINDOW, sameWindowGrid, windowBounds, windowEndOn, windowPlaysSeconds } from "@afflatus/core";
-import { madeFromSource, sourceDropClip, windowed } from "./track/SourceLane";
-import { SOURCE_LANDED, type ClipSource } from "./inspector/clipSource";
-import { landedSaid } from "./inspector/clipLength";
+import { carriedOf, CUT_WINDOW, sameWindowGrid } from "@afflatus/core";
+import { windowed } from "./track/SourceLane";
 import type { ClipRecording } from "./inspector/clipRecording";
 import type { RecordingPanelProps } from "./inspector/recording";
 import { clipsOfRecording, playsOver, recordingInput, voiceInput } from "./track/RecordingBand";
 import { stageEnd } from "./recordingPlace";
 import { recordingFormOptions, recordingForms } from "./recordingForms";
 import { failedBanner } from "../sayFailed";
+import { clipSourceOf, trackSourceProps } from "./sourceProps";
 
 // What each part of the timeline editor is drawn with, from what the editor holds (useTimelineEditor): the wiring
 // that would otherwise fill the editor's layout, one builder a part.
@@ -88,7 +87,7 @@ export function playerProps(e: LoadedEditor): ComponentPropsWithoutRef<typeof Pl
 /** How long the transport runs: the clips, or the source or the recording as far as it reaches when the stage plays it. */
 const runOf = (e: LoadedEditor) => Math.max(e.total, stageEndOf(e) ?? 0);
 /** Where what the stage plays in place of the clips ends on the track (stageEnd); null when it plays the clips. */
-const stageEndOf = (e: LoadedEditor) => stageEnd(e.selection.sourceOpen, e.place, e.recordingAt);
+const stageEndOf = (e: LoadedEditor) => stageEnd(e.selection.sourceOpen, e.sourceLane.place, e.recordingAt);
 
 export function transportProps(e: LoadedEditor): ComponentProps<typeof Transport> {
   const { player } = e;
@@ -98,7 +97,7 @@ export function transportProps(e: LoadedEditor): ComponentProps<typeof Transport
     slots: e.slots,
     cursor: e.playhead.cursor,
     total: runOf(e),
-    source: e.selection.sourceOpen ? e.place : e.recordingAt ? { atMs: e.recordingAt.toTrack(0), lengthMs: e.recordingAt.lengthMs, label: "Recording", at: e.recordingAt.toRecording } : null,
+    source: e.selection.sourceOpen ? e.sourceLane.place : e.recordingAt ? { atMs: e.recordingAt.toTrack(0), lengthMs: e.recordingAt.lengthMs, label: "Recording", at: e.recordingAt.toRecording } : null,
     playing: e.playhead.playing,
     ranged: Boolean(e.range && !e.emptyRange),
     loopRange: e.loopRange,
@@ -179,65 +178,8 @@ export function trackProps(e: LoadedEditor): ComponentProps<typeof Track> {
     stageEndMs: e.recordingAt ? stageEndOf(e) : null,
     onView: e.recordingAt ? e.trackView.set : undefined,
     onOpenRecording: (asset, atMs) => e.openRecordingAt(asset, atMs),
-    onSource: (asset) => {
-      // the model the windows are made with: that of an empty clip given one that makes a source window by window (the one
-      // selected, else the first), so a model picked on a new clip before the source is dropped is the one its windows get,
-      // its windows then in its place; else the source's model before; else the one the recipes name as a source's default
-      // (the swap)
-      const of = (id: string | null | undefined) => e.videoRecipes.find((r) => r.id === id && windowed(r));
-      const chosen = sourceDropClip(e.t, e.videoRecipes, e.selection.current);
-      const model = of(chosen?.recipe) ?? of(e.t.source?.recipe) ?? e.videoRecipes.find((r) => r.traits?.windows?.sourceDefault && windowed(r));
-      if (!model) {
-        edit.mutate({ source: { asset } });
-        return e.selection.openSource();
-      }
-      const source = { asset, recipe: model.id, ...(chosen ? { clip: chosen.id } : {}) };
-      // a model with a Picture of its own (Motion transfer) waits for it in the source panel; a swap has no source form (the
-      // owner, 2026-10-18): dropped, the video is made into its clips at once, nothing rendered, the first opened
-      if (model.inputs.some((i) => i.type === "image" && i.role === "source")) {
-        edit.mutate({ source });
-        return e.selection.openSource();
-      }
-      edit.mutate({ source }, { onSuccess: () => e.makeSource.run(false) });
-    },
-    sourceSelected: e.selection.sourceOpen,
-    // the source plays on the stage, as ever; once made, the column shows no form of its own but the clip made from it
-    // where the playhead stands (else its first), its form every clip's (the owner, 2026-10-18)
-    onSelectSource: () => {
-      const made = e.place?.made ? madeFromSource(e.t, e.videoRecipes) : [];
-      e.selection.openSource();
-      if (!made.length) return;
-      const at = e.playhead.cursor ?? e.playhead.clock.get();
-      e.selection.setSelected((made.find((c) => at >= c.atMs && at < c.atMs + c.lengthMs) ?? made[0]!).id);
-    },
-    onOpenSource: e.setOpened,
-    onRemoveSource: e.removeSource,
-    // before Make its settings; after Make a trim (windows set aside or made anew: useTimelineEditor's stretch)
-    onStretchSource: (fromMs, toMs) => e.stretch.run(fromMs, toMs),
-    sourcePlace: e.place,
-    onPeekSource: (ms) => {
-      // the stage turns to the source as soon as it is dragged: its frame there shows as it moves
-      if (ms !== null && !e.selection.sourceOpen) e.selection.openSource();
-      e.setSourcePeek(ms);
-    },
-    sourceMode: e.selection.sourceOpen && Boolean(e.place),
-    sourceLabel: (() => {
-      const r = e.videoRecipes.find((x) => x.id === e.t.source?.recipe);
-      return r ? e.recipes.data?.families.find((f) => f.id === r.family)?.name ?? r.title : undefined;
-    })(),
-    onSplitSource: e.t.source && e.place && !e.place.made
-      ? () => {
-          const place = e.place!;
-          const source = e.t.source!;
-          // where the playhead stands on the source: the stage plays it in the track's own time
-          const at = (e.selection.sourceOpen ? e.playhead.cursor ?? e.playhead.clock.get() : e.playhead.cursor ?? -1) - place.atMs;
-          if (at <= source.fromMs + 200 || at >= source.toMs - 1000) {
-            e.setNote("Put the playhead inside the source's stretch (click the source lane: the stage plays it) to split it there.");
-            return;
-          }
-          e.splitSource.mutate(at);
-        }
-      : undefined,
+    // the source lane: a video dropped on it, the lane clicked, dragged and split (sourceProps.ts)
+    ...trackSourceProps(e),
     onTransition: (clip, transition) => {
       patch.mutate({ clip, patch: { transition } });
       e.selection.openJoin(clip);
@@ -380,109 +322,6 @@ export function recordingPanelProps(e: LoadedEditor, place: NonNullable<LoadedEd
   };
 }
 
-/** A clip made from the timeline's source, as its panel takes it: its Source chapter and where a change goes. */
-/**
- * The windows a source made, said as the recording's clips are: each one's length (what it plays, its take's once rendered),
- * and what each end but the last landed on (windowEndOn), counted. Null while the source's pauses are read.
- */
-function sourceCutSaid(e: LoadedEditor, made: Clip[], source: NonNullable<LoadedEditor["t"]["source"]>, fps: number, step: number): { landed: string | null; lengths: number[] } {
-  const parts = made.map((c) => {
-    const recipe = e.videoRecipes.find((r) => r.id === c.recipe);
-    const inputs = e.inputsOf(c);
-    const w = windowed(recipe, inputs);
-    // where its own frames start: past the run-up of a window that carries on
-    const from = (w ? Number(inputs[w.start] ?? 0) * 1000 : 0) + (c.joined === "continue" && recipe ? (carriedOf(recipe, inputs) * 1000) / fps : 0);
-    const plays = c.lengthMs > 0 ? c.lengthMs : ((recipe ? windowPlaysSeconds(recipe, inputs, c.joined) : null) ?? 0) * 1000 - (c.hiddenMs ?? 0);
-    return { endMs: from + plays, plays };
-  });
-  const marks = source.withinMs > 0 ? e.sourceMarks : {};
-  const landed = marks ? landedSaid(parts.slice(0, -1).map((p, k) => windowEndOn(p.endMs, made[k + 1]!.joined === "cut", marks, source.withinMs, (step * 1000) / fps / 2)), SOURCE_LANDED) : null;
-  return { landed, lengths: parts.map((p) => p.plays / 1000) };
-}
-
-function clipSourceOf(e: LoadedEditor, current: Clip): ClipSource | undefined {
-  const source = e.t.source;
-  const made = source ? madeFromSource(e.t, e.videoRecipes) : [];
-  if (!source || !made.some((c) => c.id === current.id)) return undefined;
-  const w = windowed(e.videoRecipes.find((r) => r.id === current.recipe), source?.inputs);
-  const driving = w ? e.videoRecipes.find((r) => r.id === current.recipe)?.inputs.find((i) => i.id === w.driving) : undefined;
-  const patchClip = (share: "inLine" | "toAll") => void e.save(current.id).then(() => e.patch.mutate({ clip: current.id, patch: { share } }));
-  const recipe = e.videoRecipes.find((r) => r.id === current.recipe);
-  const runUp = recipe?.traits?.windows?.runUp;
-  const own = recipe?.traits?.windows?.own ?? [];
-  const ownOf = (c: Clip) => JSON.stringify(own.map((k) => e.inputsOf(c)[k] ?? null));
-  const ask = e.sourceForm.ask;
-  return {
-    source,
-    // every window the source made, in order, as the Source chapter lists them (the mock's "each window's own")
-    list: made.map((c) => {
-      const inputs = e.inputsOf(c);
-      return {
-        id: c.id,
-        number: e.clips.indexOf(c) + 1,
-        startMs: w ? Number(inputs[w.start] ?? 0) * 1000 : 0,
-        seconds: w ? Number(inputs[w.seconds] ?? 0) : 0,
-        opens: c.joined === "cut",
-        // each window's own form among the grid's (card #42): Swap character, Motion transfer
-        form: e.videoRecipes.find((r) => r.id === c.recipe)?.title ?? "",
-        carried: recipe ? carriedOf(recipe, inputs) : 0,
-        own: c !== made[0] && ownOf(c) !== ownOf(made[0]!),
-        rendered: Boolean(c.take),
-      };
-    }),
-    onSelectWindow: e.selection.select,
-    runUp: runUp ? { counts: runUp.counts, value: recipe ? carriedOf(recipe, e.inputsOf(current)) : runUp.counts[0]!, on: (n: number) => e.cutSource.run({ inputs: { ...source.inputs, [runUp.input]: String(n) } }) } : null,
-    stretchAsk: e.stretch.ask ? { ...e.stretch.ask, change: () => e.stretch.run(e.stretch.ask!.fromMs, e.stretch.ask!.toMs, true), keep: e.stretch.keep } : null,
-    onUses: (fromMs, toMs) => e.stretch.run(fromMs, toMs),
-    trimming: e.stretch.pending,
-    cutAsk: e.cutSource.ask ? { rendered: e.cutSource.ask.rendered, change: () => e.cutSource.run(e.cutSource.ask!.change, true), keep: e.cutSource.keep } : null,
-    formAsk: ask ? { title: e.videoRecipes.find((r) => r.id === ask.recipe)?.title ?? ask.recipe, rendered: ask.rendered, windows: ask.windows, change: () => e.sourceForm.run(ask.recipe, true), keep: e.sourceForm.keep } : null,
-    count: made.length,
-    first: made[0]?.id === current.id,
-    apart: source.apart?.[current.id] ?? [],
-    takesPick: driving?.type === "clip" && Boolean(driving.pick),
-    // the window lengths the model takes, on the slider's steps (as the source panel had them)
-    windows: (() => {
-      const b = w ? windowBounds(w.shape) : { leastMs: 1000, mostMs: 5000 };
-      const leastMs = Math.max(1000, Math.ceil(b.leastMs / 100) * 100);
-      return { leastMs, mostMs: Math.max(leastMs, Math.floor(b.mostMs / 100) * 100) };
-    })(),
-    onCut: e.cutSource.run,
-    ...sourceCutSaid(e, made, source, w?.shape.fps ?? 24, w?.shape.grid?.step ?? 4),
-    mask: (() => {
-      const asked = e.masks[current.id];
-      const d = asked ? e.maskOfCurrent.data : undefined;
-      const status: "none" | "waiting" | "ready" | "failed" = !asked ? "none" : !d || d.status === "queued" || d.status === "running" ? "waiting" : d.status === "done" && d.video ? "ready" : "failed";
-      return { status, error: d?.error ?? null, shown: Boolean(asked?.shown) };
-    })(),
-    onShowMask: () => {
-      // the form as a render sends it, saved first; the stage turns to the source, the clip's panel kept beside it
-      const input = e.ready(current).input;
-      if (!input) return;
-      void e.save(current.id).then(() => api.maskPreview(current.id, input)).then((r) => {
-        e.setMasks((m) => ({ ...m, [current.id]: { job: r.job, shown: true } }));
-        e.selection.openSource();
-        e.selection.setSelected(current.id);
-      });
-    },
-    onMaskShown: (on) => {
-      e.setMasks((m) => (m[current.id] ? { ...m, [current.id]: { ...m[current.id]!, shown: on } } : m));
-      if (on) {
-        e.selection.openSource();
-        e.selection.setSelected(current.id);
-      }
-    },
-    cutting: e.cutSource.pending,
-    picking: e.whoPicking,
-    onPicking: e.setWhoPicking,
-    onClearPick: () => e.edit.mutate({ source: { pick: null } }),
-    kept: e.keptToClip(current.id),
-    onKept: (on) => e.keepToClip(current.id, on),
-    onInLine: () => patchClip("inLine"),
-    onToAll: () => patchClip("toAll"),
-  };
-}
-
 export function inspectorProps(e: LoadedEditor, current: Clip): ComponentProps<typeof Inspector> {
   const { t, clips, recipes, render, patch, designed, writeBetween } = e;
   return {
@@ -509,7 +348,7 @@ export function inspectorProps(e: LoadedEditor, current: Clip): ComponentProps<t
       const runUp = recipe?.traits?.windows?.runUp?.input;
       // the count it carries on from, not the value written (the form also sends the 22 it starts on)
       if (src && runUp && carriedOf(recipe, next) !== carriedOf(recipe, e.inputsOf(current))) {
-        return e.cutSource.run({ inputs: { ...src.source.inputs, [runUp]: next[runUp] } });
+        return e.sourceLane.cutSource.run({ inputs: { ...src.source.inputs, [runUp]: next[runUp] } });
       }
       e.editInputs(current, next);
     },
@@ -525,8 +364,8 @@ export function inspectorProps(e: LoadedEditor, current: Clip): ComponentProps<t
       const of = e.videoRecipes.find((r) => r.id === e.t.source?.recipe);
       if (made && clipSourceOf(e, current) && e.keptToClip(current.id) && sameWindowGrid(of, next)) return e.m.windowForm.mutate({ clip: current.id, recipe });
       // the source's form, every window with it: on the same grid in place, its takes kept; else made anew, asked first (sourceForm)
-      if (made && clipSourceOf(e, current)) return e.sourceForm.run(recipe);
-      if (made && e.place?.made && !current.take && !current.job) return e.cutSource.run({ recipe, clip: current.id });
+      if (made && clipSourceOf(e, current)) return e.sourceLane.sourceForm.run(recipe);
+      if (made && e.sourceLane.place?.made && !current.take && !current.job) return e.sourceLane.cutSource.run({ recipe, clip: current.id });
       patch.mutate({ clip: current.id, patch: { recipe } });
     },
     onPatch: (p) => patch.mutate({ clip: current.id, patch: p }),
