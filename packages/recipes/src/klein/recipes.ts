@@ -1,7 +1,7 @@
 import { defineRecipe, GraphBuilder, roundTo, type InputSpec, type ReferenceValue, type Ref, type SizeValue } from "@afflatus/core";
 import { pictureForm } from "../shared/pictureForm";
 import {
-  boxOf, FACE_INPUTS, FACTOR_INPUT, HIRES_PASS_INPUTS, nothingToExtend, OUTPAINT_INPUTS, outpaintSides, SAME_PASS, shapeInput, MASK_INPUTS, NO_FACE, MASK_NODES, maskParts, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_PREFER,
+  boxOf, FACE_INPUTS, faceSteps, FACTOR_INPUT, HIRES_PASS_INPUTS, nothingToExtend, OUTPAINT_INPUTS, outpaintSides, SAME_PASS, shapeInput, MASK_INPUTS, NO_FACE, MASK_NODES, maskParts, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_PREFER,
   type FaceSettings, type MaskSettings, type OutpaintSettings, type RefineColourMatch, type UpscaleSettings,
 } from "../sdxl/common";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
@@ -513,7 +513,7 @@ interface KleinFixFace extends KleinBase, FaceSettings {
 /** What a face is redrawn with, whichever node does it. */
 const detail = (k: ReturnType<typeof loadKlein>, input: KleinFixFace, cond: { positive: unknown; negative: unknown }, seed: number) => ({
   model: k.model, clip: k.clip, vae: k.vae, positive: cond.positive, negative: cond.negative,
-  guide_size: input.faceSize, guide_size_for: false, max_size: Math.max(input.faceMax, input.faceSize), seed, steps: input.steps, cfg: input.cfg,
+  guide_size: input.faceSize, guide_size_for: false, max_size: Math.max(input.faceMax, input.faceSize), seed, steps: faceSteps(input.steps), cfg: input.cfg,
   sampler_name: input.sampler, scheduler: "simple", denoise: input.strength, feather: input.faceFeather, noise_mask: true, force_inpaint: true, wildcard: "", cycle: 1,
 });
 
@@ -572,10 +572,10 @@ export const kleinFixFace = pictureForm("face", defineRecipe<KleinFixFace>({
         const done = g.add("DetailerForEach", { image, segs: one, ...detail(k, input, kleinCond(g, k, SAME_FACE, faces), ctx.seed + i) });
         image = [done, 0];
         // the second person's pass has no face of its own when only one was found
-        return { node: done, steps: input.steps, unsampled: i ? "No second face found: the second person's face was not redrawn." : NO_FACE };
+        return { node: done, steps: faceSteps(input.steps), unsampled: i ? "No second face found: the second person's face was not redrawn." : NO_FACE };
       });
       const out = g.add("PreviewImage", { images: image });
-      return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: input.steps * 2, passes, loads: k.loads };
+      return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: faceSteps(input.steps) * 2, passes, loads: k.loads };
     }
     // one person: every face found is redrawn from the same pictures (whichever list holds them), or from the picture itself
     const given = input.references.length ? load("references") : load("second");
@@ -588,7 +588,7 @@ export const kleinFixFace = pictureForm("face", defineRecipe<KleinFixFace>({
       drop_size: 10,
     });
     const out = g.add("PreviewImage", { images: [fixed, 0] });
-    return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: input.steps, passes: [{ node: fixed, steps: input.steps, unsampled: NO_FACE }], loads: k.loads };
+    return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: faceSteps(input.steps), passes: [{ node: fixed, steps: faceSteps(input.steps), unsampled: NO_FACE }], loads: k.loads };
   },
   variants: [
     { name: "from the picture itself", input: { source: "p", detector: "bbox/face.pt" }, slots: files, uploads: { source: "s.png" }, media: { source: photo } },

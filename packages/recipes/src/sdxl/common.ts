@@ -171,6 +171,12 @@ export interface FaceSettings {
   faceMax: number;
   faceFeather: number;
 }
+/**
+ * The steps a face refine redraws each face in, on every family (card #275; SDXL's rule before): the form's, at least 8 and
+ * at most 30. A crop redrawn at a denoise of about 0.4 runs that share of them: fewer than 8 (a distilled model's 4, Turbo's)
+ * leaves it two or three steps, too few to draw a face; more than 30 (Qwen Image's 50) is time a crop does not need.
+ */
+export const faceSteps = (steps: number) => Math.min(30, Math.max(8, steps));
 /** What a face detailer's job says when it found no face: ComfyUI says nothing, and the picture comes out as it went in. */
 export const NO_FACE = "No face found: the picture is as it was (a lower Detection threshold finds more).";
 export const FACE_INPUTS: InputSpec[] = [

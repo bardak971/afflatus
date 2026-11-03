@@ -2,7 +2,7 @@ import { defineRecipe, GraphBuilder, roundTo, type Ref } from "@afflatus/core";
 import { pictureForm } from "../shared/pictureForm";
 import { redrawInTiles, tileInputs, TILE_NODES, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import {
-  boxOf, FACE_INPUTS, SDXL_DROPS, nothingToExtend, outpaintSides, FACTOR_INPUT, loadSdxl, NO_FACE, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, PASTE_BACK_NODES, pasteBack, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, REPAINT_NODES, repaintGuided, repaintInputs, repaints, samplerOf, stretchedFill, samplingInputs, SDXL_PRESETS, UPSCALER_PREFER, workSize,
+  boxOf, FACE_INPUTS, faceSteps, SDXL_DROPS, nothingToExtend, outpaintSides, FACTOR_INPUT, loadSdxl, NO_FACE, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, PASTE_BACK_NODES, pasteBack, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, REPAINT_NODES, repaintGuided, repaintInputs, repaints, samplerOf, stretchedFill, samplingInputs, SDXL_PRESETS, UPSCALER_PREFER, workSize,
   type FaceSettings, type MaskSettings, type OutpaintSettings, type RefineColourMatch, type RepaintSettings, type UpscaleSettings,
   type SdxlBase,
 } from "./common";
@@ -332,7 +332,7 @@ export const sdxlFixFace = pictureForm("face", defineRecipe<SdxlFixFace>({
     const m = loadSdxl(g, input, input.prompt);
     const source = g.out("LoadImage", { image: ctx.uploads.source });
     const detector = g.out("UltralyticsDetectorProvider", { model_name: input.detector });
-    const steps = Math.min(30, Math.max(8, input.steps));
+    const steps = faceSteps(input.steps);
     g.phase("detailing");
     const fixed = g.add("FaceDetailer", {
       image: source, model: m.model, clip: m.clip, vae: m.vae, positive: m.positive, negative: m.negative, bbox_detector: detector,

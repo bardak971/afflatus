@@ -62,6 +62,20 @@ describe("picture forms laid out by pictureForm", () => {
     }
   });
 
+  // SDXL's rule before, now every family's (card #275): a face is redrawn in the form's steps, at least 8, at most 30
+  it("redraws a face in 8 to 30 steps on every face refine", () => {
+    const faces = forms.filter((r) => PICTURE_DROPS.get(r.id)!.op === "face");
+    expect(faces).toHaveLength(PICTURE_FAMILIES.length - 1);
+    for (const r of faces) {
+      const v = r.variants[0]!;
+      const stepsAt = (steps: number) => {
+        const built = r.build(parseInput(r, { ...v.input, steps }), dryContext({ slots: v.slots ?? {}, uploads: v.uploads ?? {}, media: v.media ?? {} }));
+        return Object.values(built.graph).filter((n) => n.class_type === "FaceDetailer").map((n) => n.inputs.steps);
+      };
+      expect([stepsAt(4), stepsAt(20), stepsAt(50)], r.id).toEqual([[8], [20], [30]]);
+    }
+  });
+
   it("calls the pictures an edit reads Reference images on every edit", () => {
     for (const r of forms.filter((r) => PICTURE_DROPS.get(r.id)!.op === "edit")) {
       const refs = r.inputs.find((i) => i.id === "references");
