@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { readEmbedded, readEmbeddedFile, type Embedded } from "./embedded";
 import { httpError, notFound } from "./errors";
-import { fill, targetsFor } from "./fromPicture";
+import { fill, takesPicture, targetsFor } from "./fromPicture";
 import type { Services } from "./services";
 import { isUpload } from "./uploadBody";
 
@@ -27,11 +27,13 @@ export function registerEmbedded(app: FastifyInstance, s: Services): void {
     if (!found.settings) return { settings: null, workflow: found.workflow, why: found.why ?? null };
     const scan = await (await s.comfy()).scan().catch(() => null);
     const optionsOf = (id: string) => scan?.recipes.find((r) => r.id === id)?.options ?? {};
-    // which form: the one asked for, else the one that uses the model the picture was made with
-    const targets = targetsFor(found.settings, s.registry.recipes(), optionsOf);
-    const recipe = s.registry.recipe(targets.find((t) => t.id === wanted)?.id ?? targets[0]?.id ?? "sdxl.text-to-picture");
+    // which form: the one asked for (one of these, or one the picture itself goes into: img2img, inpaint, upscale), else
+    // the one it was made with, else the one that uses the model the picture was made with
+    const targets = targetsFor(found.settings, s.registry.recipes(), optionsOf, found.own);
+    const asked = wanted ? s.registry.recipe(wanted) : undefined;
+    const recipe = asked && takesPicture(asked) ? asked : s.registry.recipe(targets.find((t) => t.id === wanted)?.id ?? targets[0]?.id ?? "sdxl.text-to-picture");
     if (!recipe) throw httpError("no model takes these generation parameters");
-    return { settings: { ...fill(found.settings, recipe, optionsOf(recipe.id), Boolean(scan?.comfy.online)), targets }, workflow: found.workflow, why: null };
+    return { settings: { ...fill(found.settings, recipe, optionsOf(recipe.id), Boolean(scan?.comfy.online), found.own), targets }, workflow: found.workflow, why: null };
   };
   app.post("/api/embedded", async (req) => {
     if (!isUpload(req.body)) throw httpError("send the file itself");

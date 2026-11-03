@@ -3,7 +3,7 @@ import { stat } from "node:fs/promises";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { toEditor } from "@afflatus/workflows";
-import { fromRender, markPng } from "./aiMark";
+import { fromRender } from "./aiMark";
 import { fromName, nameOf, shownNames, soundName } from "./autoName";
 import { registerAssetSearch, withShownName } from "./assetSearch";
 import { registerAssetsBin } from "./assetsBin";
@@ -18,6 +18,7 @@ import { httpError, notFound } from "./errors";
 import type { LibraryChange } from "./events";
 import { isLinked } from "./linked";
 import { assetView, extOf, newAssetRow } from "./media";
+import { outgoingPng } from "./pngInfo";
 import { castOf, madeIn } from "./provenance";
 import type { Services } from "./services";
 import { makeThumb, mirrorPicture, readPicture, SMALL_EDGE, smallThumbKey, thumbKey } from "./thumbs";
@@ -265,7 +266,8 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
 
   app.get<{ Params: { id: string }; Querystring: { download?: string } }>("/api/assets/:id/file", async (req, reply) => {
     const a = await asset(req.params.id);
-    // saved to the user's disk (not played here): a render goes out marked as made by a model (aiMark.ts), whole
+    // saved to the user's disk (not played here): a render goes out marked as made by a model (aiMark.ts), whole, a
+    // picture with how it was made (pngInfo.ts)
     if (req.query.download === "1" && (a.mime === "image/png" || a.kind === "video") && (await fromRender(s.db, a))) {
       reply.header("Content-Type", a.mime).header("Cache-Control", "no-store");
       if (a.kind === "video") {
@@ -275,7 +277,7 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
         stream.on("close", () => void marked.done());
         return reply.header("Content-Length", marked.size).send(stream);
       }
-      const marked = markPng(await s.storage.get(a.file_key));
+      const marked = await outgoingPng(s, a, await s.storage.get(a.file_key));
       return reply.header("Content-Length", marked.length).send(Buffer.from(marked.buffer, marked.byteOffset, marked.byteLength));
     }
     const size = await s.storage.size(a.file_key);

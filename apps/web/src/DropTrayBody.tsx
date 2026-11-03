@@ -152,7 +152,18 @@ export function DropTrayBody({ kind }: { kind: Kind | null }) {
       {said && !kind && (
         <div ref={saidRef} role="status" className={cx("m-toast fixed bottom-14 left-1/2 z-toast max-w-xl -translate-x-1/2 rounded-xl border px-4 py-2.5 shadow-2xl", said.bad ? "border-warn bg-warn-wash text-warn-ink" : "border-line-strong bg-panel")}>{said.text}</div>
       )}
-      {found && <Suspense fallback={null}><PngInfo name={found.file.name} first={found.data} read={(recipe) => api.embedded(found.file, recipe)} onClose={() => setFound(null)} /></Suspense>}
+      {found && (
+        <Suspense fallback={null}>
+          <PngInfo
+            name={found.file.name}
+            first={found.data}
+            read={(recipe) => api.embedded(found.file, recipe)}
+            // a pass on the picture takes it from the library: imported where Import would put it, then used
+            picture={fileKind(found.file) === "image" ? async () => (await api.upload(found.file, { folder: openFolderId() ?? undefined, project: projectForNew() })).id : undefined}
+            onClose={() => setFound(null)}
+          />
+        </Suspense>
+      )}
     </>
   );
 }

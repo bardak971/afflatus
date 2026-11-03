@@ -282,7 +282,7 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
       {timeline.element}
       {compare ?? media(true)}
       <ViewerSidebar acts={acts} list={list} asset={asset} detail={detail} naming={naming} onNaming={setNaming} trail={trail} onTrail={setTrail} items={items} onClose={onClose} />
-      {info && <Suspense fallback={null}><PngInfo name={asset.name || "Untitled"} title={asset.kind === "image" ? "PNG info" : "Embedded info"} read={(recipe) => api.assetEmbedded(asset.id, recipe)} onClose={() => setInfo(false)} onSent={leave} /></Suspense>}
+      {info && <Suspense fallback={null}><PngInfo name={asset.name || "Untitled"} title={asset.kind === "image" ? "PNG info" : "Embedded info"} read={(recipe) => api.assetEmbedded(asset.id, recipe)} picture={asset.kind === "image" ? async () => asset.id : undefined} onClose={() => setInfo(false)} onSent={leave} /></Suspense>}
     </div>
   );
 }
