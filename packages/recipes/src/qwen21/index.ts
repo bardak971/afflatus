@@ -134,7 +134,7 @@ export const qwen21Picture = pictureForm("txt2img", defineRecipe<Qwen21Picture>(
     { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: "A photograph of a small bakery at dawn, a chalkboard by the door that reads \"FRESH BREAD\", warm light from the windows on wet cobblestones." },
     {
       // up to the 2K sizes Qwen's authors list, the largest of which (2400 × 1792) has just over 4.3 megapixels
-      id: "size", type: "size", label: "Size", default: "tall", grid: 32, min: 256, max: 2752, maxPixels: 4.31e6,
+      id: "size", type: "size", label: "Size", default: "tall", grid: 32, min: 256, max: 2752, maxPixels: 4.31e6, perModel: true,
       shapes: [
         { id: "tall", label: "Portrait", width: 896, height: 1152 },
         { id: "square", label: "Square", width: 1024, height: 1024 },

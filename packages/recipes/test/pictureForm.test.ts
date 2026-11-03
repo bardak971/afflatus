@@ -40,6 +40,11 @@ describe("picture forms laid out by pictureForm", () => {
     expect([...labels.get("instruction")!.keys()]).toEqual(["Instruction"]);
   });
 
+  // SDXL alone kept the size per model before (an SDXL checkpoint's 832×1216 is not what Qwen Image draws at)
+  it("remembers the size per model on every txt2img", () => {
+    for (const r of forms.filter((r) => PICTURE_DROPS.get(r.id)!.op === "txt2img")) expect(r.inputs.find((i) => i.id === "size")?.perModel, r.id).toBe(true);
+  });
+
   it("calls the pictures an edit reads Reference images on every edit", () => {
     for (const r of forms.filter((r) => PICTURE_DROPS.get(r.id)!.op === "edit")) {
       const refs = r.inputs.find((i) => i.id === "references");

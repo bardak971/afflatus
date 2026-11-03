@@ -111,7 +111,7 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
     },
     // (drawn as the weight of the style-reference LoRA's row in the LoRA list, card #160)
     { id: "referenceStrength", type: "number", label: "Style strength", note: "the weight of the style-reference LoRA. At 0 it is not loaded", min: 0, max: 1.5, step: 0.05, default: 1, showWhen: "references", advanced: true, inList: "loras" },
-    { id: "size", type: "size", label: "Size", default: "tall", grid: 16, min: 256, max: 2048, shapes: krea2Spec.shapes },
+    { id: "size", type: "size", label: "Size", default: "tall", grid: 16, min: 256, max: 2048, perModel: true, shapes: krea2Spec.shapes },
     ...DETAIL_INPUTS,
     ...krea2Kit.inputs.slice(0, -1),
     { id: "hires", type: "toggle", label: "Hires fix", note: "upscale, then a second pass over the larger picture", default: false, advanced: true, perModel: true },

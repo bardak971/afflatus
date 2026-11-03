@@ -44,7 +44,7 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
     inputs: [
       spec.model,
       { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: spec.placeholder },
-      { id: "size", type: "size", label: "Size", default: "tall", grid: 16, min: 256, max: 2048, shapes: spec.shapes, ...(spec.maxPixels ? { maxPixels: spec.maxPixels } : {}) },
+      { id: "size", type: "size", label: "Size", default: "tall", grid: 16, min: 256, max: 2048, perModel: true, shapes: spec.shapes, ...(spec.maxPixels ? { maxPixels: spec.maxPixels } : {}) },
       ...(spec.look
         ? ([
           { id: "look", type: "image", role: "guide", label: "Redux image", optional: true, note: "its style, colours and subject are added to the prompt (Redux): the new picture is like it, not a copy" },

@@ -60,7 +60,7 @@ export const kleinPicture = pictureForm("txt2img", defineRecipe<KleinPicture>({
       note: "a person, a place, clothes, an object or a look: the picture keeps them. They are not changed themselves.",
     },
     {
-      id: "size", type: "size", label: "Size", default: "tall", grid: 16, min: 256, max: 2048,
+      id: "size", type: "size", label: "Size", default: "tall", grid: 16, min: 256, max: 2048, perModel: true,
       shapes: [
         { id: "tall", label: "Portrait", width: 832, height: 1216 },
         { id: "square", label: "Square", width: 1024, height: 1024 },
