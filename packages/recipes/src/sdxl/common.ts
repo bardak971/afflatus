@@ -207,7 +207,7 @@ export function refineColourMatched(g: GraphBuilder, ctx: BuildContext, refined:
 }
 
 /** A hires second pass with the sampler and the scheduler of the first, unless others are picked. */
-const SAME_PASS = "As the first pass";
+export const SAME_PASS = "As the first pass";
 export interface HiresPass {
   hiresSampler: string;
   hiresScheduler: string;

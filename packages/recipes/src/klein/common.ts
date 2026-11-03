@@ -146,7 +146,7 @@ export function kleinCond(g: GraphBuilder, k: Klein, text: string, pictures: Ref
  */
 export function kleinSample(
   g: GraphBuilder, k: Klein, cond: { positive: Ref; negative: Ref }, latent: Ref, size: { width: number; height: number }, seed: number,
-  opts: { steps?: number; strength?: number; detail?: { input: DetailSettings; ctx: BuildContext } } = {},
+  opts: { steps?: number; strength?: number; sampler?: string; detail?: { input: DetailSettings; ctx: BuildContext } } = {},
 ) {
   const { sampled, pass } = kleinSampleLatent(g, k, cond, latent, size, seed, opts);
   g.phase("decoding");
@@ -157,7 +157,7 @@ export function kleinSample(
 /** The same sampling, left as a latent (for a pass in tiles, decoded with the others). With the detail boost when one is given. */
 export function kleinSampleLatent(
   g: GraphBuilder, k: Klein, cond: { positive: Ref; negative: Ref }, latent: Ref, size: { width: number; height: number }, seed: number,
-  opts: { steps?: number; strength?: number; detail?: { input: DetailSettings; ctx: BuildContext }; phase?: Phase } = {},
+  opts: { steps?: number; strength?: number; sampler?: string; detail?: { input: DetailSettings; ctx: BuildContext }; phase?: Phase } = {},
 ) {
   const steps = opts.steps ?? k.input.steps;
   const strength = opts.strength ?? 1;
@@ -166,7 +166,8 @@ export function kleinSampleLatent(
   const range = opts.detail && !usesDaemon(opts.detail.input, opts.detail.ctx) ? sharpenRange(opts.detail.input, steps, strength) : null;
   const model = opts.detail ? detailModel(g, k.model, opts.detail.input, opts.detail.ctx) : k.model;
   const guider = g.out("CFGGuider", { model, positive: cond.positive, negative: cond.negative, cfg: k.input.cfg });
-  let sampler = g.out("KSamplerSelect", { sampler_name: k.input.sampler });
+  // a pass of its own (a hires fix's) may take another sampler than the form's
+  let sampler = g.out("KSamplerSelect", { sampler_name: opts.sampler ?? k.input.sampler });
   if (opts.detail) sampler = detailSampler(g, sampler, opts.detail.input, opts.detail.ctx);
   const noise = g.out("RandomNoise", { noise_seed: seed });
   // a pass over tiles of a finished picture is a refine pass, as the other families' say
