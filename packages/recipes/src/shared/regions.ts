@@ -195,7 +195,9 @@ export function mossLayout(prompt: string, regions: readonly RegionValue[], size
 
 /** The layout nodes on a graph: the boxes' canvas, then the layout text from it and the prompt. */
 export function mossLayoutText(g: GraphBuilder, prompt: string, regions: readonly RegionValue[], size: { width: number; height: number }): Ref {
-  const canvas = g.add("CreateBoundingBoxes", { width: size.width, height: size.height, editor_state: mossBoxes(regions, size) });
+  // a list as a value is read as a link by ComfyUI: its page sends a list widget's value wrapped in __value__, which the
+  // prompt's validation unwraps (execution.py); bare, the pod refused it ("Bad linked input")
+  const canvas = g.add("CreateBoundingBoxes", { width: size.width, height: size.height, editor_state: { __value__: mossBoxes(regions, size) } });
   return g.out("MOSSImageLayoutPrompt", { prompt, element: [canvas, 2], width: size.width, height: size.height, character_boxes: mossCharacters(regions) });
 }
 export const MOSS_LAYOUT_NODES = ["CreateBoundingBoxes", "MOSSImageLayoutPrompt"];
