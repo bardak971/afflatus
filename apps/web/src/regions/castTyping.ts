@@ -3,10 +3,14 @@
  * for the tests; RegionsField lists the people it starts and puts the one picked on the region.
  */
 
-/** The `@word` the cursor is at the end of: where it starts and what is typed after the `@` (empty for a bare `@`). */
+/**
+ * The `@name` the cursor is at the end of: where it starts and what is typed after the `@` (empty for a bare `@`). A name may
+ * hold spaces ("@Mira Lund"): what follows the `@` up to the cursor is read whole, and the list says whether it still starts
+ * someone's name (peopleFor), so words typed on after a name close it.
+ */
 export function typedPerson(text: string, caret: number): { word: string; start: number } | null {
   // the `@` starts the text or follows a space, a line break, a comma or a bracket: an e-mail address stays as it is
-  const m = /(^|[\s,(])@([\p{L}\p{N}_-]{0,40})$/u.exec(text.slice(0, caret));
+  const m = /(^|[\s,(])@((?:[^\s@,()][^@\n,()]{0,39})?)$/u.exec(text.slice(0, caret));
   return m ? { word: m[2]!.toLowerCase(), start: caret - m[2]!.length - 1 } : null;
 }
 

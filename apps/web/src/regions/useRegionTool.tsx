@@ -13,6 +13,8 @@ import { type RegionKind, type RegionsSpec, type RegionValue, type UnitBox } fro
 const GRAB_PX = 9;
 /** How large a handle is drawn, in screen pixels. */
 const HANDLE_PX = 9;
+/** The least a box's chip is given, in screen pixels, however narrow the box: its number and the start of its person's name. */
+const CHIP_LEAST_PX = 96;
 /** How far a press may move, in screen pixels, and still be a click (picking a box) rather than a drag. */
 const CLICK_PX = 4;
 
@@ -193,11 +195,12 @@ export function useRegionTool({ spec, regions, natural, selected, onSelect, onCh
               className={cx("absolute", r.kind === "text" ? "border-dashed" : "border-solid")}
               style={{ ...percentOf(pixelBox(r.box, natural), at.frame), borderColor: colour, borderWidth: line * (on ? 2.5 : 1.5), background: `color-mix(in srgb, ${colour} ${on ? 14 : 8}%, transparent)` }}
             >
-              {/* the chip over the box's top left corner: its number, its person, its words */}
+              {/* the chip over the box's top left corner: its number, its person, its words; no wider than its box (a
+                  narrow box still says its number and its person), so that it never runs over the box beside it */}
               <span
                 data-region-chip
-                className="absolute left-0 max-w-[220px] truncate rounded-sm font-semibold whitespace-nowrap text-ground"
-                style={{ bottom: "100%", marginBottom: line * 2, background: colour, fontSize: 12 / at.shown.scale, padding: `${1 / at.shown.scale}px ${5 / at.shown.scale}px`, maxWidth: 260 / at.shown.scale }}
+                className="absolute left-0 truncate rounded-sm font-semibold whitespace-nowrap text-ground"
+                style={{ bottom: "100%", marginBottom: line * 2, background: colour, fontSize: 12 / at.shown.scale, padding: `${1 / at.shown.scale}px ${5 / at.shown.scale}px`, maxWidth: `max(100%, ${CHIP_LEAST_PX / at.shown.scale}px)` }}
               >
                 {chipSaid(r, i + 1, nameOf)}
               </span>

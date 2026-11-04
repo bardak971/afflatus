@@ -46,8 +46,10 @@ export function CastStrip({ family, onClose }: { family: string; onClose(): void
   return (
     <div role="group" aria-label="Cast" data-cast-strip className="flex min-h-12 w-full min-w-0 items-center gap-3 rounded-xl border border-line bg-panel px-3 py-1.5">
       <span className="shrink-0 text-meta font-bold tracking-label text-ink-3 uppercase">Cast</span>
-      <span className="min-w-0 shrink truncate text-xs text-ink-2">{people.length ? "drag onto a box, or onto the frame for a new box" : "No people in the Prompt kit yet"}</span>
-      <div className="flex min-w-0 grow items-center gap-1.5 overflow-x-auto py-0.5">
+      {/* the hint gives way first on a narrow Stage (cut with an ellipsis); the people wrap onto more lines rather than
+          scroll sideways, so none is ever half shown */}
+      <span data-tip="Drag a person onto a box to set who it is, or onto the frame for a new box where they land" className="min-w-0 shrink-[4] truncate text-xs text-ink-2">{people.length ? "drag onto a box, or onto the frame for a new box" : "No people in the Prompt kit yet"}</span>
+      <div className="flex max-h-20 min-w-0 grow flex-wrap items-center justify-end gap-1.5 overflow-y-auto py-0.5">
         {people.map((p) => {
           const lora = personBrings(p, family).lora;
           return (

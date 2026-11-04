@@ -133,9 +133,16 @@ function RegionRow({ r, n, spec, family, model, loraOptions, people, selected, o
   onRemove(): void;
 }) {
   const row = useRef<HTMLDivElement>(null);
-  // a box picked on the Stage brings its row into view
+  // a box picked on the Stage brings its row into view; a row picked in the form stays where it is (scrolled from under
+  // the pointer, the press that picked it missed what it was meant for: Add a LoRA)
+  const pickedHere = useRef(false);
+  const pick = () => {
+    pickedHere.current = true;
+    onPick();
+  };
   useEffect(() => {
-    if (selected && row.current && !row.current.contains(document.activeElement)) scrollInside(row.current, "center");
+    if (selected && row.current && !pickedHere.current) scrollInside(row.current, "center");
+    pickedHere.current = false;
   }, [selected]);
   const person = r.cast ? people.find((p) => p.id === r.cast) : undefined;
   const text = r.kind === "text";
@@ -147,9 +154,11 @@ function RegionRow({ r, n, spec, family, model, loraOptions, people, selected, o
       ref={row}
       data-region-row={r.id}
       aria-current={selected || undefined}
-      onFocusCapture={onPick}
-      onPointerDown={onPick}
-      className={cx("flex flex-col gap-2 rounded-lg border bg-raised px-2.5 py-2", selected ? "border-accent shadow-[0_0_0_1px_var(--color-accent)]" : "border-line")}
+      onFocusCapture={pick}
+      onPointerDown={pick}
+      // picked: ringed in its box's own colour, as the box is on the Stage (the accent is the focused field's)
+      className="flex flex-col gap-2 rounded-lg border border-line bg-raised px-2.5 py-2"
+      style={selected ? { borderColor: regionColour(n - 1), boxShadow: `0 0 0 1px ${regionColour(n - 1)}` } : undefined}
     >
       <div className="flex min-w-0 items-center gap-2">
         <span className="flex size-5 shrink-0 items-center justify-center rounded text-meta font-bold text-ground" style={{ background: regionColour(n - 1) }}>{n}</span>
@@ -236,9 +245,10 @@ function PromptAsSent({ recipe, stored }: { recipe: string; stored: Record<strin
   );
 }
 
+/** The layout laid out to be read: indented, a box's numbers kept on one line ([120, 400, 760, 260]). */
 const pretty = (s: string) => {
   try {
-    return JSON.stringify(JSON.parse(s), null, 2);
+    return JSON.stringify(JSON.parse(s), null, 2).replace(/\[\s+([-\d.,\s]+?)\s+\]/g, (_m, nums: string) => `[${nums.split(/,\s*/).join(", ")}]`);
   } catch {
     return s;
   }

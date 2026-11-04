@@ -90,6 +90,11 @@ describe("a cast person typed with @", () => {
     expect(typedPerson("laughing @Ni", 12)).toEqual({ word: "ni", start: 9 });
     expect(typedPerson("@", 1)).toEqual({ word: "", start: 0 });
     expect(typedPerson("mail me@home", 12)).toBeNull();
+    // a name with a space in it, read whole while it is typed
+    expect(typedPerson("@zz-test m", 10)).toEqual({ word: "zz-test m", start: 0 });
+    expect(peopleFor("zz-test m", [{ name: "zz-test Mira" }, { name: "zz-test Nicolas" }]).map((p) => p.name)).toEqual(["zz-test Mira"]);
+    // words typed on past a name: no one's name starts so, the list closes
+    expect(peopleFor("mira laughing", [{ name: "Mira" }])).toEqual([]);
   });
 
   it("lists the people whose name starts with it, the exact one first", () => {
