@@ -1,5 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState, type Dispatch, type ImgHTMLAttributes, type RefObject, type SetStateAction } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type Dispatch, type ImgHTMLAttributes, type ReactNode, type RefObject, type SetStateAction } from "react";
 import { cx } from "../cx";
+import { typing } from "../Keys";
+import { frameOf, roomToPicture, type Frame, type Shown } from "../stageLayer/geometry";
 import { FIT, fitted, held, mostZoom, panBy, placed, shownPercent, toggled, wheelFactor, zoomAround, type Size, type Zoom } from "./zoom";
 
 /** How far the pointer goes before a press on a zoomed picture is a drag rather than a click. */
@@ -27,13 +29,17 @@ export function useRoomSize(room: RefObject<HTMLElement | null>): Size | null {
  * zoomed in, a double-click goes between fitted and 1:1. `onView` is the view's setter: two rooms handed the same one (Compare)
  * move together. The wheel is a listener of its own, React's cannot stop the page from scrolling or zooming.
  */
-export function useZoomGestures({ room, view, onView, fit, size, natural }: {
+export function useZoomGestures({ room, view, onView, fit, size, natural, pans, toggles = true }: {
   room: RefObject<HTMLElement | null>;
   view: Zoom;
   onView: Dispatch<SetStateAction<Zoom>>;
   fit: Size | null;
   size: Size | null;
   natural: Size | null;
+  /** Which presses pan; by default the main button's once zoomed in (over a drawing layer: the middle button's, or with Space held). */
+  pans?(e: React.PointerEvent, zoomed: boolean): boolean;
+  /** Whether a double-click goes between fitted and 1:1 (not over a drawing layer, where two quick dabs are not a zoom). */
+  toggles?: boolean;
 }) {
   const now = useRef({ fit, size, natural, onView });
   now.current = { fit, size, natural, onView };
@@ -60,7 +66,7 @@ export function useZoomGestures({ room, view, onView, fit, size, natural }: {
   const handlers = {
     onPointerDown: (e: React.PointerEvent) => {
       // fitted, a press is the picture's own (dragged out onto a folder, a form): only zoomed in does it pan
-      if (e.button !== 0 || !zoomed) return;
+      if (pans ? !pans(e, zoomed) : e.button !== 0 || !zoomed) return;
       e.preventDefault();
       e.currentTarget.setPointerCapture(e.pointerId);
       drag.current = { x: e.clientX, y: e.clientY, id: e.pointerId, moved: false };
@@ -95,7 +101,7 @@ export function useZoomGestures({ room, view, onView, fit, size, natural }: {
       e.preventDefault();
     },
     onDoubleClick: (e: React.MouseEvent) => {
-      if (!fit || !size || !natural) return;
+      if (!toggles || !fit || !size || !natural) return;
       e.stopPropagation();
       const r = e.currentTarget.getBoundingClientRect();
       const at = { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -140,13 +146,67 @@ function useNatural(known: Size | null | undefined): [Size | null, (img: HTMLIma
 }
 
 /**
+ * Where a drawing layer over the picture is, handed to `overlay` at each render: the picture's size, the frame the room
+ * fits (the picture's own, or `canvas`), how it is drawn, and the pointer in the picture's pixels.
+ */
+export interface LayerPlace {
+  natural: Size;
+  frame: Frame;
+  /** The frame's size fitted in the room, before the zoom. */
+  fit: Size;
+  room: Size;
+  shown: Shown;
+  view: Zoom;
+  /** A press now moves the picture rather than drawing (Space held, or the room panning by a drag): the layer leaves it. */
+  panning: boolean;
+  /** A point of the screen (a pointer event's client x and y) in the picture's pixels. */
+  toPicture(clientX: number, clientY: number): { x: number; y: number };
+}
+
+/** Space held down, while `on`: what pans over a drawing layer, as in every paint program. */
+function useSpaceHeld(on: boolean): boolean {
+  const [held, setHeld] = useState(false);
+  useEffect(() => {
+    if (!on) {
+      setHeld(false);
+      return;
+    }
+    const down = (e: KeyboardEvent) => {
+      // typed into the Stage's prompt bar, Space is a space
+      if (e.code !== "Space" || typing(e)) return;
+      e.preventDefault();
+      setHeld(true);
+    };
+    const up = (e: KeyboardEvent) => e.code === "Space" && setHeld(false);
+    // a Space let go in another window never comes back as a key up
+    const lost = () => setHeld(false);
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    window.addEventListener("blur", lost);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", lost);
+    };
+  }, [on]);
+  return held;
+}
+
+/**
  * A picture shown large that can be looked at closely: wheel zoom around the pointer, drag to pan once zoomed in, a
  * double-click between fitted and 1:1, the zoom in a corner. Fitted, it is the picture as before: dragged out like a tile,
  * a click its own (`onPick`: copy it, open it), waiting a moment for a double-click. `view` and `onView`: given, the view
  * is the caller's (Compare's two sides in step); else its own, fitted again for each picture.
+ *
+ * A drawing layer (the Stage's: a mask, an outpaint frame, regions) is `overlay`, drawn over the picture inside the zoomed
+ * box so that it moves with it. `panMode` "layer" gives the main button to it: the picture pans with the middle button or
+ * with Space held, a double-click does not zoom, a click is not a pick; "hand" is the same with the main button panning
+ * (the layer's Hand tool, for a finger or a pen that has neither Space nor a middle button). `canvas`: the room fits that frame rather than the
+ * picture (an outpaint frame larger than it, the picture at its x and y; or a frame with no picture yet, `src` left out).
+ * None of the three given, it is the picture as it always was.
  */
-export function ZoomPicture({ src, natural: known, view: given, onView: setGiven, onPick, pickLabel, imgProps, className }: {
-  src: string;
+export function ZoomPicture({ src, natural: known, view: given, onView: setGiven, onPick, pickLabel, imgProps, className, overlay, panMode = "drag", canvas }: {
+  src?: string;
   natural?: Size | null;
   view?: Zoom;
   onView?: Dispatch<SetStateAction<Zoom>>;
@@ -156,7 +216,13 @@ export function ZoomPicture({ src, natural: known, view: given, onView: setGiven
   pickLabel?: string;
   imgProps?: ImgHTMLAttributes<HTMLImageElement>;
   className?: string;
+  overlay?(place: LayerPlace): ReactNode;
+  panMode?: "drag" | "layer" | "hand";
+  canvas?: Frame;
 }) {
+  const layer = panMode !== "drag";
+  const hand = panMode === "hand";
+  const space = useSpaceHeld(layer);
   const [own, setOwn] = useState<Zoom>(FIT);
   // each picture its own view when the place does not keep one: the next one opens fitted
   useEffect(() => setOwn(FIT), [src]);
@@ -164,14 +230,30 @@ export function ZoomPicture({ src, natural: known, view: given, onView: setGiven
   const onView = setGiven ?? setOwn;
   const room = useRef<HTMLDivElement>(null);
   const size = useRoomSize(room);
-  const [natural, onLoaded] = useNatural(known);
-  const fit = natural && size ? fitted(natural, size) : null;
-  const { handlers, zoomed, dragging, most } = useZoomGestures({ room, view, onView, fit, size, natural });
+  const [natural, onLoaded] = useNatural(known ?? (canvas && !src ? { w: canvas.w, h: canvas.h } : null));
+  // what the room fits: the picture, or the frame around it; all the zoom's sums are of it
+  const frame = canvas ?? (natural ? frameOf(natural) : null);
+  const whole = frame ? { w: frame.w, h: frame.h } : null;
+  const fit = whole && size ? fitted(whole, size) : null;
+  const { handlers, zoomed, dragging, most } = useZoomGestures({
+    room, view, onView, fit, size, natural: whole,
+    ...(layer ? { pans: (e: React.PointerEvent) => e.button === 1 || (e.button === 0 && (space || hand)), toggles: false } : {}),
+  });
   // the view held to this room (Compare's other side may have moved it further than this picture goes)
   const shown = fit && size ? placed(held(view, fit, size, most), fit, size) : null;
   const pending = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(pending.current), []);
-  const percent = natural && fit ? shownPercent(view, natural, fit) : 100;
+  const percent = whole && fit ? shownPercent(view, whole, fit) : 100;
+  const place: LayerPlace | null = overlay && natural && frame && fit && size && shown ? {
+    natural, frame, fit, room: size, shown, view, panning: space || hand || dragging,
+    toPicture: (clientX, clientY) => {
+      const r = room.current!.getBoundingClientRect();
+      return roomToPicture({ x: clientX - r.left, y: clientY - r.top }, shown, fit, frame);
+    },
+  } : null;
+  // the picture inside a frame larger than it: where it sits, in parts of the frame
+  const inFrame = canvas && natural && src ? { left: `${(canvas.x / canvas.w) * 100}%`, top: `${(canvas.y / canvas.h) * 100}%`, width: `${(natural.w / canvas.w) * 100}%`, height: `${(natural.h / canvas.h) * 100}%` } : null;
+  const pick = layer ? undefined : onPick;
   return (
     <div
       ref={room}
@@ -181,41 +263,46 @@ export function ZoomPicture({ src, natural: known, view: given, onView: setGiven
         window.clearTimeout(pending.current);
         handlers.onDoubleClick(e);
       }}
-      className={cx("group/zoom relative h-full w-full touch-none overflow-hidden select-none", zoomed && (dragging ? "cursor-grabbing" : "cursor-grab"), className)}
+      // over a layer the middle button pans: the browser's own scroll on it would take the press
+      onAuxClick={layer ? (e) => e.preventDefault() : undefined}
+      className={cx("group/zoom relative h-full w-full touch-none overflow-hidden select-none", (layer ? space || hand : zoomed) && (dragging ? "cursor-grabbing" : "cursor-grab"), className)}
     >
       <div
         // until its size is known (read from the picture as it loads), drawn fitted by its own shape, unzoomed
         style={shown && fit ? { width: fit.w, height: fit.h, transformOrigin: "0 0", transform: `translate(${shown.left}px, ${shown.top}px) scale(${shown.scale})` } : { width: "100%", height: "100%" }}
         className="absolute top-0 left-0"
       >
-        <img
-          src={src}
-          alt=""
-          {...imgProps}
-          // zoomed in, a press pans: the picture is not dragged out from under it
-          draggable={!zoomed && imgProps?.draggable}
-          role={onPick ? "button" : undefined}
-          tabIndex={onPick ? 0 : undefined}
-          aria-label={onPick ? pickLabel : undefined}
-          onLoad={(e) => onLoaded(e.currentTarget)}
-          onKeyDown={onPick ? (e) => {
-            if (e.key !== "Enter" && e.key !== " ") return;
-            e.preventDefault();
-            onPick();
-          } : undefined}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (!onPick || e.detail > 1) return;
-            window.clearTimeout(pending.current);
-            pending.current = window.setTimeout(onPick, DOUBLE_MS);
-          }}
-          // past 1:1 the pixels are seen as pixels, not smoothed over: what judging an upscale or a face pass needs
-          style={{ imageRendering: percent > 100 ? "pixelated" : undefined }}
-          // its own cursor (copy, open) only fitted: zoomed in, the room's grab hand says a press pans
-          className={cx("block h-full w-full rounded-lg object-contain", !zoomed && imgProps?.className)}
-        />
+        {src && (
+          <img
+            src={src}
+            alt=""
+            {...imgProps}
+            // zoomed in, a press pans, and over a layer a press draws: the picture is not dragged out from under it
+            draggable={!zoomed && !layer && imgProps?.draggable}
+            role={pick ? "button" : undefined}
+            tabIndex={pick ? 0 : undefined}
+            aria-label={pick ? pickLabel : undefined}
+            onLoad={(e) => onLoaded(e.currentTarget)}
+            onKeyDown={pick ? (e) => {
+              if (e.key !== "Enter" && e.key !== " ") return;
+              e.preventDefault();
+              pick();
+            } : undefined}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!pick || e.detail > 1) return;
+              window.clearTimeout(pending.current);
+              pending.current = window.setTimeout(pick, DOUBLE_MS);
+            }}
+            // past 1:1 the pixels are seen as pixels, not smoothed over: what judging an upscale or a face pass needs
+            style={{ imageRendering: percent > 100 ? "pixelated" : undefined, ...(inFrame ? { position: "absolute", ...inFrame } : {}) }}
+            // its own cursor (copy, open) only fitted: zoomed in, the room's grab hand says a press pans
+            className={cx("block rounded-lg object-contain", !inFrame && "h-full w-full", !zoomed && !layer && imgProps?.className)}
+          />
+        )}
+        {place && overlay?.(place)}
       </div>
-      <ZoomReadout view={view} natural={natural} fit={fit} onFit={() => onView(FIT)} />
+      <ZoomReadout view={view} natural={whole} fit={fit} onFit={() => onView(FIT)} />
     </div>
   );
 }
