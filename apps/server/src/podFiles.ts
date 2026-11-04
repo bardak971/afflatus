@@ -538,6 +538,11 @@ export class PodFiles {
     this.packs.retryMs = ms;
   }
 
+  /** How long apart Manager's queue is asked to start again after the pod's proxy answered for it (podPacks.ts; shorter in tests). */
+  set packStartRetryMs(ms: number) {
+    this.packs.startRetryMs = ms;
+  }
+
   /** The node packs a pod is getting, for its row. */
   packsView(machine: string): PodPackView[] {
     return this.packs.view(machine);
