@@ -8,7 +8,9 @@ import { api, thumbUrl, type Asset, type AssetDetail, type Opened, type RecipeIn
 import { ContextMenu, useMenu } from "../ContextMenu";
 import { useEntities, useFamilies, useRecipes, useSetup, useTimelines, type useAsset } from "../data";
 import { useOpenNewDraft } from "../draft";
-import { groupTitle, keysShown, sideGroups, type ActionId, type ItemAction } from "../itemActions";
+import { groupTitle, keysShown, sideGroups, type ActionId, type ItemAction, type TuneAt } from "../itemActions";
+import { tuneAt } from "../passTune";
+import { TuneButton } from "../TunePopover";
 import { Kbd } from "../Keys";
 import { modelGroups } from "../picker";
 import { clock, fileLabel, hourMinute, leftWords, notReady, plural, recipeLabel, size, took, UI_LOCALE, when } from "../format";
@@ -112,13 +114,14 @@ function Sent({ title, text, folded }: { title: string; text: string; folded?: b
 }
 
 /** One thing to do with the item: a word, its key. Pressed: it is on (Kept, Trim). A long label wraps to a second line rather than being cut ("Reuse · new seed", "Remove background"). */
-function Act({ icon, label, k, pressed, done, onClick, disabled, title, more }: { icon?: LucideIcon; label: string; k?: ReactNode; pressed?: boolean; done?: boolean; onClick(e: React.MouseEvent<HTMLButtonElement>): void; disabled?: boolean; title?: string; more?: boolean }) {
+function Act({ icon, label, k, pressed, done, onClick, disabled, title, more, tune }: { icon?: LucideIcon; label: string; k?: ReactNode; pressed?: boolean; done?: boolean; onClick(e: React.MouseEvent<HTMLButtonElement>): void; disabled?: boolean; title?: string; more?: boolean; tune?(at: TuneAt): void }) {
   // just queued: a check and the ok look for a moment (itemActions.tsx `done`)
   const Icon = done ? Check : icon;
-  return (
+  const button = (
     <button
       type="button"
-      onClick={onClick}
+      // Shift+click: its settings first (TunePopover.tsx), as the ▾ beside it
+      onClick={(e) => (tune && e.shiftKey ? tune(tuneAt(e.currentTarget)) : onClick(e))}
       disabled={disabled}
       data-tip={title}
       aria-pressed={pressed}
@@ -126,6 +129,7 @@ function Act({ icon, label, k, pressed, done, onClick, disabled, title, more }: 
         // a neutral focus ring: on a button that can be on (Compare, Trim), the accent ring read as "still on" once left
         "flex min-h-[38px] min-w-0 items-center gap-2 rounded-control border px-2.5 py-1 text-left text-body font-semibold hover:bg-hover focus-visible:outline-ink-3 disabled:cursor-not-allowed disabled:opacity-50",
         done ? "m-ok border-good/50 bg-good/15 text-good" : pressed ? "border-accent bg-accent-wash text-accent" : "border-line bg-raised text-ink hover:border-line-strong",
+        tune && "grow rounded-r-none",
       )}
     >
       {Icon && <Icon size={14} aria-hidden className={cx("shrink-0", done ? "text-good" : pressed ? "text-accent" : "text-ink-2")} />}
@@ -133,6 +137,13 @@ function Act({ icon, label, k, pressed, done, onClick, disabled, title, more }: 
       {k && <span className="shrink-0 whitespace-nowrap"><Kbd>{k}</Kbd></span>}
       {more && <ChevronDown size={13} aria-hidden className="shrink-0 text-ink-2" />}
     </button>
+  );
+  if (!tune) return button;
+  return (
+    <span className="flex min-w-0">
+      {button}
+      <TuneButton label={label} tune={tune} disabled={disabled} className="w-6 rounded-r-control border border-l-0 border-line bg-raised hover:bg-hover" />
+    </span>
   );
 }
 
@@ -505,7 +516,7 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
             <div className="grid grid-cols-2 gap-1.5">
               {actions.map((x) => (
                 // one with a choice of its own (a model to open on): its list under it; its key still takes the one used last
-                <Act key={x.id} icon={x.icon} label={x.label} k={x.key && keysShown("viewer", x.id) ? x.key : undefined} pressed={x.pressed} done={x.done} disabled={x.disabled} title={x.disabled && x.note ? `${x.label}: ${x.note}` : x.tip} more={Boolean(x.items?.length) && x.id !== "timeline" && x.id !== "move"} onClick={(e) => (x.items?.length && x.id !== "timeline" && x.id !== "move" ? choose.open(e, x) : x.run?.())} />
+                <Act key={x.id} icon={x.icon} label={x.label} k={x.key && keysShown("viewer", x.id) ? x.key : undefined} pressed={x.pressed} done={x.done} disabled={x.disabled} title={x.disabled && x.note ? `${x.label}: ${x.note}` : x.tip} more={Boolean(x.items?.length) && x.id !== "timeline" && x.id !== "move"} tune={x.tune} onClick={(e) => (x.items?.length && x.id !== "timeline" && x.id !== "move" ? choose.open(e, x) : x.run?.())} />
               ))}
             </div>
             {group === "passes" && !a.inBin && <MorePasses madeWith={madeWith} shown={passTools} start={openTool} />}

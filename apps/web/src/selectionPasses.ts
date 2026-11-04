@@ -2,12 +2,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Asset, type AssetDetail, type RecipeInfo } from "./api";
 import { useFamilies, useRecipes, useSetup } from "./data";
 import { plural } from "./format";
-import { ACTIONS, PASS_KEYS, SELECTION_PASSES, type ActionId, type SelectionPass } from "./itemActions";
+import { ACTIONS, PASS_KEYS, SELECTION_PASSES, type ActionId, type SelectionPass, type TuneAt } from "./itemActions";
+import { TUNED_ROWS, tunedJob, useTune } from "./passTune";
 import { useSendJob, type QueuedJob } from "./queueVariation";
 import { queryKeys } from "./queryKeys";
 import { failedBanner } from "./sayFailed";
 import { useBanners } from "./store";
 import { carried, handsInput, NO_HAND_DETECTOR, OPS, renderOf, toolOf } from "./viewer/shared";
+import { VARY, varyJob, varyTool } from "./vary";
 
 /** Where a pass is picked from: the recipes on, the families, which are ready and what ComfyUI offers for each. */
 export interface PassPlace {
@@ -24,9 +26,17 @@ export interface PassPlace {
  * source; Hand refine on the hand detector. Throws the reason when it cannot be queued.
  */
 export function passJob(pass: SelectionPass, d: AssetDetail, place: PassPlace): QueuedJob {
-  const key = PASS_KEYS[pass]!;
   const made = renderOf(d);
   const madeWith = place.all.find((r) => r.id === made?.recipe);
+  // a Vary runs on the picture's own model alone (vary.ts): one made elsewhere, or on a model with no img2img, has none
+  const how = VARY[pass];
+  if (how) {
+    if (!made || !madeWith) throw new Error("It was not generated here, or its model is not here.");
+    const tool = varyTool(place.all, place.families, madeWith.id);
+    if (!tool) throw new Error("Its model has no img2img.");
+    return varyJob(how, ACTIONS[pass].label, made, madeWith, tool, d.id);
+  }
+  const key = PASS_KEYS[pass]!;
   const tool = toolOf(key, place.all, place.families, madeWith?.id, place.ready);
   if (!tool) throw new Error("No model is installed for it.");
   const slot = tool.inputs.find((i) => i.type === "image" && i.role === "source")!;
@@ -60,35 +70,59 @@ export function useSelectionPasses() {
     online: Boolean(setup.data?.comfy.online),
   };
   /** The recipe each pass would use at all (a picture's own model may have its own), by its title: what is off has none. */
+  // a Vary's img2img is each picture's own model's: offered while any model on has one
+  const img2img = place.all.find((r) => r.output === "image" && r.id.endsWith(".redraw"));
   const passes = Object.fromEntries(SELECTION_PASSES.flatMap((id) => {
-    const tool = toolOf(PASS_KEYS[id]!, place.all, place.families, undefined, place.ready);
+    const tool = VARY[id] ? img2img : toolOf(PASS_KEYS[id]!, place.all, place.families, undefined, place.ready);
     return tool ? [[id, tool.title]] : [];
   })) as Partial<Record<ActionId, string>>;
+  const read = (a: Asset) => client.fetchQuery({ queryKey: queryKeys.assets.one(a.id), queryFn: ({ signal }) => api.asset(a.id, { signal }) });
+  const pictures = (items: Asset[]) => items.filter((a) => a.kind === "image" && !a.inBin);
   const run = useMutation({
-    mutationFn: async ({ pass, items }: { pass: SelectionPass; items: Asset[] }) => {
-      const pictures = items.filter((a) => a.kind === "image" && !a.inBin);
+    /** `changed`: the rows set in the pass's popover, the same on every picture; `count`: copies of each (Vary). */
+    mutationFn: async ({ pass, items, changed = {}, count = 1 }: { pass: SelectionPass; items: Asset[]; changed?: Record<string, unknown>; count?: number }) => {
       let queued = 0;
       const failed: unknown[] = [];
       // one after the other: each picture's parameters are read, then its job sent, as its own button would
-      for (const a of pictures) {
+      for (const a of pictures(items)) {
         try {
-          const d = await client.fetchQuery({ queryKey: queryKeys.assets.one(a.id), queryFn: ({ signal }) => api.asset(a.id, { signal }) });
-          await send(passJob(pass, d, place));
+          await send(tunedJob(passJob(pass, await read(a), place), changed, count));
           queued++;
         } catch (err) {
           failed.push(err);
         }
       }
-      return { pass, queued, failed };
+      return { pass, queued, failed, count };
     },
-    onSuccess: ({ pass, queued, failed }) => {
+    onSuccess: ({ pass, queued, failed, count }) => {
       const label = ACTIONS[pass].label;
       if (queued) {
         void client.invalidateQueries({ queryKey: queryKeys.queue() });
-        say({ id: `queued:${Date.now()}`, tone: "good", title: `${label} queued on ${plural(queued, "picture")}`, href: "/queue", go: "Open the Queue" });
+        say({ id: `queued:${Date.now()}`, tone: "good", title: `${label}${count > 1 ? ` ×${count}` : ""} queued on ${plural(queued, "picture")}`, href: "/queue", go: "Open the Queue" });
       }
       if (failed.length) say(failedBanner({ id: `queued-many:${pass}`, href: "/settings", go: "Open Settings" }, `${label} could not be queued on ${plural(failed.length, "picture")}`, failed[0]));
     },
   });
-  return { passes, run };
+  const openTune = useTune((t) => t.open);
+  /**
+   * A pass's popover for the selection (TunePopover.tsx): its rows start on the first picture it can be queued on; the rows
+   * changed there go to every picture, the others stay each picture's own.
+   */
+  const tune = async (pass: SelectionPass, items: Asset[], at: TuneAt) => {
+    const all = pictures(items);
+    let first: unknown;
+    for (const a of all) {
+      try {
+        const job = passJob(pass, await read(a), place);
+        openTune(at, { action: pass, title: ACTIONS[pass].label, sub: `on ${plural(all.length, "picture")}`, job, queue: (changed, count) => run.mutate({ pass, items, changed, count }) });
+        return;
+      } catch (err) {
+        first ??= err;
+      }
+    }
+    say(failedBanner({ id: `queued-many:${pass}`, href: "/settings", go: "Open Settings" }, `${ACTIONS[pass].label} could not be queued on ${plural(all.length, "picture")}`, first));
+  };
+  /** The passes with settings, for the selection's Passes menu (selectionActions' `tunes`). */
+  const tunes = (items: Asset[]) => Object.fromEntries(SELECTION_PASSES.filter((id) => TUNED_ROWS[id]).map((id) => [id, (at: TuneAt) => void tune(id, items, at)])) as Partial<Record<SelectionPass, (at: TuneAt) => void>>;
+  return { passes, run, tunes };
 }

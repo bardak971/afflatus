@@ -8,7 +8,10 @@ import { eraseNow } from "./binActions";
 import { askAboutDisk } from "./Confirm";
 import { useSettings, useSetup, type useAsset } from "./data";
 import { saveAsset } from "./download";
-import { itemActions, PASS_KEYS, sentPrompt, type ActionId, type ItemFacts, type Runs } from "./itemActions";
+import { ACTIONS, itemActions, PASS_KEYS, sentPrompt, type ActionId, type ItemFacts, type Runs, type Tunes } from "./itemActions";
+import { TUNED_ROWS, tunedJob, useTune } from "./passTune";
+import type { QueuedJob } from "./queueVariation";
+import { VARY, varyJob } from "./vary";
 import { useItemMutations, useTimelineSubmenu } from "./itemMutations";
 import { canCopyPicture } from "./secureContext";
 import { useBanners } from "./store";
@@ -57,7 +60,8 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
   const setup = useSetup();
   const client = useQueryClient();
   const say = useBanners((b) => b.push);
-  const { a, g, recipe, reuse, carrier, carryOn, opener, openerName, animate, mover, moverName, transfer, openerChoices, moverChoices, follower, follow, toolFor, toolInput, openTool } = drafts;
+  const { a, g, recipe, reuse, carrier, carryOn, opener, openerName, animate, mover, moverName, transfer, openerChoices, moverChoices, follower, follow, toolFor, toolInput, openTool, vary } = drafts;
+  const openTune = useTune((t) => t.open);
   const said = (title: string) => (sayErrors ? { onError: mutations.failed(title) } : undefined);
   // Send to: the file itself, to the Telegram chat and the Discord channel set up for the notifications
   const notify = useSettings().data?.notify;
@@ -78,27 +82,54 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
   /** A job queued from here, its button flashing once the server took it. */
   const queue = (action: ActionId, job: Parameters<typeof queued.mutate>[0]) => queued.mutate(job, { onSuccess: () => flash(action) });
 
-  /** A pass queued at once with the picture's parameters (Upscale, Face refine, Hand refine, Remove background). */
-  const quick = (key: string) => {
+  /** The job of a pass queued at once with the picture's parameters (Upscale, Face refine, Remove background). */
+  const quickJob = (key: string): QueuedJob | undefined => {
     const tool = toolFor(key);
+    return tool ? { recipe: tool, stored: toolInput(tool), label: OPS[key]!.label, from: a.id } : undefined;
+  };
+  const quick = (key: string) => {
+    const job = quickJob(key);
     const action = (Object.keys(PASS_KEYS) as ActionId[]).find((id) => PASS_KEYS[id] === key);
-    if (tool && action) queue(action, { recipe: tool, stored: toolInput(tool), label: OPS[key]!.label, from: a.id });
+    if (job && action) queue(action, job);
   };
   /**
    * The face detailer on the hand detector, on the values the recipe starts on for hands (denoise, crop factor, a
    * prompt about hands); the picture's negative prompt and model carried as for the face. A ComfyUI without the
    * detector is told where to get it rather than handed a face pass.
    */
-  const hands = () => {
+  const handsJob = (): QueuedJob | undefined => {
     const tool = toolFor("h");
     const way = tool && handsInput(tool, setup.data?.recipes.find((x) => x.id === tool.id)?.options, Boolean(setup.data?.comfy.online));
-    if (!tool || !way) return;
+    if (!tool || !way) return undefined;
     if (way.missing) {
       say({ id: `queued:${Date.now()}`, tone: "bad", title: "Hand refine could not be queued", text: NO_HAND_DETECTOR, href: "/settings/models", go: "Open Settings" });
-      return;
+      return undefined;
     }
-    queue("hand", { recipe: tool, stored: { ...toolInput(tool), ...way.values }, label: OPS.h!.label, from: a.id });
+    return { recipe: tool, stored: { ...toolInput(tool), ...way.values }, label: OPS.h!.label, from: a.id };
   };
+  const hands = () => {
+    const job = handsJob();
+    if (job) queue("hand", job);
+  };
+  /** Vary subtle or strong: its model's img2img at the family's denoise, on a new seed (vary.ts). */
+  const varyOf = (action: ActionId): QueuedJob | undefined => {
+    const how = VARY[action];
+    return how && g && recipe && vary ? varyJob(how, ACTIONS[action].label, g, recipe, vary, a.id) : undefined;
+  };
+  const variationJob = (): QueuedJob | undefined => (g && recipe ? { recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" } : undefined);
+  /** The job each pass with settings queues, as its own button would: what its popover starts on. */
+  const jobOf = (action: ActionId): QueuedJob | undefined => {
+    if (VARY[action]) return varyOf(action);
+    if (action === "variation") return variationJob();
+    if (action === "hand") return handsJob();
+    const key = PASS_KEYS[action];
+    return key ? quickJob(key) : undefined;
+  };
+  /** Shift+click or ▾ on a pass: its key rows in the popover, then queued from there (TunePopover.tsx). */
+  const tunes = Object.fromEntries((Object.keys(TUNED_ROWS) as ActionId[]).map((action) => [action, (at: Parameters<typeof openTune>[0]) => {
+    const job = jobOf(action);
+    if (job) openTune(at, { action, title: ACTIONS[action].label, job, queue: (changed, count) => queue(action, tunedJob(job, changed, count)) });
+  }])) as Tunes;
   /** A pass that opens a form with the picture in place (Inpaint, Edit, Outpaint). */
   const openPass = (key: string) => {
     const tool = toolFor(key);
@@ -108,10 +139,13 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
   // the inputs as sent (a cast worked in), read by the form's own inputs where its recipe is still here
   const prompt = g ? sentPrompt(g.inputs, recipe?.inputs) : null;
   const reading = enabled && Boolean(asset.id) && detail.data?.id !== asset.id && detail.isFetching;
-  const passes = Object.fromEntries(Object.entries(PASS_KEYS).flatMap(([id, k]) => {
-    const tool = toolFor(k!);
-    return tool ? [[id, tool.title]] : [];
-  })) as Partial<Record<ActionId, string>>;
+  const passes = Object.fromEntries([
+    ...Object.entries(PASS_KEYS).flatMap(([id, k]) => {
+      const tool = toolFor(k!);
+      return tool ? [[id, tool.title]] : [];
+    }),
+    ...(vary ? Object.keys(VARY).map((id) => [id, vary.title]) : []),
+  ]) as Partial<Record<ActionId, string>>;
 
   /** What the list is made from, for the item; `more`: what the place knows (Compare, Trim open, its seed…). */
   const facts = (more: Partial<ItemFacts> = {}): ItemFacts => ({
@@ -131,7 +165,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
     queued: done && done.id === a.id ? { [done.action]: true } : undefined,
     busy: {
       "reuse-same": reuse.isPending, "reuse-new": reuse.isPending, variation: queued.isPending, i2v: animate.isPending, extend: carryOn.isPending, motion: transfer.isPending,
-      upscale: queued.isPending, face: queued.isPending, hand: queued.isPending, background: queued.isPending, inpaint: openTool.isPending, edit: openTool.isPending, outpaint: openTool.isPending,
+      "vary-subtle": queued.isPending, "vary-strong": queued.isPending, upscale: queued.isPending, face: queued.isPending, hand: queued.isPending, background: queued.isPending, inpaint: openTool.isPending, edit: openTool.isPending, outpaint: openTool.isPending,
       "mirror-h": media.mirror.isPending, "mirror-v": media.mirror.isPending, "save-frame": media.saveFrame.isPending, "extract-audio": media.takeSound.isPending, "remove-sound": media.silence.isPending, voice: follow.isPending,
       comfy: mutations.openInComfy.isPending,
     },
@@ -149,7 +183,18 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
     rename: () => void mutations.renameIt(a),
     "reuse-same": () => g && reuse.sameSeed(g),
     "reuse-new": () => g && reuse.newSeed(g),
-    variation: () => g && recipe && queue("variation", { recipe, stored: { ...g.inputs, seed: RANDOM_SEED }, label: "Variation" }),
+    variation: () => {
+      const job = variationJob();
+      if (job) queue("variation", job);
+    },
+    "vary-subtle": () => {
+      const job = varyOf("vary-subtle");
+      if (job) queue("vary-subtle", job);
+    },
+    "vary-strong": () => {
+      const job = varyOf("vary-strong");
+      if (job) queue("vary-strong", job);
+    },
     i2v: () => animate.mutate(undefined, said("Could not open it in a form")),
     motion: () => transfer.mutate(undefined, said("Could not open it in a form")),
     extend: () => carryOn.mutate(undefined, said("Could not extend it")),
@@ -177,7 +222,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
 
   /** The item's list in a place: its facts and overrides on top of what is known and done everywhere. */
   const list = (more: Partial<ItemFacts> = {}, overrides: Runs = {}, notes: Partial<Record<ActionId, string>> = {}) =>
-    itemActions(facts(more), { ...runs, ...overrides }, notes);
+    itemActions(facts(more), { ...runs, ...overrides }, notes, tunes);
 
   return { ...drafts, ...media, queued, quick, openPass, mutations, timeline, seed, prompt, facts, runs, list };
 }

@@ -11,7 +11,7 @@ const SRC = join(import.meta.dirname, "../src");
 /** An item for which everything works: every model there, ComfyUI on, a list to compare in. */
 const facts = (kind: Kind, more: Partial<ItemFacts> = {}): ItemFacts => ({
   kind, inBin: false, kept: false, hasSound: true, reading: false, madeHere: true, generated: true, seed: 42, prompt: "a harbour at dawn",
-  opener: "Wan", mover: "SCAIL-2", carrier: true, passes: { upscale: "u", face: "f", hand: "h", background: "b", inpaint: "i", edit: "e", outpaint: "r" }, voice: true,
+  opener: "Wan", mover: "SCAIL-2", carrier: true, passes: { "vary-subtle": "v", "vary-strong": "v", upscale: "u", face: "f", hand: "h", background: "b", inpaint: "i", edit: "e", outpaint: "r" }, voice: true,
   comfyOnline: true, compare: true,
   timelines: [{ label: "Add to Harbor", run: () => {} }], moves: [{ label: "The Inbox", run: () => {} }],
   ...more,
@@ -27,7 +27,7 @@ const top = (items: MenuItem[]): string[] => items.flatMap((it) => (it === "—"
 
 describe("the item's list", () => {
   it("holds each media type's actions in the spec's order", () => {
-    expect(actionIds("image")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "i2v", "motion", "upscale", "face", "hand", "background", "inpaint", "edit", "outpaint", "mirror-h", "mirror-v", "compare", "details", "copy-image", "copy-seed", "copy-prompt", "comfy", "timeline", "move", "send", "bin"]);
+    expect(actionIds("image")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "i2v", "motion", "vary-subtle", "vary-strong", "upscale", "face", "hand", "background", "inpaint", "edit", "outpaint", "mirror-h", "mirror-v", "compare", "details", "copy-image", "copy-seed", "copy-prompt", "comfy", "timeline", "move", "send", "bin"]);
     expect(actionIds("video")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "extend", "motion", "trim", "save-frame", "extract-audio", "remove-sound", "voice", "compare", "details", "copy-seed", "copy-prompt", "comfy", "timeline", "move", "send", "bin"]);
     expect(actionIds("audio")).toEqual(["open", "keep", "download", "rename", "reuse-same", "reuse-new", "variation", "trim", "voice", "details", "copy-seed", "copy-prompt", "comfy", "timeline", "move", "bin"]);
   });
@@ -91,7 +91,7 @@ describe("the item's list", () => {
   });
 
   it("says why Reuse cannot while the parameters are read or its model is gone; leaves it out of what was not made here", () => {
-    const madeHere: ActionId[] = ["reuse-same", "reuse-new", "variation", "copy-seed", "copy-prompt", "comfy"];
+    const madeHere: ActionId[] = ["reuse-same", "reuse-new", "variation", "vary-subtle", "vary-strong", "copy-seed", "copy-prompt", "comfy"];
     const reading = itemActions(facts("image", { reading: true, generated: false, madeHere: false, seed: null, prompt: null }), runs);
     expect(reading.filter((a) => madeHere.includes(a.id)).map((a) => [a.id, a.note])).toEqual(madeHere.map((id) => [id, "reading…"]));
     // the listing says it has no render: nothing that needs one, even while it is read
@@ -101,7 +101,7 @@ describe("the item's list", () => {
     expect(imported.filter((a) => madeHere.includes(a.id) || a.disabled)).toEqual([]);
     // made here, its model gone since: installing it again brings Reuse back
     const gone = itemActions(facts("image", { generated: false }), runs);
-    expect(gone.filter((a) => a.disabled).map((a) => [a.id, a.note])).toEqual([["reuse-same", "its model is not here"], ["reuse-new", "its model is not here"], ["variation", "its model is not here"]]);
+    expect(gone.filter((a) => a.disabled).map((a) => [a.id, a.note])).toEqual([["reuse-same", "its model is not here"], ["reuse-new", "its model is not here"], ["variation", "its model is not here"], ["vary-subtle", "its model is not here"], ["vary-strong", "its model is not here"]]);
   });
 
   it("leaves out of an imported sound everything a render would give", () => {
@@ -141,7 +141,7 @@ describe("every place shows the same list", () => {
         expect(lines(menu).slice(head + (head ? 1 : 0)), place).toEqual(place === "command" ? flat : shared);
       }
       // the groups apart, in order; the families folded
-      if (kind === "image") expect(shared.slice(0, 15)).toEqual(["Open", "Keep", "Download", "Rename…", "—", "Reuse · same seed", "Reuse · new seed", "Variation", "Make a video › Image to video (i2v)", "Make a video › Motion transfer…", "—", "Passes › Upscale 2x", "Passes › Face refine", "Passes › Hand refine", "Passes › Remove background"]);
+      if (kind === "image") expect(shared.slice(0, 17)).toEqual(["Open", "Keep", "Download", "Rename…", "—", "Reuse · same seed", "Reuse · new seed", "Variation", "Make a video › Image to video (i2v)", "Make a video › Motion transfer…", "—", "Passes › Vary subtle", "Passes › Vary strong", "Passes › Upscale 2x", "Passes › Face refine", "Passes › Hand refine", "Passes › Remove background"]);
     });
   }
 

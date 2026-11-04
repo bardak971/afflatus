@@ -240,7 +240,7 @@ function SelectionBar({ place, count, onSelectAll, selection, compact, onCompare
     { count: picked.length, pictures: chosen.filter((a) => a.kind === "image").length, seen: chosen.filter((a) => a.kind !== "audio").length, inBin: place.type === "bin", passes: passes.passes },
     {
       zip: () => void saveZip(picked).catch(sayFailed("The zip could not be made")),
-      ...(passes.run.isPending ? {} : { pass: (id) => passes.run.mutate({ pass: id, items: chosen }) }),
+      ...(passes.run.isPending ? {} : { pass: (id) => passes.run.mutate({ pass: id, items: chosen }), tunes: passes.tunes(chosen) }),
       // in the order they were ticked: the first pinned, the second the one the arrows then move through
       compare: () => {
         const [pin, other] = ordered;

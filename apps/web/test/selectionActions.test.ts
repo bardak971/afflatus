@@ -12,7 +12,7 @@ describe("a library selection's actions", () => {
   it("are a zip, each quick pass on every picture, and Compare for exactly two", () => {
     const pass = vi.fn();
     const list = selectionActions(facts(), { zip: () => {}, pass, compare: () => {} });
-    expect(list.map((x) => x.label)).toEqual(["Download zip", "Upscale 2x", "Face refine", "Hand refine", "Remove background"]);
+    expect(list.map((x) => x.label)).toEqual(["Download zip", "Vary subtle", "Vary strong", "Upscale 2x", "Face refine", "Hand refine", "Remove background"]);
     expect(list.find((x) => x.id === "upscale")!.note).toBe("on 3 pictures");
     // the pass's own icon and group: the same action as an item's, said for many
     expect(list.find((x) => x.id === "face")!.icon).toBe(ACTIONS.face.icon);

@@ -10,6 +10,8 @@ import { Button, cx } from "./ui";
 import { ContextMenu, useMenu, type MenuItem } from "./ContextMenu";
 import { formPlaces, useFormTarget } from "./formTarget";
 import { actionOfKey, keyOfEvent, keysShown, placeMenu, stageBar, toMenu, type ItemAction } from "./itemActions";
+import { tuneAt } from "./passTune";
+import { TuneButton } from "./TunePopover";
 import { askViewer, takeViewerAsk } from "./viewer/ask";
 import { useViewerActions, type ViewerMore } from "./viewer/useViewerActions";
 import { assetHead } from "./TileMenu";
@@ -251,11 +253,21 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
   );
   if (inline) {
     /** One action of the bar: its label, its key where it acts, the reason in its tip when it is off. */
-    const button = (x: ItemAction) => (
-      <Button key={x.id} size="sm" tone={x.pressed && x.id !== "keep" ? "primary" : "plain"} aria-pressed={x.id === "keep" || x.id === "trim" || x.id === "compare" ? Boolean(x.pressed) : undefined} disabled={x.disabled} data-tip={x.disabled && x.note ? `${x.label}: ${x.note}` : x.tip} onClick={() => x.run?.()} className={cx(x.done && "m-ok border-good/50! bg-good/15 text-good!")}>
-        {x.id === "keep" ? <Star size={13} fill={x.pressed ? "currentColor" : "none"} /> : x.done ? <Check size={13} /> : <x.icon size={13} />} {x.label} {x.key && keysShown(place, x.id) && <Kbd>{x.key}</Kbd>}
-      </Button>
-    );
+    const button = (x: ItemAction) => {
+      const tune = x.tune;
+      const it = (
+        // Shift+click: its settings first (TunePopover.tsx), as the ▾ beside it
+        <Button key={x.id} size="sm" tone={x.pressed && x.id !== "keep" ? "primary" : "plain"} aria-pressed={x.id === "keep" || x.id === "trim" || x.id === "compare" ? Boolean(x.pressed) : undefined} disabled={x.disabled} data-tip={x.disabled && x.note ? `${x.label}: ${x.note}` : x.tip} onClick={(e) => (tune && e.shiftKey ? tune(tuneAt(e.currentTarget)) : x.run?.())} className={cx(x.done && "m-ok border-good/50! bg-good/15 text-good!", tune && "rounded-r-none")}>
+          {x.id === "keep" ? <Star size={13} fill={x.pressed ? "currentColor" : "none"} /> : x.done ? <Check size={13} /> : <x.icon size={13} />} {x.label} {x.key && keysShown(place, x.id) && <Kbd>{x.key}</Kbd>}
+        </Button>
+      );
+      return tune ? (
+        <span key={x.id} className="flex">
+          {it}
+          <TuneButton label={x.label} tune={tune} disabled={x.disabled} className="w-6 rounded-r-control border border-l-0 border-line bg-raised hover:bg-hover" />
+        </span>
+      ) : it;
+    };
     return (
       <div ref={root} className="flex min-h-0 min-w-0 grow flex-col gap-2.5">
         {menuElement}

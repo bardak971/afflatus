@@ -22,7 +22,7 @@ export function useQueueVariation(into?: { draft?: string; folder?: string }) {
   return useMutation({
     mutationFn: async (job: QueuedJob) => {
       await send(job);
-      return job.label;
+      return job.count && job.count > 1 ? `${job.label} ×${job.count}` : job.label;
     },
     onSuccess: (label) => {
       void client.invalidateQueries({ queryKey: queryKeys.queue() });
@@ -39,6 +39,8 @@ export interface QueuedJob {
   label: string;
   /** A pass of this item: its banner offers Compare when done. */
   from?: string;
+  /** How many copies, each on a new seed when its seed is random (a batch count); absent: one. */
+  count?: number;
 }
 
 /**
@@ -55,7 +57,7 @@ export function useSendJob(into?: { draft?: string; folder?: string }) {
     const input = wholeForm(job.recipe, status, modelSettings.data?.items ?? [], job.stored);
     const has = new Set(job.recipe.inputs.map((i) => i.id));
     for (const id of Object.keys(input)) if (input[id] === undefined || !has.has(id)) delete input[id];
-    const queued = await api.enqueue(job.recipe.id, input, 1, null, into);
+    const queued = await api.enqueue(job.recipe.id, input, job.count ?? 1, null, into);
     if (job.from) for (const id of queued.ids) passFrom.set(id, job.from);
   };
 }
