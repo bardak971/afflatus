@@ -1,4 +1,4 @@
-import { fileKey, graphFiles, parseInput, pathKey, pickedFiles, type GraphFile, type InputSpec, type LoraValue } from "@afflatus/core";
+import { fileKey, graphFiles, parseInput, pathKey, pickedFiles, regionsOf, type GraphFile, type InputSpec, type LoraValue } from "@afflatus/core";
 import { now, type Db } from "./db";
 import { keptRead } from "./dbWrites";
 import type { Services } from "./services";
@@ -65,6 +65,8 @@ export function chosenFiles(inputs: readonly InputSpec[], input: Record<string, 
   for (const spec of inputs) {
     const value = input[spec.id];
     if (spec.type === "loras" && Array.isArray(value)) for (const l of value as LoraValue[]) if (l?.file) out.push({ folder: "loras", file: l.file });
+    // a region's LoRA and its person's (card #271)
+    if (spec.type === "regions") for (const r of regionsOf(value)) for (const l of [r.lora, r.castLora]) if (l?.file) out.push({ folder: "loras", file: l.file });
   }
   return out;
 }

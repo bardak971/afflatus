@@ -54,7 +54,8 @@ const NODE_PACKS: NodePack[] = [
   { name: "ltx2.5-msr", repo: "https://github.com/liconstudio/ComfyUI-LTX2.5-MSR", nodes: ["ComfyUILTX25MSRICLoRALoader", "ComfyUILTX25MSRMultiReferenceGuide"] },
   { name: "comfyui_controlnet_aux", repo: "https://github.com/Fannovel16/comfyui_controlnet_aux", nodes: ["DepthAnythingV2Preprocessor", "DWPreprocessor", "AIO_Preprocessor"] },
   // SDXL's reference images (card #277): IP-Adapter Plus for a look, FaceID Plus V2 for a person (it reads InsightFace, which
-  // the pod image has; on a ComfyUI of the user's own, the insightface package is theirs to add)
+  // the pod image has; on a ComfyUI of the user's own, the insightface package is theirs to add). Built into the pod base at
+  // its last commit since base 10 (card #282): a pod no longer installs it through ComfyUI-Manager
   { name: "comfyui_ipadapter_plus", repo: "https://github.com/cubiq/ComfyUI_IPAdapter_plus", nodes: ["IPAdapterModelLoader", "IPAdapterAdvanced", "IPAdapterInsightFaceLoader", "IPAdapterFaceID"] },
   // Krea 2's person reference: the Identity Edit LoRA's own patch (the person's picture as reference tokens) and grounded encode
   // 2.0.0 (2026-10-16): the pod image builds it in at this commit (deploy/runpod/base/Dockerfile's KREA2EDIT_COMMIT)

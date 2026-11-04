@@ -1,4 +1,4 @@
-import type { InputSpec } from "./inputs";
+import { regionsFor, type InputSpec } from "./inputs";
 
 /**
  * What a form keeps when the operation changes (txt2img to inpaint, on the same model): what the user
@@ -50,6 +50,9 @@ export function carryOver(from: { inputs: InputSpec[] }, to: { inputs: InputSpec
         break;
       case "cues":
         out[i.id] = (value as unknown[]).slice(0, i.max);
+        break;
+      case "regions":
+        out[i.id] = regionsFor(i, value);
         break;
       // a clip to continue belongs to a timeline, not to a form that is carried along
       case "clip":

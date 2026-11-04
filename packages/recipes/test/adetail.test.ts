@@ -18,7 +18,7 @@ const node = (graph: Record<string, { class_type: string; inputs: Record<string,
 
 describe("txt2img's Detail rows", () => {
   it("are on every family's txt2img, off by default (the owner's call, 2026-11-04)", () => {
-    expect(txt2imgs.map((r) => r.family).sort()).toEqual(["flux", "klein", "krea2", "qwen", "qwen21", "sdxl", "zimage"]);
+    expect(txt2imgs.map((r) => r.family).sort()).toEqual(["flux", "klein", "krea2", "moss", "qwen", "qwen21", "sdxl", "zimage"]);
     for (const r of txt2imgs) {
       for (const id of ["detailFace", "detailHands", "detailPerson"]) {
         const row = r.inputs.find((i) => i.id === id);

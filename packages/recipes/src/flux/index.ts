@@ -4,6 +4,7 @@ import { REDUX_NODES, reduxInputs, reduxNeeds, withRedux, type ReferenceSettings
 import type { GuideWay } from "../shared/guide";
 import { flowKit, flowRecipes, type FlowBase, type FlowSpec } from "../flow/recipes";
 import { detectorSlots } from "../shared/detector";
+import { REGIONS_NOT_YET } from "../shared/regions";
 
 /** The forms that read reference images through Redux, and those that take a control image (card #277). */
 const REFERENCE_FORMS = ["flux.text-to-picture", "flux.redraw", "flux.edit"];
@@ -117,6 +118,8 @@ An instruction: Change the mug to a white enamel one with a chipped rim, keeping
 });
 
 const spec: FlowSpec = {
+  // FluxRegionAttention or RES4LYF's FluxRegionalPrompt, both packs: a later round (card #271)
+  drops: { regions: REGIONS_NOT_YET },
   family: "flux",
   references: "redux",
   guide: FLUX_GUIDE,

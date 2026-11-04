@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { dryContext, LATENT_GRID, LATENT_RESAMPLE, parseInput, pickChoice, refusalOf, type BuiltGraph, type ChoiceInput } from "@afflatus/core";
 import { familyById, fluxPicture, h3Video, recipeById, recipes, sdxlTextToPicture, wanVideo } from "../src";
@@ -182,6 +184,19 @@ describe("reference images on SDXL (IP-Adapter)", () => {
     expect(of(p, "LoraLoaderModelOnly").map(([, n]) => n.inputs.lora_name)).toEqual(["ip-adapter-faceid-plusv2_sdxl_lora.safetensors"]);
     // every pass samples the referenced model
     for (const [, k] of of(p, "KSampler")) expect(from(p, k.inputs.model).class_type).toBe("IPAdapterFaceID");
+  });
+  // the pack's last commit, built into the pod base, requires the InsightFace model's name; the Registry's 2.0.0 has no such
+  // input and refuses one it does not know (card #282: every FaceID graph refused on a pod of image 0.1.55)
+  it("names buffalo_l to the InsightFace loader unless it is known to take no name", () => {
+    const loader = (inputs?: string[]) => of(r.build(parseInput(r, faceId.input), dryContext({ slots: faceId.slots ?? {}, uploads: faceId.uploads ?? {}, ...(inputs ? { inputs: (n: string) => (n === "IPAdapterInsightFaceLoader" ? inputs : null) } : {}) })), "IPAdapterInsightFaceLoader").map(([, n]) => n.inputs);
+    // the reference node list (the pods' pack, as the server's tests read it too)
+    const listed = JSON.parse(readFileSync(fileURLToPath(new URL("../../../reference/comfy-object-info.json", import.meta.url)), "utf-8")).IPAdapterInsightFaceLoader.input;
+    expect(loader([...Object.keys(listed.required ?? {}), ...Object.keys(listed.optional ?? {})])).toEqual([{ provider: "CPU", model_name: "buffalo_l" }]);
+    expect(loader(["provider", "model_name"])).toEqual([{ provider: "CPU", model_name: "buffalo_l" }]);
+    // the Registry's 2.0.0 that ComfyUI-Manager installs
+    expect(loader(["provider"])).toEqual([{ provider: "CPU" }]);
+    // no node list (the loader unknown): the pods' pack, which requires it
+    expect(loader()).toEqual([{ provider: "CPU", model_name: "buffalo_l" }]);
   });
   // on the pod test a place picture beside a FaceID person was copied and no person drawn (card #280)
   it.each(["sdxl.text-to-picture", "sdxl.redraw"])("%s refuses a person's picture with any other, before it is queued and in its build", (id) => {

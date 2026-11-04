@@ -1361,6 +1361,8 @@ export class Queue {
           const able = lanes.some((l) => l.reachable !== false && !this.unavailable(l.id)) ? await this.planner.ableOf([...gpuRows, ...after]) : null;
           judged = able;
           if (able) {
+            // one a pod would run once its node pack came, that pack failed there and no machine left to run it: it fails now
+            for (const id of await this.failPacksNever(gpuRows, able)) taken.add(id);
             where = plan(await this.planner.schedulable(open), await this.forecasts.heldIf(recorded, () => this.planner.planned(gpuRows, able)));
             sent = this.planner.sendFiles(gpuRows, able, where);
             this.keepPlan(changes, where, able);
@@ -1457,6 +1459,28 @@ export class Queue {
     } finally {
       this.dispatching = false;
     }
+  }
+
+  /**
+   * The waiting renders a rented pod would run once its node packs came, one of which failed there for good (podPacks.ts),
+   * that no machine can run (none of the user's own has it or can install it, no other pod takes it): each fails, in the
+   * pack's words. Left waiting, the job stayed queued while the pod idled toward its stop, billed, and came to nothing
+   * (card #282: comfyui_ipadapter_plus, Manager's queue not started). Not while a pod is unread (booting, restarting) or on
+   * its way, which may still take it, nor one a stopped pod holds the files of (its row's Start). The ids failed.
+   */
+  private async failPacksNever(rows: JobRow[], able: ReadonlyMap<string, Able>): Promise<string[]> {
+    const never = rows.filter((r) => {
+      const a = able.get(r.id);
+      return a?.packsFailed && !a.can.size && !a.unjudged?.size && !a.startPod;
+    });
+    if (!never.length || (await this.deps.pods.podComing().catch(() => true))) return [];
+    const failed: string[] = [];
+    for (const r of never) {
+      const { machine, why } = able.get(r.id)!.packsFailed!;
+      const name = this.lanes.get(machine)?.machine?.name || machine;
+      if (await this.finish(r.id, "failed", { error: `${why} (on ${name}), and no other machine can run it`.slice(0, 600) }, "queued")) failed.push(r.id);
+    }
+    return failed;
   }
 
   /** A job started on a lane: claimed there by `run` or `runTool`, and a new pass once it ends. */

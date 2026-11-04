@@ -28,7 +28,7 @@ export interface FlowSpec {
   /** A node the model is put through after its LoRAs (Qwen Image 2.1's cache of the prompt), with what it reads of the form. */
   patch?: { nodes: string[]; put(g: GraphBuilder, model: Ref, input: FlowBase): Ref };
   /** The empty latent a new picture starts from, when the family's template has another than EmptySD3LatentImage. */
-  latent?: "EmptyLatentImage";
+  latent?: "EmptyLatentImage" | "EmptyFlux2LatentImage";
   /**
    * Its VAE decodes a fourth channel, an alpha (Qwen Image 2.1's, which makes transparent pictures): a node that takes the
    * colours only is given them alone. Upscale 2x's ColorTransfer failed on it on a pod ("Input size must have a shape of
@@ -56,8 +56,21 @@ export interface FlowSpec {
    * "invents less". The others' shift does not grow with the size (0.25 starts from about 0.51): untried, left as ComfyUI has it.
    */
   sharperRealSigma?: true;
-  /** A LoRA that makes the model work in a few steps at CFG 1, when the family has one. */
-  turbo?: { slot: string; steps: number; note: string; stepsNote: string; named: RegExp };
+  /**
+   * A LoRA that makes the model work in a few steps at CFG 1, when the family has one. `weight`: the row's weight to start on
+   * (1 unless said); `cfg: "form"`: a LoRA that only shortens the steps, sampled at the form's CFG (MOSS-Image's at 0.35).
+   */
+  turbo?: { slot: string; steps: number; note: string; stepsNote: string; named: RegExp; weight?: number; cfg?: "form" };
+  /**
+   * LoRAs the family puts on by a switch of their own besides Turbo (MOSS-Image's DeBand): each a row of the LoRA list, its
+   * file from a slot, the switch among the sampling rows. A machine without the file is sent it (needs), as Turbo's is.
+   */
+  extras?: Array<{ toggle: { id: string; label: string; note: string }; row: AddedSpec }>;
+  /**
+   * txt2img reads regions (card #271) as one JSON layout of boxes (MOSS-Image's Create Bounding Boxes and Layout Prompt):
+   * `how` for the Regions row's "?", `guidance` the skip-layer guidance its layout template turns on with it.
+   */
+  layout?: { how: string; guidance: { single: string; end: number } };
   /** The negative prompt: where it starts, and what stands for it when it is empty. */
   negative: { default: string; note: string; empty: "zero" | "encode" };
   sampling: { steps: number; stepsNote: string; cfg: number; cfgNote: string; sampler: string; scheduler: string };
@@ -156,16 +169,17 @@ export const flowTurboRow = (spec: FlowSpec): AddedSpec | null => spec.turbo ? {
   label: "Turbo", toggle: "fast",
   note: "Turbo's LoRA: Turbo puts it on the model, at the weight set here. Its file is the one of Settings › Models unless another is picked; any LoRA may take its place, at Turbo's steps. Removing the row turns Turbo off",
   file: { id: "turboLora", label: "Turbo LoRA", slot: spec.turbo.slot, match: [spec.turbo.named.source], note: "the LoRA Turbo puts on the model. Left as it is, the one of Settings › Models" },
-  weight: { id: "turboWeight", label: "Turbo LoRA weight", default: 1, note: "its strength_model: 1 is the LoRA's own. At 0 it is not loaded, Turbo's steps run without it" },
+  weight: { id: "turboWeight", label: "Turbo LoRA weight", default: spec.turbo.weight ?? 1, note: `its strength_model: ${spec.turbo.weight ? `${spec.turbo.weight} is what it is made to run at here` : "1 is the LoRA's own"}. At 0 it is not loaded, Turbo's steps run without it` },
   when: { not: { name: { input: "model", slot: "unet" }, match: spec.turbo.named.source } },
 } : null;
 
 export function flowKit(spec: FlowSpec) {
   const row = flowTurboRow(spec);
   /** How it samples: the values of ComfyUI's own template to begin with, each kept per model once saved. */
+  const rows = [...(row ? [row] : []), ...(spec.extras ?? []).map((e) => e.row)];
   const inputs: InputSpec[] = spec.inputs ?? [
-    { id: "loras", type: "loras", label: "LoRAs", max: 6, ...(row ? { added: [addedRow(row)] } : {}) },
-    ...(row ? addedInputs(row) : []),
+    { id: "loras", type: "loras", label: "LoRAs", max: 6, ...(rows.length ? { added: rows.map(addedRow) } : {}) },
+    ...rows.flatMap(addedInputs),
     { id: "negative", type: "prompt", label: "Negative prompt", note: spec.negative.note, style: "sentences", optional: true, default: spec.negative.default, advanced: true, perModel: true },
     ...(spec.turbo
       ? ([
@@ -173,6 +187,7 @@ export function flowKit(spec: FlowSpec) {
         { id: "turboSteps", type: "number", label: "Turbo steps", note: spec.turbo.stepsNote, min: 1, max: 16, step: 1, default: spec.turbo.steps, showWhen: "fast", advanced: true, perModel: true },
       ] satisfies InputSpec[])
       : []),
+    ...(spec.extras ?? []).map((e): InputSpec => ({ id: e.toggle.id, type: "toggle", label: e.toggle.label, note: e.toggle.note, default: false, advanced: true, perModel: true })),
     { id: "steps", type: "number", label: "Steps", note: spec.sampling.stepsNote, min: 1, max: 80, step: 1, default: spec.sampling.steps, advanced: true, perModel: true },
     { id: "cfg", type: "number", label: "CFG scale", note: spec.sampling.cfgNote, min: 1, max: 12, step: 0.5, default: spec.sampling.cfg, advanced: true, perModel: true },
     ...(spec.guidance ? ([{ id: "guidance", type: "number", label: "Guidance (distilled CFG)", note: spec.guidance.note, min: 0, max: 10, step: 0.1, default: spec.guidance.default, advanced: true, perModel: true }] satisfies InputSpec[]) : []),
@@ -192,13 +207,13 @@ export function flowKit(spec: FlowSpec) {
    */
   const loadNodes = (input: FlowBase) => [
     ...unetNodes(input.model), ...spec.encoder.nodes, "VAELoader", ...(spec.text?.nodes ?? ["CLIPTextEncode"]), ...(spec.patch?.nodes ?? []), "KSampler", "VAEDecode", "PreviewImage",
-    ...(!spec.turbo && input.loras.some((l) => l.weight !== 0) ? ["LoraLoaderModelOnly"] : []),
+    ...(!spec.turbo && !spec.extras && input.loras.some((l) => l.weight !== 0) ? ["LoraLoaderModelOnly"] : []),
     ...(!spec.text && !input.negative.trim() && spec.negative.empty === "zero" ? ["ConditioningZeroOut"] : []),
     ...(spec.shift.node === "ModelSamplingFlux" || shiftOf(input) > 0 ? [spec.shift.node] : []),
     ...(spec.guidance ? ["FluxGuidance"] : []),
   ];
   /** With a turbo LoRA, whether it is put on depends on its file being there: the LoRA loader is then the build's to say. */
-  const SOMETIMES = spec.turbo ? ["LoraLoaderModelOnly"] : [];
+  const SOMETIMES = spec.turbo || spec.extras ? ["LoraLoaderModelOnly"] : [];
   /** Every node a second pass that is only sometimes made can use (the light pass after an upscale). */
   const SECOND_PASS = [
     "UNETLoader", GGUF_LOADER, ...spec.encoder.nodes, "VAELoader", ...(spec.text?.nodes ?? ["CLIPTextEncode"]), ...(spec.patch?.nodes ?? []), "KSampler", "VAEDecode", "VAEEncode", "LoraLoaderModelOnly",
@@ -216,22 +231,31 @@ export function flowKit(spec: FlowSpec) {
     let model: Ref = loadUnet(g, ctx, unet, (precise && input.precision) || "default");
     const made = spec.turbo ? spec.turbo.named.test(unet?.split(/[\\/]/).pop() ?? "") : false;
     // Turbo's row in the LoRA list: its file and weight, the same file by hand put on once (card #160)
-    const added = spec.turbo && input.fast && !made ? addedLora(ctx.slots[spec.turbo.slot], input.turboLora, input.turboWeight, input.loras) : { lora: null, put: false, loras: input.loras };
+    const added = spec.turbo && input.fast && !made ? addedLora(ctx.slots[spec.turbo.slot], input.turboLora, input.turboWeight, input.loras, spec.turbo.weight) : { lora: null, put: false, loras: input.loras };
     const turboLora = added.lora?.file;
+    // the family's other switched LoRAs (DeBand), each its row's file and weight, the same file by hand put on once
+    const values = input as unknown as Record<string, unknown>;
+    let loras = added.loras;
+    const extras = (spec.extras ?? []).filter((e) => values[e.toggle.id]).map((e) => {
+      const one = addedLora(ctx.slots[e.row.file.slot], values[e.row.file.id], values[e.row.weight.id], loras, "own" in e.row.weight ? 1 : e.row.weight.default);
+      loras = one.loras;
+      return one;
+    });
     // a model made for a few steps runs at them whether Turbo is on or not (40 steps at CFG 4 on a Lightning
     // merge comes out burnt). Turbo with a model that is not made for it and no LoRA to make it so: the full steps
     const turbo = Boolean(spec.turbo && (made || (input.fast && turboLora)));
     model = putAdded(g, model, added);
-    model = applyLoras(g, model, added.loras);
+    for (const e of extras) model = putAdded(g, model, e);
+    model = applyLoras(g, model, loras);
     if (spec.patch) model = spec.patch.put(g, model, input);
     return {
       model,
       clip: spec.encoder.load(g, ctx.slots),
       vae: g.out("VAELoader", { vae_name: ctx.slots.vae }),
       steps: turbo ? input.turboSteps ?? spec.turbo!.steps : input.steps,
-      cfg: turbo ? 1 : input.cfg,
+      cfg: turbo && spec.turbo?.cfg !== "form" ? 1 : input.cfg,
       turbo,
-      loads: [`diffusion_models/${unet}`, ...spec.encoder.files(ctx.slots), `vae/${ctx.slots.vae}`, ...(added.put ? [`loras/${turboLora}`] : []), ...loraLoads(added.loras)],
+      loads: [`diffusion_models/${unet}`, ...spec.encoder.files(ctx.slots), `vae/${ctx.slots.vae}`, ...(added.put ? [`loras/${turboLora}`] : []), ...extras.flatMap((e) => (e.put ? [`loras/${e.lora!.file}`] : [])), ...loraLoads(loras)],
     };
   }
   type Loaded = ReturnType<typeof load>;
@@ -253,9 +277,9 @@ export function flowKit(spec: FlowSpec) {
     const negative = input.negative.trim() || spec.negative.empty === "encode" ? g.out("CLIPTextEncode", { text: input.negative, clip: k.clip }) : g.out("ConditioningZeroOut", { conditioning: said });
     return { positive, negative };
   }
-  /** The two texts, from the prompt. */
-  const cond = (g: GraphBuilder, k: Loaded, input: FlowBase, text: string) =>
-    spec.text ? spec.text.encode(g, k, text, input.negative) : condFrom(g, k, input, g.out("CLIPTextEncode", { text, clip: k.clip }));
+  /** The two texts, from the prompt (or from a node that writes it: MOSS-Image's layout, read by CLIPTextEncode as it comes). */
+  const cond = (g: GraphBuilder, k: Loaded, input: FlowBase, text: string | Ref) =>
+    spec.text && typeof text === "string" ? spec.text.encode(g, k, text, input.negative) : condFrom(g, k, input, g.out("CLIPTextEncode", { text, clip: k.clip }));
 
   /** One pass of sampling, with the detail boost when one is given with the context it is built in. */
   function sample(g: GraphBuilder, k: Loaded, input: FlowBase, model: Ref, c: { positive: Ref; negative: Ref }, latent: Ref, seed: number, opts: { steps?: number; denoise?: number; sampler_name?: string; scheduler?: string } = {}, detail?: { input: DetailSettings; ctx: BuildContext }) {
@@ -322,8 +346,11 @@ export function flowKit(spec: FlowSpec) {
    * Turbo's LoRA, when Turbo is on and the model picked is not made for a few steps (load): the family's file this input
    * needs (Recipe.needsWith), so that a pod is sent it and a machine without it does not take the job at the full steps.
    */
-  const turboNeeds = (input: FlowBase, slots: Record<string, string> = {}): string[] =>
-    spec.turbo && input.fast && !spec.turbo.named.test((input.model ?? slots.unet ?? "").split(/[\\/]/).pop() ?? "") ? [spec.turbo.slot] : [];
+  const turboNeeds = (input: FlowBase, slots: Record<string, string> = {}): string[] => [
+    ...(spec.turbo && input.fast && !spec.turbo.named.test((input.model ?? slots.unet ?? "").split(/[\\/]/).pop() ?? "") ? [spec.turbo.slot] : []),
+    // a switched LoRA of the family (DeBand) asks for its file the same way
+    ...(spec.extras ?? []).filter((e) => (input as unknown as Record<string, unknown>)[e.toggle.id]).map((e) => e.row.file.slot),
+  ];
 
   /** The family's files with a turbo LoRA among them, for each operation's "Turbo with its LoRA" variant; null without Turbo. */
   const turboFiles = spec.turbo ? { ...spec.files, [spec.turbo.slot]: "turbo.safetensors" } : null;

@@ -1,4 +1,4 @@
-import { LIMITS, plural, type InputSpec, type LoraValue, type Recipe, type ReferenceRole, type ReferenceValue } from "@afflatus/core";
+import { LIMITS, plural, type InputSpec, type LoraValue, type Recipe, type ReferenceRole, type ReferenceValue, type RegionValue } from "@afflatus/core";
 import { presetFileSchema, provenanceSchema } from "@afflatus/core/presetSchemas";
 import { familyById, recipes } from "@afflatus/recipes";
 import type { FastifyInstance } from "fastify";
@@ -46,7 +46,9 @@ const nameKey = (s: string) => s.toLowerCase().replace(/[^\p{L}\d]+/gu, "");
  */
 export async function withMentions(db: Db, recipe: Recipe<any>, raw: Record<string, unknown>, look: Look | null | undefined): Promise<{ input: Record<string, unknown>; look: Look | null | undefined }> {
   const texts = (recipe.inputs as InputSpec[]).filter((i) => i.type === "prompt" && typeof raw[i.id] === "string" && (raw[i.id] as string).includes("@"));
-  if (!texts.length) return { input: raw, look };
+  // a person in a region is worked in by compose too (regionCast), cast or not: a look, if empty, says it is to be called
+  const regioned = castRegions(recipe, raw).some((r) => r.cast || r.prompt?.includes("@"));
+  if (!texts.length) return { input: raw, look: look ?? (regioned ? { cast: [], style: null, snippets: [] } : look) };
   const people = await db.selectFrom("entities").selectAll().where("kind", "=", "person").execute();
   const byName = new Map(people.map((p) => [nameKey(p.name), p]));
   const cast = [...(look?.cast ?? [])];
@@ -60,7 +62,57 @@ export async function withMentions(db: Db, recipe: Recipe<any>, raw: Record<stri
       return said ? `the person (${said})` : "the person";
     });
   }
-  return { input, look: cast.length === (look?.cast.length ?? 0) ? look : { cast, style: look?.style ?? null, snippets: look?.snippets ?? [] } };
+  return { input, look: cast.length === (look?.cast.length ?? 0) ? look ?? (regioned ? { cast: [], style: null, snippets: [] } : look) : { cast, style: look?.style ?? null, snippets: look?.snippets ?? [] } };
+}
+
+/** A form's regions (card #271), on a recipe that takes them; none otherwise. */
+const castRegions = (recipe: Recipe<any>, input: Record<string, unknown>): RegionValue[] => {
+  const spec = (recipe.inputs as InputSpec[]).find((i) => i.type === "regions");
+  return spec && Array.isArray(input[spec.id]) ? (input[spec.id] as RegionValue[]) : [];
+};
+
+/**
+ * The people of a form's regions (card #271), each worked into their own box alone: a region's cast person, or the first
+ * "@Name" of its prompt, brings their words (their LoRA's trigger, how they look) into that region's prompt and their LoRA
+ * for this model as the region's `castLora`, which the recipe holds to the box or puts on the whole picture as its model can.
+ * Never into the picture's own prompt: their words there would go to every box, and two people would blend. The region's
+ * "@Name" is said by the words, as a name means nothing to the model. A name that is no one's stays as it was typed.
+ */
+export async function regionCast(db: Db, recipe: Recipe<any>, input: Record<string, unknown>): Promise<{ input: Record<string, unknown>; words: Composed["added"]["words"]; loras: Composed["added"]["loras"]; skipped: string[] }> {
+  const spec = (recipe.inputs as InputSpec[]).find((i): i is Extract<InputSpec, { type: "regions" }> => i.type === "regions");
+  const regions = castRegions(recipe, input);
+  const done = { input, words: [], loras: [], skipped: [] };
+  if (!spec || !regions.some((r) => r.cast || r.prompt?.includes("@"))) return done;
+  const people = await db.selectFrom("entities").selectAll().where("kind", "=", "person").execute();
+  const byId = new Map(people.map((p) => [p.id, p]));
+  const byName = new Map(people.map((p) => [nameKey(p.name), p]));
+  const main = (recipe.inputs as InputSpec[]).find((i) => i.type === "prompt" && !i.optional && !i.noCast);
+  const tags = main?.type === "prompt" && main.style === "tags";
+  const words: Composed["added"]["words"] = [];
+  const loras: Composed["added"]["loras"] = [];
+  const skipped: string[] = [];
+  const out = regions.map((r) => {
+    let row = r.cast ? byId.get(r.cast) : undefined;
+    // "@Name" in the region's own words: that person, said by how they look rather than by the name
+    const prompt = String(r.prompt ?? "").replace(/@([\p{L}\d_-]+)/gu, (all, name: string) => {
+      const named = byName.get(nameKey(name));
+      if (!named) return all;
+      row ??= named;
+      return named === row ? "" : all;
+    }).replace(/\s{2,}/g, " ").replace(/^[,\s]+|[,\s]+$/g, "");
+    if (!row) return { ...r, prompt };
+    const p = defs.person.parse(JSON.parse(row.def)) as PersonDef;
+    const m = p.models[recipe.family];
+    const trigger = (m?.trigger ?? "").trim().replace(/[,.\s]+$/, "");
+    const said = tags ? join([trigger, p.tags], ", ") : join([trigger && `${trigger}.`, p.sentence], " ");
+    if (said) words.push({ from: row.name, text: said, kind: "person" });
+    const castLora = m?.lora ? { file: m.lora, weight: m.weight } : undefined;
+    if (castLora && !spec.lora) skipped.push(`${row.name}'s LoRA is not used: a region takes no LoRA on this model`);
+    else if (castLora) loras.push({ from: row.name, file: castLora.file });
+    const { castLora: _old, ...rest } = r;
+    return { ...rest, cast: row.id, prompt: withWords(prompt, said ? [said] : [], [], tags), ...(castLora && spec.lora ? { castLora } : {}) };
+  });
+  return { input: { ...input, [spec.id]: out }, words, loras, skipped };
 }
 
 const lora = z.strictObject({ file: z.string().min(1), weight: z.number().min(-4).max(4) });
@@ -211,13 +263,16 @@ export function withMood(recipe: Recipe<any>, input: Record<string, unknown>, mo
  */
 export async function compose(db: Db, recipe: Recipe<any>, asked: Record<string, unknown>, askedLook: Look | null | undefined): Promise<Composed> {
   // a Prompt kit person named "@Nicolas" in a text: cast for this render, and said by how they look (withMentions)
-  const { input: raw, look } = await withMentions(db, recipe, asked, askedLook);
+  const { input: mentioned, look } = await withMentions(db, recipe, asked, askedLook);
+  // the people of the regions, each in their own box (never the picture's prompt)
+  const regioned = await regionCast(db, recipe, mentioned);
+  const raw = regioned.input;
   const input = { ...raw };
   // the picture a take's face is scored against is the cast's of this render alone: one carried over in a form copied from an
   // older job's (a take used again) would score against someone no longer cast
   const faceSpec = (recipe.inputs as InputSpec[]).find((i) => i.type === "image" && i.role === "face");
   if (faceSpec) delete input[faceSpec.id];
-  const added: Composed["added"] = { words: [], loras: [], references: 0, refs: [], voice: null, voiceAsset: null, skipped: [] };
+  const added: Composed["added"] = { words: [...regioned.words], loras: [...regioned.loras], references: 0, refs: [], voice: null, voiceAsset: null, skipped: [...regioned.skipped] };
   if (emptyLook(look)) return { input, added };
   const ids = [...look!.cast.map((c) => c.id), ...(look!.style ? [look!.style] : []), ...(look!.snippets ?? [])];
   const rows = ids.length ? await db.selectFrom("entities").selectAll().where("id", "in", ids).execute() : [];

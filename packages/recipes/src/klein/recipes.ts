@@ -12,6 +12,7 @@ import {
 } from "./common";
 import { DETECTOR_INPUT } from "../shared/detector";
 import { SAME_FACE } from "./facePass";
+import { REGIONS_WHY } from "../shared/regions";
 import { adetail, ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FILES, sized, type AdetailSettings } from "../shared/adetail";
 
 const files = { unet: "flux-2-klein-base-4b.safetensors", clip: "qwen_3_4b.safetensors", vae: "flux2-vae.safetensors" };
@@ -178,6 +179,7 @@ export const kleinPicture = pictureForm("txt2img", defineRecipe<KleinPicture>({
   hiresScheduler: "Klein samples on Flux2Scheduler: there is no scheduler to pick",
   referenceStrength: "Klein reads a reference image as one more picture beside the prompt: it has no strength of its own",
   ...KLEIN_NO_GUIDE,
+  regions: REGIONS_WHY.klein,
 });
 
 // ---------------------------------------------------------------- change a picture with words

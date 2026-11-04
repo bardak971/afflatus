@@ -2,6 +2,7 @@ import { wanted, type BuildContext, type GraphBuilder, type InputSpec, type Ref 
 import { faceSteps } from "../sdxl/common";
 import { SMALL_FACE_PX } from "../klein/facePass";
 import { DETECTOR_SLOTS, HAND_THRESHOLD, HAND_VALUES } from "./detector";
+import { facesIn, REGION_FACE_NODES } from "./regions";
 
 /**
  * ADetailer inside txt2img (card #272): after the picture (and its hires fix), the faces, hands or people a YOLOv8 detector
@@ -141,7 +142,7 @@ export function adetailNeeds(input: Partial<AdetailSettings>, slots?: Record<str
 }
 
 /** The Impact Pack's nodes (and its Subpack's detector): optional, a pass done without when they are missing, the job saying so. */
-export const ADETAIL_OPTIONAL = ["UltralyticsDetectorProvider", "BboxDetectorSEGS", "SegmDetectorSEGS", "ImpactSEGSRangeFilter", "ImpactSEGSOrderedFilter", "DetailerForEach"];
+export const ADETAIL_OPTIONAL = ["UltralyticsDetectorProvider", "BboxDetectorSEGS", "SegmDetectorSEGS", "ImpactSEGSRangeFilter", "ImpactSEGSOrderedFilter", "DetailerForEach", ...REGION_FACE_NODES];
 
 /** What the render redraws with: its model and how it samples, and its texts (null: the render's own prompt). */
 export interface DetailWith {
@@ -160,6 +161,14 @@ export interface DetailWith {
   scale: number;
   /** A pass the family does otherwise (Krea 2's person face, from their picture). */
   skip?: Partial<Record<Kind["key"], boolean>>;
+  /**
+   * The regions a cast person stands in (card #271), with what their face is redrawn from: their region's words (and its
+   * LoRA's hooks, which act on that face alone). Each face found mostly inside one of their boxes is redrawn from that
+   * person; the faces outside all of them from the picture's own prompt, as without regions.
+   */
+  people?: Array<{ box: { x: number; y: number; w: number; h: number }; positive: Ref }>;
+  /** The picture's size as the passes get it (after a hires fix): where the people's boxes are. */
+  size?: { width: number; height: number };
 }
 
 /** What the passes made: the picture, a pass of the job's progress for each, the detectors loaded, what the job says. */
@@ -211,19 +220,24 @@ export function adetail(g: GraphBuilder, ctx: BuildContext, input: AdetailSettin
     const text = String(values[`${id}Prompt`] ?? "").trim();
     const c = w.cond(text || null, k.key);
     const steps = faceSteps(w.steps);
-    const node = g.add("DetailerForEach", {
-      image: made.image, segs, model: (model ??= w.model()), clip: w.clip, vae: w.vae, positive: c.positive, negative: c.negative,
-      // the crop redrawn at the guide size (ADetailer's way), as every Face refine does
-      guide_size: GUIDE, guide_size_for: false, max_size: MAX, seed: w.seed, steps, cfg: w.cfg, sampler_name: w.sampler, scheduler: w.scheduler,
-      denoise: Number(values[`${id}Denoise`] ?? k.denoise), feather: Math.round(FEATHER * w.scale), noise_mask: true, force_inpaint: true, wildcard: "", cycle: 1,
-    });
-    made.image = [node, 0];
-    // a crop is redrawn at the guide size whatever the picture's: what a step samples. One of each is counted (how many
-    // there are is known only once found), and one too large, or none, samples nothing, which its job says
-    made.passes.push({
-      node, steps, pixels: GUIDE * GUIDE,
-      unsampled: under > 0 ? `Detail: ${k.word} left the picture as drawn: it redraws ${k.word === "hands" ? "hands" : `a ${k.word}`} under ${under} px tall, and found none.` : `Detail: ${k.word} found no ${k.word}: the picture is as drawn.`,
-    });
+    const redraw = (found: Ref, positive: Ref, unsampled: string) => {
+      const node = g.add("DetailerForEach", {
+        image: made.image, segs: found, model: (model ??= w.model()), clip: w.clip, vae: w.vae, positive, negative: c.negative,
+        // the crop redrawn at the guide size (ADetailer's way), as every Face refine does
+        guide_size: GUIDE, guide_size_for: false, max_size: MAX, seed: w.seed, steps, cfg: w.cfg, sampler_name: w.sampler, scheduler: w.scheduler,
+        denoise: Number(values[`${id}Denoise`] ?? k.denoise), feather: Math.round(FEATHER * w.scale), noise_mask: true, force_inpaint: true, wildcard: "", cycle: 1,
+      });
+      made.image = [node, 0];
+      // a crop is redrawn at the guide size whatever the picture's: what a step samples. One of each is counted (how many
+      // there are is known only once found), and one too large, or none, samples nothing, which its job says
+      made.passes.push({ node, steps, pixels: GUIDE * GUIDE, unsampled });
+    };
+    const none = under > 0 ? `Detail: ${k.word} left the picture as drawn: it redraws ${k.word === "hands" ? "hands" : `a ${k.word}`} under ${under} px tall, and found none.` : `Detail: ${k.word} found no ${k.word}: the picture is as drawn.`;
+    // each person's face from their own region's words and LoRA, so that two cast people keep their two faces; the faces
+    // of nobody's box after, from the picture's own prompt. The boxes are found on the picture as it is now (detected once)
+    const people = k.key === "Face" && w.size ? w.people ?? [] : [];
+    people.forEach((p, i) => redraw(facesIn(g, segs, [p.box], w.size!, true), p.positive, `Detail: face found no face in person ${i + 1}'s box: their face is as drawn.`));
+    redraw(people.length ? facesIn(g, segs, people.map((p) => p.box), w.size!, false) : segs, c.positive, none);
   }
   return made;
 }

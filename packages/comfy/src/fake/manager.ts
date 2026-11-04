@@ -93,6 +93,8 @@ export function fakeManager(fake: FakeState, init: FakeInit): (r: FakeRequest) =
       return plain(200);
     }
     if (path === "/v2/manager/queue/start") {
+      const proxied = fake.startAnswers.shift();
+      if (proxied !== undefined) return plain(proxied);
       const todo = installs;
       installs = [];
       const queued = tasks;

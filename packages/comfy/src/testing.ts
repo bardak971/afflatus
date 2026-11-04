@@ -81,6 +81,8 @@ export interface FakeComfy {
   reboots: number;
   /** What the restart is answered with when set, the restart made all the same: RunPod's proxy says 502 (or an empty 404) as ComfyUI goes down under it. */
   rebootAnswer: number | null;
+  /** What Manager's queue start is answered with first, one each, nothing started (RunPod's proxy in its place: an empty 404, a 502). */
+  startAnswers: number[];
   /** Files written into ComfyUI's user data, by path ("workflows/afflatus/x.json"). */
   userdata: Record<string, unknown>;
   /** The node pack's lock (0.12.0 and newer): its token, and whether calls from this machine get in without it. Null: not locked. */
@@ -212,7 +214,7 @@ const body = async (req: IncomingMessage) => {
 
 export async function startFakeComfy(init: FakeInit = {}): Promise<FakeComfy> {
   const fake: FakeState = {
-    calls: [], prompts: new Map(), history: {}, running: [], pending: [], deaf: new Set(), files: {}, rejectWith: null, rejectNext: [], uploads: [], uploadDelayMs: 0, letGoMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, rebootAnswer: null, userdata: {}, lock: null, refused: [], logins: [], packFetched: [], packAsked: [], packUploaded: [], removed: [], uploadCut: 0, managerVersion: "V4.2.1", oldPage: false, down: false, podBroken: null, podDied: null, ram: null, version: "0.0.0-fake", pytorch: null, bootLog: null, printed: [], alive: [],
+    calls: [], prompts: new Map(), history: {}, running: [], pending: [], deaf: new Set(), files: {}, rejectWith: null, rejectNext: [], uploads: [], uploadDelayMs: 0, letGoMs: 0, uploaded: {}, cleaned: [], metadata: {}, headers: null, packVersion: null, sockets: [], installed: [], installAsked: [], packs: [], reboots: 0, rebootAnswer: null, startAnswers: [], userdata: {}, lock: null, refused: [], logins: [], packFetched: [], packAsked: [], packUploaded: [], removed: [], uploadCut: 0, managerVersion: "V4.2.1", oldPage: false, down: false, podBroken: null, podDied: null, ram: null, version: "0.0.0-fake", pytorch: null, bootLog: null, printed: [], alive: [],
     folderPaths: init.folderPaths ?? null, hideFolderPaths: init.hideFolderPaths ?? false,
     catalog: init.catalog ?? {},
     models: init.models ?? {},

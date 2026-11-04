@@ -25,8 +25,9 @@ import { findMask } from "./tools/findMask";
 import { wan } from "./wan/family";
 import { wanVideo } from "./wan/video";
 import { zimage, zimageFixFace, zimageOutpaint, zimagePaintOver, zimagePicture, zimageRedraw, zimageSharper } from "./zimage";
+import { moss, mossPicture } from "./moss";
 
-export const families: Family[] = [sdxl, klein, krea2, flux, qwen, qwen21, zimage, h3, wan, scail, ltx, ltx25, tools];
+export const families: Family[] = [sdxl, klein, krea2, flux, qwen, qwen21, zimage, moss, h3, wan, scail, ltx, ltx25, tools];
 
 /** Every built-in recipe. Imported workflows are added to this list at run time by the server. */
 export const recipes: Recipe<any>[] = [
@@ -37,6 +38,7 @@ export const recipes: Recipe<any>[] = [
   qwenPicture, qwenEdit, qwenRedraw, qwenPaintOver, qwenOutpaint, qwenSharper, qwenFixFace,
   qwen21Picture, qwen21Edit, qwen21Redraw, qwen21PaintOver, qwen21Outpaint, qwen21Sharper, qwen21FixFace, qwen21MotionPicture,
   zimagePicture, zimageRedraw, zimagePaintOver, zimageOutpaint, zimageSharper, zimageFixFace,
+  mossPicture,
   h3Video,
   h3LipSync,
   h3Swap,

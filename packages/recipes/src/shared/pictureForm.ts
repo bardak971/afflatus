@@ -31,7 +31,8 @@ export const GUIDE = ["guide", "guideFollows", "guideStrength", "guideStart", "g
  * draws a form's rows by what they are (texts, pictures, sampling, output), each group in this order.
  */
 export const PICTURE_ROWS: Record<PictureOp, readonly string[]> = {
-  txt2img: ["prompt", ...REFERENCES, ...GUIDE, "size", ...ADETAIL, ...DETAIL, ...SAMPLING, ...HIRES],
+  // the regions right after the size: they are boxes over the frame it sets (card #271)
+  txt2img: ["prompt", ...REFERENCES, ...GUIDE, "size", "regions", ...ADETAIL, ...DETAIL, ...SAMPLING, ...HIRES],
   img2img: ["source", "prompt", "strength", ...REFERENCES, ...GUIDE, ...SAMPLING],
   inpaint: ["source", "mask", "prompt", "strength", "maskGrow", "maskBlur", ...SAMPLING],
   outpaint: ["source", "prompt", "shape", "padLeft", "padRight", "padTop", "padBottom", "feathering", ...SAMPLING],
@@ -59,14 +60,14 @@ export const noReferences = (why: string): Record<string, string> => Object.from
  * txt2img and img2img. Its edit's references are the edit's own matter (Qwen Image 2.1's edit reads them where its txt2img does not).
  */
 export const dropsFor = (op: PictureOp, drops: Record<string, string> = {}): Record<string, string> =>
-  Object.fromEntries(Object.entries(drops).filter(([id]) => ![...GUIDE, ...REFERENCES].includes(id) || (["txt2img", "img2img"].includes(op) && PICTURE_ROWS[op].includes(id))));
+  Object.fromEntries(Object.entries(drops).filter(([id]) => (![...GUIDE, ...REFERENCES].includes(id) || (["txt2img", "img2img"].includes(op) && PICTURE_ROWS[op].includes(id))) && (id !== "regions" || op === "txt2img")));
 
 /**
  * The shared rows a form leaves out that a user looks for on every model (a guide picture, reference images): shown greyed
  * where they would be, with why (card #277), so that their absence is said rather than guessed. The others (a shift on SDXL)
  * are left out quietly.
  */
-const SAID_ABSENT = [{ id: "references", label: "Reference images" }, { id: "guide", label: "Control image" }];
+const SAID_ABSENT = [{ id: "references", label: "Reference images" }, { id: "guide", label: "Control image" }, { id: "regions", label: "Regions" }];
 
 /** The ids of a form's operation's shared rows, the model and the seed included, in their order. */
 export const pictureRowsOf = (op: PictureOp, model = "model"): string[] => [model, ...PICTURE_ROWS[op], "seed"];

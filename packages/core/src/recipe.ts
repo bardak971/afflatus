@@ -355,6 +355,16 @@ export interface Recipe<In = Record<string, unknown>> {
    * caption, the fused turbo's old preset): read as empty, by the render and the form alike, the parts' text sent and shown.
    */
   partsStartOn?: readonly string[];
+  /**
+   * The ComfyUI release the recipe's model needs beyond what its nodes say (MOSS-Image: CLIPLoader reads its text encoder
+   * from 0.42.0 on): the newest of the two is what a ComfyUI too old for it is told (comfyNeeds.ts recipeComfySince).
+   */
+  comfy?: string;
+  /**
+   * The text the model reads when the form's regions are written into it (MOSS-Image's JSON layout, card #271), as the
+   * render's nodes will build it: the form shows it under "Prompt as sent". Null while there is no region to write.
+   */
+  layoutOf?(input: In): string | null;
   /** Node classes this particular input needs (checked against ComfyUI before queueing). */
   nodes(input: In): string[];
   /** Node classes build() uses only when this ComfyUI has them (ctx.has): speed-ups and finishing touches. */

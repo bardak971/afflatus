@@ -908,6 +908,34 @@ describe("a rented pod's node packs", () => {
     }
   }, 40_000);
 
+  it("are installed when the pod's proxy answers Manager's queue start for a moment (an empty 404, a 502): never failed for it (card #282)", async () => {
+    const { pm, pf } = await withManager();
+    try {
+      pf.packStartRetryMs = 10;
+      pm.startAnswers = [404, 502];
+      pf.wantPacks("pod", ["comfyui-impact-pack"], "j1");
+      await until(async () => (await pf.tick(), pf.packsView("pod")[0]?.state === "ready"));
+      expect(pm.packs.map((p) => p.id)).toEqual(["comfyui-impact-pack"]);
+      expect(pm.startAnswers).toEqual([]);
+    } finally {
+      await pm.close();
+    }
+  });
+
+  it("fail when the pod's proxy keeps answering Manager's queue start, said with its answer", async () => {
+    const { pm, pf } = await withManager();
+    try {
+      pf.packStartRetryMs = 10;
+      pm.startAnswers = [404, 404, 404, 404];
+      pf.wantPacks("pod", ["comfyui-impact-pack"], "j1");
+      await until(async () => (await pf.tick(), pf.packsView("pod")[0]?.state === "failed"));
+      expect(pf.packsView("pod")[0]!.error).toBe("ComfyUI-Manager did not start its installs (404)");
+      expect(pm.packs).toEqual([]);
+    } finally {
+      await pm.close();
+    }
+  });
+
   it("that Manager does not install fail, their job with them", async () => {
     const { pm, pf } = await withManager(["ComfyUI-GGUF"]);
     try {
