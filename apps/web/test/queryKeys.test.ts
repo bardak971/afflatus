@@ -53,6 +53,7 @@ const pinned: Array<[QueryKey, unknown[]]> = [
   [k.assets.list("p1", filter, true), ["assets", "list", "p1", filter, true]],
   [k.assets.tree("A", null, 1, "name", false), ["assets", "tree", "A", null, 1, "name", false]],
   [k.assets.one("i1"), ["assets", "one", "i1"]],
+  [k.assets.versions("i1"), ["assets", "versions", "i1"]],
   [k.assets.unkept("p1"), ["assets", "unkept", "all", "p1"]],
   [k.facets.all(), ["facets"]],
   [k.facets.families(), ["facets", "families"]],

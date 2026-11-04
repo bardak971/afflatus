@@ -34,6 +34,8 @@ const noFold = (): Fold => ({ count: 0, labels: new Set(), exports: 0, last: nul
 const foldTitle = (f: Fold, word: string) => (f.count === 1 ? `${[...f.labels][0]} ${word}` : `${f.count} ${word}`);
 const foldText = (f: Fold) => (f.count > 1 && f.labels.size === 1 ? [...f.labels][0] : f.count > 1 ? `Last: ${f.last}` : undefined);
 
+/** What a pass that came back as a version says when done: it is under its picture, not in the library. */
+const VERSION_DONE = "A version under its picture: Open shows it, K keeps it.";
 /** The downloads asked without a machine (the one ComfyUI of a single-machine setup): grouped under this key. */
 const HERE = "";
 
@@ -152,7 +154,12 @@ export function Banners() {
             useHandover.getState().set({ show: from });
             if (path !== "/" && path !== "/create") go("/");
           } } } : {};
-          push({ id: "jobs:done", tone: "good", title: foldTitle(f, "done"), text: foldText(f), ...compare, ...(there || compare.action ? {} : allExports ? { href: "/timelines", go: "Open the Timelines" } : { href: "/", go: "Open the library" }) });
+          // a version is under its picture, not in the library: Open shows the picture, its versions in the strip under it
+          const version = f.count === 1 && j.versionOf ? { text: VERSION_DONE, action: { label: "Open", run: () => {
+            useHandover.getState().set({ show: j.versionOf! });
+            if (path !== "/" && path !== "/create") go("/");
+          } } } : {};
+          push({ id: "jobs:done", tone: "good", title: foldTitle(f, "done"), text: foldText(f), ...compare, ...version, ...(there || compare.action || version.action ? {} : allExports ? { href: "/timelines", go: "Open the Timelines" } : { href: "/", go: "Open the library" }) });
         }
       }
     }

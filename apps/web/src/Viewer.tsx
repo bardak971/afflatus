@@ -19,6 +19,8 @@ import { Compare } from "./viewer/Compare";
 import { ViewerMedia } from "./viewer/ViewerMedia";
 import { ViewerSidebar } from "./viewer/ViewerSidebar";
 import { useCompareResult } from "./store";
+import { useVersions } from "./paintFix/useVersions";
+import { stepVersion, VersionStrip } from "./paintFix/VersionStrip";
 
 // the parameters reader is a chunk of its own: fetched the first time Details opens
 const PngInfo = lazy(() => import("./PngInfo").then((m) => ({ default: m.PngInfo })));
@@ -52,7 +54,19 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
   // Trim: in and out on a video, and what is done with the range; the range's two frames are shown beside the video
   const [trim, setTrim] = useState(false);
   const [trimRange, setTrimRange] = useState<Range | null>(null);
-  const asset = trail.at(-1) ?? first;
+  const base = trail.at(-1) ?? first;
+  // a picture's versions (Inpaint, Face and Hand refine… made in place): the one shown large is picked in the strip under
+  // it, and the whole viewer is then about that one (its parameters, its actions); another item forgets the pick
+  const versions = useVersions(base);
+  const [ver, setVer] = useState<{ of: string; id: string } | null>(null);
+  const asset = (ver && ver.of === base.id && versions.all.find((v) => v.id === ver.id)) || base;
+  const showVersion = (v: Asset) => setVer({ of: base.id, id: v.id });
+  /** ← → through the versions first: false past either end, where they go on to the item before or after. */
+  const stepThrough = (by: -1 | 1) => {
+    const next = versions.all.length > 1 ? stepVersion(versions.all, asset.id, by) : null;
+    if (next) showVersion(next);
+    return Boolean(next);
+  };
   // Compare: one item pinned, the arrow keys move the other one beside it
   const [pinned, setPinned] = useState<Asset | null>(null);
   /** The item's right-click menu (a picture, a video, a sound): its list, the open form first. */
@@ -201,8 +215,10 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
     // a video that has the focus keeps its own arrow keys
     const inPlayer = (e.target as HTMLElement | null)?.tagName === "VIDEO";
     // while trimming, the arrows step the frame (Trim.tsx), not to the next item
-    if (e.key === "ArrowLeft" && !inPlayer && !trim) move(-1);
-    else if (e.key === "ArrowRight" && !inPlayer && !trim) move(1);
+    if (e.key === "ArrowLeft" && !inPlayer && !trim) stepThrough(-1) || move(-1);
+    else if (e.key === "ArrowRight" && !inPlayer && !trim) stepThrough(1) || move(1);
+    // K keeps the version shown (the original included): the others count down to the bin (VersionStrip)
+    else if (k === "k" && versions.all.length > 1 && !versions.keep.isPending) versions.keep.mutate(asset.id);
     // drawn in place (the Studio's stage), N is the Studio's own (it folds the form): a timeline starts from the menus there
     else if (k === "n" && !inline && a.kind !== "audio" && !a.inBin) timeline.startFrom(a);
     else if (k === "a" && a.kind !== "audio" && !a.inBin && timeline.addToLast) timeline.addToLast(a);
@@ -223,7 +239,26 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const compare = comparing ? <Compare pinned={pinned!} other={asset} onSwap={() => { const was = pinned!; setPinned(asset); onOpen?.(was); }} onClose={() => setPinned(null)} keys={compareKeys} /> : null;
+  // swapped, the pinned one is shown: a version of the stack by the strip's pick, any other item opened
+  const swap = () => {
+    const was = pinned!;
+    setPinned(asset);
+    if (versions.all.some((v) => v.id === was.id)) showVersion(was);
+    else onOpen?.(was);
+  };
+  const compare = comparing ? <Compare pinned={pinned!} other={asset} onSwap={swap} onClose={() => setPinned(null)} keys={compareKeys} /> : null;
+  // two of the strip picked: the one shown pinned, the other beside it (the synced Compare)
+  const strip = versions.has && !trim ? (
+    <VersionStrip
+      versions={versions}
+      shown={asset.id}
+      onShow={showVersion}
+      onCompare={(other) => {
+        setPinned(asset);
+        showVersion(other);
+      }}
+    />
+  ) : null;
   // the viewer's menu: the open form first (the place's own section), then the item's list
   const places = formPlaces(formTarget, a);
   const own: MenuItem[] = places.length ? [{ label: "Use in this draft", icon: <Plus size={14} />, note: formTarget?.recipe.title, items: places }] : [];
@@ -273,6 +308,7 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
         {menuElement}
         {timeline.element}
         {compare ?? media(false)}
+        {strip && <div className="flex shrink-0 justify-center">{strip}</div>}
         {/* one short row: the four most used, what makes something from it (Passes), the rest of the list (···), the bin */}
         <div className="flex shrink-0 flex-wrap items-center justify-center gap-1.5 pb-3">
           {bar.row.map(button)}
@@ -292,7 +328,12 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
     <div ref={overlayRef} data-stage role="dialog" aria-modal="true" aria-label="Item" className="m-panel fixed inset-0 z-40 flex bg-stage/95">
       {menuElement}
       {timeline.element}
-      {compare ?? media(true)}
+      {strip ? (
+        <div className="flex min-w-0 grow flex-col">
+          {compare ?? media(true)}
+          <div className="flex shrink-0 justify-center pb-4">{strip}</div>
+        </div>
+      ) : (compare ?? media(true))}
       <ViewerSidebar acts={acts} list={list} asset={asset} detail={detail} naming={naming} onNaming={setNaming} trail={trail} onTrail={setTrail} items={items} onClose={onClose} />
       {info && <Suspense fallback={null}><PngInfo name={asset.name || "Untitled"} title={asset.kind === "image" ? "PNG info" : "Embedded info"} read={(recipe) => api.assetEmbedded(asset.id, recipe)} picture={asset.kind === "image" ? async () => asset.id : undefined} onClose={() => setInfo(false)} onSent={leave} /></Suspense>}
     </div>

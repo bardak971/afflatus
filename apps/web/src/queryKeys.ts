@@ -127,6 +127,8 @@ export const queryKeys = {
     list: <F>(project: string, filter: F, capped: boolean) => ["assets", "list", project, filter, capped] as const,
     tree: (folder: string | null, kind: string | null, pages: number, by: string, desc: boolean) => ["assets", "tree", folder, kind, pages, by, desc] as const,
     one: (id: string | null) => ["assets", "one", id] as const,
+    /** A picture's versions (paintFix/useVersions.ts), by the id it was asked with: under "assets", so a "library" event reads them again. */
+    versions: (id: string) => ["assets", "versions", id] as const,
     unkept: (project: string) => ["assets", "unkept", "all", project] as const,
     /** The command bar's render search: a page of what its keys find, how many, and how many each key's absence would find. */
     barSearch: <F>(filter: F) => ["assets", "bar-search", filter] as const,

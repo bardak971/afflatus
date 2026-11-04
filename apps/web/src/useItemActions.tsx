@@ -8,7 +8,7 @@ import { eraseNow } from "./binActions";
 import { askAboutDisk } from "./Confirm";
 import { useSettings, useSetup, type useAsset } from "./data";
 import { saveAsset } from "./download";
-import { ACTIONS, itemActions, PASS_KEYS, sentPrompt, type ActionId, type ItemFacts, type Runs, type Tunes } from "./itemActions";
+import { ACTIONS, itemActions, PASS_KEYS, VERSION_PASSES, sentPrompt, type ActionId, type ItemFacts, type Runs, type Tunes } from "./itemActions";
 import { TUNED_ROWS, tunedJob, useTune } from "./passTune";
 import type { QueuedJob } from "./queueVariation";
 import { VARY, varyJob } from "./vary";
@@ -85,7 +85,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
   /** The job of a pass queued at once with the picture's parameters (Upscale, Face refine, Remove background). */
   const quickJob = (key: string): QueuedJob | undefined => {
     const tool = toolFor(key);
-    return tool ? { recipe: tool, stored: toolInput(tool), label: OPS[key]!.label, from: a.id } : undefined;
+    return tool ? { recipe: tool, stored: toolInput(tool), label: OPS[key]!.label, from: a.id, ...(VERSION_PASSES.has(key) ? { versionOf: a.id } : {}) } : undefined;
   };
   const quick = (key: string) => {
     const job = quickJob(key);
@@ -105,7 +105,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
       say({ id: `queued:${Date.now()}`, tone: "bad", title: "Hand refine could not be queued", text: NO_HAND_DETECTOR, href: "/settings/models", go: "Open Settings" });
       return undefined;
     }
-    return { recipe: tool, stored: { ...toolInput(tool), ...way.values }, label: OPS.h!.label, from: a.id };
+    return { recipe: tool, stored: { ...toolInput(tool), ...way.values }, label: OPS.h!.label, from: a.id, versionOf: a.id };
   };
   const hands = () => {
     const job = handsJob();

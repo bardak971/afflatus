@@ -37,6 +37,15 @@ export interface Asset {
    * out from where it came from ("Big Air · c2 · t5 · 0:01–0:02"). Absent when its name holds or there is nothing to go on.
    */
   shownName?: string;
+  /** A version not kept yet: the picture it is a version of (the root of its stack), shown under it rather than in the library. */
+  versionOf?: string | null;
+  /** In listings: how many versions wait under it, to keep one or not (0 or absent: none). */
+  versions?: number;
+}
+/** A picture and the versions made of it in place (Inpaint, Face and Hand refine, Edit, Outpaint), oldest first, the binned ones left out. */
+export interface AssetVersions {
+  head: Asset;
+  versions: Asset[];
 }
 /** A library video's place on a timeline. */
 export interface ClipOf {

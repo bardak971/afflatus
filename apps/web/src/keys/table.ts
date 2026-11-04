@@ -240,9 +240,11 @@ export const PLACES: KeyPlace[] = [
       {
         name: "Any item",
         rows: [
-          { keys: "← →", does: "Previous / next item", note: "comparing: the other one" },
+          { keys: "← →", does: "Previous / next item", note: "a picture with versions: through them first; comparing: the other one" },
           { keys: "X", does: "Compare: pin this one", note: "the arrows change the other" },
           { keys: "S", does: "Keep / unkeep" },
+          // Viewer.tsx, with the versions strip (VersionStrip.tsx) under the picture
+          { keys: "K", does: "Keep the version shown", note: "it becomes the picture; the others count down to the bin" },
           { keys: "Del | Backspace", does: "Move to the bin, go to the next" },
           { keys: "D", does: "Download", note: "in the bin too" },
           { keys: "Enter", does: "Open it large", note: "on the stage under Draft" },

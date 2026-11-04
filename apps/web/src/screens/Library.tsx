@@ -1,5 +1,6 @@
 import { memo, useState, type ReactNode } from "react";
 import { Check, Clock, FileX2, Film, Play, VolumeX } from "lucide-react";
+import { VersionsBadge } from "../Thumb";
 import { HoverAudio, HoverVideo } from "../HoverVideo";
 import { TileTip, useTileTip } from "../TileTip";
 import type { Asset } from "../api";
@@ -187,6 +188,7 @@ export const Tile = memo(function Tile({ asset, onOpen, selected, selecting, onS
       )}
       {asset.kind === "video" && at !== null && <span aria-hidden className="absolute bottom-0 left-0 z-2 h-[3px] bg-accent" style={{ width: `${at * 100}%` }} />}
       {asset.clipOf && !sound && !plain && <ClipMark of={asset.clipOf} className="absolute right-2 bottom-2 transition-opacity group-hover:opacity-0" />}
+      {!plain && <VersionsBadge count={asset.versions} className="absolute bottom-2 left-2 transition-opacity group-hover:opacity-0" />}
     </button>
     {/* the corner's control and the clock sit over the tile, beside the button (a button holds no other control); clicks through the clock open the tile */}
     {((!sound && clockMark) || corner) && <span className="pointer-events-none absolute top-2 right-2 z-10 flex items-center gap-1 [&>button]:pointer-events-auto">{corner}{!sound && clockMark}</span>}
