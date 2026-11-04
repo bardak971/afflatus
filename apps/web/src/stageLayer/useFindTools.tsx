@@ -5,7 +5,7 @@ import { cx } from "../cx";
 import type { Size } from "../viewer/zoom";
 import { percentOf } from "./geometry";
 import { picturePixels, planeFrom } from "./maskImage";
-import { combine, newPlane, wand, workSize, type Plane, type Rect } from "./raster";
+import { combine, dropStrays, newPlane, wand, workSize, type Plane, type Rect } from "./raster";
 import type { LayerPointer, LayerShape, LayerTool } from "./tools";
 import type { MaskLayer } from "./useMaskLayer";
 
@@ -68,11 +68,11 @@ function useOwnStep(mask: MaskLayer) {
 /** The work plane's size for the picture: the found masks are read at it. */
 const planeSize = (natural: Size) => workSize(natural.w, natural.h);
 
-/** Found masks read and added into one. */
+/** Found masks read and added into one, each without its strays (a speck SAM put elsewhere on the picture). */
 async function together(found: FoundMask[], natural: Size, load: LoadMask): Promise<Plane> {
   const { w, h } = planeSize(natural);
   const all = newPlane(w, h);
-  for (const p of await Promise.all(found.map((f) => load(f.asset, w, h)))) combine(all, p, "add");
+  for (const p of await Promise.all(found.map((f) => load(f.asset, w, h)))) combine(all, dropStrays(p), "add");
   return all;
 }
 

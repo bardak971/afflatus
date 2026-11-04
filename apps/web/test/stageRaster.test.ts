@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  bounds, clear, clip, combine, cut, dab, distanceOut, EMPTY_BELOW, falloff, feathered, fillPolygon, fillRect, fromRgba, History, insidePolygon, invert,
+  bounds, clear, clip, combine, cut, dab, distanceOut, dropStrays, EMPTY_BELOW, falloff, feathered, fillPolygon, fillRect, fromRgba, History, insidePolygon, invert,
   line, newPlane, normal, paste, resample, tint, toRgba, union, wand, workSize, WORK_EDGE, type Plane,
 } from "../src/stageLayer/raster";
 
@@ -407,5 +407,43 @@ describe("the magic wand", () => {
     const flat = new Uint8ClampedArray(2048 * 512 * 4).fill(128);
     expect(bounds(wand(flat, 2048, 512, -1, 5, 50, true))).toBeNull();
     expect(bounds(wand(flat, 2048, 512, 1000, 200, 0, true))).toEqual({ x: 0, y: 0, w: 2048, h: 512 });
+  });
+});
+
+describe("a found mask's strays", () => {
+  // a 200 × 200 part (the thing clicked) and what else SAM's answer may hold
+  const found = () => {
+    const p = newPlane(400, 300);
+    fillRect(p, { x: 20, y: 40, w: 200, h: 200 }, 0, "add");
+    return p;
+  };
+
+  it("drops a speck far from the thing (card #274's pod: 73 pixels on the other bicycle)", () => {
+    const p = found();
+    fillRect(p, { x: 330, y: 100, w: 8, h: 9 }, 0, "add");
+    dropStrays(p);
+    expect(at(p, 333, 104)).toBe(0);
+    expect(bounds(p)).toEqual({ x: 20, y: 40, w: 200, h: 200 });
+  });
+
+  it("keeps a small piece inside the thing's box, a large one outside it, and a single part as it is", () => {
+    const p = found();
+    // a spoke cut off from the frame, within the wheel's box
+    fillRect(p, { x: 100, y: 100, w: 4, h: 4 }, 0, "add");
+    p.data.fill(0, 102 * 400 + 60, 102 * 400 + 160);
+    // a second thing clicked, of a size with the first
+    fillRect(p, { x: 260, y: 40, w: 120, h: 120 }, 0, "add");
+    const before = sum(p);
+    dropStrays(p);
+    expect(sum(p)).toBe(before);
+    const one = found();
+    expect(sum(dropStrays(one))).toBe(200 * 200 * 255);
+  });
+
+  it("reads a soft edge's faint pixels as part of what they surround, not as specks", () => {
+    const p = newPlane(400, 300);
+    fillRect(p, { x: 20, y: 40, w: 200, h: 200 }, 12, "add");
+    const before = sum(p);
+    expect(sum(dropStrays(p))).toBe(before);
   });
 });

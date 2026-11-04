@@ -302,6 +302,55 @@ export function bounds(plane: Plane, below = EMPTY_BELOW): Rect | null {
   return x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
 }
 
+/** A stray is under this share of the largest part's pixels: SAM's specks are a few dozen pixels on a part of tens of thousands. */
+const STRAY_SHARE = 0.01;
+
+/**
+ * A found mask without its strays: SAM 3 answers a click with the thing and, at times, a speck elsewhere (73 pixels on the
+ * other bicycle of the street, 20 in the umbrella over it, on a pod in card #274's test), which would be redone with it and
+ * stretch the part the inpaint crops around. A part (8-connected, above EMPTY_BELOW) goes only when it is both tiny beside
+ * the largest and outside the largest's box: a wheel's spokes cut off from the frame stay, and so do two things of a size
+ * clicked together. Changes the plane in place.
+ */
+export function dropStrays(plane: Plane): Plane {
+  const { w, h, data } = plane;
+  const part = new Int32Array(w * h).fill(-1);
+  const parts: Array<{ n: number; x0: number; y0: number; x1: number; y1: number }> = [];
+  const stack = new Int32Array(w * h);
+  for (let s = 0; s < w * h; s++) {
+    if (part[s] !== -1 || data[s]! <= EMPTY_BELOW) continue;
+    const id = parts.length;
+    const p = { n: 0, x0: w, y0: h, x1: -1, y1: -1 };
+    let top = 0;
+    stack[top++] = s;
+    part[s] = id;
+    while (top > 0) {
+      const i = stack[--top]!;
+      const x = i % w, y = (i - x) / w;
+      p.n++;
+      if (x < p.x0) p.x0 = x;
+      if (x > p.x1) p.x1 = x;
+      if (y < p.y0) p.y0 = y;
+      if (y > p.y1) p.y1 = y;
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          const j = ny * w + nx;
+          if (part[j] !== -1 || data[j]! <= EMPTY_BELOW) continue;
+          part[j] = id;
+          stack[top++] = j;
+        }
+    }
+    parts.push(p);
+  }
+  if (parts.length < 2) return plane;
+  const big = parts.reduce((a, b) => (b.n > a.n ? b : a));
+  const stray = parts.map((p) => p.n < big.n * STRAY_SHARE && (p.x1 < big.x0 || p.x0 > big.x1 || p.y1 < big.y0 || p.y0 > big.y1));
+  for (let i = 0; i < w * h; i++) if (part[i]! >= 0 && stray[part[i]!]) data[i] = 0;
+  return plane;
+}
+
 /** The plane at another size, read between its pixels (bilinear): the work plane up to the picture's own size for the saved mask, a loaded one down to the plane's. */
 export function resample(plane: Plane, w: number, h: number): Plane {
   if (w === plane.w && h === plane.h) return { w, h, data: plane.data.slice() };
