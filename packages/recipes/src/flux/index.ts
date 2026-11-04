@@ -1,6 +1,7 @@
 import { defineFamily, defineRecipe, GraphBuilder, type InputSpec, type PromptLine, QUALITY_WORDS, WEIGHT_SYNTAX, wordCount } from "@afflatus/core";
 import { pictureForm } from "../shared/pictureForm";
 import { flowKit, flowRecipes, type FlowBase, type FlowSpec } from "../flow/recipes";
+import { detectorSlots } from "../shared/detector";
 
 /**
  * FLUX.1: pictures from plain sentences. Written blind from ComfyUI's own templates
@@ -58,6 +59,8 @@ export const flux = defineFamily({
       hint: "Optional, with Redux: sigclip_vision_patch14_384.safetensors in ComfyUI's models/clip_vision folder.",
       get: { file: "sigclip_vision_patch14_384.safetensors", url: "https://huggingface.co/Comfy-Org/sigclip_vision_384/resolve/main/sigclip_vision_patch14_384.safetensors" },
     },
+    // txt2img's Detail rows find faces, hands and people with these (shared/adetail.ts)
+    ...detectorSlots(["flux.text-to-picture"]),
   ],
   loraMatch: ["flux[ ._-]?1", "flux(?![ ._-]?2)"],
   guide: `FLUX.1 reads plain sentences, not tags: subject first, then action, setting, light, camera and style. 30 to 60 words is the sweet spot; past 75 the details get lost. It has no negative prompt and ignores weights.

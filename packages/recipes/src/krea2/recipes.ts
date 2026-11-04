@@ -12,7 +12,8 @@ import { redrawInTiles, tileInputs, tileNodes, tilePass, inTiles, type TileSetti
 import { krea2Kit, krea2Spec } from "./common";
 import { addedLora, putAdded } from "../shared/model";
 import { addedInputs, withRow, type AddedSpec } from "../shared/addedRows";
-import { FACE_PASS_INPUTS, FACE_PASS_NODES, FACE_PASS_OPTIONAL, FACE_PASS_SLOTS, facePass, type FacePassValues } from "../klein/facePass";
+import { FACE_PASS_INPUTS, FACE_PASS_NODES, FACE_PASS_OPTIONAL, FACE_PASS_SLOTS, facePass, SMALL_FACE_PX, type FacePassValues } from "../klein/facePass";
+import { adetail, ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, adetailOn, ALL_DETAIL, DETECTOR_FILES, sized, type AdetailSettings } from "../shared/adetail";
 
 const files = krea2Spec.files;
 const withStyle = { ...files, styleRef: "krea2_style_reference.safetensors" };
@@ -24,7 +25,7 @@ const krea2Large = (input: { size: SizeValue; hiresScale: number }) => ({ width:
 
 // ---------------------------------------------------------------- txt2img
 
-interface Krea2Picture extends FlowBase, HiresPass, DetailSettings, TileSettings, FacePassValues {
+interface Krea2Picture extends FlowBase, HiresPass, DetailSettings, TileSettings, FacePassValues, AdetailSettings {
   prompt: string;
   /** The person's picture (a cast person's first, or one of the user's): who is in the picture. */
   person: ReferenceValue[];
@@ -79,6 +80,14 @@ const BESIDE = "beside (right of target)";
 const ALIGNED = "aligned (trained)";
 /** The longest side of the person's picture as the text encoder reads it with the prompt: 1024 for people, as tested. */
 const GROUNDING_PX = 1024;
+/**
+ * With a person reference, a face is theirs: Detail: face is Face refine's pass, redrawn by FLUX.2 Klein from their picture
+ * (klein/facePass.ts), not the generic one by Krea 2 from the prompt, which would draw someone else's.
+ */
+const PERSON_FACE = `With a person reference, the face is redrawn from their picture instead (Face refine's FLUX.2 Klein pass, faces under ${SMALL_FACE_PX} px)`;
+/** Whether the person's face is redrawn by Face refine's pass: with a person reference, Face refine or Detail: face on. */
+const personFace = (input: Pick<Krea2Picture, "person" | "faceRefine" | "detailFace">) => Boolean(input.person?.length) && (input.faceRefine || input.detailFace);
+
 /** Why Krea 2 refuses a person reference with style reference images. */
 const NOT_BOTH = "Krea 2 takes a person reference or style reference images, not both (the two LoRAs and the two ways of reading pictures were not made to work together): remove one of them.";
 
@@ -113,6 +122,7 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
     // (drawn as the weight of the style-reference LoRA's row in the LoRA list, card #160)
     { id: "referenceStrength", type: "number", label: "Style strength", note: "the weight of the style-reference LoRA. At 0 it is not loaded", min: 0, max: 1.5, step: 0.05, default: 1, showWhen: "references", advanced: true, inList: "loras" },
     { id: "size", type: "size", label: "Size", default: "tall", grid: 16, min: 256, max: 2048, perModel: true, shapes: krea2Spec.shapes },
+    ...adetailInputs("sentences", PERSON_FACE),
     ...DETAIL_INPUTS,
     ...krea2Kit.inputs.slice(0, -1),
     { id: "hires", type: "toggle", label: "Hires fix", note: "upscale, then a second pass over the larger picture", default: false, advanced: true, perModel: true },
@@ -132,16 +142,18 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
   presets: krea2Spec.presets!,
   // refused before it is queued, and said by the form (build() still throws it for a job queued before)
   refuses: [{ when: { all: [{ input: "person", filled: true }, { input: "references", filled: true }] }, why: NOT_BOTH }],
-  optionalNodes: [...DETAIL_OPTIONAL, ...FACE_PASS_OPTIONAL],
+  optionalNodes: [...DETAIL_OPTIONAL, ...FACE_PASS_OPTIONAL, ...ADETAIL_OPTIONAL],
   // a person reference asks for its LoRA (unless one is picked in its row) and, with Face refine on, Klein's files and the
   // face detector: a pod is sent them; a machine of the user's own makes the picture without the pass rather than wait.
   // Style reference images ask for theirs the same way, which the build refuses them without: a pod was never sent it, and
-  // the job was refused there once its boot was paid (card #226)
+  // the job was refused there once its boot was paid (card #226). The Detail rows ask for their detectors
   needsWith(input, slots, where) {
-    if (input.references?.length && !input.person?.length) return input.styleLora ? [] : ["styleRef"];
-    if (!input.person?.length) return [];
-    const face = input.faceRefine ? FACE_PASS_SLOTS.filter((id) => !where?.own || slots?.[id]) : [];
-    return [...(input.identityLora ? [] : ["identityEdit"]), ...face];
+    const person = Boolean(input.person?.length);
+    const detail = adetailNeeds(input, slots, where, { Face: person });
+    if (input.references?.length && !person) return [...(input.styleLora ? [] : ["styleRef"]), ...detail];
+    if (!person) return detail;
+    const face = personFace(input) ? FACE_PASS_SLOTS.filter((id) => !where?.own || slots?.[id]) : [];
+    return [...new Set([...(input.identityLora ? [] : ["identityEdit"]), ...face, ...detail])];
   },
   nodes: (input) => [
     ...detailNodes(input),
@@ -152,7 +164,9 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
     ...(input.person.length ? ["LoadImage", "VAEEncode", "LoraLoaderModelOnly", "Krea2EditModelPatch", "Krea2EditGroundedEncode"] : []),
     // a hires fix in tiles redraws them from the prompt alone (see build)
     ...(input.person.length && input.hires && inTiles(input, krea2Large(input), KREA2_AREA) ? ["CLIPTextEncode"] : []),
-    ...(input.person.length && input.faceRefine ? FACE_PASS_NODES : []),
+    ...(personFace(input) ? FACE_PASS_NODES : []),
+    // the Detail passes read the prompt alone, which a reference's texts do not hold
+    ...((input.references.length || input.person.length) && adetailOn(input, { Face: input.person.length > 0 }) ? ["CLIPTextEncode"] : []),
     ...(input.hires ? ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode"] : []),
   ],
   build(input, ctx) {
@@ -245,18 +259,29 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
     }
 
     g.phase("decoding");
-    let result = image ?? g.out("VAEDecode", { samples: latent, vae: k.vae });
-    // Face refine: the person's face redrawn from their picture when it is a small one, read at the size it was drawn at
-    const face = person ? facePass(g, ctx, input, result, { pictures: [ctx.uploads["person.0"]!], scale: input.hires ? input.hiresScale : 1 }) : null;
+    const scale = input.hires ? input.hiresScale : 1;
+    // the Detail rows: people and hands redrawn by Krea 2 from the prompt (the user's LoRAs on, not a reference's), each crop
+    // at the size it draws best; a face too when there is no person, whose face is theirs (below)
+    const d = adetail(g, ctx, input, image ?? g.out("VAEDecode", { samples: latent, vae: k.vae }), {
+      model: () => shifted(g, plain, input, { width: 1024, height: 1024 }), clip: k.clip, vae: k.vae,
+      cond: (text) => (!text && !styled && !person ? cond : condOf(g, k, input, text ?? input.prompt)),
+      steps: k.steps, cfg: k.cfg, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed, scale, skip: { Face: person },
+    });
+    let result = d.image;
+    // Face refine (or Detail: face): the person's face redrawn from their picture when it is a small one, read at the size it
+    // was drawn at
+    const face = person ? facePass(g, ctx, { ...input, faceRefine: personFace(input) }, result, { pictures: [ctx.uploads["person.0"]!], scale }) : null;
+    const after = [...d.passes, ...(face?.pass ? [face.pass] : [])];
     if (face?.pass) {
       result = face.image;
-      passes.push(face.pass);
       loads.push(...face.loads);
     }
+    const all = after.length ? [...sized(passes, [W * H, krea2Large(input).width * krea2Large(input).height]), ...after] : passes;
+    const warnings = [...d.warnings, ...(face?.said ? [face.said] : [])];
     const out = g.add("PreviewImage", { images: result });
     return {
-      graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: passes.reduce((n, p) => n + p.steps, 0), passes, loads,
-      ...(face?.said ? { warnings: [face.said] } : {}),
+      graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: all.reduce((n, p) => n + p.steps, 0), passes: all, loads: [...loads, ...d.loads],
+      ...(warnings.length ? { warnings } : {}),
     };
   },
   variants: [
@@ -282,6 +307,17 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
       name: "a person reference, Face refine on its small face",
       input: { prompt: "a", person: [{ asset: "p", role: "person" }] },
       slots: withFaceRefine, uploads: { "person.0": "p.png" },
+    },
+    { name: "Detail: face, hands and person", input: { prompt: "a", ...ALL_DETAIL }, slots: { ...files, ...DETECTOR_FILES } },
+    {
+      name: "Detail on a style reference, its face with words of its own",
+      input: { prompt: "a", references: [{ asset: "a", role: "style" }], ...ALL_DETAIL },
+      slots: { ...withStyle, ...DETECTOR_FILES }, uploads: { "references.0": "a.png" },
+    },
+    {
+      name: "a person reference, Face refine off, Detail: face and hands on: the face from their picture",
+      input: { prompt: "a", person: [{ asset: "p", role: "person" }], faceRefine: false, detailFace: true, detailHands: true },
+      slots: { ...withFaceRefine, ...DETECTOR_FILES }, uploads: { "person.0": "p.png" },
     },
     {
       name: "a person reference with hires fix in tiles, a LoRA, Face refine off",

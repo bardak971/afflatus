@@ -17,6 +17,8 @@ const MODEL = ["model", "checkpoint"];
 /** How every picture form samples, in this order: the LoRAs, the negative, then the sampler's own rows. */
 const SAMPLING = ["loras", "negative", "steps", "cfg", "sampler", "scheduler", "shift", "precision"];
 const DETAIL = ["detail", "detailStrength", "detailMethod", "detailStart", "detailEnd"];
+/** ADetailer inside txt2img (card #272, shared/adetail.ts): a switch, a prompt, a denoise and a size gate for each detector. */
+const ADETAIL = ["Face", "Hands", "Person"].flatMap((k) => [`detail${k}`, `detail${k}Prompt`, `detail${k}Denoise`, `detail${k}Under`]);
 const TILES = ["tiles", "tileSize", "tileOverlap"];
 const HIRES = ["hires", "hiresScale", "hiresUpscaler", "hiresDenoise", "hiresSteps", "hiresSampler", "hiresScheduler", ...TILES];
 const FACE = ["detector", "faceThreshold", "faceCrop", "faceGrow", "faceSize", "faceMax", "faceFeather"];
@@ -26,7 +28,7 @@ const FACE = ["detector", "faceThreshold", "faceCrop", "faceGrow", "faceSize", "
  * draws a form's rows by what they are (texts, pictures, sampling, output), each group in this order.
  */
 export const PICTURE_ROWS: Record<PictureOp, readonly string[]> = {
-  txt2img: ["prompt", "size", ...DETAIL, ...SAMPLING, ...HIRES],
+  txt2img: ["prompt", "size", ...ADETAIL, ...DETAIL, ...SAMPLING, ...HIRES],
   img2img: ["source", "prompt", "strength", ...SAMPLING],
   inpaint: ["source", "mask", "prompt", "strength", "maskGrow", "maskBlur", ...SAMPLING],
   outpaint: ["source", "prompt", "shape", "padLeft", "padRight", "padTop", "padBottom", "feathering", ...SAMPLING],

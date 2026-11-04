@@ -3,9 +3,10 @@ import { pictureForm } from "../shared/pictureForm";
 import { HIRES_PASS_INPUTS, hiresPass, UPSCALER_PREFER, type HiresPass } from "../sdxl/common";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { redrawInTiles, tileInputs, tileNodes, tilePass, inTiles, type TileSettings } from "../shared/tiles";
+import { adetail, ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FILES, sized, type AdetailSettings } from "../shared/adetail";
 import type { FlowBase, FlowKit, FlowSpec } from "./kit";
 
-export interface FlowPicture extends FlowBase, HiresPass, DetailSettings, TileSettings {
+export interface FlowPicture extends FlowBase, HiresPass, DetailSettings, TileSettings, AdetailSettings {
   prompt: string;
   look?: string;
   lookStrength: number;
@@ -41,8 +42,9 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
     title: "txt2img",
     summary: spec.pictureSummary ?? "Text to image, from a natural-language prompt, with optional hires fix.",
     output: "image",
-    // the look of a picture asks for Redux and its vision model, which the build refuses it without (card #226)
-    ...(spec.look ? { needsWith: (input: FlowPicture) => (input.look ? ["redux", "vision"] : []) } : {}),
+    // the look of a picture asks for Redux and its vision model, which the build refuses it without (card #226); the Detail
+    // rows for their detectors
+    needsWith: (input: FlowPicture, slots, where) => [...(spec.look && input.look ? ["redux", "vision"] : []), ...adetailNeeds(input, slots, where)],
     inputs: [
       spec.model,
       { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: spec.placeholder },
@@ -53,6 +55,7 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
           { id: "lookStrength", type: "number", label: "Redux strength", note: "1 follows the picture closely and the prompt little; 0.3 to 0.6 keeps the prompt in charge", min: 0.05, max: 1.5, step: 0.05, default: 0.5, showWhen: "look" },
         ] satisfies InputSpec[])
         : []),
+      ...adetailInputs("sentences"),
       ...DETAIL_INPUTS,
       ...inputs.slice(0, -1),
       { id: "hires", type: "toggle", label: "Hires fix", note: "upscale, then a second pass over the larger picture", default: false, advanced: true, perModel: true },
@@ -75,7 +78,7 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       ...(input.hires ? ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode"] : []),
       ...tileNodes(input.hires && inTiles(input, largeOf(input), AREA)),
     ],
-    optionalNodes: [...SOMETIMES, ...DETAIL_OPTIONAL],
+    optionalNodes: [...SOMETIMES, ...DETAIL_OPTIONAL, ...ADETAIL_OPTIONAL],
     build(input, ctx) {
       const g = new GraphBuilder();
       const k = load(g, input, ctx);
@@ -124,12 +127,24 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
         loads.push(`upscale_models/${input.hiresUpscaler}`);
       }
       g.phase("decoding");
-      const out = g.add("PreviewImage", { images: image ?? g.out("VAEDecode", { samples: latent, vae: k.vae }) });
-      return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: passes.reduce((n, p) => n + p.steps, 0), passes, loads };
+      const drawn = image ?? g.out("VAEDecode", { samples: latent, vae: k.vae });
+      // the Detail rows: faces, hands, people redrawn by the same model, each crop at the size it draws best
+      const d = adetail(g, ctx, input, drawn, {
+        model: () => shifted(g, k.model, input, { width: 1024, height: 1024 }), clip: k.clip, vae: k.vae, cond: (text) => (text ? cond(g, k, input, text) : c),
+        steps: k.steps, cfg: k.cfg, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed, scale: input.hires ? input.hiresScale : 1,
+      });
+      const out = g.add("PreviewImage", { images: d.image });
+      const all = d.passes.length ? [...sized(passes, [size.width * size.height, largeOf(input).width * largeOf(input).height]), ...d.passes] : passes;
+      return {
+        graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: all.reduce((n, p) => n + p.steps, 0), passes: all, loads: [...loads, ...d.loads],
+        ...(d.warnings.length ? { warnings: d.warnings } : {}),
+      };
     },
     variants: [
       { name: "from words, as ComfyUI's template", input: { prompt: "a" } as Partial<FlowPicture>, slots: files },
       ...(spec.look ? [{ name: "the look of a picture (Redux)", input: { prompt: "a", look: "l1" } as Partial<FlowPicture>, slots: { ...files, redux: "flux1-redux-dev.safetensors", vision: "sigclip_vision_patch14_384.safetensors" }, uploads: { look: "l.png" } }] : []),
+      { name: "Detail: face, hands and person", input: { prompt: "a", ...ALL_DETAIL } as Partial<FlowPicture>, slots: { ...files, ...DETECTOR_FILES } },
+      { name: "Detail: face after a hires fix", input: { prompt: "a", detailFace: true, hires: true, hiresUpscaler: "u.pth" } as Partial<FlowPicture>, slots: { ...files, ...DETECTOR_FILES } },
       { name: "detail boost, hires fix 3× in tiles", input: { prompt: "a", detail: true, hires: true, hiresScale: 3, hiresUpscaler: "u.pth" } as Partial<FlowPicture>, slots: files, has: withoutDaemon },
       { name: "a GGUF model, in fp8 asked for (no effect on it)", input: { prompt: "a", model: `${spec.family}-Q4_K_M.gguf`, precision: "fp8_e4m3fn" } as Partial<FlowPicture>, slots: files },
       { name: "a fine-tune with a shift, a LoRA, a negative prompt and hires fix", input: { prompt: "a", ...tuned, hires: true, hiresUpscaler: "u.pth", size: { width: 1152, height: 1536 } } as Partial<FlowPicture>, slots: files },

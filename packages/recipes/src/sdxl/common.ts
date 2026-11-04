@@ -410,5 +410,3 @@ export const SDXL_PRESETS = [
     note: "Animagine: euler a, CFG 4 to 7, its quality tags",
   },
 ];
-/** The face detectors of the Impact Pack, best first. */
-export const FACE_DETECTOR_PREFER = ["face_yolov8m", "face_yolov8", "face"];

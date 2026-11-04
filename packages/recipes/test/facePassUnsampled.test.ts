@@ -17,10 +17,10 @@ describe("a face detailer's pass", () => {
       for (const p of built.passes ?? []) {
         if (!DETAILERS.has(built.graph[p.node]?.class_type ?? "")) continue;
         seen++;
-        expect(p.unsampled, `${r.id} · ${v.name}`).toMatch(/^(No face found|No second face found|Face refine left the face as drawn)/);
+        expect(p.unsampled, `${r.id} · ${v.name}`).toMatch(/^(No face found|No second face found|Face refine left the face as drawn|Detail: (face|hands|person) (left the picture as drawn|found no))/);
       }
     }
-    // the Fix face tools (SDXL, Klein, the flow families'), Klein's two people, Krea 2's Face refine
+    // the Fix face tools (SDXL, Klein, the flow families'), Klein's two people, Krea 2's Face refine, txt2img's Detail rows
     expect(seen).toBeGreaterThan(4);
   });
 });

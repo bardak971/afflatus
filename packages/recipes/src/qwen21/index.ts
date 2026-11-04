@@ -4,6 +4,7 @@ import { pictureForm } from "../shared/pictureForm";
 import { loadUnet, unetNodes } from "../shared/unet";
 import { qwen21Lint } from "../shared/lint";
 import { FACE_AT_NODE, FACE_NODE, faceScore } from "../shared/face";
+import { detectorSlots } from "../shared/detector";
 
 const HF = "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main";
 
@@ -40,6 +41,8 @@ export const qwen21 = defineFamily({
       hint: "Put qwen_image_2.1_vae_bf16.safetensors in ComfyUI's models/vae folder (Qwen Image 2.1 has a VAE of its own).",
       get: { file: "qwen_image_2.1_vae_bf16.safetensors", url: `${HF}/vae/qwen_image_2.1_vae_bf16.safetensors` },
     },
+    // txt2img's Detail rows find faces, hands and people with these (shared/adetail.ts)
+    ...detectorSlots(["qwen21.text-to-picture"]),
   ],
   loraMatch: ["qwen.?image.?2[._]1"],
   guide: `Qwen Image 2.1 was trained on prompts its authors' own rewriter writes (Qwen-Image-2.1-PE), and reads that form best: plain English sentences (or Chinese), one paragraph, no tags, no weights, no quality words.
