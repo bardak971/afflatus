@@ -142,6 +142,21 @@ describe("a box and its row", () => {
   });
 });
 
+describe("a cast person typed with @", () => {
+  it("goes on the region, the @name taken out of its words", async () => {
+    let now: RegionValue[] = [{ id: "r1", box: { x: 0.1, y: 0.1, w: 0.3, h: 0.3 }, prompt: "" }];
+    draw(<Rig start={now} onRegions={(r) => (now = r)} />);
+    const box = await screen.findByRole("textbox", { name: "Region 1: its prompt" });
+    fireEvent.change(box, { target: { value: "@mi" } });
+    (box as HTMLTextAreaElement).setSelectionRange(3, 3);
+    fireEvent.select(box);
+    expect(await screen.findByRole("option", { name: /Mira/ })).toBeTruthy();
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(now[0]!.cast).toBe("zz-test-mira");
+    expect(now[0]!.prompt).toBe("");
+  });
+});
+
 describe("a cast person dropped", () => {
   const dropAt = (x: number, y: number) => {
     const target = layer().closest("[data-zoom-room]")!.parentElement!;

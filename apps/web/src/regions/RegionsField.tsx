@@ -38,7 +38,8 @@ function RegionPrompt({ r, label, placeholder, people, onChange, onCast }: {
   placeholder: string;
   people: Person[];
   onChange(text: string): void;
-  onCast(id: string): void;
+  /** A person picked from the list: who, and the words without the `@name` typed, in one change of the region. */
+  onCast(id: string, text: string): void;
 }) {
   const [caret, setCaret] = useState<number | null>(null);
   const [active, setActive] = useState(0);
@@ -51,8 +52,7 @@ function RegionPrompt({ r, label, placeholder, people, onChange, onCast }: {
   const put = (p: Person) => {
     if (!typed || caret === null) return;
     const next = withoutTyped(value, typed.start, caret);
-    onChange(next.text);
-    onCast(p.id);
+    onCast(p.id, next.text);
     setCaret(null);
     requestAnimationFrame(() => box.current?.setSelectionRange(next.caret, next.caret));
   };
@@ -206,7 +206,7 @@ function RegionRow({ r, n, spec, family, model, loraOptions, people, selected, o
             placeholder={person ? `what ${person.name} does here` : "what is in this box · @ for a cast person"}
             people={people}
             onChange={(prompt) => onChange({ ...r, prompt })}
-            onCast={(cast) => onChange({ ...r, cast })}
+            onCast={(cast, prompt) => onChange({ ...r, cast, prompt })}
           />
         </>
       )}

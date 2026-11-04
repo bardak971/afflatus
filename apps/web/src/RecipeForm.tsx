@@ -29,7 +29,7 @@ import { isOffered } from "./filePlaces";
 import { useFormTarget } from "./formTarget";
 import { drawRegions } from "./regions/drawRegions";
 import { RegionsField, regionsSummary } from "./regions/RegionsField";
-import { GUIDED, regionsAbsent, regionsOf, regionsSpecOf } from "./regions/types";
+import { GUIDED, regionsAbsent, regionList, regionsSpecOf } from "./regions/types";
 import { heldElsewhere } from "./regions/useRegionsStage";
 
 // what is said under a model ComfyUI does not have (with where a preset gets it): fetched the first time one is missing, not
@@ -271,7 +271,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
   const regionsHeld = useFormTarget((st) => (regionsOff ? heldElsewhere(st.target?.forms).length : 0));
   const people = useEntities().data?.items;
   const nameOf = (id: string) => people?.find((e) => e.id === id)?.name;
-  const regionsNow = regionsSpec ? regionsOf(values[regionsSpec.id]) : [];
+  const regionsNow = regionsSpec ? regionList(values[regionsSpec.id]) : [];
   const madeHit = Boolean(q && made) && matchesText(`${MADE_WORDS} ${recipe.title}`, q);
   const lookHit = Boolean(q && look) && matchesText(LOOK_WORDS, q);
 
@@ -457,7 +457,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
         )],
         ["prompt", !promptMoved && <div key="prompt-block" className="contents">{promptBlock}</div>],
         ["regions", regionsHit && regionsSpec && (
-          <Part key="regions" id="regions" title={regionsSpec.label || "Regions"} help={GUIDED} summary={regionsSummary(regionsNow, nameOf)} needs={Boolean(q)}>
+          <Part key="regions" id="regions" title={regionsSpec.label || "Regions"} help={regionsSpec.note ?? GUIDED} summary={regionsSummary(regionsNow, nameOf)} needs={Boolean(q)}>
             <RegionsField
               spec={regionsSpec}
               value={regionsNow}

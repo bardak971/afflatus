@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { useFormTarget } from "../formTarget";
 import type { Size } from "../viewer/zoom";
-import { regionsAbsent, regionsOf, regionsSpecOf, type Absent, type RegionsSpec, type RegionValue } from "./types";
+import { regionsAbsent, regionList, regionsSpecOf, type Absent, type RegionsSpec, type RegionValue } from "./types";
 
 /**
  * The regions as the Stage and the form share them: which one is selected (a box picked on the Stage lights its row up, a
@@ -57,7 +57,7 @@ export interface RegionsHere {
 /** The boxes a draft holds in the form of another model it was on (the first form with any), for a model that takes none. */
 export function heldElsewhere(forms: Record<string, Record<string, unknown>> | undefined): RegionValue[] {
   for (const form of Object.values(forms ?? {})) {
-    const found = regionsOf(form.regions);
+    const found = regionList(form.regions);
     if (found.length) return found;
   }
   return [];
@@ -71,7 +71,7 @@ export function useRegionsHere(): RegionsHere | null {
   if (!spec && !off) return null;
   const whole = target.whole ?? target.values;
   // on a model that takes none, the boxes of the draft's form on another model, shown greyed: never sent, never changed
-  const regions = spec ? regionsOf(whole[spec.id]) : heldElsewhere(target.forms);
+  const regions = spec ? regionList(whole[spec.id]) : heldElsewhere(target.forms);
   return {
     spec,
     off,

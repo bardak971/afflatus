@@ -1,57 +1,24 @@
-import type { LoraValue } from "@afflatus/core";
+import type { InputSpec, RegionValue } from "@afflatus/core";
 
 /**
  * Regions on the Stage (card #271): boxes drawn over the picture's frame, each with a prompt, optionally a person of the
  * cast and a LoRA. The recipes turn the one Regions field into what each family reads (SDXL's masked conditioning, MOSS's
- * JSON layout); here is only what the form and the Stage hold.
- *
- * The shapes are the recipes' (core's RegionsInput and RegionValue, as agreed with the session that writes them); until that
- * is merged they are said here, and `regionsSpecOf` reads an input as one by its type name.
+ * JSON layout); core says the shapes (RegionsInput, RegionValue), here is what the form and the Stage make of them.
  */
 
+export type { RegionValue };
+
 /** A box as a part of the frame, each side 0 to 1: a size change of the form keeps every box where it was on the picture. */
-export interface UnitBox {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
+export type UnitBox = RegionValue["box"];
 
 /** MOSS's two kinds of box: a thing drawn there, or words written there. */
-export type RegionKind = "object" | "text";
-
-export interface RegionValue {
-  id: string;
-  box: UnitBox;
-  /** What is in the box; on a MOSS text box, how its words look ("big cream serif capitals"). */
-  prompt: string;
-  /** A person of the cast (a Prompt kit person's id): their words and their LoRA go to this region. */
-  cast?: string;
-  lora?: LoraValue;
-  /** MOSS only; none: an object. */
-  kind?: RegionKind;
-  /** MOSS's text box: the exact words drawn. */
-  text?: string;
-  /** A painted region (an asset id): kept for later, the recipes read boxes only for now. */
-  mask?: string;
-}
+export type RegionKind = NonNullable<RegionValue["kind"]>;
 
 /** What the "guided" ? says, on the Stage and on the form's card alike. */
 export const GUIDED = "Boxes guide where things go; the model may shift, flip or merge them. Overlapping boxes blend. Not an exact placement.";
 
-/** The Regions input of a recipe, as the form reads it. */
-export interface RegionsSpec {
-  id: string;
-  type: "regions";
-  label: string;
-  note?: string;
-  /** The most boxes the family takes. */
-  max: number;
-  /** The family has Object and Text boxes (MOSS). */
-  kinds?: true;
-  /** A region's LoRA (and its person's) is held to its box, or put on the whole picture; none: no LoRA per region. */
-  lora?: "scoped" | "global";
-}
+/** The Regions input of a recipe (core's RegionsInput). */
+export type RegionsSpec = Extract<InputSpec, { type: "regions" }>;
 
 /** A row the form does not take, with why (Recipe.absent): the Regions card greyed with it. */
 export interface Absent {
@@ -60,16 +27,19 @@ export interface Absent {
   why: string;
 }
 
-/** The recipe's Regions input, read by its type name (the core type is the recipes' session's). */
-export function regionsSpecOf(inputs: ReadonlyArray<{ type: string; id: string }>): RegionsSpec | undefined {
-  return inputs.find((i) => i.type === "regions") as RegionsSpec | undefined;
+/** The recipe's Regions input. */
+export function regionsSpecOf(inputs: readonly InputSpec[]): RegionsSpec | undefined {
+  return inputs.find((i): i is RegionsSpec => i.type === "regions");
 }
 
 /** Why a recipe takes no regions, when it says so (its `absent` row): the card is shown greyed with it. */
 export const regionsAbsent = (absent: readonly Absent[] | undefined): Absent | undefined => absent?.find((a) => a.id === "regions");
 
-/** A form value read as regions: anything else (an old draft, a value of another shape) is none. */
-export function regionsOf(v: unknown): RegionValue[] {
+/**
+ * A form value read as the boxes drawn, every one (core's regionsOf keeps only those that say something, as the recipes send
+ * them): anything else (an old draft, a value of another shape) is none.
+ */
+export function regionList(v: unknown): RegionValue[] {
   if (!Array.isArray(v)) return [];
   return v.filter((r): r is RegionValue => Boolean(r) && typeof r === "object" && typeof (r as RegionValue).id === "string" && Boolean((r as RegionValue).box));
 }

@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { peopleFor, typedPerson, withoutTyped } from "../src/regions/castTyping";
 import { droppedBox, drawnBox, handleOn, isBox, keptInside, movedBox, newRegionId, pixelBox, regionAt, resizedBox, unitPoint, whereSaid } from "../src/regions/geometry";
 import { regionsSummary } from "../src/regions/RegionsField";
-import { regionsAbsent, regionsHow, regionsOf, regionsSpecOf, type RegionValue } from "../src/regions/types";
+import { regionsAbsent, regionsHow, regionList, regionsSpecOf, type RegionValue } from "../src/regions/types";
 import { chipSaid } from "../src/regions/useRegionTool";
+import { carryAcross } from "../src/picker";
+import type { RecipeInfo } from "../src/api";
 import { formSize, heldElsewhere } from "../src/regions/useRegionsStage";
 
 /** Regions on the Stage (card #271): boxes kept in parts of the frame, drawn, moved, resized, picked, said. */
@@ -124,12 +126,12 @@ describe("what the regions say", () => {
   });
 
   it("reads only well-formed regions from a form's value", () => {
-    expect(regionsOf([list[0], { id: 3 }, null, "x"])).toHaveLength(1);
-    expect(regionsOf("nothing")).toEqual([]);
+    expect(regionList([list[0], { id: 3 }, null, "x"])).toHaveLength(1);
+    expect(regionList("nothing")).toEqual([]);
   });
 
   it("finds the Regions input, or why a model takes none", () => {
-    expect(regionsSpecOf([{ id: "prompt", type: "prompt" }, { id: "regions", type: "regions" }])?.id).toBe("regions");
+    expect(regionsSpecOf([{ id: "prompt", type: "prompt", label: "Prompt", style: "tags" }, { id: "regions", type: "regions", label: "Regions", max: 8 }])?.id).toBe("regions");
     expect(regionsAbsent([{ id: "references", label: "Reference images", why: "x" }, { id: "regions", label: "Regions", why: "Qwen 2.1 has no regional prompting" }])?.why).toBe("Qwen 2.1 has no regional prompting");
     expect(regionsHow({ id: "regions", type: "regions", label: "Regions", max: 8, kinds: true })).toMatch(/object or a text/);
   });
@@ -142,5 +144,25 @@ describe("what the regions say", () => {
   it("draws the empty frame at the form's size, or a square", () => {
     expect(formSize([{ id: "size", type: "size" }], { size: { width: 1216, height: 832 } })).toEqual({ w: 1216, h: 832 });
     expect(formSize([], {})).toEqual({ w: 1024, h: 1024 });
+  });
+});
+
+describe("the boxes on a model switch", () => {
+  const recipe = (id: string, regions: object | null) => ({ id, family: id, output: "image", title: id, inputs: [{ id: "prompt", type: "prompt", label: "Prompt", style: "sentences" }, ...(regions ? [{ id: "regions", type: "regions", label: "Regions", max: 8, ...regions }] : [])] }) as unknown as RecipeInfo;
+  const sdxl = recipe("sdxl", { lora: "scoped" });
+  const moss = recipe("moss", { lora: "global", kinds: true });
+  const qwen = recipe("qwen21", null);
+  const lamp = { id: "r1", box: { x: 0.1, y: 0.1, w: 0.3, h: 0.3 }, prompt: "a lamp", lora: { file: "zz-test.safetensors", weight: 0.8 } };
+  const sign = { id: "r2", box: { x: 0.5, y: 0.5, w: 0.4, h: 0.2 }, prompt: "bold serif", kind: "text" as const, text: "OPEN" };
+
+  it("go along to a model that takes them, as it takes them", () => {
+    expect(carryAcross(sdxl, moss, { regions: [lamp] }, undefined).regions).toEqual([lamp]);
+    // a text box has no place on SDXL
+    expect(carryAcross(moss, sdxl, { regions: [lamp, sign] }, undefined).regions).toEqual([lamp]);
+  });
+
+  it("stay behind on a model that takes none, and never replace boxes the other form holds", () => {
+    expect(carryAcross(sdxl, qwen, { regions: [lamp] }, undefined).regions).toBeUndefined();
+    expect(carryAcross(sdxl, moss, { regions: [lamp] }, { regions: [sign] }).regions).toBeUndefined();
   });
 });
