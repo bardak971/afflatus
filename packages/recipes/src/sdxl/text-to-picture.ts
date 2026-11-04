@@ -1,14 +1,15 @@
 import { defineRecipe, GraphBuilder, roundTo, type LoraValue, type Ref, type SizeValue } from "@afflatus/core";
 import { pictureForm } from "../shared/pictureForm";
 import { HIRES_PASS_INPUTS, hiresPass, isVPred, loadSdxl, modelInputs, PREDICTION_NODES, samplingInputs, SDXL_DROPS, SDXL_PRESETS, UPSCALER_PREFER } from "./common";
-import { SDXL_UNION } from "./family";
+import { SDXL_GUIDE } from "./family";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, kSample, withoutDaemon, type DetailSettings } from "../shared/detail";
-import { applyGuide, guideInputs, guideNodes, type GuideSettings } from "../shared/guide";
+import { applyGuide, FOLLOW_MAP, guideInputs, guideNeeds, guideNodes, type GuideSettings } from "../shared/guide";
+import { IP_ADAPTER_INPUTS, IP_FILES, ipAdapterNeeds, ipAdapterNodes, withIpAdapter, type ReferenceSettings } from "../shared/references";
 import { redrawInTiles, tileInputs, tileNodes, TILES_ON, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import { SDXL_AREA } from "./common";
 import { adetail, ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FILES, sized, type AdetailSettings } from "../shared/adetail";
 
-export interface SdxlTextToPicture extends DetailSettings, GuideSettings, TileSettings, AdetailSettings {
+export interface SdxlTextToPicture extends DetailSettings, GuideSettings, TileSettings, AdetailSettings, ReferenceSettings {
   prompt: string;
   /** Tags put in front of the prompt on every render with this model. */
   quality: string;
@@ -45,6 +46,8 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
   output: "image",
   inputs: [
     { id: "prompt", type: "prompt", label: "Prompt", style: "tags", placeholder: "terrace at sunset, woman holding a cup, warm light" },
+    ...IP_ADAPTER_INPUTS,
+    ...guideInputs(SDXL_GUIDE),
     {
       id: "size", type: "size", label: "Size", default: "tall", grid: 8, min: 256, max: 2048, perModel: true,
       shapes: [
@@ -57,7 +60,6 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
     },
     ...adetailInputs("tags"),
     ...DETAIL_INPUTS,
-    ...guideInputs(SDXL_UNION),
     // the checkpoint, its LoRAs and how it samples: the rows of the SDXL tools, which the skeleton lays out (pictureForm)
     ...modelInputs,
     ...samplingInputs(28).filter((i) => i.id !== "seed"),
@@ -79,8 +81,8 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
   ],
   presets: SDXL_PRESETS,
   optionalNodes: [...DETAIL_OPTIONAL, ...ADETAIL_OPTIONAL],
-  // the Detail rows ask for their detectors
-  needsWith: adetailNeeds,
+  // the Detail rows ask for their detectors, reference images for IP-Adapter's files, a guide picture for its ControlNet
+  needsWith: (input, slots, where) => [...adetailNeeds(input, slots, where), ...ipAdapterNeeds(input), ...guideNeeds(input, SDXL_GUIDE)],
 
   nodes(input) {
     const W2 = roundTo(roundTo(input.size.width, 8, 64) * input.hiresScale, 8, 64);
@@ -88,7 +90,8 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
     const tiled = input.hires && inTiles(input, { width: W2, height: H2 }, SDXL_AREA);
     return [
       ...detailNodes(input),
-      ...guideNodes(input),
+      ...guideNodes(input, SDXL_GUIDE),
+      ...ipAdapterNodes(input),
       ...tileNodes(tiled),
       "CheckpointLoaderSimple", "CLIPTextEncode", "EmptyLatentImage", "VAEDecode", "PreviewImage",
       ...fullPassNodes(input, input.steps), ...(input.hires ? ["KSampler"] : []),
@@ -106,15 +109,18 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
   build(input, ctx) {
     const g = new GraphBuilder();
     const loaded = loadSdxl(g, input, input.prompt);
-    const { model, vae } = loaded;
+    const { vae } = loaded;
+    // reference images put on the checkpoint by IP-Adapter: every pass of the picture draws with them, the Detail rows too
+    const referenced = withIpAdapter(g, ctx, loaded.model, input);
+    const model = referenced.model;
     const W = roundTo(input.size.width, 8, 64);
     const H = roundTo(input.size.height, 8, 64);
     const empty = g.out("EmptyLatentImage", { width: W, height: H, batch_size: 1 });
     // a guide picture holds the shapes of the picture drawn whole; tiles are pieces, redrawn from the text alone
-    const guided = applyGuide(g, ctx, { positive: loaded.positive, negative: loaded.negative }, vae, { width: W, height: H }, input);
+    const guided = applyGuide(g, ctx, SDXL_GUIDE, { model, positive: loaded.positive, negative: loaded.negative }, vae, { width: W, height: H }, input);
 
     g.phase("sampling");
-    const sampler = { model, ...guided, seed: ctx.seed, cfg: input.cfg, sampler_name: input.sampler, scheduler: input.scheduler };
+    const sampler = { model, positive: guided.positive, negative: guided.negative, seed: ctx.seed, cfg: input.cfg, sampler_name: input.sampler, scheduler: input.scheduler };
     let latent = kSample(g, { ...sampler, latent_image: empty, steps: input.steps, denoise: 1 }, input, ctx);
     let totalSteps = input.steps;
     const passes: Array<{ node: string; steps: number; pixels?: number }> = [{ node: latent[0], steps: input.steps }];
@@ -177,7 +183,7 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
       outputs: [{ node: out, kind: "image", role: "result" }],
       totalSteps: totalSteps + d.passes.reduce((n, p) => n + p.steps, 0),
       passes: all,
-      loads: [`checkpoints/${input.checkpoint}`, ...d.loads],
+      loads: [`checkpoints/${input.checkpoint}`, ...referenced.loads, ...guided.loads, ...d.loads],
       ...(d.warnings.length ? { warnings: d.warnings } : {}),
     };
   },
@@ -198,7 +204,13 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
     { name: "said to be v-prediction, without the CFG rescale", input: { prompt: "a", checkpoint: "mystery.safetensors", prediction: "v-prediction (zsnr)", rescale: 0 } },
     { name: "detail boost (built-in sharpen)", input: { prompt: "a", checkpoint: "x.safetensors", detail: true }, has: withoutDaemon },
     { name: "a guide picture's edges", input: { prompt: "a", checkpoint: "x.safetensors", guide: "g.png", guideModel: "union.safetensors" }, uploads: { guide: "g.png" } },
-    { name: "a guide picture that is a depth map already", input: { prompt: "a", checkpoint: "x.safetensors", guide: "g.png", guideFollows: "Already a guide map", guideModel: "union.safetensors" }, uploads: { guide: "g.png" } },
+    { name: "a guide picture that is a depth map already", input: { prompt: "a", checkpoint: "x.safetensors", guide: "g.png", guideFollows: FOLLOW_MAP, guideModel: "union.safetensors" }, uploads: { guide: "g.png" } },
+    { name: "a guide picture's pose, on the family's ControlNet", input: { prompt: "a", checkpoint: "x.safetensors", guide: "g.png", guideFollows: "Pose" }, slots: { controlnet: SDXL_GUIDE.file }, uploads: { guide: "g.png" } },
+    {
+      name: "reference images: a style (IP-Adapter Plus) and a person (FaceID), with hires fix",
+      input: { prompt: "a", checkpoint: "x.safetensors", references: [{ asset: "a", role: "style" }, { asset: "b", role: "person" }], hires: true, hiresUpscaler: "u.pth" },
+      slots: IP_FILES, uploads: { "references.0": "a.png", "references.1": "b.png" },
+    },
     { name: "hires fix 3× in tiles, upscale model", input: { prompt: "a", checkpoint: "x.safetensors", hires: true, hiresScale: 3, hiresUpscaler: "u.pth" } },
     { name: "hires fix in tiles asked for, latent", input: { prompt: "a", checkpoint: "x.safetensors", hires: true, hiresUpscaler: LATENT_UPSCALE, tiles: TILES_ON, detail: true }, has: withoutDaemon },
     {

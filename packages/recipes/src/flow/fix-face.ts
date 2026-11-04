@@ -1,5 +1,5 @@
 import { defineRecipe, GraphBuilder, type Recipe } from "@afflatus/core";
-import { pictureForm } from "../shared/pictureForm";
+import { dropsFor, pictureForm } from "../shared/pictureForm";
 import { FACE_INPUTS, faceSteps, NO_FACE, type FaceSettings } from "../sdxl/common";
 import { A_FACE, photo, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
 import { DETECTOR_INPUT } from "../shared/detector";
@@ -56,5 +56,5 @@ export function flowFixFace(spec: FlowSpec, kit: FlowKit): Recipe<FlowFixFace> {
       // Turbo's branch: the LoRA put on, its steps at CFG 1 (the operations' other variants have no turbo file)
       ...(kit.turboFiles ? [{ name: "Turbo with its LoRA", input: { source: "p", detector: "bbox/face.pt", fast: true, turboSteps: 6 } as Partial<FlowFixFace>, slots: kit.turboFiles, uploads: { source: "s.png" }, media: { source: photo } }] : []),
     ],
-  }), spec.drops);
+  }), dropsFor("face", spec.drops));
 }

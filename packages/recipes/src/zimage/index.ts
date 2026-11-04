@@ -1,8 +1,20 @@
 import { defineFamily, type PromptLine, QUALITY_WORDS, WEIGHT_SYNTAX, wordCount } from "@afflatus/core";
 import { flowRecipes, type FlowSpec } from "../flow/recipes";
+import { noReferences } from "../shared/pictureForm";
+import type { GuideWay } from "../shared/guide";
 import { detectorSlots } from "../shared/detector";
 
 const HF = "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files";
+
+const ZIMAGE_UNION = "Z-Image-Turbo-Fun-Controlnet-Union-2.1-2602-8steps.safetensors";
+/**
+ * The Fun ControlNet Union as a patch on the model, as ComfyUI's template for it does (ModelPatchLoader, ZImageFunControlnet
+ * with the control image): its authors give a strength of 0.65 to 1, 0.75 in their examples, held to the end.
+ */
+const ZIMAGE_GUIDE: GuideWay = {
+  kind: "patch", slot: "inpaintCn", file: ZIMAGE_UNION, prefer: ["z.?image.*fun.?controlnet.*union"], strength: 0.75, end: 1,
+  missing: "A control image on Z-Image needs its Fun ControlNet Union: put Z-Image-Turbo-Fun-Controlnet-Union-2.1-2602-8steps.safetensors in ComfyUI's models/model_patches folder (it can be downloaded from Settings).",
+};
 
 /**
  * Z-Image: pictures from plain sentences, in English or Chinese, with legible text in the picture. Written
@@ -17,7 +29,7 @@ export const zimage = defineFamily({
   help: {
     what: "Pictures from sentences in English or Chinese, in 8 steps, with readable text.",
     best: "quick pictures; text in English and Chinese",
-    weak: "in Afflatus, no reference pictures",
+    weak: "no reference pictures",
   },
   promptStyle: "sentences",
   slots: [
@@ -42,10 +54,11 @@ export const zimage = defineFamily({
       get: { file: "ae.safetensors", url: `${HF}/vae/ae.safetensors` },
     },
     {
-      // Alibaba PAI's Fun ControlNet Union 2.1, used here for its inpaint mode only: inpaint and outpaint fit the picture better with it
-      id: "inpaintCn", label: "Fun ControlNet Union (inpaint)", folder: "model_patches", detect: ["z.?image.*fun.?controlnet.*union"], optional: true,
-      hint: "Optional: with Z-Image-Turbo-Fun-Controlnet-Union-2.1-*.safetensors in ComfyUI's models/model_patches folder, inpaint and outpaint are guided to fit the picture around them.",
-      get: { file: "Z-Image-Turbo-Fun-Controlnet-Union-2.1-2602-8steps.safetensors", url: "https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.1/resolve/main/Z-Image-Turbo-Fun-Controlnet-Union-2.1-2602-8steps.safetensors" },
+      // Alibaba PAI's Fun ControlNet Union 2.1: its inpaint mode fits inpaint and outpaint to the picture around them, its
+      // canny, depth and pose modes guide txt2img and img2img by a control image (card #277); one file for both, so one slot
+      id: "inpaintCn", label: "Fun ControlNet Union (inpaint, control image)", folder: "model_patches", detect: ["z.?image.*fun.?controlnet.*union"], optional: true,
+      hint: "Optional: with Z-Image-Turbo-Fun-Controlnet-Union-2.1-*.safetensors in ComfyUI's models/model_patches folder, inpaint and outpaint are guided to fit the picture around them, and txt2img and img2img follow the edges, depth or pose of a control image.",
+      get: { file: ZIMAGE_UNION, url: "https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.1/resolve/5155fc56d17821007d6f62ac192c09e0f0e72016/Z-Image-Turbo-Fun-Controlnet-Union-2.1-2602-8steps.safetensors", sha256: "d1251cc7bc3486bc61d25c3be498ef394c31c85ddf4ee9137d2e933411f4a689" },
     },
     // txt2img's Detail rows find faces, hands and people with these (shared/adetail.ts)
     ...detectorSlots(["zimage.text-to-picture"]),
@@ -95,6 +108,8 @@ const spec: FlowSpec = {
   // a 1.5× pass that redraws little: the authors' own 2K upscale redraws 0.33 and warns against more than 0.35
   hires: { scale: 1.5, denoise: 0.3 },
   inpaintPatch: { slot: "inpaintCn" },
+  guide: ZIMAGE_GUIDE,
+  drops: noReferences("Z-Image Turbo reads no reference image: no Redux or IP-Adapter is made for it"),
   shapes: [
     { id: "tall", label: "Portrait", width: 896, height: 1152 },
     { id: "square", label: "Square", width: 1024, height: 1024 },
@@ -114,7 +129,7 @@ const spec: FlowSpec = {
     },
   ],
   placeholder: "A photograph of a small bookshop at dusk, a hand-painted sign above the door that reads \"OPEN LATE\", warm light from the windows on the wet pavement.",
-  files: { unet: "z_image_turbo_bf16.safetensors", clip: "qwen_3_4b.safetensors", vae: "ae.safetensors", inpaintCn: "Z-Image-Turbo-Fun-Controlnet-Union-2.1-2602-8steps.safetensors" },
+  files: { unet: "z_image_turbo_bf16.safetensors", clip: "qwen_3_4b.safetensors", vae: "ae.safetensors", inpaintCn: ZIMAGE_UNION },
   fineTune: "ZImage\\someone_zimage_turbo_v1.safetensors",
 };
 

@@ -443,7 +443,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
         ["inputs", (
           <InputsPart
             key="inputs"
-            frames={frames} refs={refs} framesChosen={said.framesChosen.length} refsCount={said.refsCount} chosen={JSON.stringify([...frames, ...refs].map((i) => values[i.id] ?? null))} summary={inputsSummary} missing={said.missing}
+            frames={frames} refs={refs} absent={recipe.absent} framesChosen={said.framesChosen.length} refsCount={said.refsCount} chosen={JSON.stringify([...frames, ...refs].map((i) => values[i.id] ?? null))} summary={inputsSummary} missing={said.missing}
             look={look} lookHit={lookHit} lookWithFrames={lookWithFrames} frameExtra={frameExtra} q={q} render={render}
           />
         )],

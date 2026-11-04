@@ -188,7 +188,7 @@ function withWords(own: string, before: string[], after: string[], tags: boolean
 /** Another model of the same maker and output whose form takes reference pictures ("LTX 2.5" for LTX 2.3), when there is one. */
 function takesReferences(recipe: Recipe<any>, name: string): string | undefined {
   const maker = name.split(" ")[0]!.toLowerCase();
-  const other = recipes.find((r) => r.family !== recipe.family && r.output === recipe.output && !r.hidden && (r.inputs as InputSpec[]).some((i) => i.type === "references" && !i.media) && familyById(r.family)?.name.split(" ")[0]!.toLowerCase() === maker);
+  const other = recipes.find((r) => r.family !== recipe.family && r.output === recipe.output && !r.hidden && (r.inputs as InputSpec[]).some((i) => i.type === "references" && !i.media && !i.noCast) && familyById(r.family)?.name.split(" ")[0]!.toLowerCase() === maker);
   return other && familyById(other.family)?.name;
 }
 
@@ -228,7 +228,7 @@ export async function compose(db: Db, recipe: Recipe<any>, asked: Record<string,
   const main = specs.find((i) => i.type === "prompt" && !i.optional && !i.noCast) ?? specs.find((i) => i.type === "prompt" && !i.noCast);
   const tags = main?.type === "prompt" && main.style === "tags";
   const subjectSpec = specs.find((i) => i.type === "prompt" && i.holds === "subject");
-  const refSpec = specs.find((i) => i.type === "references" && !i.media);
+  const refSpec = specs.find((i) => i.type === "references" && !i.media && !i.noCast);
   // each picture a subject of its own (LTX 2.5's MSR slots): one per person and one per place, not more views of the same one
   const subjects = refSpec?.type === "references" && Boolean(refSpec.subjects);
   const sent = subjects ? { person: 1, place: 1 } : PICTURES;

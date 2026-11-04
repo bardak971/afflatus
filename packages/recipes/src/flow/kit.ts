@@ -5,6 +5,7 @@ import { addedInputs, addedRow, type AddedSpec } from "../shared/addedRows";
 import { TILE_NODES } from "../shared/tiles";
 import { GGUF_LOADER, loadUnet, unetNodes } from "../shared/unet";
 import { sigmaWords } from "../shared/sigmaWords";
+import type { GuideWay } from "../shared/guide";
 
 /**
  * The picture models that are built the same way in ComfyUI (a diffusion model in a file of its own, one
@@ -83,14 +84,17 @@ export interface FlowSpec {
   presets?: Preset[];
   placeholder: string;
   /**
-   * The look of a picture (FLUX.1 Redux): the picture is read by a vision model and what it sees is added to
-   * the prompt, so the new picture takes its style, colours and subject without copying it. Its two files
-   * are the family's slots `redux` and `vision`.
+   * Reference images on txt2img and img2img, read by Redux (FLUX.1): each picture is read by a vision model and what it sees
+   * is added to the prompt, so the new picture takes its style, colours and subject without copying it. Its two files are
+   * the family's slots `redux` and `vision`. Left out, the family drops the rows (its `drops` say why).
    */
-  look?: boolean;
+  references?: "redux";
+  /** A guide picture on txt2img and img2img (shared/guide.ts): how the family's ControlNet is put on. Left out, it drops the rows. */
+  guide?: GuideWay;
   /**
-   * The sampling rows every picture form shares (see pictureForm) that this family's forms do not take, each with why: Krea 2's
-   * own inputs have no weight precision.
+   * The rows every picture form shares (see pictureForm) that this family's forms do not take, each with why: Krea 2's own
+   * inputs have no weight precision; a family with no ControlNet has no guide rows (noGuide). Each operation takes those of
+   * its own rows (dropsFor).
    */
   drops?: Record<string, string>;
   /** For the graph checker: the family's files under their usual names, and what a fine-tune could be called. */

@@ -1,5 +1,5 @@
 import { defineRecipe, GraphBuilder, roundTo, type InputSpec, type ReferenceValue, type Ref, type SizeValue } from "@afflatus/core";
-import { pictureForm } from "../shared/pictureForm";
+import { noGuide, noReferences, pictureForm } from "../shared/pictureForm";
 import {
   boxOf, FACE_INPUTS, faceSteps, FACTOR_INPUT, HIRES_PASS_INPUTS, nothingToExtend, OUTPAINT_INPUTS, outpaintSides, SAME_PASS, shapeInput, MASK_INPUTS, NO_FACE, MASK_NODES, maskParts, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_PREFER,
   type FaceSettings, type MaskSettings, type OutpaintSettings, type RefineColourMatch, type UpscaleSettings,
@@ -19,6 +19,8 @@ const photo = { width: 1536, height: 2048 };
 const ALL_ROLES = ["person", "place", "clothing", "object", "style"] as const;
 
 /** The sampling rows of the picture forms (pictureForm) that Klein's do not take. */
+/** Klein's txt2img and img2img take no control image (card #277, Hugging Face read on 2026-11-04). */
+const KLEIN_NO_GUIDE = noGuide("no ControlNet ComfyUI loads is made for Klein: DiffSynth's for Klein Base 4B (2026-04) runs in DiffSynth-Studio only. A pose or depth picture can go in as a reference image");
 const KLEIN_DROPS = {
   scheduler: "Klein samples on Flux2Scheduler, laid out for the size it draws at: there is no scheduler to pick",
   shift: "Flux2Scheduler sets Klein's shift from the size it draws at",
@@ -174,6 +176,8 @@ export const kleinPicture = pictureForm("txt2img", defineRecipe<KleinPicture>({
 }), {
   ...KLEIN_DROPS,
   hiresScheduler: "Klein samples on Flux2Scheduler: there is no scheduler to pick",
+  referenceStrength: "Klein reads a reference image as one more picture beside the prompt: it has no strength of its own",
+  ...KLEIN_NO_GUIDE,
 });
 
 // ---------------------------------------------------------------- change a picture with words
@@ -273,7 +277,11 @@ export const kleinRedraw = pictureForm("img2img", defineRecipe<KleinRedraw>({
     { name: "a large picture, a LoRA, strong", input: { source: "p", prompt: "a", strength: 0.8, loras: [{ file: "l.safetensors", weight: 0.8 }] }, slots: files, uploads: { source: "s.png" }, media: { source: { width: 3000, height: 2000 } } },
     { name: "all the way: a new picture of its shape", input: { source: "p", prompt: "a", strength: 1 }, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
   ],
-}), KLEIN_DROPS);
+}), {
+  ...KLEIN_DROPS,
+  ...noReferences("img2img redraws from the prompt alone: a picture beside it would be kept as it is, as Edit keeps it (txt2img and Edit take reference images)"),
+  ...KLEIN_NO_GUIDE,
+});
 
 // ---------------------------------------------------------------- paint over a part
 
