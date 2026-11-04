@@ -41,7 +41,10 @@ describe("the families a ComfyUI is too old for", () => {
     expect(names("0.3.10")).not.toContain("sdxl");
     expect(names("0.3.10")).not.toContain("zimage");
     expect(old.families.find((f) => f.id === "h3")).toMatchObject({ name: "MiniMax H3", needs: "0.35.0", only: null });
-    expect(old.needs).toBe("0.37.0");
+    // MOSS-Image's text encoder is read from 0.42 on, through nodes older than it (Recipe.comfy)
+    expect(old.families.find((f) => f.id === "moss")).toMatchObject({ name: "MOSS-Image", needs: "0.42.0", only: null });
+    expect(names("0.41.2")).toEqual(["moss"]);
+    expect(old.needs).toBe("0.42.0");
   });
 
   it("names the forms a family runs only in part (H3's Motion transfer needs 0.35, its others 0.30)", () => {
@@ -49,7 +52,7 @@ describe("the families a ComfyUI is too old for", () => {
     expect(h3.needs).toBe("0.35.0");
     expect(h3.only).toEqual([recipes.find((r) => r.id === "h3.motion")!.title]);
     // Qwen Image 2.1 in part: its Upscale 2x without the light pass loads no model (as Klein's), and runs on any ComfyUI
-    expect(tooOldSaid(comfyTooOld("0.34.0", families, recipes)!)).toBe("Qwen Image 2.1 (7 of 8 forms), MiniMax H3 (Motion transfer)");
+    expect(tooOldSaid(comfyTooOld("0.34.0", families, recipes)!)).toBe("Qwen Image 2.1 (7 of 8 forms), MOSS-Image, MiniMax H3 (Motion transfer)");
     // a family it runs a little of says how many of its forms it cannot, past two
     expect(tooOldSaid(comfyTooOld("0.3.10", families, recipes)!)).toMatch(/FLUX\.2 Klein \(\d of \d forms\)/);
   });

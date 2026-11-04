@@ -433,6 +433,60 @@ export interface CueValue {
   /** When it lands, in seconds of the clip's own time. */
   at: number;
 }
+/**
+ * Boxes over the picture's frame, each with words of its own (card #271): drawn on the Stage of a txt2img draft, each family
+ * turns them into what its model reads (MOSS-Image's JSON layout, SDXL's masked conditioning). The result is guided, not
+ * exact: a box says where a thing should go, the model may still move or spill it. A family without a way to read them
+ * leaves the input out and says why (pictureForm's drops, shown greyed).
+ */
+interface RegionsInput extends Base {
+  type: "regions";
+  max: number;
+  /** Each box is an object or a text drawn word for word (MOSS-Image's layout): a text box's prompt is how its letters look. */
+  kinds?: true;
+  /**
+   * What a region's LoRA (its own, or its cast person's) does: "scoped" to its box (SDXL's hooks), or "global", put on the whole
+   * picture (a model that reads every box in one text). Left out, a region takes no LoRA.
+   */
+  lora?: "scoped" | "global";
+}
+/** One region: its box as shares of the frame (top-left origin), so that it holds through a change of size. */
+export interface RegionValue {
+  id: string;
+  box: { x: number; y: number; w: number; h: number };
+  /** What is in the box; of a text box, how its letters look. */
+  prompt: string;
+  /** A Prompt kit person: their words and their LoRA come with them into this box alone (entities.ts regionCast). */
+  cast?: string;
+  lora?: LoraValue;
+  /** The cast person's LoRA for this model, put in by the server as it works the person in (never by the form). */
+  castLora?: LoraValue;
+  kind?: "object" | "text";
+  /** The words a text box draws, as they are. */
+  text?: string;
+  /** A painted region's mask (an uploaded picture): kept for later, boxes only for now. */
+  mask?: string;
+}
+/** A region's box as the recipes read it: within the frame, at least a sliver wide and tall. */
+export const regionBox = (box: RegionValue["box"]) => {
+  const x = Math.min(Math.max(box.x, 0), 1), y = Math.min(Math.max(box.y, 0), 1);
+  return { x, y, w: Math.max(Math.min(box.w, 1 - x), 0.01), h: Math.max(Math.min(box.h, 1 - y), 0.01) };
+};
+/**
+ * Regions as another form's input takes them (a draft moved from SDXL to MOSS-Image, or back): a text box only where boxes
+ * have kinds (elsewhere it is left behind, its words drawn by nobody), a LoRA only where a region takes one, at most `max`.
+ */
+export function regionsFor(spec: RegionsInput, value: unknown): RegionValue[] {
+  const list = Array.isArray(value) ? (value as RegionValue[]) : [];
+  return list
+    .filter((r) => spec.kinds || r.kind !== "text")
+    .map(({ lora, kind, text, castLora: _server, ...r }) => ({ ...r, ...(spec.lora && lora ? { lora } : {}), ...(spec.kinds && kind ? { kind } : {}), ...(spec.kinds && kind === "text" && text !== undefined ? { text } : {}) }))
+    .slice(0, spec.max);
+}
+/** The regions a form holds that say something: a box with words, a text or a person; the others are drawn and left. */
+export const regionsOf = (value: unknown): RegionValue[] =>
+  (Array.isArray(value) ? (value as RegionValue[]) : []).filter((r) => r.prompt?.trim() || r.text?.trim() || r.cast);
+
 /** The longest part of a sound a cue takes, in seconds: a clip lasts 15 at most. */
 export const CUE_MAX_SECONDS = 15;
 
@@ -514,7 +568,7 @@ export function partFit(fit: PartFit, specs: InputSpec[], values: Record<string,
 }
 
 export type InputSpec =
-  | PromptInput | ModelInput | LorasInput | SizeInput | NumberInput | ToggleInput | ChoiceInput | SeedInput | ImageInput | ClipInput | ReferencesInput | AudioInput | CuesInput;
+  | PromptInput | ModelInput | LorasInput | SizeInput | NumberInput | ToggleInput | ChoiceInput | SeedInput | ImageInput | ClipInput | ReferencesInput | AudioInput | CuesInput | RegionsInput;
 
 export interface ClipValue {
   /** The video's id in the library. */
@@ -614,6 +668,16 @@ function schemaOf(spec: InputSpec): z.ZodType {
       return z.array(z.strictObject({
         asset: z.string().min(1), start: z.number().min(0), seconds: z.number().positive().max(CUE_MAX_SECONDS), at: z.number().min(0),
       })).max(spec.max).default([]);
+    case "regions": {
+      const share = z.number().min(0).max(1);
+      const lora = z.strictObject({ file: z.string().min(1), weight: z.number().min(-4).max(4) });
+      return z.array(z.strictObject({
+        id: z.string().min(1).max(64), box: z.strictObject({ x: share, y: share, w: share, h: share }), prompt: z.string().max(4000).default(""),
+        cast: z.string().min(1).max(64).optional(), lora: lora.optional(), castLora: lora.optional(),
+        // a text box only where the model draws text by box; elsewhere every box is an object
+        kind: (spec.kinds ? z.enum(["object", "text"]) : z.literal("object")).optional(), text: z.string().max(2000).optional(), mask: z.string().min(1).optional(),
+      })).max(spec.max).default([]);
+    }
   }
 }
 

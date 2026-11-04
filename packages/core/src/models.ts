@@ -65,6 +65,8 @@ export function baseLabel(raw: string): string {
   if (/wan[\s._-]*2[\s._-]*2/.test(s)) return "Wan 2.2";
   if (/wan/.test(s)) return "Wan 2.1";
   if (/minimax|(^|[^a-z])h3([^a-z]|$)/.test(s)) return "MiniMax H3";
+  // before FLUX.2 and the Qwens: its VAE is FLUX.2's, its text encoder Qwen3.5's
+  if (/moss[\s._-]*image/.test(s)) return "MOSS-Image";
   if (/klein/.test(s)) return "FLUX.2 Klein";
   if (/flux[\s._-]*2/.test(s)) return "FLUX.2";
   if (/flux/.test(s)) return "FLUX.1";

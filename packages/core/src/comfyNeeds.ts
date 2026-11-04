@@ -3,17 +3,19 @@ import { compareVersions } from "./versions";
 
 /**
  * ComfyUI's own node types the built-in forms use, by the release that brought each (its first tag whose nodes.py or
- * comfy_extras registers it, read from ComfyUI's git history up to v0.42.5, 2026-10-28). "0.0.1" is the first tag: there
+ * comfy_extras registers it, read from ComfyUI's git history up to v0.42.5, 2026-10-28; the regions' and MOSS-Image's up to v0.44.0,
+ * 2026-11-04). "0.0.1" is the first tag: there
  * since before ComfyUI had versions. No custom node pack brings these: a ComfyUI that lacks one is updated, not given a
  * pack (a test holds the list against the node catalog in reference/, by each node's python_module).
  */
 const CORE_SINCE_TABLE: Array<[string, string[]]> = [
-  ["0.0.1", ["BasicGuider", "BasicScheduler", "CFGGuider", "CLIPLoader", "CLIPSetLastLayer", "CLIPTextEncode", "CLIPVisionEncode", "CLIPVisionLoader", "Canny", "CheckpointLoaderSimple", "ConditioningZeroOut", "ControlNetApplyAdvanced", "ControlNetLoader", "CropMask", "DifferentialDiffusion", "DisableNoise", "DualCLIPLoader", "EmptyLatentImage", "EmptySD3LatentImage", "GrowMask", "ImageBatch", "ImageBlend", "ImageBlur", "ImageCompositeMasked", "ImageCrop", "ImageFromBatch", "ImagePadForOutpaint", "ImageScale", "ImageScaleToTotalPixels", "ImageToMask", "ImageUpscaleWithModel", "InvertMask", "JoinImageWithAlpha", "KSampler", "KSamplerAdvanced", "KSamplerSelect", "KarrasScheduler", "LatentCompositeMasked", "LatentUpscale", "LoadAudio", "LoadImage", "LoadImageMask", "LoraLoader", "LoraLoaderModelOnly", "MaskComposite", "MaskToImage", "ModelSamplingAuraFlow", "ModelSamplingDiscrete", "ModelSamplingSD3", "PreviewImage", "RandomNoise", "RebatchImages", "RepeatImageBatch", "RescaleCFG", "SamplerCustom", "SamplerCustomAdvanced", "SetLatentNoiseMask", "SolidMask", "SplitImageWithAlpha", "SplitSigmas", "SplitSigmasDenoise", "StyleModelApply", "StyleModelLoader", "UNETLoader", "UpscaleModelLoader", "VAEDecode", "VAEDecodeAudio", "VAEDecodeTiled", "VAEEncode", "VAEEncodeForInpaint", "VAEEncodeTiled", "VAELoader"]],
+  ["0.0.1", ["BasicGuider", "BasicScheduler", "CFGGuider", "CLIPLoader", "CLIPSetLastLayer", "CLIPTextEncode", "CLIPVisionEncode", "CLIPVisionLoader", "Canny", "CheckpointLoaderSimple", "ConditioningCombine", "ConditioningSetMask", "ConditioningZeroOut", "ControlNetApplyAdvanced", "ControlNetLoader", "CropMask", "DifferentialDiffusion", "DisableNoise", "DualCLIPLoader", "EmptyLatentImage", "EmptySD3LatentImage", "GrowMask", "ImageBatch", "ImageBlend", "ImageBlur", "ImageCompositeMasked", "ImageCrop", "ImageFromBatch", "ImagePadForOutpaint", "ImageScale", "ImageScaleToTotalPixels", "ImageToMask", "ImageUpscaleWithModel", "InvertMask", "JoinImageWithAlpha", "KSampler", "KSamplerAdvanced", "KSamplerSelect", "KarrasScheduler", "LatentCompositeMasked", "LatentUpscale", "LoadAudio", "LoadImage", "LoadImageMask", "LoraLoader", "LoraLoaderModelOnly", "MaskComposite", "MaskToImage", "ModelSamplingAuraFlow", "ModelSamplingDiscrete", "ModelSamplingSD3", "PreviewImage", "RandomNoise", "RebatchImages", "RepeatImageBatch", "RescaleCFG", "SamplerCustom", "SamplerCustomAdvanced", "SetLatentNoiseMask", "SolidMask", "SplitImageWithAlpha", "SplitSigmas", "SplitSigmasDenoise", "StyleModelApply", "StyleModelLoader", "UNETLoader", "UpscaleModelLoader", "VAEDecode", "VAEDecodeAudio", "VAEDecodeTiled", "VAEEncode", "VAEEncodeForInpaint", "VAEEncodeTiled", "VAELoader"]],
   ["0.0.3", ["SetUnionControlNetType"]],
   ["0.0.4", ["FluxGuidance", "ModelSamplingFlux"]],
   ["0.2.3", ["TorchCompileModel"]],
   ["0.2.4", ["LatentApplyOperationCFG", "LatentOperationSharpen"]],
   ["0.3.2", ["EmptyLTXVLatentVideo", "LTXVConditioning", "LTXVScheduler"]],
+  ["0.3.7", ["ConditioningSetProperties", "ConditioningSetPropertiesAndCombine", "CreateHookLora", "SetClipHooks"]],
   ["0.3.8", ["EmptyHunyuanLatentVideo"]],
   ["0.3.16", ["WanImageToVideo"]],
   ["0.3.20", ["LTXVAddGuide", "LTXVCropGuides", "LTXVPreprocess"]],
@@ -21,6 +23,7 @@ const CORE_SINCE_TABLE: Array<[string, string[]]> = [
   ["0.3.31", ["CreateVideo", "GetVideoComponents", "LoadVideo", "SaveVideo"]],
   ["0.3.35", ["ImageAddNoise"]],
   ["0.3.42", ["FluxKontextImageScale", "ReferenceLatent"]],
+  ["0.3.44", ["SkipLayerGuidanceDiTSimple"]],
   ["0.3.45", ["CFGNorm"]],
   ["0.3.51", ["FluxKontextMultiReferenceLatentMethod"]],
   ["0.3.52", ["ModelPatchLoader"]],
@@ -37,12 +40,14 @@ const CORE_SINCE_TABLE: Array<[string, string[]]> = [
   ["0.20.0", ["ColorTransfer", "FrameInterpolate", "FrameInterpolationModelLoader", "SAM3_Detect", "SAM3_VideoTrack"]],
   ["0.21.0", ["LoadBackgroundRemovalModel", "RemoveBackground"]],
   ["0.25.0", ["SCAIL2ColoredMask"]],
+  ["0.27.0", ["CreateBoundingBoxes"]],
   ["0.28.0", ["SeedVR2Conditioning", "SeedVR2PostProcessing", "SeedVR2Preprocess", "SeedVR2TemporalChunk", "SeedVR2TemporalMerge"]],
   ["0.30.0", ["MiniMaxH3ImageToVideo", "MiniMaxH3ReferenceToVideo", "MiniMaxH3SigmaShift"]],
   ["0.32.0", ["LTXVDualCFGGuider", "ModelAttentionBackend"]],
   ["0.34.0", ["MiniMaxH3AddGuide"]],
   ["0.35.0", ["LTXVAddLatentGuide", "MiniMaxH3FunControlNetApply"]],
   ["0.37.0", ["QwenImage21Cache", "TextEncodeQwenImage21"]],
+  ["0.42.0", ["MOSSImageLayoutPrompt"]],
 ];
 
 const CORE_SINCE = new Map(CORE_SINCE_TABLE.flatMap(([since, nodes]) => nodes.map((n) => [n, since] as const)));
@@ -75,6 +80,8 @@ export function recipeComfySince(r: Recipe<any>): string | null {
   let since: string | null = null;
   try {
     since = comfySince(r.variants[0] ? r.nodes(parseInput(r, r.variants[0].input)) : []);
+    // a model ComfyUI reads only from a release on, through nodes older than it (MOSS-Image's CLIPLoader type, 0.42)
+    if (r.comfy) since = since ? newest([since, r.comfy]) : r.comfy;
   } catch {
     // a recipe that cannot say its nodes (a saved workflow gone wrong) says nothing of ComfyUI's version
   }

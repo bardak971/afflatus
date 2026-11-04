@@ -38,6 +38,7 @@ export function defaultOf(spec: InputSpec, options: string[] | undefined): unkno
     case "references": return [];
     case "audio": return undefined;
     case "cues": return [];
+    case "regions": return [];
   }
 }
 
