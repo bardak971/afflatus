@@ -3,6 +3,7 @@ import type { RegionValue } from "@afflatus/core";
 import type { RecipeInfo } from "../src/api";
 import { boxesWhy, boxInHand } from "../src/paintFix/BoxBar";
 import { startEditor, type BoxEditor } from "../src/paintFix/boxEditors";
+import { boxesIgnored } from "../src/paintFix/FixBar";
 import { boxInputs } from "../src/paintFix/useFixJob";
 
 // Edit in a box (card #284): which editor a picture starts on, which box the bar's field holds, what is sent
@@ -43,5 +44,12 @@ describe("what an Edit in box sends", () => {
   it("each box's place and its instruction, trimmed, nothing of a region's cast or LoRA, then the ⚙ rows", () => {
     const sent = boxInputs([{ ...box("a", " a deer "), cast: "p1", lora: { file: "l.safetensors", weight: 1 } }], { steps: 20 });
     expect(sent).toEqual({ boxes: [{ id: "a", box: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 }, prompt: "a deer" }], steps: 20 });
+  });
+});
+
+describe("what Fix's bar says of edit boxes under a painted mask", () => {
+  it("names how many boxes the fix leaves out", () => {
+    expect(boxesIgnored(1)).toBe("Fix uses the mask · the 1 box is ignored");
+    expect(boxesIgnored(3)).toBe("Fix uses the mask · the 3 boxes are ignored");
   });
 });

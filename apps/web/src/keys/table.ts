@@ -523,12 +523,12 @@ export const PLACES: KeyPlace[] = [
         name: "The tools",
         rows: [
           // paintFix/PaintAndFix.tsx: with an instruction editor, B and V are Edit in box's (card #284) and the mask's box is O
-          { keys: "B", does: "Box: edit in it", note: "its instruction in the bar; the mask's box (O) without an edit model" },
+          { keys: "B", does: "Edit box", note: "its instruction in the bar; the rectangle mask (O) without an edit model" },
           { keys: "V", does: "Pick and move a box", note: "its handles resize it" },
           { keys: "Delete | Backspace", does: "Remove the box picked" },
           { keys: "P", does: "Soft brush" },
           { keys: "E", does: "Eraser" },
-          { keys: "O", does: "Box mask", note: "Shift: a square; Alt: takes away" },
+          { keys: "O", does: "Rectangle mask", note: "Shift: a square; Alt: takes away" },
           { keys: "L", does: "Lasso", note: "Alt: takes away" },
           { keys: "C", does: "Click to mask", note: "Shift+click takes away" },
           { keys: "D", does: "Find a face, hands, a person" },

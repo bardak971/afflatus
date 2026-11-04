@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import type { Asset } from "../../src/api";
+import { boxesSaid } from "../../src/paintFix/PaintAndFix";
 import { useStageMode } from "../../src/paintFix/useStageMode";
 import { Viewer } from "../../src/Viewer";
 import { fakeApi } from "./fakeApi";
@@ -20,16 +21,22 @@ async function painting(recipes: unknown[] = [INPAINT, BOXED("qwen21"), BOXED("k
   fakeApi.on("GET /recipes", { families, recipes });
   fakeApi.on("GET /assets/:id/versions", { head, versions: [{ ...picture("zz-test-v1"), versionOf: head.id }] });
   fakeApi.on("POST /jobs", { ids: ["zz-test-job"] });
-  draw(<Viewer inline asset={head} items={[head]} onOpen={() => {}} onClose={() => {}} />);
+  const drawn = draw(<Viewer inline asset={head} items={[head]} onOpen={() => {}} onClose={() => {}} />);
   await screen.findByRole("group", { name: "Versions" });
-  act(() => useStageMode.getState().set(head.id, "paint"));
+  return { ...(await paintOn(head.id)), drawn };
+}
+
+/** Paint and fix opened on `id`, the layer once it is up. */
+async function paintOn(id: string) {
+  act(() => useStageMode.getState().set(id, "paint"));
   await screen.findByRole("group", { name: "Fix" });
   Element.prototype.setPointerCapture ??= () => {};
-  return waitFor(() => {
+  const layer = await waitFor(() => {
     const el = document.querySelector("[data-stage-layer]");
     if (!el) throw new Error("no layer yet");
     return el;
   });
+  return { layer };
 }
 const key = (k: string) => fireEvent.keyDown(window, { key: k });
 const pointer = (layer: Element, type: string, x: number, y: number) =>
@@ -41,14 +48,22 @@ const drag = (layer: Element, from: [number, number], to: [number, number]) => {
   pointer(layer, "pointerup", ...to);
 };
 
+describe("the strip's count of edit boxes", () => {
+  it("is the boxes drawn on this picture, the cap said as a cap", () => {
+    expect(boxesSaid(0)).toBe("No box yet");
+    expect(boxesSaid(1)).toBe("1 box · 8 at most");
+    expect(boxesSaid(3)).toBe("3 boxes · 8 at most");
+  });
+});
+
 describe("Edit in box on Paint and fix", () => {
   it("turns the bar to Edit in box once a box is drawn with B, and sends every box with its instruction as one version", async () => {
-    const layer = await painting();
+    const { layer } = await painting();
     key("b");
     drag(layer, [10, 10], [40, 30]);
     const bar = await screen.findByRole("group", { name: "Edit in box" });
     expect(bar.textContent).toContain("Box 1 of 1");
-    const go = screen.getByRole("button", { name: /^Edit in box · Qwen Image 2\.1 · ×1/ }) as HTMLButtonElement;
+    const go = screen.getByRole("button", { name: /^Edit in box · 1 box/ }) as HTMLButtonElement;
     // nothing said yet: nothing to send
     expect(go.disabled).toBe(true);
     const say = screen.getByRole("textbox", { name: "What to do in box 1" });
@@ -58,7 +73,7 @@ describe("Edit in box on Paint and fix", () => {
     drag(layer, [44, 30], [60, 44]);
     await waitFor(() => expect(bar.textContent).toContain("Box 2 of 2"));
     fireEvent.change(screen.getByRole("textbox", { name: "What to do in box 2" }), { target: { value: "remove the lamp" } });
-    fireEvent.click(screen.getByRole("button", { name: /^Edit in box · Qwen Image 2\.1 · ×2/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Edit in box · 2 boxes/ }));
     await waitFor(() => expect(fakeApi.calls("POST", "/jobs")).toHaveLength(1));
     const sent = fakeApi.calls("POST", "/jobs")[0]!.body as { recipe: string; versionOf: string; input: { source: string; boxes: Array<{ prompt: string; box: { w: number } }> } };
     expect(sent).toMatchObject({ recipe: "qwen21.edit-in-box", versionOf: head.id, input: { source: head.id } });
@@ -67,19 +82,19 @@ describe("Edit in box on Paint and fix", () => {
   });
 
   it("sends the boxes to another editor when one is picked in the bar", async () => {
-    const layer = await painting();
+    const { layer } = await painting();
     key("b");
     drag(layer, [10, 10], [40, 30]);
     await screen.findByRole("group", { name: "Edit in box" });
     fireEvent.click(screen.getByRole("button", { name: /^Edit model for the boxes:/ }));
     fireEvent.click(await screen.findByRole("option", { name: /FLUX\.2 Klein/ }));
     fireEvent.change(screen.getByRole("textbox", { name: "What to do in box 1" }), { target: { value: "a red bicycle leaning on the wall" } });
-    fireEvent.click(screen.getByRole("button", { name: /^Edit in box · FLUX\.2 Klein · ×1/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Edit in box · 1 box/ }));
     await waitFor(() => expect(fakeApi.calls("POST", "/jobs")[0]?.body).toMatchObject({ recipe: "klein.edit-in-box" }));
   });
 
   it("is Fix again once a part is painted, and when the last box is removed with Del", async () => {
-    const layer = await painting();
+    const { layer } = await painting();
     key("b");
     drag(layer, [10, 10], [40, 30]);
     await screen.findByRole("group", { name: "Edit in box" });
@@ -97,7 +112,7 @@ describe("Edit in box on Paint and fix", () => {
   });
 
   it("lets Esc first let go of the box picked, then leave Paint and fix", async () => {
-    const layer = await painting();
+    const { layer } = await painting();
     key("b");
     drag(layer, [10, 10], [40, 30]);
     await screen.findByRole("group", { name: "Edit in box" });
@@ -108,9 +123,54 @@ describe("Edit in box on Paint and fix", () => {
     expect(useStageMode.getState().on).toBeNull();
   });
 
+  it("says the boxes are left out while a mask is painted, and Clear mask (one undo step) hands the bar to Edit in box", async () => {
+    const { layer } = await painting();
+    key("b");
+    drag(layer, [10, 10], [40, 30]);
+    await screen.findByRole("group", { name: "Edit in box" });
+    (document.activeElement as HTMLElement | null)?.blur();
+    key("p");
+    drag(layer, [20, 20], [24, 22]);
+    await screen.findByRole("group", { name: "Fix" });
+    expect(screen.getByRole("status").textContent).toContain("Fix uses the mask · the 1 box is ignored");
+    fireEvent.click(screen.getByRole("button", { name: "Clear mask" }));
+    await screen.findByRole("group", { name: "Edit in box" });
+    expect(screen.getByRole("button", { name: /^Edit in box · 1 box/ })).toBeTruthy();
+    // the clear is one step: Ctrl+Z brings the mask back, and the bar fixes again
+    (document.activeElement as HTMLElement | null)?.blur();
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    await screen.findByRole("group", { name: "Fix" });
+    expect(screen.getByRole("status").textContent).toContain("the 1 box is ignored");
+  });
+
+  it("says nothing of boxes over a mask when none is drawn", async () => {
+    const { layer } = await painting();
+    key("p");
+    drag(layer, [20, 20], [24, 22]);
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Fix · / }).hasAttribute("disabled")).toBe(false));
+    expect(screen.queryByText(/is ignored|are ignored/)).toBeNull();
+  });
+
+  it("starts another picture's Paint and fix with no box: the boxes are the picture's own", async () => {
+    const other = picture("zz-test-other");
+    // each picture its own stack, as the server answers
+    fakeApi.on("GET /assets/:id/versions", ({ params }) => (params.id === other.id ? { head: other, versions: [] } : { head, versions: [{ ...picture("zz-test-v1"), versionOf: head.id }] }));
+    const { layer, drawn } = await painting();
+    key("b");
+    drag(layer, [10, 10], [40, 30]);
+    await screen.findByRole("group", { name: "Edit in box" });
+    drawn.rerender(<Viewer inline asset={other} items={[head, other]} onOpen={() => {}} onClose={() => {}} />);
+    await paintOn(other.id);
+    (document.activeElement as HTMLElement | null)?.blur();
+    key("b");
+    const strip = await screen.findByText(/No box yet/);
+    expect(strip).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "Edit in box" })).toBeNull();
+  });
+
   it("keeps B the mask's box where no instruction editor is on", async () => {
     await painting([INPAINT]);
-    expect(screen.queryByRole("button", { name: /Box: edit in it/ })).toBeNull();
-    expect(screen.getByRole("button", { name: /Box mask/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Edit box/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /Rectangle mask/ })).toBeTruthy();
   });
 });

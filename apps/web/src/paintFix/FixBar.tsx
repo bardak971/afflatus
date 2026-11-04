@@ -7,7 +7,7 @@ import { dialogOver } from "../Dialog";
 import { Kbd } from "../Keys";
 import { MAX_COUNT, tuneAt, useTune } from "../passTune";
 import type { QueuedJob } from "../queueVariation";
-import { Button, Chip, cx, fieldClass, IconButton, NumberBox } from "../ui";
+import { Button, Chip, cx, fieldClass, Help, IconButton, NumberBox } from "../ui";
 import type { FixAsk } from "./useFixJob";
 
 /**
@@ -47,12 +47,18 @@ export function useCtrlEnter(run: () => void, root: RefObject<HTMLElement | null
   }, [root]);
 }
 
+/** The "?" on both of Paint and fix's bars: what a mask does and what a box does, since both are drawn on the same picture. */
+export const MASK_OR_BOX = "Mask: those pixels are inpainted again from a description of what they become (Fix). Box: an edit model follows an instruction there, the rest kept (Edit in box). A mask painted takes the bar; clear it to edit in the boxes";
+
+/** What Fix's bar says of edit boxes drawn while a mask is painted: they are left out of the fix. */
+export const boxesIgnored = (n: number) => `Fix uses the mask · ${n === 1 ? "the 1 box is" : `the ${n} boxes are`} ignored`;
+
 /**
  * The bar under the picture in Paint and fix: what the mask is, what the painted part becomes, the denoise, how many
  * versions, ⚙ for the rest (with the full Inpaint form one click away), and Fix. Enter in the prompt and Ctrl+Enter
  * anywhere fix; Ctrl+Enter is the bar's while it shows, not the draft's Generate.
  */
-export function FixBar({ verb, tool, job, mask, grow, busy, note, onFix, onFullForm }: {
+export function FixBar({ verb, tool, job, mask, grow, busy, note, boxes, onFix, onFullForm }: {
   /** A fix of the painted part, an outpaint of the frame dragged out, or an edit of the whole picture: the bar's words, its job the same way. */
   verb: "Fix" | "Outpaint" | "Edit";
   tool: RecipeInfo;
@@ -64,6 +70,11 @@ export function FixBar({ verb, tool, job, mask, grow, busy, note, onFix, onFullF
   busy: boolean;
   /** Said under the bar first: why it is not what was asked (Edit with no edit model for this picture). */
   note?: string;
+  /**
+   * Edit boxes drawn too (card #284): with a mask painted, Fix takes the mask alone, so the bar says the boxes are left out,
+   * and Clear mask (one undo step) hands the bar to Edit in box.
+   */
+  boxes?: { count: number; onClearMask(): void };
   onFix(ask: FixAsk): void;
   onFullForm(ask: Omit<FixAsk, "count">): void;
 }) {
@@ -146,6 +157,15 @@ export function FixBar({ verb, tool, job, mask, grow, busy, note, onFix, onFullF
         </Button>
       </div>
       {note && <span className="text-xs font-semibold text-attention-ink">{note}</span>}
+      {fixing && mask && boxes && boxes.count > 0 && (
+        <span role="status" className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs font-semibold text-attention-ink">
+          {boxesIgnored(boxes.count)}
+          <Button size="sm" onClick={boxes.onClearMask} data-tip="Clears the painted mask (Ctrl+Z brings it back): the bar edits in the boxes">
+            Clear mask
+          </Button>
+          <Help title="Mask or box" text={MASK_OR_BOX} />
+        </span>
+      )}
       <span className="text-xs text-ink-3">{editing && !denoise ? "Paint a part to fix only that" : "Empty prompt: the picture's own"} · <Kbd>Esc</Kbd> leaves {fixing ? "Paint and fix" : verb} · an unkept version expires like any render</span>
     </div>
   );

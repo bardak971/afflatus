@@ -213,7 +213,7 @@ export function useMaskLayer({ natural, from = null, start = { size: 64, feather
     brush: { ...brushTool("brush", "add"), key: "P", label: "Soft brush", icon: BrushIcon, tip: "Paint the part to redo: a full core, then a soft edge (the dashed ring). [ ] its size, Shift+[ ] its feather" },
     eraser: { ...brushTool("eraser", "subtract"), key: "E", label: "Eraser", icon: Eraser, tip: "Take the mask away, with the brush's own softness" },
     box: {
-      id: "box", key: "B", label: "Box mask", icon: SquareDashed, cursor: "crosshair",
+      id: "box", key: "B", label: "Rectangle mask", icon: SquareDashed, cursor: "crosshair",
       tip: "Drag a box to mask it. Shift: a square · Alt: take it away",
       down: (pt) => setBoxing({ a: pt, b: pt, square: pt.shift, ink: pt.alt ? "subtract" : "add" }),
       move: (pt) => setBoxing((b) => b && { ...b, b: pt, square: pt.shift }),
