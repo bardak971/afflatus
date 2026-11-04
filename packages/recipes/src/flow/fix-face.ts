@@ -6,6 +6,12 @@ import { DETECTOR_INPUT } from "../shared/detector";
 
 export interface FlowFixFace extends FlowBase, FaceSettings { source: string; prompt: string; detector: string; strength: number }
 
+/**
+ * The steps a distilled model's face pass takes (FlowSpec.distilled): its share of the model's own steps for the denoise,
+ * rounded up, so that they are as far apart as the model was distilled for; two at least, for a pass to correct its first.
+ */
+export const distilledFaceSteps = (steps: number, denoise: number) => Math.max(2, Math.ceil(steps * denoise - 1e-9));
+
 /** The face detailer: the Impact Pack's FaceDetailer with this model, every face found, redrawn larger, and put back with a soft edge. */
 export function flowFixFace(spec: FlowSpec, kit: FlowKit): Recipe<FlowFixFace> {
   const { inputs, loadNodes, SOMETIMES, load, shifted, cond, tuned, noiseWords } = kit;
@@ -37,7 +43,8 @@ export function flowFixFace(spec: FlowSpec, kit: FlowKit): Recipe<FlowFixFace> {
       const source = g.out("LoadImage", { image: ctx.uploads.source });
       const c = cond(g, k, input, input.prompt.trim() || A_FACE);
       const detector = g.out("UltralyticsDetectorProvider", { model_name: input.detector });
-      const steps = faceSteps(k.steps);
+      const unet = (input.model ?? ctx.slots.unet ?? "").split(/[\\/]/).pop() ?? "";
+      const steps = spec.distilled?.test(unet) ? distilledFaceSteps(k.steps, input.strength) : faceSteps(k.steps);
       g.phase("detailing");
       const fixed = g.add("FaceDetailer", {
         image: source, model: shifted(g, k.model, input, { width: 1024, height: 1024 }), clip: k.clip, vae: k.vae, positive: c.positive, negative: c.negative, bbox_detector: detector,

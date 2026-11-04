@@ -13,8 +13,14 @@ import { GraphBuilder, inBoxOf, isRef, MAX_BOXES, regionBox, roundTo, type Build
 
 /** The margin round a box the editor sees, each side, as a share of the box's size (√(w·h)): enough of the scene to fit into. */
 export const MARGIN = 0.3;
-/** The soft edge inside a box where the edit fades into what was there, as a share of the box's shorter side. */
+/**
+ * The soft edge where the edit fades into what was there, as a share of the box's shorter side, and the share of it that lies
+ * outside the box (in the margin the editor saw), so that the box itself is the edit's to its edge. At 0.1 inside the box,
+ * a removal that took the light with it ("remove the lamp", its glow on the wall) left a faint band at the box's edge on
+ * Qwen Image Edit, and the fade could pale an added thing that touched it (a bicycle's wheel; card #284's pod A/B).
+ */
 export const FEATHER = 0.1;
+export const OUTSIDE = 0;
 /** The least a box is, in the picture's pixels, on a side: a smaller one is grown about its centre. */
 const LEAST_BOX = 16;
 /** The ring round the box the colour match reads must hold at least this share of the box's area, or it says too little. */
@@ -33,7 +39,9 @@ export interface BoxPlan {
   work: Size;
   /** The box within the crop. */
   inner: Box;
-  /** The soft edge inside the box, by side; none on a side the picture's own edge cuts (nothing beyond it to fade into). */
+  /** What is pasted back, on the picture: the box, grown into the margin by the share of the soft edge outside it. */
+  paste: Box;
+  /** The soft edge inside what is pasted, by side; none on a side the picture's own edge cuts (nothing beyond it to fade into). */
   feather: { left: number; top: number; right: number; bottom: number };
   /** The parts of the crop round the box, in the crop's pixels, that the colour match reads; none when they hold too little. */
   ring: Box[];
@@ -84,7 +92,7 @@ export const areaSize = (pixels: number, grid: number): WorkingSize => (aspect) 
  * towards the working size's shape, so that bringing it there scales both sides alike; a crop the picture leaves no room to
  * grow is brought there a little stretched, and back by the same stretch. The ring is the crop's four bands round the box.
  */
-export function planBox(unit: RegionValue["box"], picture: Size, working: WorkingSize): BoxPlan {
+export function planBox(unit: RegionValue["box"], picture: Size, working: WorkingSize, edge: { feather: number; outside: number } = { feather: FEATHER, outside: OUTSIDE }): BoxPlan {
   const box = pixelBox(unit, picture);
   const margin = MARGIN * Math.sqrt(box.w * box.h);
   let [cx, cw] = span(box.x, box.w, box.w + 2 * margin, picture.w);
@@ -99,8 +107,16 @@ export function planBox(unit: RegionValue["box"], picture: Size, working: Workin
   cy = clamp(cy, Math.max(0, box.y + box.h - ch), box.y);
   const crop = { x: cx, y: cy, w: cw, h: ch };
   const inner = { x: box.x - cx, y: box.y - cy, w: box.w, h: box.h };
-  const f = Math.max(1, Math.round(FEATHER * Math.min(box.w, box.h)));
-  const feather = { left: box.x > 0 ? f : 0, top: box.y > 0 ? f : 0, right: box.x + box.w < picture.w ? f : 0, bottom: box.y + box.h < picture.h ? f : 0 };
+  // the soft edge, the part of it outside the box taken from the margin as far as the crop reaches on each side
+  const f = Math.max(1, Math.round(edge.feather * Math.min(box.w, box.h)));
+  const out = Math.round(f * clamp(edge.outside, 0, 1));
+  const grow = { left: Math.min(out, inner.x), top: Math.min(out, inner.y), right: Math.min(out, cw - inner.x - inner.w), bottom: Math.min(out, ch - inner.y - inner.h) };
+  const paste = { x: box.x - grow.left, y: box.y - grow.top, w: box.w + grow.left + grow.right, h: box.h + grow.top + grow.bottom };
+  const side = (grown: number, open: boolean) => (open ? grown + f - out : 0);
+  const feather = {
+    left: side(grow.left, paste.x > 0), top: side(grow.top, paste.y > 0),
+    right: side(grow.right, paste.x + paste.w < picture.w), bottom: side(grow.bottom, paste.y + paste.h < picture.h),
+  };
   const bands: Box[] = [
     { x: 0, y: 0, w: cw, h: inner.y },
     { x: 0, y: inner.y + inner.h, w: cw, h: ch - inner.y - inner.h },
@@ -108,7 +124,7 @@ export function planBox(unit: RegionValue["box"], picture: Size, working: Workin
     { x: inner.x + inner.w, y: inner.y, w: cw - inner.x - inner.w, h: inner.h },
   ].filter((b) => b.w > 0 && b.h > 0);
   const area = bands.reduce((sum, b) => sum + b.w * b.h, 0);
-  return { box, crop, work, inner, feather, ring: area >= LEAST_RING * box.w * box.h ? bands : [] };
+  return { box, crop, work, inner, paste, feather, ring: area >= LEAST_RING * box.w * box.h ? bands : [] };
 }
 
 /** The upload name the editor's graph is built with for its picture: its LoadImage is then replaced by the crop. */
@@ -226,8 +242,8 @@ function colourMatched(g: GraphBuilder, edited: Ref, original: Ref, plan: BoxPla
 const BOX_NODES = ["ImageCrop", "ImageScale", "SplitImageWithAlpha", "SolidMask", "FeatherMask", "ImageCompositeMasked"];
 const MATCH_NODES = ["ColorTransfer", "ImageStitch", "ImageBatch", "ImageFromBatch"];
 
-/** What an Edit in box adds to its editor's input: the boxes, each with its instruction. */
-export interface InBox { source: string; boxes: RegionValue[] }
+/** What an Edit in box adds to its editor's input: the boxes, each with its instruction, and the soft edge they are pasted back with. */
+export interface InBox { source: string; boxes: RegionValue[]; softEdge?: number; edgeOutside?: number }
 
 /** The boxes as the build takes them: those drawn, each said what to do. */
 function boxesOf(boxes: RegionValue[]): RegionValue[] {
@@ -246,6 +262,11 @@ function boxesOf(boxes: RegionValue[]): RegionValue[] {
 export function inBox<In extends { source: string; prompt: string }>(edit: Recipe<In>, working: (input: In) => WorkingSize, starts: Partial<Record<keyof In, unknown>> = {}): Recipe<Omit<In, "prompt"> & InBox> {
   type Boxed = Omit<In, "prompt"> & InBox;
   const boxes: InputSpec = { id: "boxes", type: "regions", label: "Boxes", max: MAX_BOXES, note: "each box's instruction, done there one box after another" };
+  // the soft edge (FEATHER, OUTSIDE): the bar sends neither, the API may set them
+  const edge: InputSpec[] = [
+    { id: "softEdge", type: "number", label: "Soft edge", note: "how wide the edit fades into the picture, as a share of the box's shorter side", min: 0.02, max: 0.5, step: 0.01, default: FEATHER, advanced: true },
+    { id: "edgeOutside", type: "number", label: "Soft edge outside the box", note: "the share of the soft edge that lies outside the box, so that the box is the edit's to its edge", min: 0, max: 1, step: 0.05, default: OUTSIDE, advanced: true },
+  ];
   const withPrompt = (input: Boxed, prompt: string) => ({ ...input, prompt }) as unknown as In;
   const first = edit.variants[0];
   return {
@@ -257,7 +278,7 @@ export function inBox<In extends { source: string; prompt: string }>(edit: Recip
     summary: `Each box drawn on the picture edited from its own instruction by ${edit.title.toLowerCase()}, one after another; the rest of the picture is kept.`,
     output: "image",
     // the editor's rows, some starting elsewhere for a box (`starts`: Qwen Image Edit's Turbo, card #284's pod A/B)
-    inputs: [...edit.inputs.filter((i) => i.id !== "prompt").map((i) => (i.id in starts ? { ...i, default: starts[i.id as keyof In] } as InputSpec : i)), boxes],
+    inputs: [...edit.inputs.filter((i) => i.id !== "prompt").map((i) => (i.id in starts ? { ...i, default: starts[i.id as keyof In] } as InputSpec : i)), boxes, ...edge],
     ...(edit.needs ? { needs: edit.needs } : {}),
     ...(edit.needsWith ? { needsWith: (input: Boxed, slots?: Record<string, string>, where?: { own?: boolean }) => edit.needsWith!(withPrompt(input, ""), slots, where) } : {}),
     ...(edit.presets ? { presets: edit.presets } : {}),
@@ -279,7 +300,7 @@ export function inBox<In extends { source: string; prompt: string }>(edit: Recip
       const warnings: string[] = [];
       let totalSteps = 0;
       for (const region of boxesOf(input.boxes)) {
-        const plan = planBox(region.box, size, working(withPrompt(input, region.prompt)));
+        const plan = planBox(region.box, size, working(withPrompt(input, region.prompt)), { feather: input.softEdge ?? FEATHER, outside: input.edgeOutside ?? OUTSIDE });
         g.phase("processing");
         const crop = cut(g, current, plan.crop);
         const work = g.out("ImageScale", { image: crop, upscale_method: "lanczos", width: plan.work.w, height: plan.work.h, crop: "disabled" });
@@ -297,8 +318,9 @@ export function inBox<In extends { source: string; prompt: string }>(edit: Recip
         const rgb = g.out("SplitImageWithAlpha", { image: done.image });
         const back = g.out("ImageScale", { image: rgb, upscale_method: "lanczos", width: plan.crop.w, height: plan.crop.h, crop: "disabled" });
         const matched = matching && plan.ring.length ? colourMatched(g, back, crop, plan) : back;
-        const mask = g.out("FeatherMask", { mask: g.out("SolidMask", { value: 1, width: plan.box.w, height: plan.box.h }), ...plan.feather });
-        current = g.out("ImageCompositeMasked", { destination: current, source: cut(g, matched, plan.inner), x: plan.box.x, y: plan.box.y, resize_source: false, mask });
+        const mask = g.out("FeatherMask", { mask: g.out("SolidMask", { value: 1, width: plan.paste.w, height: plan.paste.h }), ...plan.feather });
+        const pasted = { ...plan.paste, x: plan.paste.x - plan.crop.x, y: plan.paste.y - plan.crop.y };
+        current = g.out("ImageCompositeMasked", { destination: current, source: cut(g, matched, pasted), x: plan.paste.x, y: plan.paste.y, resize_source: false, mask });
       }
       if (!matching) warnings.push("This ComfyUI has no ColorTransfer: the boxes were pasted back without matching their colours");
       const out = g.add("PreviewImage", { images: current });

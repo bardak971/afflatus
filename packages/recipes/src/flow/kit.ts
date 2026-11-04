@@ -35,6 +35,19 @@ export interface FlowSpec {
    * (*, 3, H, W)", card #275's render test).
    */
   alpha?: true;
+  /**
+   * Outpaint through the family's edit mode (Qwen Image 2.1's): the picture with grey room round it is read as the picture to
+   * edit, the model told to fill the grey, and the whole frame drawn anew from an empty latent of the canvas's size, which
+   * `read` gives with the texts. Drawn from noise beside the picture held by a mask, Qwen Image 2.1 made each new side
+   * another place, with a hard seam at the picture's edge (card #275's pod test), as Klein did before its outpaint was an edit.
+   */
+  extend?: { nodes: string[]; read(g: GraphBuilder, k: { clip: Ref; vae: Ref }, prompt: string, negative: string, canvas: Ref): { positive: Ref; negative: Ref; latent: Ref } };
+  /**
+   * A model file distilled to a few steps, by its name (Qwen Image 2.1 Turbo's). Its face pass keeps the spacing of the
+   * steps it was distilled for: ComfyUI runs every step of a pass over the part of the schedule a denoise leaves, so its own
+   * 8 steps at 0.4 were laid as close as 20 over the whole, and the skin came out grainy, as its txt2img does at 40.
+   */
+  distilled?: RegExp;
   /** The detail boost by Detail Daemon's Lying sigma only (DAEMON_DETAIL_INPUTS): the built-in sharpen breaks Qwen Image 2.1's pictures. */
   detail?: "daemon";
   /** The grid both edges of a picture are on (16 unless said: Qwen Image 2.1's is 32), and the longest edge of a new one (2048). */

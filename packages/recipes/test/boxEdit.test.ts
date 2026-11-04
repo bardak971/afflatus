@@ -40,6 +40,28 @@ describe("where a box is cropped and pasted", () => {
     expect(corner.feather.top).toBeGreaterThan(0);
   });
 
+  it("lays the share of the soft edge outside the box in its margin, so that the box is the edit's to its edge (card #286)", () => {
+    const edge = { feather: 0.3, outside: 0.5 };
+    const middle = planBox({ x: 0.4, y: 0.4, w: 0.2, h: 0.2 }, picture, kontextSize, edge);
+    const f = Math.round(0.3 * Math.min(middle.box.w, middle.box.h));
+    const out = Math.round(f / 2);
+    expect(middle.paste).toEqual({ x: middle.box.x - out, y: middle.box.y - out, w: middle.box.w + 2 * out, h: middle.box.h + 2 * out });
+    expect(inside(middle.paste, middle.crop)).toBe(true);
+    // the fade runs from the paste's edge to as far inside the box as the rest of the soft edge
+    expect(middle.feather).toEqual({ left: f, top: f, right: f, bottom: f });
+    // at the picture's edge, nothing to grow into nor to fade into
+    const corner = planBox({ x: 0, y: 0.7, w: 0.3, h: 0.3 }, picture, kontextSize, edge);
+    expect(corner.paste).toMatchObject({ x: 0, y: corner.box.y - Math.round(Math.round(0.3 * Math.min(corner.box.w, corner.box.h)) / 2) });
+    expect(corner.paste.y + corner.paste.h).toBe(picture.h);
+    expect(corner.feather).toMatchObject({ left: 0, bottom: 0 });
+    // the paste and the fade on the graph: the mask the size of the paste, the edit cut from the crop where the paste lies
+    const b = build(recipe("qwen21.edit-in-box"), { boxes: [box(0.4, 0.4, 0.2, 0.2)], softEdge: 0.3, edgeOutside: 0.5 });
+    const [, solid] = nodes(b, "SolidMask")[0]!;
+    expect([solid.inputs.width, solid.inputs.height]).toEqual([middle.paste.w, middle.paste.h]);
+    const [, paste] = nodes(b, "ImageCompositeMasked").at(-1)!;
+    expect([paste.inputs.x, paste.inputs.y]).toEqual([middle.paste.x, middle.paste.y]);
+  });
+
   it("reads the colours round the box from the crop's bands about it, none when the box fills the picture", () => {
     const plan = planBox({ x: 0.4, y: 0.4, w: 0.2, h: 0.2 }, picture, kontextSize);
     expect(plan.ring).toHaveLength(4);
@@ -61,7 +83,7 @@ describe("an Edit in box of every instruction editor", () => {
       expect(r, edit).toBeDefined();
       expect(r.hidden).toBe(true);
       expect(r.family).toBe(recipe(edit).family);
-      expect(r.inputs.map((i) => i.id)).toEqual([...recipe(edit).inputs.filter((i) => i.id !== "prompt").map((i) => i.id), "boxes"]);
+      expect(r.inputs.map((i) => i.id)).toEqual([...recipe(edit).inputs.filter((i) => i.id !== "prompt").map((i) => i.id), "boxes", "softEdge", "edgeOutside"]);
       expect(r.inputs.find((i) => i.id === "boxes")).toMatchObject({ type: "regions", max: MAX_BOXES });
     }
   });
