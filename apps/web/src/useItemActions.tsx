@@ -16,7 +16,7 @@ import { VARY, varyJob } from "./vary";
 import { useItemMutations, useTimelineSubmenu } from "./itemMutations";
 import { canCopyPicture } from "./secureContext";
 import { useBanners, useHandover } from "./store";
-import { outpaintsByFrame, useStageMode, type StageMode } from "./paintFix/useStageMode";
+import { MODE_PASS, outpaintsByFrame, useStageMode, type StageMode } from "./paintFix/useStageMode";
 import { handsInput, NO_HAND_DETECTOR, OPS } from "./viewer/shared";
 import { useMediaExtract } from "./viewer/useMediaExtract";
 import { useNewDraftActions } from "./viewer/useNewDraftActions";
@@ -134,16 +134,16 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
     if (job) openTune(at, { action, title: ACTIONS[action].label, job, queue: (changed, count) => queue(action, tunedJob(job, changed, count)) });
   }])) as Tunes;
   /**
-   * Inpaint and Outpaint: Paint and fix on the Stage (card #274), not a draft. From a place that does not show the picture large (a tile's
+   * Inpaint, Outpaint and Edit: Paint and fix on the Stage (card #274), not a draft. From a place that does not show the picture large (a tile's
    * menu, the command bar), the picture opens over the screen in that mode; the viewer that shows it hands its own.
    */
   const onStage = (mode: StageMode) => {
-    if (!toolFor(mode === "paint" ? "i" : "r")) return;
+    if (!toolFor(MODE_PASS[mode]) && !(mode === "edit" && toolFor("i"))) return;
     useStageMode.getState().set(a.id, mode);
     useHandover.getState().set({ show: a.id });
     if (path !== "/" && path !== "/create") go("/");
   };
-  /** A pass that opens a form with the picture in place (Edit; an Outpaint the Stage's frame cannot drive). */
+  /** A pass that opens a form with the picture in place (an Outpaint the Stage's frame cannot drive). */
   const openPass = (key: string) => {
     const tool = toolFor(key);
     if (tool) openTool.mutate(tool.id, said(`Could not open ${OPS[key]!.label}`));
@@ -216,7 +216,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
     hand: hands,
     background: () => quick("b"),
     inpaint: () => onStage("paint"),
-    edit: () => openPass("e"),
+    edit: () => onStage("edit"),
     outpaint: () => (outpaintsByFrame(toolFor("r")) ? onStage("outpaint") : openPass("r")),
     "mirror-h": () => media.mirror.mutate("horizontal", said("Could not mirror it")),
     "mirror-v": () => media.mirror.mutate("vertical", said("Could not mirror it")),

@@ -19,7 +19,8 @@ afterEach(() => act(() => useStageMode.getState().leave()));
 
 /** An inpaint the picture can be fixed with: Paint and fix is offered only with one. */
 const INPAINT = { id: "zz-test.paint-over", family: "zz-test", output: "image", title: "Inpaint", inputs: [{ id: "source", type: "image", role: "source" }, { id: "mask", type: "image", role: "mask" }, { id: "prompt", type: "prompt" }, { id: "strength", type: "number", min: 0.05, max: 1, step: 0.05, default: 0.75 }] };
-const withInpaint = () => fakeApi.on("GET /recipes", { families: [{ id: "zz-test", name: "zz-test", summary: "" }], recipes: [INPAINT] });
+const EDIT = { id: "zz-test.edit", family: "zz-test", output: "image", title: "Edit", inputs: [{ id: "source", type: "image", role: "source" }, { id: "prompt", type: "prompt", placeholder: "Change the car to red" }] };
+const withInpaint = () => fakeApi.on("GET /recipes", { families: [{ id: "zz-test", name: "zz-test", summary: "" }], recipes: [INPAINT, EDIT] });
 
 /** The viewer in place on a picture with one version, Paint and fix on over it. */
 async function painting() {
@@ -75,6 +76,34 @@ describe("the viewer in Paint and fix", () => {
     press("pointerdown");
     press("pointerup");
     await waitFor(() => expect(chip()).not.toBe("Mask · nothing painted"));
+  });
+
+  it("edits the whole picture from the bar as versions, once an instruction is written (Edit, E)", async () => {
+    withInpaint();
+    fakeApi.on("GET /assets/:id/versions", { head, versions: [v1] });
+    fakeApi.on("POST /jobs", { ids: ["zz-test-job"] });
+    draw(<Viewer inline asset={head} items={[head]} onOpen={() => {}} onClose={() => {}} />);
+    await screen.findByRole("group", { name: "Versions" });
+    act(() => useStageMode.getState().set(head.id, "edit"));
+    const go = await screen.findByRole("button", { name: /^Edit · 3 versions/ });
+    expect(screen.getByText("Whole picture")).toBeTruthy();
+    expect((go as HTMLButtonElement).disabled).toBe(true);
+    const say = screen.getByRole("textbox", { name: "What to change" });
+    expect(say.getAttribute("placeholder")).toBe("Change the car to red");
+    fireEvent.change(say, { target: { value: "make the sky stormy" } });
+    fireEvent.click(go);
+    await waitFor(() => expect(fakeApi.calls("POST", "/jobs")).toHaveLength(1));
+    expect(fakeApi.calls("POST", "/jobs")[0]!.body).toMatchObject({ recipe: "zz-test.edit", count: 3, versionOf: head.id, input: { source: head.id, prompt: "make the sky stormy" } });
+  });
+
+  it("says so in the bar when the picture has no edit model, and fixes a painted part instead", async () => {
+    fakeApi.on("GET /recipes", { families: [{ id: "zz-test", name: "zz-test", summary: "" }], recipes: [INPAINT] });
+    fakeApi.on("GET /assets/:id/versions", { head, versions: [v1] });
+    draw(<Viewer inline asset={head} items={[head]} onOpen={() => {}} onClose={() => {}} />);
+    await screen.findByRole("group", { name: "Versions" });
+    act(() => useStageMode.getState().set(head.id, "edit"));
+    expect(await screen.findByText(/^No edit model for this picture/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Fix · 3 versions/ })).toBeTruthy();
   });
 
   it("is left with Esc, the viewer's keys its own again", async () => {

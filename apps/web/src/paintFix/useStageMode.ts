@@ -1,8 +1,11 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-/** What the Stage draws over a picture: the mask painted for a fix (Inpaint), or the frame dragged out (Outpaint). */
-export type StageMode = "paint" | "outpaint";
+/**
+ * What the Stage works on over a picture: the mask painted for a fix (Inpaint), the frame dragged out (Outpaint), or the
+ * whole picture changed by an instruction (Edit), a mask painted then making it a fix.
+ */
+export type StageMode = "paint" | "outpaint" | "edit";
 
 /**
  * Which picture the Stage works on in place, and how: Inpaint (I) and Outpaint (R) set it rather than opening a draft, and
@@ -33,6 +36,9 @@ export const useVersionDrafts = create<{ of: Record<string, string>; mark(draft:
 
 /** An outpaint the Stage's frame can drive: one that takes the sides (shape Custom); another is left to its form. */
 export const outpaintsByFrame = (tool: { inputs: Array<{ id: string }> } | undefined): boolean => Boolean(tool?.inputs.some((i) => i.id === "padLeft"));
+
+/** The pass (useNewDraftActions' toolFor key) each mode needs: without it, the Stage does not take the mode. */
+export const MODE_PASS: Record<StageMode, string> = { paint: "i", outpaint: "r", edit: "e" };
 
 /** How many such drafts this browser remembers. */
 const KEPT_DRAFTS = 50;

@@ -31,7 +31,7 @@ export function frameSaid(s: FrameSides): string | null {
 const GROW = 8;
 
 /**
- * Paint and fix (card #274): Inpaint and Outpaint on the Stage itself, no draft. The picture large with the drawing layer
+ * Paint and fix (card #274): Inpaint, Outpaint and Edit on the Stage itself, no draft. The picture large with the drawing layer
  * over it (stageLayer/), the tools on its left edge (the mask's, click to mask C and the detectors D over the server's
  * find-mask jobs, the colour wand W, the outpaint frame R), the active tool's options above it, the versions strip under
  * it, then the bar. The bar fixes the painted part, or outpaints once the frame is dragged out; either comes back as
@@ -39,7 +39,7 @@ const GROW = 8;
  */
 export function PaintAndFix({ acts, mode, strip, overlay }: {
   acts: ViewerActions;
-  /** Outpaint (R) starts on the frame; Inpaint (I) on the brush. */
+  /** Outpaint (R) starts on the frame; Inpaint (I) and Edit (E) on the brush, Edit's bar on the whole picture until a part is painted. */
   mode: StageMode;
   /** The versions strip (VersionStrip), drawn between the picture and the bar. */
   strip: ReactNode;
@@ -49,7 +49,7 @@ export function PaintAndFix({ acts, mode, strip, overlay }: {
   useKeysHere("paint", true, { over: overlay });
   const natural = useMemo(() => (a.width && a.height ? { w: a.width, h: a.height } : null), [a.width, a.height]);
   const mask = useMaskLayer({ natural });
-  const { tool: inpaint, fix, fullForm, out, outpaint, outForm } = useFixJob(acts);
+  const { tool: inpaint, fix, fullForm, out, outpaint, outForm, editTool, edit, editForm } = useFixJob(acts);
   const [toolId, setToolId] = useState(mode === "outpaint" && out ? "frame" : "brush");
   // the finds run on the picture shown (a version is a picture of its own)
   const find = useMemo(() => findOn(a.id), [a.id]);
@@ -72,11 +72,14 @@ export function PaintAndFix({ acts, mode, strip, overlay }: {
     : toolId === "click" ? <ClickOptions click={click} />
     : toolId === "detect" ? <DetectOptions detect={detect} />
     : <MaskOptions mask={mask} grow={grow} onGrow={setGrow} />;
-  const job = outpainting ? out! : inpaint;
+  // Edit (E) works on the whole picture until a part is painted, which is then the fix asked for
+  const editing = !outpainting && mode === "edit" && Boolean(editTool) && !mask.area;
+  const verb = outpainting ? "Outpaint" : editing ? "Edit" : "Fix";
+  const job = outpainting ? out! : editing ? editTool! : inpaint;
   if (!job || !natural) return null;
   return (
     <div ref={room} className="flex min-h-0 w-full grow flex-col items-center gap-2">
-      <LayerStrip title={outpainting ? "Outpaint" : "Paint and fix"} className="w-full">{options}</LayerStrip>
+      <LayerStrip title={verb === "Fix" ? "Paint and fix" : verb} className="w-full">{options}</LayerStrip>
       <div className="flex min-h-0 w-full grow items-start gap-3">
         <LayerToolbar items={items} active={toolId} onPick={setToolId} />
         <div className="relative flex h-full min-w-0 grow flex-col">
@@ -96,15 +99,16 @@ export function PaintAndFix({ acts, mode, strip, overlay }: {
       {strip}
       <FixBar
         // the bar starts again on the other job: its prompt is about the painted part, or about what is added
-        key={outpainting ? "outpaint" : "fix"}
-        verb={outpainting ? "Outpaint" : "Fix"}
+        key={verb}
+        verb={verb}
         tool={job}
-        job={{ recipe: job, stored: acts.toolInput(job), label: outpainting ? "Outpaint" : "Inpaint", from: a.id, versionOf: a.id }}
+        job={{ recipe: job, stored: acts.toolInput(job), label: verb === "Fix" ? "Inpaint" : verb, from: a.id, versionOf: a.id }}
         mask={outpainting ? frameSaid(sides) : maskSaid(mask.area, mask.soft)}
         grow={grow}
-        busy={fix.isPending || fullForm.isPending || outpaint.isPending || outForm.isPending}
-        onFix={(ask) => (outpainting ? outpaint.mutate({ ...ask, sides }) : void mask.png().then((png) => fix.mutate({ ...ask, soft: mask.soft, png })))}
-        onFullForm={(ask) => (outpainting ? outForm.mutate({ ...ask, sides }) : void (mask.area ? mask.png() : Promise.resolve(null)).then((png) => fullForm.mutate({ ...ask, soft: mask.soft, png })))}
+        note={mode === "edit" && !editTool ? "No edit model for this picture: paint the part to change, and Fix redoes it" : undefined}
+        busy={fix.isPending || fullForm.isPending || outpaint.isPending || outForm.isPending || edit.isPending || editForm.isPending}
+        onFix={(ask) => (outpainting ? outpaint.mutate({ ...ask, sides }) : editing ? edit.mutate(ask) : void mask.png().then((png) => fix.mutate({ ...ask, soft: mask.soft, png })))}
+        onFullForm={(ask) => (outpainting ? outForm.mutate({ ...ask, sides }) : editing ? editForm.mutate(ask) : void (mask.area ? mask.png() : Promise.resolve(null)).then((png) => fullForm.mutate({ ...ask, soft: mask.soft, png })))}
       />
     </div>
   );
