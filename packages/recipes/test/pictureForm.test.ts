@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { defineRecipe, dryContext, parseInput } from "@afflatus/core";
 import { recipes } from "../src";
-import { pictureForm, pictureRowsOf, PICTURE_DROPS } from "../src/shared/pictureForm";
+import { GUIDE, noGuide, noReferences, pictureForm, pictureRowsOf, PICTURE_DROPS, REFERENCES } from "../src/shared/pictureForm";
 
 // every picture form alike (the owner's H3 rule, applied to pictures on 2026-11-04; card #275): each takes its operation's
 // rows in the same order and words, or says why it does not
@@ -83,6 +83,32 @@ describe("picture forms laid out by pictureForm", () => {
     }
   });
 
+  // card #277: a control image and reference images on every txt2img and img2img, in the same rows, or dropped with why
+  it("takes a control image and reference images on every txt2img and img2img, or says why not", () => {
+    const forms2 = forms.filter((r) => ["txt2img", "img2img"].includes(PICTURE_DROPS.get(r.id)!.op));
+    const has = (r: (typeof forms)[number], rows: string[]) => rows.every((id) => r.inputs.some((i) => i.id === id));
+    const said = (r: (typeof forms)[number], id: string) => PICTURE_DROPS.get(r.id)!.drop[id];
+    const table = Object.fromEntries(forms2.map((r) => [r.id, {
+      guide: has(r, GUIDE) ? "yes" : said(r, "guide") ? "dropped" : "missing",
+      references: r.inputs.some((i) => i.id === "references") ? "yes" : said(r, "references") ? "dropped" : "missing",
+    }]));
+    expect(Object.values(table).filter((t) => t.guide === "missing" || t.references === "missing")).toEqual([]);
+    // the families the card covers, as built
+    for (const id of ["sdxl.text-to-picture", "sdxl.redraw", "flux.text-to-picture", "flux.redraw", "qwen.text-to-picture", "qwen.redraw", "zimage.text-to-picture", "zimage.redraw"]) expect(table[id]?.guide, id).toBe("yes");
+    for (const id of ["sdxl.text-to-picture", "sdxl.redraw", "flux.text-to-picture", "flux.redraw", "klein.picture", "krea2.text-to-picture"]) expect(table[id]?.references, id).toBe("yes");
+    // a dropped guide or references row is shown greyed on the form, with why
+    for (const r of forms2) for (const id of ["guide", "references"]) if (said(r, id)) expect(r.absent?.find((a) => a.id === id)?.why, `${r.id} · ${id}`).toBe(said(r, id));
+    expect(REFERENCES).toEqual(["references", "referenceStrength"]);
+  });
+
+  it("reads FLUX.1's single Redux image of an older draft as its first reference image", () => {
+    const flux = recipes.find((r) => r.id === "flux.text-to-picture")!;
+    const input = parseInput(flux, { prompt: "a", look: "asset1", lookStrength: 0.4 }) as Record<string, unknown>;
+    expect(input.references).toEqual([{ asset: "asset1", role: "style" }]);
+    expect(input.referenceStrength).toBe(0.4);
+    expect(input).not.toHaveProperty("look");
+  });
+
   it("keeps a form's own rows after the shared row they came after", () => {
     const made = pictureForm("img2img", defineRecipe({
       id: "zz.redraw", family: "zz", version: 1, title: "zz", summary: "zz", output: "image", variants: [], nodes: () => [], build: () => { throw new Error("zz"); },
@@ -93,7 +119,7 @@ describe("picture forms laid out by pictureForm", () => {
         { id: "model", type: "model", label: "Model", folder: "diffusion_models" },
         { id: "seed", type: "seed", label: "Seed" },
       ],
-    }), Object.fromEntries(["strength", "loras", "negative", "steps", "cfg", "sampler", "scheduler", "shift", "precision"].map((id) => [id, "zz"])));
+    }), { ...Object.fromEntries(["strength", "loras", "negative", "steps", "cfg", "sampler", "scheduler", "shift", "precision"].map((id) => [id, "zz"])), ...noGuide("zz"), ...noReferences("zz") });
     expect(made.inputs.map((i) => i.id)).toEqual(["model", "source", "prompt", "own", "seed"]);
     PICTURE_DROPS.delete("zz.redraw");
   });

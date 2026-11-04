@@ -1,5 +1,6 @@
 import { defineFamily, defineRecipe, GraphBuilder, REFERENCE_ROLES, type InputSpec, type LoraValue, type Ref, type ReferenceValue } from "@afflatus/core";
-import { pictureForm } from "../shared/pictureForm";
+import { noReferences, pictureForm } from "../shared/pictureForm";
+import type { GuideWay } from "../shared/guide";
 import { flowKit, flowRecipes, type FlowSpec } from "../flow/recipes";
 import { flowTurboRow } from "../flow/kit";
 import { addedInputs, addedRow, type AddedSpec } from "../shared/addedRows";
@@ -10,6 +11,18 @@ import { detectorSlots } from "../shared/detector";
 
 const HF = "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files";
 const HF_EDIT = "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_files";
+
+const QWEN_UNION = "Qwen-Image-InstantX-ControlNet-Union.safetensors";
+/**
+ * The InstantX union on both texts, as ComfyUI's template for it does (ControlNetLoader, ControlNetApplyAdvanced with the VAE),
+ * held to the end; the kind is read from the picture. It starts at 1.25, not its authors' 1: on Qwen Image 2512 at 1, edges and
+ * pose came out as without a guide (pod test, 2026-11-04: same seed, 24–25 dB from the unguided picture), at 1.25 and 1.5 they
+ * held the framing; depth held at 1.
+ */
+const QWEN_GUIDE: GuideWay = {
+  kind: "controlnet", slot: "controlnet", file: QWEN_UNION, prefer: ["qwen.?image.*instantx.*union", "qwen.?image.*(union|controlnet)", "qwen"], strength: 1.25, end: 1,
+  missing: "A control image on Qwen Image needs its ControlNet: put Qwen-Image-InstantX-ControlNet-Union.safetensors in ComfyUI's models/controlnet folder (it can be downloaded from Settings).",
+};
 
 /**
  * Qwen Image: pictures from plain sentences, good at text in the picture. Written blind from ComfyUI's
@@ -60,6 +73,13 @@ export const qwen = defineFamily({
       id: "editTurbo", label: "Turbo LoRA for Edit (Lightning)", folder: "loras", detect: ["qwen.?image.?edit.*lightning"], optional: true,
       hint: "Without it, Edit takes the full step count. Put a Qwen-Image-Edit-Lightning LoRA in ComfyUI's models/loras folder.",
       get: { file: "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors", url: "https://huggingface.co/lightx2v/Qwen-Image-Edit-2511-Lightning/resolve/main/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors" },
+    },
+    {
+      // InstantX's union ControlNet (canny, soft edge, depth, pose), as Comfy-Org repackaged it for ComfyUI's own loader
+      id: "controlnet", label: "InstantX ControlNet Union (control image)", folder: "controlnet", detect: ["qwen.?image.*instantx.*union", "qwen.?image.*controlnet.*union"], optional: true,
+      onlyFor: ["qwen.text-to-picture", "qwen.redraw"],
+      hint: "Optional: with Qwen-Image-InstantX-ControlNet-Union.safetensors in ComfyUI's models/controlnet folder, txt2img and img2img follow the edges, depth or pose of a control image.",
+      get: { file: QWEN_UNION, url: "https://huggingface.co/Comfy-Org/Qwen-Image-InstantX-ControlNets/resolve/90cf72c3b0e4b11f9a0037727459dbdd03ae029b/split_files/controlnet/Qwen-Image-InstantX-ControlNet-Union.safetensors", sha256: "d51dca0073366a675108d5b83c3b7ef941cf2214c9a1c95c23f1e9a228ddbdb0" },
     },
     // txt2img's Detail rows find faces, hands and people with these (shared/adetail.ts)
     ...detectorSlots(["qwen.text-to-picture"]),
@@ -125,6 +145,8 @@ const spec: FlowSpec = {
     { id: "wide-3-2", label: "Landscape 3:2", width: 1584, height: 1056 },
   ],
   megapixels: 1.8,
+  guide: QWEN_GUIDE,
+  drops: noReferences("Qwen Image reads no reference image (no Redux or IP-Adapter is made for it): Edit, with Qwen Image Edit, takes them"),
   placeholder: "A photograph of a small bakery at dawn, a chalkboard by the door that reads \"FRESH BREAD\", warm light from the windows on wet cobblestones.",
   files: { unet: "qwen_image_2512_fp8_e4m3fn.safetensors", clip: "qwen_2.5_vl_7b_fp8_scaled.safetensors", vae: "qwen_image_vae.safetensors" },
   fineTune: "Qwen\\someone_qwen_image_v1.safetensors",

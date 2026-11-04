@@ -1,5 +1,7 @@
 import { createContext, useContext, useLayoutEffect, useRef, type ImgHTMLAttributes } from "react";
+import { Layers } from "lucide-react";
 import { THUMB_SIZES, thumbSrcSet } from "./api";
+import { plural } from "./format";
 import { cx } from "./ui";
 
 /**
@@ -53,5 +55,20 @@ export function Thumb({ src, large, className, onLoad, onError, ...rest }: ImgHT
       }}
       className={cx("motion-safe:transition-opacity motion-safe:duration-150 motion-safe:ease-out", className)}
     />
+  );
+}
+
+/**
+ * On a picture with versions waiting under it (Inpaint, Face and Hand refine… made in place, not kept yet): how many, so a
+ * pass queued from a grid is seen to have landed somewhere. Nothing when there are none.
+ */
+export function VersionsBadge({ count, className }: { count: number | undefined; className?: string }) {
+  if (!count) return null;
+  const said = `${plural(count, "version")} under it: open it to pick one`;
+  return (
+    <span data-tip={said} aria-label={said} className={cx("flex items-center gap-1 rounded-md bg-ground/80 px-1.5 py-0.5 text-micro font-semibold whitespace-nowrap text-accent", className)}>
+      <Layers size={11} className="shrink-0" />
+      {count}
+    </span>
   );
 }

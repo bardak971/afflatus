@@ -22,14 +22,17 @@ const ADETAIL = ["Face", "Hands", "Person"].flatMap((k) => [`detail${k}`, `detai
 const TILES = ["tiles", "tileSize", "tileOverlap"];
 const HIRES = ["hires", "hiresScale", "hiresUpscaler", "hiresDenoise", "hiresSteps", "hiresSampler", "hiresScheduler", ...TILES];
 const FACE = ["detector", "faceThreshold", "faceCrop", "faceGrow", "faceSize", "faceMax", "faceFeather"];
+/** Reference images and a guide picture (card #277): the same rows on every family that takes them (shared/references.ts, shared/guide.ts). */
+export const REFERENCES = ["references", "referenceStrength"];
+export const GUIDE = ["guide", "guideFollows", "guideStrength", "guideStart", "guideEnd", "guideLow", "guideHigh", "guideModel"];
 
 /**
  * The shared rows of each operation, in the order every form of it shows them (the model first, the seed last). The web
  * draws a form's rows by what they are (texts, pictures, sampling, output), each group in this order.
  */
 export const PICTURE_ROWS: Record<PictureOp, readonly string[]> = {
-  txt2img: ["prompt", "size", ...ADETAIL, ...DETAIL, ...SAMPLING, ...HIRES],
-  img2img: ["source", "prompt", "strength", ...SAMPLING],
+  txt2img: ["prompt", ...REFERENCES, ...GUIDE, "size", ...ADETAIL, ...DETAIL, ...SAMPLING, ...HIRES],
+  img2img: ["source", "prompt", "strength", ...REFERENCES, ...GUIDE, ...SAMPLING],
   inpaint: ["source", "mask", "prompt", "strength", "maskGrow", "maskBlur", ...SAMPLING],
   outpaint: ["source", "prompt", "shape", "padLeft", "padRight", "padTop", "padBottom", "feathering", ...SAMPLING],
   upscale: ["source", "prompt", "upscaler", "factor", "refine", "strength", "colourMatch", ...TILES, ...SAMPLING],
@@ -46,6 +49,24 @@ const OP_LABELS: Partial<Record<PictureOp, Record<string, string>>> = {
 
 /** What each picture form drops of its operation's rows, with why, by its id (read by the parity test). */
 export const PICTURE_DROPS = new Map<string, { op: PictureOp; drop: Readonly<Record<string, string>> }>();
+
+/** A family that takes no guide picture: every guide row dropped, with the one reason. */
+export const noGuide = (why: string): Record<string, string> => Object.fromEntries(GUIDE.map((id) => [id, why]));
+/** A family that reads no reference image: both rows dropped, with the one reason. */
+export const noReferences = (why: string): Record<string, string> => Object.fromEntries(REFERENCES.map((id) => [id, why]));
+/**
+ * A family's drops as one operation shares them: a family says its guide and references once (noGuide, noReferences), for its
+ * txt2img and img2img. Its edit's references are the edit's own matter (Qwen Image 2.1's edit reads them where its txt2img does not).
+ */
+export const dropsFor = (op: PictureOp, drops: Record<string, string> = {}): Record<string, string> =>
+  Object.fromEntries(Object.entries(drops).filter(([id]) => ![...GUIDE, ...REFERENCES].includes(id) || (["txt2img", "img2img"].includes(op) && PICTURE_ROWS[op].includes(id))));
+
+/**
+ * The shared rows a form leaves out that a user looks for on every model (a guide picture, reference images): shown greyed
+ * where they would be, with why (card #277), so that their absence is said rather than guessed. The others (a shift on SDXL)
+ * are left out quietly.
+ */
+const SAID_ABSENT = [{ id: "references", label: "Reference images" }, { id: "guide", label: "Control image" }];
 
 /** The ids of a form's operation's shared rows, the model and the seed included, in their order. */
 export const pictureRowsOf = (op: PictureOp, model = "model"): string[] => [model, ...PICTURE_ROWS[op], "seed"];
@@ -78,5 +99,6 @@ export function pictureForm<In>(op: PictureOp, recipe: Recipe<In>, drop: Record<
     return [...(row ? [words[id] ? { ...row, label: words[id] } : row] : []), ...(after.get(id) ?? [])];
   });
   PICTURE_DROPS.set(recipe.id, { op, drop });
-  return { ...recipe, inputs };
+  const absent = SAID_ABSENT.filter((a) => drop[a.id] !== undefined).map((a) => ({ ...a, why: drop[a.id]! }));
+  return { ...recipe, inputs, ...(absent.length ? { absent } : {}) };
 }

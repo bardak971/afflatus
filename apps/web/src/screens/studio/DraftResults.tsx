@@ -11,7 +11,7 @@ import { Bar, Button, CloseButton, cx, Empty, Failed } from "../../ui";
 import { Viewer } from "../../viewer/LazyViewer";
 import { useTileMenu } from "../../TileMenu";
 import { Tile, tileName } from "../Library";
-import { ThumbWidth } from "../../Thumb";
+import { ThumbWidth, VersionsBadge } from "../../Thumb";
 import { LiveTile } from "./LiveTile";
 import { useQueueOf } from "./queueOf";
 import { drawnIndices, stackBands, useHeld, useSpan } from "./virtual";
@@ -44,10 +44,11 @@ export function DraftResults({ draft, folder, list, title, empty }: {
   const tileMenu = useTileMenu({ onOpen: (a) => setPicked(a.id), into: { draft, folder }, place: "stage" });
   // a draft's stage shows its own renders forming; another scope's, whatever renders now. Only which job and
   // which are queued: the stage does not draw again at every step, the live parts read their progress themselves
+  // a version's render is not: it shows in the strip under its picture (VersionStrip), the picture staying large
   const ours = useQueueOf((q) => {
     const r = q.running;
-    const mine = r && (draft ? r.draftId === draft : r.kind === "render");
-    return { running: mine ? r.id : null, inLine: q.waiting.filter((j) => (draft ? j.draftId === draft : true)).map((j) => j.id) };
+    const mine = r && !r.versionOf && (draft ? r.draftId === draft : r.kind === "render");
+    return { running: mine ? r.id : null, inLine: q.waiting.filter((j) => !j.versionOf && (draft ? j.draftId === draft : true)).map((j) => j.id) };
   });
   const running = ours?.running ?? null;
   const inLine = ours?.inLine ?? [];
@@ -224,6 +225,7 @@ function StripItems({ items, byModel, shown, onPick, onMenu }: { items: Asset[];
               <span className="flex min-w-0 items-center gap-1.5">
                 {/* in the accent, flush with the name above it */}
                 {a.clipOf && <span className="min-w-0 truncate text-meta font-semibold text-accent">Clip {a.clipOf.clip}{a.clipOf.takes > 1 ? ` · take ${a.clipOf.take}` : ""}</span>}
+                <VersionsBadge count={a.versions} className="bg-transparent! px-0!" />
                 <span className="grow" />
                 <span className="shrink-0 font-mono text-meta text-ink-2">{a.durationMs !== null && a.kind !== "image" ? clock(a.durationMs, { decimals: 1 }) : a.width && a.height ? `${a.width}×${a.height}` : ""}</span>
               </span>
