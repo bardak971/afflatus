@@ -64,6 +64,12 @@ export type Able = {
    * run it now: it waits for that pod, its row offering Start (card #139), never sent to a machine of the user's own.
    */
   startPod?: string;
+  /**
+   * A rented pod that would run it once its node packs came, one of which failed there (podPacks.ts: failed for good on a
+   * pod), with why. With no machine able to run it, none unread and none on its way, the queue fails it with these words
+   * (queue.ts failPacksNever) rather than leave it waiting for a pack that never comes while the pod bills (card #282).
+   */
+  packsFailed?: { machine: string; why: string };
 };
 
 /**
@@ -282,6 +288,7 @@ export class Planner {
       const lacks: Record<string, Lack> = {};
       const fetch: Able["fetch"] = {};
       const unjudged = new Set<string>();
+      let packsFailed: Able["packsFailed"];
       /** The machines of the user's own where it would wait for files to be downloaded (its row's Download). */
       const waitsHere = new Map<string, Lack>();
       // a job pinned to a machine (or held for the one it was lost on) runs nowhere else: no other pod is sent its files
@@ -353,6 +360,8 @@ export class Planner {
           return;
         }
         const failed = short ?? (lack?.sendable && lane.machine!.rented ? this.d.podFetch.failed(lane.id, lack.files, lack.packs) : null);
+        const packFailed = lack?.sendable && lane.machine!.rented && lack.packs?.length ? this.d.podFetch.failed(lane.id, [], lack.packs) : null;
+        if (packFailed) packsFailed ??= { machine: lane.id, why: packFailed };
         if (lack || balance) lacks[lane.id] = { ...(lack ?? { off: false, files: [], sendable: false }), ...(balance ? { balance } : {}), ...(failed ? { failed } : {}) };
         else can.add(lane.id);
       }));
@@ -395,7 +404,7 @@ export class Planner {
           }
         }
       }
-      out.set(r.id, { can, lacks, fetch, ...(unjudged.size ? { unjudged } : {}), ...(startPod ? { startPod } : {}) });
+      out.set(r.id, { can, lacks, fetch, ...(unjudged.size ? { unjudged } : {}), ...(startPod ? { startPod } : {}), ...(packsFailed ? { packsFailed } : {}) });
     }
     return out;
   }

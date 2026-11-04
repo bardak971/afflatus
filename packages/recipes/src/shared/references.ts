@@ -130,8 +130,11 @@ export function withIpAdapter(g: GraphBuilder, ctx: BuildContext, model: Ref, in
   if (people) {
     model = g.out("LoraLoaderModelOnly", { model, lora_name: ctx.slots.faceIdLora, strength_model: 0.6 });
     const adapter = g.out("IPAdapterModelLoader", { ipadapter_file: ctx.slots.faceId });
-    // the pack Manager installs loads buffalo_l and has no input to name it (its nodes read from a pod, 2026-11-04)
-    const faces = g.out("IPAdapterInsightFaceLoader", { provider: "CPU" });
+    // buffalo_l, named where the loader asks which: the pack's last commit (a0f451a5, built into the pod base since base 10)
+    // requires model_name, and refused a graph without it (card #282); the Registry's 2.0.0, which ComfyUI-Manager installs,
+    // has no such input and loads buffalo_l, refusing one it does not know
+    const named = ctx.inputs?.("IPAdapterInsightFaceLoader")?.includes("model_name");
+    const faces = g.out("IPAdapterInsightFaceLoader", { provider: "CPU", ...(named ? { model_name: "buffalo_l" } : {}) });
     loads.push(`ipadapter/${ctx.slots.faceId}`, `loras/${ctx.slots.faceIdLora}`);
     input.references.forEach((r, i) => {
       if (!isPerson(r)) return;

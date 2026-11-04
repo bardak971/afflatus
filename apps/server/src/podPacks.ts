@@ -112,6 +112,12 @@ const RESTART_MS = 5 * 60_000;
 /** Manager's list of packs loads in the background on a pod just up (2 to 3 min on the real test): a pack it cannot find yet is asked again this often, so many times (5 min). */
 const RETRY_MS = 20_000;
 const TRIES = 15;
+/**
+ * How many times Manager's queue is asked to start when the pod's proxy answers in its place (fromProxy), and how long apart:
+ * its tasks are queued already, and asking again is harmless (Manager answers 201 when its queue runs).
+ */
+const START_TRIES = 4;
+const START_RETRY_MS = 5_000;
 /** How long an install may go without Manager saying anything of it before it is failed (a pack's own install takes minutes at most). */
 const INSTALL_MS = 15 * 60_000;
 /** What installing and a restart are planned to take, before a pack is there (queue.ts's plan). */
@@ -148,6 +154,8 @@ export class PodPacks {
   private seq = 0;
   /** How long a pack Manager cannot find yet waits before it is asked again (shorter in tests). */
   retryMs = RETRY_MS;
+  /** How long apart Manager's queue is asked to start again after the pod's proxy answered for it (shorter in tests). */
+  startRetryMs = START_RETRY_MS;
   /**
    * How many times a pack Manager cannot find is asked for in all: a pod's Manager is still loading its list of packs in
    * its first minutes, a ComfyUI of the user's own has had it long since (asked once: its job is not held 5 min for nothing).
@@ -465,9 +473,12 @@ export class PodPacks {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(15_000),
         body: JSON.stringify({ ui_id: task, client_id: CLIENT, kind: "install", params: { id: e.name, version, selected_version: version, mode: "cache", channel: "default" } }),
       }).catch(() => null);
-      // no answer is not a refusal (ComfyUI busy, or restarting): asked again in a moment, as many times as a pack not found yet
-      if (!res && (e.tries ?? 0) + 1 < TRIES) Object.assign(e, { tries: (e.tries ?? 0) + 1, notBefore: Date.now() + this.retryMs });
-      else if (!res) Object.assign(e, { state: "failed", failedAt: Date.now(), error: "its ComfyUI did not answer" });
+      // no answer is not a refusal (ComfyUI busy, or restarting), nor is the pod's proxy answering for it (an empty 404, a
+      // 502–504): asked again in a moment, as many times as a pack not found yet. Taken for Manager's, an empty 404 said the
+      // pod had no Manager
+      const away = !res || (!res.ok && (await fromProxy(res)));
+      if ((!res || away) && (e.tries ?? 0) + 1 < TRIES) Object.assign(e, { tries: (e.tries ?? 0) + 1, notBefore: Date.now() + this.retryMs });
+      else if (!res || away) Object.assign(e, { state: "failed", failedAt: Date.now(), error: "its ComfyUI did not answer" });
       else if (res.status === 404) Object.assign(e, { state: "failed", failedAt: Date.now(), error: "its ComfyUI has no ComfyUI-Manager" });
       else if (!res.ok) Object.assign(e, { state: "failed", failedAt: Date.now(), error: `ComfyUI-Manager refused it (${res.status})` });
       else {
@@ -476,7 +487,15 @@ export class PodPacks {
       }
     }
     if (asked.length) {
-      const started = await comfy.client.raw("/v2/manager/queue/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", signal: AbortSignal.timeout(15_000) }).catch(() => null);
+      // the pod's proxy answering in Manager's place for a moment (an empty 404, a 502–504) or no answer is asked again: on
+      // 2026-11-04 one such 404 failed comfyui_ipadapter_plus on a pod whose image had installed it fine hours before, and
+      // its jobs could never run there (card #282). Manager's own refusal, with its words, is not
+      let started: Response | null = null;
+      for (let i = 0; i < START_TRIES; i++) {
+        if (i) await new Promise((r) => setTimeout(r, this.startRetryMs));
+        started = await comfy.client.raw("/v2/manager/queue/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", signal: AbortSignal.timeout(15_000) }).catch(() => null);
+        if (started && (started.ok || !(await fromProxy(started)))) break;
+      }
       if (!started?.ok) for (const e of asked) Object.assign(e, { state: "failed", failedAt: Date.now(), error: `ComfyUI-Manager did not start its installs (${started?.status ?? "no answer"})` });
     }
     return true;
