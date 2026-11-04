@@ -5,9 +5,10 @@ import { Kbd } from "../Keys";
 import { tuneAt, useTune } from "../passTune";
 import type { QueuedJob } from "../queueVariation";
 import { Select } from "../Select";
-import { Button, Chip, cx, fieldClass, IconButton } from "../ui";
+import { plural } from "../format";
+import { Button, Chip, cx, fieldClass, Help, IconButton } from "../ui";
 import type { BoxEditor } from "./boxEditors";
-import { FIX_ROWS, useCtrlEnter } from "./FixBar";
+import { FIX_ROWS, MASK_OR_BOX, useCtrlEnter } from "./FixBar";
 
 /** The box whose instruction the bar's field holds: the one picked, else the first that says nothing yet, else the last drawn. */
 export function boxInHand(boxes: readonly RegionValue[], selected: string | null): RegionValue | undefined {
@@ -49,7 +50,8 @@ export function BoxBar({ boxes, selected, onSelect, onPrompt, editors, editor, o
   };
   const root = useRef<HTMLDivElement>(null);
   useCtrlEnter(go, root);
-  const words = `Edit in box · ${editor.name} · ×${boxes.length}`;
+  // the model is the select's beside it: the button says what it does and how many boxes
+  const words = `Edit in box · ${plural(boxes.length, "box", "boxes")}`;
   const tune = (gear: Element) =>
     openTune(tuneAt(gear), {
       action: "edit",
@@ -120,7 +122,10 @@ export function BoxBar({ boxes, selected, onSelect, onPrompt, editors, editor, o
         </Button>
       </div>
       {!editor.ready && <span className="text-xs font-semibold text-attention-ink">{editor.name}'s files are not all in ComfyUI: Settings › Models has them, or a pod fetches them</span>}
-      <span className="text-xs text-ink-3">Each box its own instruction, done one after another into one version · <Kbd>Del</Kbd> removes the box picked · paint a part to fix it instead · <Kbd>Esc</Kbd> leaves Paint and fix</span>
+      <span className="flex flex-wrap items-center justify-center gap-x-1 text-xs text-ink-3">
+        Each box its own instruction, done one after another into one version · <Kbd>Del</Kbd> removes the box picked · paint a part to fix it instead · <Kbd>Esc</Kbd> leaves Paint and fix
+        <Help title="Mask or box" text={MASK_OR_BOX} />
+      </span>
     </div>
   );
 }

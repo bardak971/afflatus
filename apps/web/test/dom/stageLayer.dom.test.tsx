@@ -165,7 +165,7 @@ describe("the mask layer", () => {
     await vi.waitFor(() => expect(mask!.ready).toBe(true));
     expect(pressed()).toEqual(["Soft brush"]);
     fireEvent.keyDown(window, { key: "b" });
-    expect(pressed()).toEqual(["Box mask"]);
+    expect(pressed()).toEqual(["Rectangle mask"]);
     fireEvent.keyDown(window, { key: "]" });
     expect(mask!.brush.size).toBeGreaterThan(64);
     fireEvent.keyDown(window, { key: "{", code: "BracketLeft", shiftKey: true });
@@ -174,7 +174,7 @@ describe("the mask layer", () => {
     expect(mask!.shown).toBe(false);
     const prompt = document.querySelector<HTMLInputElement>("input[aria-label=prompt]")!;
     fireEvent.keyDown(prompt, { key: "l" });
-    expect(pressed()).toEqual(["Box mask"]);
+    expect(pressed()).toEqual(["Rectangle mask"]);
   });
 
   it("fills a box, held square with Shift, and takes one away with Alt", async () => {

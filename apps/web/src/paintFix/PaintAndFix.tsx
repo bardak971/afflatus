@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { SquarePen } from "lucide-react";
 import { MAX_BOXES, type RegionValue } from "@afflatus/core";
 import { fileUrl } from "../api";
+import { plural } from "../format";
 import { dialogOver, OVER } from "../Dialog";
 import { Keys, typing } from "../Keys";
 import { useKeysHere } from "../keys/here";
@@ -33,11 +35,17 @@ export function frameSaid(s: FrameSides): string | null {
   return parts.length ? parts.join(" · ") : null;
 }
 
+/**
+ * What the strip says of the edit boxes drawn on this picture: how many, and the most there may be. "1 of 8 boxes" read as one
+ * box shown out of eight kept somewhere, so the cap is said as a cap.
+ */
+export const boxesSaid = (count: number): string => (count ? `${plural(count, "box", "boxes")} · ${MAX_BOXES} at most` : "No box yet");
+
 /** The strip while an edit's boxes are drawn or moved: how many, and what the keys do; the boxes have no setting of their own. */
 function BoxOptions({ count }: { count: number }) {
   return (
     <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-ink-2">
-      {count ? `${count} of ${MAX_BOXES} boxes` : "No box yet"} · <Keys keys="B" size="sm" /> draws one · <Keys keys="V" size="sm" /> picks and moves one · each box its own instruction in the bar
+      {boxesSaid(count)} · <Keys keys="B" size="sm" /> draws one · <Keys keys="V" size="sm" /> picks and moves one · each box its own instruction in the bar
     </span>
   );
 }
@@ -81,10 +89,11 @@ export function PaintAndFix({ acts, mode, strip, overlay }: {
   const [sides, setSides] = useState<FrameSides>({ shape: "Custom", padLeft: 0, padTop: 0, padRight: 0, padBottom: 0 });
   const frame = useFrameTool({ natural, onSides: setSides });
   const { tools } = mask;
-  // with an editor, B draws an edit's box (V picks and moves one) and the mask's box is O; without one, B is the mask's box
+  // with an editor, B draws an edit's box (V picks and moves one) and the mask's box is O; without one, B is the mask's box.
+  // The edit box has a pen in its square, so it does not read as the rectangle mask's dashed square below it
   const boxing: ToolbarItem[] = editor ? [
     boxTools.select,
-    { ...boxTools.box, label: "Box: edit in it", tip: "Drag a box where the edit goes, then say what to do there; a click on a box picks it" },
+    { ...boxTools.box, label: "Edit box", icon: SquarePen, tip: "Drag a box where an edit model is to follow an instruction, then say it in the bar; a click on a box picks it" },
     "rule",
   ] : [];
   const maskBox = editor ? { ...tools.box, id: "maskBox", key: "O" } : tools.box;
@@ -167,6 +176,8 @@ export function PaintAndFix({ acts, mode, strip, overlay }: {
         job={{ recipe: job, stored: acts.toolInput(job), label: verb === "Fix" ? "Inpaint" : verb, from: a.id, versionOf: a.id }}
         mask={outpainting ? frameSaid(sides) : maskSaid(mask.area, mask.soft)}
         grow={grow}
+        // the boxes are this picture's own (this component is keyed by its stack): a mask painted over them takes the bar
+        boxes={editor ? { count: boxes.length, onClearMask: mask.clear } : undefined}
         note={mode === "edit" && !editTool ? "No edit model for this picture: paint the part to change, and Fix redoes it" : undefined}
         busy={fix.isPending || fullForm.isPending || outpaint.isPending || outForm.isPending || edit.isPending || editForm.isPending}
         onFix={(ask) => (outpainting ? outpaint.mutate({ ...ask, sides }) : editing ? edit.mutate(ask) : void mask.png().then((png) => fix.mutate({ ...ask, soft: mask.soft, png })))}
