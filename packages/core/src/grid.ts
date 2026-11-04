@@ -248,8 +248,13 @@ export function axisValues(specs: readonly InputSpec[], values: Record<string, u
 export function gridAxes(specs: readonly InputSpec[], values: Record<string, unknown>, setup: GridSetup, options: Record<string, readonly string[]> = {}): { axes: GridAxisValues[] } | { error: string; axis: number } {
   const axes: GridAxisValues[] = [];
   const seen = new Set<string>();
-  for (const [i, a] of setup.axes.slice(0, GRID_AXES.length).entries()) {
-    if (!a.field) continue;
+  const used = setup.axes.slice(0, GRID_AXES.length);
+  for (const [i, a] of used.entries()) {
+    // an axis left empty before one in use keeps its place (X and Z with no Y: Z stays the pages), as one value of nothing
+    if (!a.field) {
+      if (used.slice(i + 1).some((b) => b.field)) axes.push({ field: "", label: "", values: [null], labels: [""] });
+      continue;
+    }
     if (seen.has(a.field)) return { error: "this setting is on another axis already", axis: i };
     seen.add(a.field);
     const read = axisValues(specs, values, a, options);
@@ -265,9 +270,11 @@ export function gridAxes(specs: readonly InputSpec[], values: Record<string, unk
 export const gridCount = (axes: ReadonlyArray<{ values: readonly unknown[] }>): number => (axes.length ? axes.reduce((n, a) => n * a.values.length, 1) : 0);
 
 /** The count as the Grid card says it: "3 × 4 × 2 = 24 renders". */
-export const gridCountSaid = (axes: ReadonlyArray<{ values: readonly unknown[] }>): string => {
+export const gridCountSaid = (axes: ReadonlyArray<{ field?: string; values: readonly unknown[] }>): string => {
   const n = gridCount(axes);
-  return axes.length > 1 ? `${axes.map((a) => a.values.length).join(" × ")} = ${plural(n, "render")}` : plural(n, "render");
+  // an axis kept only for its place says nothing
+  const shown = axes.filter((a) => a.field !== "");
+  return shown.length > 1 ? `${shown.map((a) => a.values.length).join(" × ")} = ${plural(n, "render")}` : plural(n, "render");
 };
 
 /** Every cell of the axes, in the order they are queued: page by page, row by row, left to right (as A1111 renders them). */
@@ -290,6 +297,7 @@ export function cellInput(specs: readonly InputSpec[], base: Record<string, unkn
   const at = [cell.x, cell.y, cell.z];
   for (const [i, axis] of axes.entries()) {
     const value = axis.values[at[i]!];
+    if (!axis.field) continue;
     if (axis.field === PROMPT_SR) {
       const from = String(axis.values[0]);
       for (const s of specs) if (s.type === "prompt" && typeof input[s.id] === "string") input[s.id] = (input[s.id] as string).split(from).join(String(value));

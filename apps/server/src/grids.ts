@@ -96,7 +96,7 @@ export function registerGrids(app: FastifyInstance, s: Services): void {
   app.get("/api/grids", async (req) => {
     const { draft } = z.object({ draft: z.string().max(64) }).parse(req.query);
     const rows = await s.db.selectFrom("grids").select(["id", "axes", "count", "created_at"]).where("draft_id", "=", draft).orderBy("created_at", "desc").limit(20).execute();
-    return { items: rows.map((r) => ({ id: r.id, axes: (JSON.parse(r.axes) as GridView["axes"]).map((a) => a.label), count: r.count, createdAt: r.created_at })) };
+    return { items: rows.map((r) => ({ id: r.id, axes: (JSON.parse(r.axes) as GridView["axes"]).map((a) => a.label).filter(Boolean), count: r.count, createdAt: r.created_at })) };
   });
 
   app.get<{ Params: { id: string } }>("/api/grids/:id", async (req) => (await gridView(s.db, req.params.id)) ?? Promise.reject(notFound("this grid")));
@@ -113,13 +113,14 @@ export function registerGrids(app: FastifyInstance, s: Services): void {
       .map((a) => ({ a, at: (a.grid_cell ?? "0.0.0").split(".").map(Number) }))
       .filter((c) => (c.at[2] ?? 0) === page);
     if (!cells.length) throw httpError("no picture of this page is left to put on a sheet");
-    const [x, y, zAxis] = [g.axes[0], g.axes[1], g.axes[2]];
-    const cols = x?.labels ?? [""];
-    const rows = y?.labels ?? [""];
+    // an axis kept only for its place (Y left empty under a Z) heads nothing
+    const [x, y, zAxis] = [g.axes[0], g.axes[1], g.axes[2]].map((a) => (a?.field ? a : undefined));
+    const cols = x?.labels ?? g.axes[0]?.labels ?? [""];
+    const rows = y?.labels ?? g.axes[1]?.labels ?? [""];
     const first = cells[0]!.a;
     const width = Math.min(SHEET_CELL, first.width ?? SHEET_CELL, Math.floor(SHEET_WIDTH / Math.max(1, cols.length)));
     const height = Math.round(width * ((first.height ?? width) / (first.width ?? width)));
-    const title = [g.axes.slice(0, 2).map((a) => a.label).join(" × "), zAxis ? `${zAxis.label}: ${zAxis.labels[page] ?? ""}` : ""].filter(Boolean).join(" · ");
+    const title = [g.axes.slice(0, 2).map((a) => a.label).filter(Boolean).join(" × "), zAxis ? `${zAxis.label}: ${zAxis.labels[page] ?? ""}` : ""].filter(Boolean).join(" · ");
     const bytes = await gridSheet({
       title, cols: x ? cols.map((c) => valueSaid(x, c)) : cols, rows: y ? rows.map((r) => valueSaid(y, r)) : rows, cell: { width, height },
       cells: await Promise.all(cells.map(async (c) => ({ x: c.at[0] ?? 0, y: c.at[1] ?? 0, bytes: await s.storage.get(c.a.file_key).catch(() => null) }))),

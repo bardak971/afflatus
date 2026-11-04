@@ -218,7 +218,7 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
             grid={gridOn ? {
               id: "grid", title: "Grid (X/Y/Z)",
               help: "Renders every combination of the axes' values, as A1111's X/Y/Z plot, laid out as one board on the Stage. Each cell is a normal picture of this draft.",
-              summary: gridPlan.count ? `${gridPlan.axes.map((a) => a.label).join(" × ")} · ${gridPlan.said}` : "no axes",
+              summary: gridPlan.count ? `${gridPlan.axes.map((a) => a.label).filter(Boolean).join(" × ")} · ${gridPlan.said}` : "no axes",
               node: <GridCard recipe={recipe} whole={whole} status={status} setup={draft.grid} plan={gridPlan} onChange={d.setGrid} />,
             } : undefined}
             look={takesLook ? <LookBar look={draft.look} onChange={d.setLook} recipe={recipe} input={whole} /> : undefined}

@@ -120,6 +120,19 @@ describe("the cells", () => {
     expect(form.loras[0]!.weight).toBe(0.8);
   });
 
+  it("keeps Z as the pages when Y is left empty, an empty axis said nowhere", () => {
+    const read = gridAxes(specs, form, { axes: [{ field: "cfg", values: "4, 6" }, { field: "", values: "" }, { field: "seed", values: "1, 2" }] });
+    const ax = "axes" in read ? read.axes : [];
+    expect(ax.map((a) => a.field)).toEqual(["cfg", "", "seed"]);
+    expect(gridCountSaid(ax)).toBe("2 × 2 = 4 renders");
+    expect(gridCells(ax).at(-1)).toEqual({ x: 1, y: 0, z: 1 });
+    expect(cellInput(specs, form, ax, { x: 1, y: 0, z: 1 }, 9)).toMatchObject({ cfg: 6, seed: 2 });
+    expect(cellSaid(ax, { x: 1, y: 0, z: 1 })).toBe("6 · 2");
+    // an empty axis after the last one used is not kept
+    const trailing = gridAxes(specs, form, { axes: [{ field: "cfg", values: "4" }, { field: "", values: "" }] });
+    expect("axes" in trailing && trailing.axes).toHaveLength(1);
+  });
+
   it("refuses a grid over its most", () => {
     expect(gridAxes(specs, form, { axes: [{ field: "steps", values: "1-20" }, { field: "cfg", values: "1-11" }] })).toMatchObject({ error: `220 renders, ${GRID_MOST} at most in one grid` });
   });

@@ -97,7 +97,8 @@ export function GridBoard({ grid, draft, folder, onClose }: { grid: string; draf
   const shape = first ? first.width! / first.height! : 1;
   const cols = laid?.cols.length ?? 1;
   const rows = laid?.rows.length ?? 1;
-  const labelW = g?.axes[1] ? LABEL_W : 0;
+  // an axis kept only for its place (Y left empty under a Z) has no labels
+  const labelW = g?.axes[1]?.field ? LABEL_W : 0;
   // the columns' labels: a value over its axis's name, two lines
   const headH = 46;
   const fitW = (room.w - labelW - GAP * cols) / cols;
@@ -148,7 +149,7 @@ export function GridBoard({ grid, draft, folder, onClose }: { grid: string; draf
     if (e.ctrlKey || e.metaKey || e.shiftKey) toggle([c.asset.id]);
     else setOpen(c.asset);
   };
-  const title = g ? g.axes.slice(0, 2).map((a) => a.label).join(" × ") : "Grid";
+  const title = g ? g.axes.slice(0, 2).map((a) => a.label).filter(Boolean).join(" × ") || (g.axes[2]?.label ?? "Grid") : "Grid";
 
   return (
     <div data-grid-board className="flex min-h-0 grow flex-col gap-2">
