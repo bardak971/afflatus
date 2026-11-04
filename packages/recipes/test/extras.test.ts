@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { dryContext, LATENT_GRID, LATENT_RESAMPLE, parseInput, pickChoice, type BuiltGraph, type ChoiceInput } from "@afflatus/core";
+import { dryContext, LATENT_GRID, LATENT_RESAMPLE, parseInput, pickChoice, refusalOf, type BuiltGraph, type ChoiceInput } from "@afflatus/core";
 import { familyById, fluxPicture, h3Video, recipeById, recipes, sdxlTextToPicture, wanVideo } from "../src";
 import { DAEMON_NEEDED, LYING_SIGMA } from "../src/shared/detail";
 import { AUX_NODE } from "../src/shared/guide";
 import { SAGE_NEEDED, SAGE_NODE } from "../src/shared/speed";
+import { IP_FILES, IP_NOT_BOTH } from "../src/shared/references";
 
 /** Detail boost, tiles, the guide picture, the speed-ups and Redux: the parts the graph checker cannot build (packs it has not got). */
 const of = (b: BuiltGraph, cls: string) => Object.entries(b.graph).filter(([, n]) => n.class_type === cls);
@@ -168,14 +169,31 @@ describe("a control image (ControlNet) on every family that has one", () => {
 
 describe("reference images on SDXL (IP-Adapter)", () => {
   const r = recipes.find((x) => x.id === "sdxl.text-to-picture")!;
-  const v = r.variants.find((x) => /IP-Adapter/.test(x.name))!;
-  it("reads a style by its style alone, and a person by their face (FaceID with its LoRA)", () => {
-    const b = r.build(parseInput(r, v.input), dryContext({ slots: v.slots ?? {}, uploads: v.uploads ?? {} }));
-    expect(of(b, "IPAdapterAdvanced").map(([, n]) => n.inputs.weight_type)).toEqual(["style transfer"]);
-    expect(of(b, "IPAdapterFaceID")).toHaveLength(1);
-    expect(of(b, "LoraLoaderModelOnly").map(([, n]) => n.inputs.lora_name)).toEqual(["ip-adapter-faceid-plusv2_sdxl_lora.safetensors"]);
+  const v = r.variants.find((x) => /IP-Adapter Plus/.test(x.name))!;
+  const faceId = r.variants.find((x) => /FaceID/.test(x.name))!;
+  const built = (x: typeof v) => r.build(parseInput(r, x.input), dryContext({ slots: x.slots ?? {}, uploads: x.uploads ?? {} }));
+  it("reads a style by its style alone, anything else by its look, and a person by their face (FaceID with its LoRA)", () => {
+    const b = built(v);
+    expect(of(b, "IPAdapterAdvanced").map(([, n]) => n.inputs.weight_type)).toEqual(["style transfer", "linear"]);
+    expect(of(b, "IPAdapterFaceID")).toHaveLength(0);
+    const p = built(faceId);
+    expect(of(p, "IPAdapterFaceID")).toHaveLength(1);
+    expect(of(p, "IPAdapterAdvanced")).toHaveLength(0);
+    expect(of(p, "LoraLoaderModelOnly").map(([, n]) => n.inputs.lora_name)).toEqual(["ip-adapter-faceid-plusv2_sdxl_lora.safetensors"]);
     // every pass samples the referenced model
-    for (const [, k] of of(b, "KSampler")) expect(from(b, k.inputs.model).class_type).toBe("IPAdapterFaceID");
+    for (const [, k] of of(p, "KSampler")) expect(from(p, k.inputs.model).class_type).toBe("IPAdapterFaceID");
+  });
+  // on the pod test a place picture beside a FaceID person was copied and no person drawn (card #280)
+  it.each(["sdxl.text-to-picture", "sdxl.redraw"])("%s refuses a person's picture with any other, before it is queued and in its build", (id) => {
+    const recipe = recipeById(id)!;
+    const refs = (...roles: string[]) => ({ references: roles.map((role, i) => ({ asset: `r${i}`, role })) });
+    for (const other of ["style", "place", "object", "clothing"]) expect(refusalOf(recipe, refs("person", other)), other).toBe(IP_NOT_BOTH);
+    expect(refusalOf(recipe, refs("place", "person"))).toBe(IP_NOT_BOTH);
+    // each alone, or two people, or two looks: taken
+    for (const ok of [refs(), refs("person"), refs("person", "person"), refs("style", "place")]) expect(refusalOf(recipe, ok)).toBeNull();
+    const variant = recipe.variants.find((x) => x.input.references)!;
+    const both = parseInput(recipe, { ...variant.input, ...refs("person", "place") });
+    expect(() => recipe.build(both, dryContext({ slots: IP_FILES, uploads: { "references.0": "a.png", "references.1": "b.png" }, media: variant.media ?? {} }))).toThrow(IP_NOT_BOTH);
   });
   it("asks a machine for FaceID's files only with a person", () => {
     const style = parseInput(r, { ...v.input, references: [{ asset: "a", role: "style" }] });

@@ -1,13 +1,13 @@
 import { defineRecipe, GraphBuilder, roundTo, type LoraValue, type Ref, type SizeValue } from "@afflatus/core";
 import { pictureForm } from "../shared/pictureForm";
-import { HIRES_PASS_INPUTS, hiresPass, isVPred, loadSdxl, modelInputs, PREDICTION_NODES, samplingInputs, SDXL_DROPS, SDXL_PRESETS, UPSCALER_PREFER } from "./common";
+import { HIRES_PASS_INPUTS, hiresPass, isVPred, loadSdxl, modelInputs, PREDICTION_NODES, samplingInputs, SDXL_DROPS, SDXL_PRESETS, UPSCALER_DEFAULT, UPSCALER_PREFER } from "./common";
 import { SDXL_GUIDE } from "./family";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, kSample, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { applyGuide, FOLLOW_MAP, guideInputs, guideNeeds, guideNodes, type GuideSettings } from "../shared/guide";
-import { IP_ADAPTER_INPUTS, IP_FILES, ipAdapterNeeds, ipAdapterNodes, withIpAdapter, type ReferenceSettings } from "../shared/references";
+import { IP_ADAPTER_INPUTS, IP_FILES, IP_REFUSES, ipAdapterNeeds, ipAdapterNodes, withIpAdapter, type ReferenceSettings } from "../shared/references";
 import { redrawInTiles, tileInputs, tileNodes, TILES_ON, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import { SDXL_AREA } from "./common";
-import { adetail, ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FILES, sized, type AdetailSettings } from "../shared/adetail";
+import { adetail, ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FILES, SDXL_FACE_DENOISE, sized, type AdetailSettings } from "../shared/adetail";
 
 export interface SdxlTextToPicture extends DetailSettings, GuideSettings, TileSettings, AdetailSettings, ReferenceSettings {
   prompt: string;
@@ -58,7 +58,7 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
         { id: "wide-16-9", label: "Landscape 16:9", width: 1344, height: 768 },
       ],
     },
-    ...adetailInputs("tags"),
+    ...adetailInputs("tags", "", SDXL_FACE_DENOISE),
     ...DETAIL_INPUTS,
     // the checkpoint, its LoRAs and how it samples: the rows of the SDXL tools, which the skeleton lays out (pictureForm)
     ...modelInputs,
@@ -68,7 +68,7 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
     {
       id: "hiresUpscaler", type: "choice", label: "Upscaler", note: "from your upscale models", showWhen: "hires", advanced: true, perModel: true,
       // an upscale model when there is one: the enlarged latent is noisy and asks for a denoise that redraws the picture
-      options: { node: "UpscaleModelLoader", input: "model_name" }, extra: [LATENT_UPSCALE], default: "4xNomos8kSC.pth", prefer: UPSCALER_PREFER,
+      options: { node: "UpscaleModelLoader", input: "model_name" }, extra: [LATENT_UPSCALE], default: UPSCALER_DEFAULT, prefer: UPSCALER_PREFER,
     },
     {
       id: "hiresDenoise", type: "number", label: "Denoising strength", min: 0.05, max: 0.9, step: 0.05, default: 0.45, showWhen: "hires", advanced: true, perModel: true,
@@ -80,6 +80,8 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
     { id: "seed", type: "seed", label: "Seed" },
   ],
   presets: SDXL_PRESETS,
+  // a person's reference image with another is refused before it is queued, and said by the form (card #280)
+  refuses: IP_REFUSES,
   optionalNodes: [...DETAIL_OPTIONAL, ...ADETAIL_OPTIONAL],
   // the Detail rows ask for their detectors, reference images for IP-Adapter's files, a guide picture for its ControlNet
   needsWith: (input, slots, where) => [...adetailNeeds(input, slots, where), ...ipAdapterNeeds(input), ...guideNeeds(input, SDXL_GUIDE)],
@@ -207,9 +209,14 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
     { name: "a guide picture that is a depth map already", input: { prompt: "a", checkpoint: "x.safetensors", guide: "g.png", guideFollows: FOLLOW_MAP, guideModel: "union.safetensors" }, uploads: { guide: "g.png" } },
     { name: "a guide picture's pose, on the family's ControlNet", input: { prompt: "a", checkpoint: "x.safetensors", guide: "g.png", guideFollows: "Pose" }, slots: { controlnet: SDXL_GUIDE.file }, uploads: { guide: "g.png" } },
     {
-      name: "reference images: a style (IP-Adapter Plus) and a person (FaceID), with hires fix",
-      input: { prompt: "a", checkpoint: "x.safetensors", references: [{ asset: "a", role: "style" }, { asset: "b", role: "person" }], hires: true, hiresUpscaler: "u.pth" },
+      name: "reference images: a style and a place (IP-Adapter Plus), with hires fix",
+      input: { prompt: "a", checkpoint: "x.safetensors", references: [{ asset: "a", role: "style" }, { asset: "b", role: "place" }], hires: true, hiresUpscaler: "u.pth" },
       slots: IP_FILES, uploads: { "references.0": "a.png", "references.1": "b.png" },
+    },
+    {
+      name: "a person's reference image (FaceID), with hires fix",
+      input: { prompt: "a", checkpoint: "x.safetensors", references: [{ asset: "a", role: "person" }], hires: true, hiresUpscaler: "u.pth" },
+      slots: IP_FILES, uploads: { "references.0": "a.png" },
     },
     { name: "hires fix 3× in tiles, upscale model", input: { prompt: "a", checkpoint: "x.safetensors", hires: true, hiresScale: 3, hiresUpscaler: "u.pth" } },
     { name: "hires fix in tiles asked for, latent", input: { prompt: "a", checkpoint: "x.safetensors", hires: true, hiresUpscaler: LATENT_UPSCALE, tiles: TILES_ON, detail: true }, has: withoutDaemon },

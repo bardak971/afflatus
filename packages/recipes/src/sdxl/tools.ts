@@ -2,13 +2,14 @@ import { defineRecipe, GraphBuilder, roundTo, type BuildContext, type Ref } from
 import { pictureForm } from "../shared/pictureForm";
 import { redrawInTiles, tileInputs, TILE_NODES, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import {
-  boxOf, FACE_INPUTS, faceSteps, SDXL_DROPS, nothingToExtend, outpaintSides, FACTOR_INPUT, loadSdxl, NO_FACE, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, PASTE_BACK_NODES, pasteBack, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, REPAINT_NODES, repaintGuided, repaintInputs, repaints, samplerOf, stretchedFill, samplingInputs, SDXL_PRESETS, UPSCALER_PREFER, workSize,
+  boxOf, FACE_INPUTS, faceSteps, SDXL_DROPS, nothingToExtend, outpaintSides, FACTOR_INPUT, loadSdxl, NO_FACE, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, PASTE_BACK_NODES, pasteBack, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, REPAINT_NODES, repaintGuided, repaintInputs, repaints, samplerOf, stretchedFill, samplingInputs, SDXL_PRESETS, UPSCALER_DEFAULT, UPSCALER_PREFER, workSize,
   type FaceSettings, type MaskSettings, type OutpaintSettings, type RefineColourMatch, type RepaintSettings, type UpscaleSettings,
   type SdxlBase,
 } from "./common";
 import { DETECTOR_INPUT } from "../shared/detector";
+import { SDXL_FACE_DENOISE } from "../shared/adetail";
 import { applyGuide, guideInputs, guideNeeds, guideNodes, type GuideSettings } from "../shared/guide";
-import { IP_ADAPTER_INPUTS, IP_FILES, ipAdapterNeeds, ipAdapterNodes, withIpAdapter, type ReferenceSettings } from "../shared/references";
+import { IP_ADAPTER_INPUTS, IP_FILES, IP_REFUSES, ipAdapterNeeds, ipAdapterNodes, withIpAdapter, type ReferenceSettings } from "../shared/references";
 import { SDXL_GUIDE } from "./family";
 
 const picture = { width: 832, height: 1216 };
@@ -39,6 +40,8 @@ export const sdxlRedraw = pictureForm("img2img", defineRecipe<SdxlRedraw>({
     ...samplingInputs(),
   ],
   presets: SDXL_PRESETS,
+  // a person's reference image with another is refused before it is queued, and said by the form (card #280)
+  refuses: IP_REFUSES,
   // reference images ask for IP-Adapter's files, a guide picture for its ControlNet (as txt2img's)
   needsWith: (input) => [...ipAdapterNeeds(input), ...guideNeeds(input, SDXL_GUIDE)],
   nodes: (input) => [...modelNodes(input), "LoadImage", "ImageScale", "VAEEncode", "KSampler", "VAEDecode", "PreviewImage", ...ipAdapterNodes(input), ...guideNodes(input, SDXL_GUIDE)],
@@ -273,7 +276,7 @@ export const sdxlSharper = pictureForm("upscale", defineRecipe<SdxlSharper>({
   inputs: [
     { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
     { id: "prompt", type: "prompt", label: "Prompt", note: "what is in the picture: it helps the img2img pass", style: "tags", optional: true, default: "" },
-    { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "4x-UltraSharp.pth", prefer: UPSCALER_PREFER, section: "out" },
+    { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: UPSCALER_DEFAULT, prefer: UPSCALER_PREFER, section: "out" },
     FACTOR_INPUT,
     { id: "refine", type: "toggle", label: "img2img pass after upscale", note: "a light pass with the checkpoint; past about 4 megapixels it is made in tiles", default: true, section: "out" },
     { id: "strength", type: "number", label: "Denoising strength", min: 0.05, max: 0.6, step: 0.01, default: 0.28, showWhen: "refine", advanced: true, section: "out" },
@@ -365,7 +368,8 @@ export const sdxlFixFace = pictureForm("face", defineRecipe<SdxlFixFace>({
   inputs: [
     { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
     { id: "prompt", type: "prompt", label: "Prompt", note: "the face and who it is: eye colour, hair, expression", style: "tags", optional: true, default: "" },
-    { id: "strength", type: "number", label: "Denoising strength", note: "0.3 cleans the face, 0.6 can make another one", min: 0.1, max: 0.8, step: 0.05, default: 0.4 },
+    // the Detail face pass's start (card #280): the same FaceDetailer on the same crop, which made another person at 0.4
+    { id: "strength", type: "number", label: "Denoising strength", note: "0.3 cleans the face, 0.6 can make another one", min: 0.1, max: 0.8, step: 0.05, default: SDXL_FACE_DENOISE },
     DETECTOR_INPUT,
     ...FACE_INPUTS,
     ...modelInputs,
