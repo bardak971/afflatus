@@ -200,6 +200,10 @@ export function Field({ spec, value, values, specs, options, setup, family, mode
     case "cues":
       return <CuesField label={spec.label} note={spec.note} max={spec.max} value={(value as CueValue[] | undefined) ?? []} onChange={onChange} clipSeconds={specs && values ? plannedSeconds(specs, values, { fitted: true }) : null} />;
 
+    case "regions":
+      // its own card of the form (RecipeForm's Regions), the boxes drawn on the Stage: no row of a part
+      return null;
+
     case "clip":
       return (
         <ClipField

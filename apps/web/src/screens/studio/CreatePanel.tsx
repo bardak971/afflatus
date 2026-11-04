@@ -80,11 +80,13 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
   }, [moveTo]);
   // the open form, for the library's menus: "Use in this draft" (formTarget.ts)
   const publish = useFormTarget((st) => st.publish);
+  // the form with its defaults, set further down: the Stage's empty frame is drawn at its size (regions, card #271)
+  const wholeNow = useRef<Record<string, unknown>>({});
   const formValues = recipe && draft ? draft.forms[recipe.id] : undefined;
   useEffect(() => {
     if (!recipe || !draft) { publish(null); return; }
     publish({
-      recipe, values: { ...formValues }, set: (input, value) => d.setValue(recipe.id, input, value), draftId: draft.id, folder: folder?.id, look: draft.look, setLook: d.setLook, generate: (machine) => makeNow.current(machine),
+      recipe, values: { ...formValues }, whole: wholeNow.current, forms: draft.forms, set: (input, value) => d.setValue(recipe.id, input, value), draftId: draft.id, folder: folder?.id, look: draft.look, setLook: d.setLook, generate: (machine) => makeNow.current(machine),
       applyPreset: (id) => presetNow.current(id), savePreset: (name) => savePreset.mutateAsync(name),
     });
     // the form is gone with the panel
@@ -105,6 +107,13 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
   const settings = useModelSettings();
   const defaults = useMemo(() => (recipe ? formDefaults(recipe, withOfficial(status, recipe.inputs, family), settings.data?.items ?? [], formValues).defaults : {}), [recipe, status, settings.data, formValues, family]);
   const whole = useMemo(() => (recipe && draft ? { ...defaults, ...ownValues(recipe, formValues) } : {}), [recipe, draft, defaults, formValues]);
+  wholeNow.current = whole;
+  // a default that changes alone (another model's size) reaches the Stage too
+  useEffect(() => {
+    const t = useFormTarget.getState().target;
+    if (t && t.draftId === draft?.id && t.whole !== whole) publish({ ...t, whole });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- published again when the form with its defaults changes
+  }, [whole]);
   // a required input still empty (an img2img with no picture, an Inpaint with no mask) waits like a model that is not
   // ready: Ctrl+Enter and the command bar too
   // (with the pictures the cast adds: a cast person in Krea 2's person reference beside style images is refused)
