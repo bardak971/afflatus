@@ -22,7 +22,7 @@ export function PainterToolbar({ canUndo, onUndo, canRedo, onRedo, canClear, onC
     <header className="flex h-16 shrink-0 items-center gap-4 border-b border-line bg-panel px-5">
       {/* how to paint is behind the ?: the room under the bar is the picture's */}
       <span className="flex items-center gap-1.5">
-        <h2 className="text-base font-semibold">Paint the mask</h2>
+        <h2 className="text-base font-semibold whitespace-nowrap">Paint the mask</h2>
         <Help text={HOW} />
       </span>
       <Button size="sm" onClick={onUndo} disabled={!canUndo} data-tip="Undo the last stroke (Ctrl+Z)"><Undo2 size={14} /> Undo</Button>

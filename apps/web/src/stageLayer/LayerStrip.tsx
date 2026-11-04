@@ -25,10 +25,10 @@ export function LayerStrip({ title, children, end, className }: { title: ReactNo
   );
 }
 
-/** One option on the strip: its name, then its control. */
+/** One option on the strip: its name, then its control, kept whole (the strip wraps between options, never inside one). */
 function Option({ name, help, children }: { name: string; help?: string; children: ReactNode }) {
   return (
-    <span className="flex items-center gap-2 text-ink-2">
+    <span className="flex shrink-0 items-center gap-2 whitespace-nowrap text-ink-2">
       {name}
       {help && <Help text={help} />}
       {children}
