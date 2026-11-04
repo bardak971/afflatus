@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { openAsBlob } from "node:fs";
-import { baseModels, checkGraph, choicesOf, graphFiles, clockFits, exactSoundPart, FRAME_SLACK_MS, isChunkStart, latentClockOf, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, neededSlots, onGrid, packOfNode, parseInput, pickChoice, pickedFiles, RANDOM_SEED, relocateFiles, soundPartOf, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue, type SetFinding } from "@afflatus/core";
+import { baseModels, checkGraph, choicesOf, graphFiles, clockFits, exactSoundPart, FRAME_SLACK_MS, isChunkStart, latentClockOf, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, neededSlots, onGrid, packOfNode, parseInput, pickChoice, pickedFiles, RANDOM_SEED, relocateFiles, soundPartOf, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue, regionPicture, regionsOf, type SetFinding } from "@afflatus/core";
 import { catalogKey, ComfyCancelled, ComfyError, ComfyUnreachable, filesIn } from "@afflatus/comfy";
 import { Kept } from "./kept";
 import { chunksOf, forecast, fromRates, sizedFrom, workOf, type Forecast } from "./forecast";
@@ -260,7 +260,8 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   const specs = (recipe.inputs as InputSpec[]).filter((spec) => {
     const value = input[spec.id];
     if (standsIn(spec, value)) return false;
-    return (spec.type === "image" && typeof value === "string") || (spec.type === "clip" && Boolean(value)) || (spec.type === "references" && Array.isArray(value)) || (spec.type === "audio" && typeof value === "string") || (spec.type === "cues" && Array.isArray(value) && value.length > 0);
+    return (spec.type === "image" && typeof value === "string") || (spec.type === "clip" && Boolean(value)) || (spec.type === "references" && Array.isArray(value)) || (spec.type === "audio" && typeof value === "string") || (spec.type === "cues" && Array.isArray(value) && value.length > 0)
+      || (spec.type === "regions" && Boolean(spec.picture) && regionsOf(value).some((r) => r.castPicture));
   });
   const told = specs.map(() => [] as string[]);
   const done = await Promise.allSettled(specs.map((spec, i) => {
@@ -271,6 +272,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
     if (spec.type === "clip") return uploadJoinClip(own, spec, value as ClipValue);
     if (spec.type === "references") return uploadReferences(own, spec, value as ReferenceValue[]);
     if (spec.type === "cues") return uploadCues(own, spec, value as CueValue[]);
+    if (spec.type === "regions") return uploadRegionPictures(own, spec, value);
     return uploadSound(own, spec, value as string);
   }));
   const failed = done.find((d): d is PromiseRejectedResult => d.status === "rejected");
@@ -742,6 +744,19 @@ async function uploadReferences({ db, storage, upload, signal, sent }: Up, spec:
   }));
 }
 
+/** Each region's cast picture (the server's castPicture) goes up under regionPicture's key: the box's person, redrawn from it. */
+async function uploadRegionPictures({ db, storage, upload, sent }: Up, spec: InputSpec, value: unknown): Promise<void> {
+  const regions = regionsOf(value).filter((r) => r.castPicture);
+  const rows = await db.selectFrom("assets").select(["id", "file_key", "mime", "width", "height", "kind"]).where("id", "in", [...new Set(regions.map((r) => r.castPicture!))]).execute();
+  const found = new Map(rows.map((r) => [r.id, r]));
+  await Promise.all(regions.map(async (r) => {
+    const asset = found.get(r.castPicture!);
+    if (!asset || asset.kind !== "image") throw new Error("a region's person picture is no longer in your library");
+    sent.uploads[regionPicture(spec.id, r)] = await upload(await storage.get(asset.file_key), extOf(asset.mime));
+    sent.media[regionPicture(spec.id, r)] = { width: asset.width ?? 0, height: asset.height ?? 0 };
+  }));
+}
+
 /** A sound, or a video whose sound is used (ComfyUI's loader reads the sound track of either): the chosen part of it, when the recipe has one. */
 async function uploadSound({ db, storage, upload, input, signal, sent }: Up, spec: InputSpec, value: string): Promise<void> {
   if (spec.type !== "audio") return;
@@ -1037,6 +1052,8 @@ export async function builtOf(core: QueueCore, recipeId: string, rawInput: unkno
     } else if (spec.type === "cues" && Array.isArray(value)) {
       // a cue's part as asked: what the build reads of it is its length
       for (const [i, cue] of (value as CueValue[]).entries()) standIn(`${spec.id}.${i}`, cue.asset, { width: 0, height: 0, seconds: cue.seconds });
+    } else if (spec.type === "regions" && spec.picture) {
+      for (const r of regionsOf(value).filter((r) => r.castPicture)) standIn(regionPicture(spec.id, r), r.castPicture!, await pictureFacts(core.db, r.castPicture!));
     }
   }
   // a finish that re-samples the draft's own latent is built on it, as submit builds it: else it is built as the draft and its finish both

@@ -1,7 +1,6 @@
 import type { InputSpec } from "@afflatus/core";
 import { flowKit, type FlowSpec } from "../flow/kit";
 import { noGuide } from "../shared/pictureForm";
-import { REGIONS_NOT_YET } from "../shared/regions";
 
 /** Which Krea 2 model: Turbo, or a fine-tune of it. The form starts on the one found by name. */
 const krea2Model: InputSpec = {
@@ -47,8 +46,6 @@ export const krea2Spec: FlowSpec = {
     precision: "Krea 2 Turbo comes as an fp8_scaled file, which UNETLoader reads as it is: its own inputs leave the weight precision out",
     // read on Hugging Face, 2026-11-04 (card #277)
     ...noGuide("no union ControlNet ComfyUI's own nodes load is made for Krea 2: the ones on Hugging Face are single-kind community files (pose, depth)"),
-    // ComfyUI-Krea2-Regional, a beta pack: a later round (card #271)
-    regions: REGIONS_NOT_YET,
   },
   shapes: [
     { id: "tall", label: "Portrait", width: 896, height: 1152 },
