@@ -405,8 +405,9 @@ export class Notify {
   private async ended(id: string, status: string): Promise<void> {
     const { db } = this.deps;
     const row = await db.selectFrom("jobs").select(["label", "recipe_id", "inputs", "warm", "error", "machine_id", "generation_id", "created_at", "started_at", "finished_at"]).where("id", "=", id).executeTakeFirst();
-    // a quiet job (Recipe.quiet: the Stage's find) is the page's own business: nothing is said of it, nor counted in the batch
-    if (row && this.deps.registry.recipe(row.recipe_id)?.quiet) return this.emptied();
+    // a quiet job done (Recipe.quiet: the Stage's find) is the page's own business: nothing is said of it, nor counted in the
+    // batch. Failed, it is said as any other
+    if (row && status === "done" && this.deps.registry.recipe(row.recipe_id)?.quiet) return this.emptied();
     if (row && !row.warm && (status === "done" || status === "failed")) {
       const name = row.label || row.recipe_id;
       const from = Date.parse(row.started_at ?? row.created_at);

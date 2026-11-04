@@ -175,6 +175,12 @@ textarea:focus-visible {
 input[type="range"] {
   accent-color: var(--color-accent);
 }
+/* a form slider (Slider.tsx) marks its focus on its knob, a ring the knob draws itself: never a rectangle around the
+   whole track as well (owner, 2026-11-04). Like the rules above, this sits outside Tailwind's layers because the
+   track's outline-none could not undo the :focus-visible rule */
+[data-slider]:focus-visible {
+  outline: none;
+}
 /* a hover card over the track rises into place; with motion reduced it only fades in */
 /* the app's tooltip (Tip.tsx): it grows into place from a touch smaller; with motion reduced it only fades in */
 @keyframes tip-in {

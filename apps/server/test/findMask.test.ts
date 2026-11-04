@@ -93,6 +93,29 @@ describe("find a mask", () => {
   });
 });
 
+describe("a find is quiet", () => {
+  it("done: no notice and not among the queue's last finished; failed: said as any other", async () => {
+    const notices: Array<{ kind: string }> = [];
+    t.services.queue.events.on("notice", (n) => notices.push(n as { kind: string }));
+    const pic = await upload();
+    const done = (await post(t.app, `/api/assets/${pic.id}/find-mask`, { way: "detect", what: "face" })).json().job as string;
+    await until(() => fake.prompts.size === 1);
+    answer([makeMaskPng(200, 100, 100, 50, 10, 10)]);
+    await found(pic.id, done);
+    const failed = (await post(t.app, `/api/assets/${pic.id}/find-mask`, { way: "detect", what: "face" })).json().job as string;
+    await until(() => fake.prompts.size === 2);
+    const id = [...fake.prompts.keys()].at(-1)!;
+    fake.pending = fake.pending.filter((p) => p !== id);
+    fake.history[id] = { status: { status_str: "error", messages: [["execution_error", { exception_message: "zz-test no face detector" }]] } };
+    await until(async () => (await t.db.selectFrom("jobs").select("status").where("id", "=", failed).executeTakeFirstOrThrow()).status === "failed");
+    await until(() => notices.some((n) => n.kind === "renderFailed"));
+    expect(notices.map((n) => n.kind)).not.toContain("renderDone");
+    const recent = (await get(t.app, "/api/queue")).json().recent.map((j: { id: string }) => j.id);
+    expect(recent).toContain(failed);
+    expect(recent).not.toContain(done);
+  });
+});
+
 describe("a painted mask's box", () => {
   it("takes in a rim painted faintly (a mask all of soft edge), and nothing below it", async () => {
     // a ring of grey 20: under the old threshold (127) the mask had no box, and the inpaint worked on the whole picture
