@@ -317,8 +317,8 @@ export interface Recipe<In = Record<string, unknown>> {
    */
   scratch?(input: In): boolean;
   /**
-   * A short job the page that sent it waits on itself (the Stage's find, on every click): it ends with no banner, no
-   * notification and no line among the queue's last finished ones. Its Queue history row stays.
+   * A short job the page that sent it waits on itself (the Stage's find, on every click): done, it ends with no banner, no
+   * notification and no line among the queue's last finished ones. A failure is said as any other; its Queue history row stays.
    */
   quiet?: true;
   /**
