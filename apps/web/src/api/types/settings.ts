@@ -1,5 +1,5 @@
 /** The settings, the language models they name, and the start-up checks. */
-import type { ComfyTooOld } from "@afflatus/core";
+import type { BoxEditFamily, ComfyTooOld } from "@afflatus/core";
 import type { BarSettings } from "./bar";
 import type { PresetFile } from "./designer";
 
@@ -296,6 +296,8 @@ export interface Settings {
   designerInstruction: string;
   /** Tags written for an anime model are compared with danbooru's list. */
   tagCheck: boolean;
+  /** The family whose instruction editor does Edit in box on a picture whose own model has none (core's BOX_EDIT_FAMILIES). */
+  boxEditModel: BoxEditFamily;
   /** A render's picture downloaded or exported carries its generation parameters (A1111's, with hashes). */
   pngInfo: boolean;
   /** Model families switched on or off by hand; one that is not named follows its files, or is on with `allFamilies`. */

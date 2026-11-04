@@ -501,6 +501,23 @@ export const TOOLS_FAMILY = "tools";
 /** The background remover: a tool, where every other operation on a picture is a model's own recipe. */
 export const REMOVE_BACKGROUND = "tools.remove-background";
 
+/**
+ * The id of an instruction editor's Edit in box (card #284), from the editor's own ("qwen.edit" → "qwen.edit-in-box"): the
+ * Stage finds a family's box edit by it, and it ends in no pass's suffix (".edit"), so no pass takes it for the editor.
+ */
+export const inBoxOf = (editId: string): string => `${editId}-in-box`;
+/** The most boxes one Edit in box takes: each is a whole edit, so eight boxes take eight edits' time. */
+export const MAX_BOXES = 8;
+/**
+ * The instruction editor Edit in box uses where the picture's own model has none (Settings › Models, "Edit model for
+ * boxes"), by family; one not installed gives way to one that is.
+ */
+export const BOX_EDIT_FAMILIES = ["qwen21", "qwen", "klein", "flux"] as const;
+export type BoxEditFamily = (typeof BOX_EDIT_FAMILIES)[number];
+export const BOX_EDIT_DEFAULT: BoxEditFamily = "qwen21";
+/** Each one's editor as the bar and Settings say it: the editor's own name, where the family's ("FLUX.1") says another model. */
+export const BOX_EDITOR_NAMES: Record<BoxEditFamily, string> = { qwen21: "Qwen Image 2.1", qwen: "Qwen Image Edit", klein: "FLUX.2 Klein", flux: "FLUX.1 Kontext" };
+
 /** The upscale route that samples a video's own latent again, larger (H3's): kept in the recipe, not run as a tool. */
 export const LATENT_RESAMPLE = "Latent: re-sampled";
 

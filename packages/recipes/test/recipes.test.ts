@@ -55,7 +55,7 @@ describe("every recipe", () => {
   it("puts in each phase the kind of node its label says, in every variant", () => {
     // what the status strip and the render times call each phase has to be true of what runs in it
     const kinds: Record<string, RegExp> = {
-      sampling: /Sampler/, refining: /Sampler|UltimateUpscale/, restoring: /SeedVR2|KSampler/, detailing: /Detailer/, processing: /RemoveBackground|Canny|Preprocessor|SAM3_VideoTrack|SwapMask|SDPose|RTDETR/,
+      sampling: /Sampler/, refining: /Sampler|UltimateUpscale/, restoring: /SeedVR2|KSampler/, detailing: /Detailer/, processing: /RemoveBackground|Canny|Preprocessor|SAM3_VideoTrack|SwapMask|SDPose|RTDETR|ImageCrop|ImageCompositeMasked/,
       upscaling: /Upscale|Upsampler|SuperRes|Resize|Rebatch|Params|SeedVR2|VAEEncodeTiled|VAELoader|UNETLoader|LoadImage|ImageScale|LTXVPreprocess|LTXVImgToVideoInplace|VAEDecode|VAEEncode|PreviewImage|LatentUpscaleModelLoader|UpscaleModelLoader|RTX/,
       decoding: /Decode|PreviewImage|FrameInterpolationModelLoader/, interpolating: /Interpolat|Upsampler|LatentUpscaleModelLoader|Sampler|Sigmas|Noise|Guider|Latent/, encoding: /VideoCombine|CreateVideo|SaveVideo|PreviewImage/,
     };
@@ -1693,7 +1693,7 @@ describe("flux and qwen image, from what is said once about each", () => {
 
   it("gives every picture model the same six operations, under the names the tools look for", () => {
     for (const family of ["flux", "qwen"]) {
-      const ids = recipes.filter((r) => r.family === family).map((r) => r.id);
+      const ids = recipes.filter((r) => r.family === family && !r.hidden).map((r) => r.id);
       expect(ids).toEqual([`${family}.text-to-picture`, `${family}.edit`, `${family}.redraw`, `${family}.paint-over`, `${family}.outpaint`, `${family}.sharper`, `${family}.fix-face`]);
     }
   });

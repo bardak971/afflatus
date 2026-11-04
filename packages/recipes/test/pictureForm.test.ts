@@ -6,7 +6,8 @@ import { GUIDE, noGuide, noReferences, pictureForm, pictureRowsOf, PICTURE_DROPS
 // every picture form alike (the owner's H3 rule, applied to pictures on 2026-11-04; card #275): each takes its operation's
 // rows in the same order and words, or says why it does not
 const PICTURE_FAMILIES = ["sdxl", "klein", "krea2", "flux", "qwen", "qwen21", "zimage"];
-const forms = recipes.filter((r) => PICTURE_FAMILIES.includes(r.family));
+// a hidden recipe is no form (an Edit in box is the Stage's, card #284)
+const forms = recipes.filter((r) => PICTURE_FAMILIES.includes(r.family) && !r.hidden);
 
 describe("picture forms laid out by pictureForm", () => {
   it.each(forms.map((r) => [r.id, r] as const))("%s takes every row of its operation, or drops it with why", (id, recipe) => {

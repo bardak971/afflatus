@@ -26,6 +26,19 @@ import { wan } from "./wan/family";
 import { wanVideo } from "./wan/video";
 import { zimage, zimageFixFace, zimageOutpaint, zimagePaintOver, zimagePicture, zimageRedraw, zimageSharper } from "./zimage";
 import { moss, mossPicture } from "./moss";
+import { areaSize, inBox, kontextSize } from "./shared/boxEdit";
+
+/**
+ * The instruction editors' Edit in box (card #284), each reading its crop at the size it would bring a picture to itself:
+ * Kontext's sizes for Kontext and Qwen Image Edit (both read through FluxKontextImageScale), a megapixel on a grid of 16 for
+ * Klein, the Working size on a grid of 32 for Qwen Image 2.1 (a megapixel at its 0, "as it is", which a small crop is not).
+ */
+export const editsInBox = [
+  inBox(qwenEdit, () => kontextSize),
+  inBox(qwen21Edit, (input) => areaSize((input.resolution > 0 ? input.resolution : 1024) ** 2, 32)),
+  inBox(kleinEdit, () => areaSize(1024 * 1024, 16)),
+  inBox(fluxEdit, () => kontextSize),
+];
 
 export const families: Family[] = [sdxl, klein, krea2, flux, qwen, qwen21, zimage, moss, h3, wan, scail, ltx, ltx25, tools];
 
@@ -51,6 +64,7 @@ export const recipes: Recipe<any>[] = [
   ltx25Video,
   ltx25LipSync,
   removeBackground, seedvrPicture, findMask,
+  ...editsInBox,
 ];
 
 export const familyById = (id: string) => families.find((f) => f.id === id);

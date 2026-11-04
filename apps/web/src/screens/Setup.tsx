@@ -10,6 +10,7 @@ import { scrollInside } from "../scrollInside";
 import { Search } from "lucide-react";
 import { Chip, cx, IconButton, PageHeader, SearchField, SegmentCount, Segmented } from "../ui";
 import { AboutCard } from "./settings/AboutCard";
+import { BoxEditCard } from "./settings/BoxEditCard";
 import { CivitaiCard } from "./settings/CivitaiCard";
 import { ComfyCard } from "./settings/ComfyCard";
 import { CostsTab } from "./settings/CostsTab";
@@ -216,7 +217,7 @@ export function Setup() {
           {/* which families, and how their files come: the switch, the keys, the downloads, a URL */}
           {tab === "models" && (
             <ModelsByMachine
-              left={<CivitaiCard part="missing" />}
+              left={<><CivitaiCard part="missing" /><BoxEditCard /></>}
               right={(machine) => <><CivitaiCard part="sites" /><DownloadsCard machine={machine} /><LinkCard /></>}
             />
           )}
