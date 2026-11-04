@@ -189,6 +189,16 @@ class Base(unittest.TestCase):
         with open(os.path.join(POD, "..", "..", "packages", "core", "src", "packs.ts"), encoding="utf-8") as f:
             self.assertIn(f'commit: "{commit}"', f.read())
 
+    def test_ipadapter_plus_is_built_in_at_its_commit(self):
+        # SDXL's references: ComfyUI-Manager's install of it on a pod failed once, its jobs never run there (card #282). Its
+        # folder is linked under the name whose lower case is the Registry id, so start.sh takes the place of a copy Manager
+        # left on a volume (custom_nodes/comfyui_ipadapter_plus) rather than load both
+        text = read(BASE)
+        self.assertRegex(text, r"(?m)^ARG IPADAPTER_COMMIT=[0-9a-f]{40}$")
+        self.assertIn('pin ComfyUI_IPAdapter_plus https://github.com/cubiq/ComfyUI_IPAdapter_plus "${IPADAPTER_COMMIT}"', text)
+        with open(os.path.join(POD, "..", "..", "packages", "core", "src", "packs.ts"), encoding="utf-8") as f:
+            self.assertIn('name: "comfyui_ipadapter_plus"', f.read())
+
     def test_impact_subpack_is_built_in_at_its_commit_without_its_downloads(self):
         # ComfyUI-Manager's install of it fetched the YOLO pickles from Hugging Face's main, unchecked, before Afflatus's
         # checked fetch, and pip-installed its list unhashed (card #265): built in, its list locked, its install.py never
