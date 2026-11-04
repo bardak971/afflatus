@@ -1,5 +1,5 @@
 import { roundTo, type BuildContext, type GraphBuilder, type InputSpec, type LoraValue, type MediaFacts, type Ref } from "@afflatus/core";
-import { DEFAULT_NEGATIVE, SDXL_UNION } from "./family";
+import { DEFAULT_NEGATIVE, SDXL_NETS, SDXL_UNION } from "./family";
 
 /** What every SDXL recipe that works on a picture asks for besides its own inputs. */
 export interface SdxlBase {
@@ -332,7 +332,7 @@ export interface RepaintSettings {
 }
 export const repaintInputs = (note: string): InputSpec[] => [
   { id: "repaint", type: "toggle", label: "ControlNet repaint", default: true, advanced: true, note },
-  { id: "repaintModel", type: "choice", label: "ControlNet", options: { node: "ControlNetLoader", input: "control_net_name" }, default: SDXL_UNION, prefer: ["union.*promax", "union"], showWhen: "repaint", advanced: true },
+  { id: "repaintModel", type: "choice", label: "ControlNet", options: { node: "ControlNetLoader", input: "control_net_name" }, default: SDXL_UNION, prefer: SDXL_NETS.slice(0, 2), showWhen: "repaint", advanced: true },
 ];
 /** The nodes the repaint guidance brings in: optional, a recipe draws without it when they are not there. */
 export const REPAINT_NODES = ["ControlNetLoader", "SetUnionControlNetType", "InpaintPreprocessor", "ControlNetApplyAdvanced"];
@@ -352,8 +352,8 @@ export function repaintGuided(g: GraphBuilder, m: { positive: Ref; negative: Ref
 }
 
 /** The upscale models that suit most pictures, best first. */
-/** Which upscale model a picture recipe starts on when its default is not there: UltraSharp, else Nomos8kSC (photos), else a general one, never an anime one. */
-export const UPSCALER_PREFER = ["nomos8ksc", "clearreality", "ultrasharp", "x4plus(?!.*anime)", "nomosuni", "remacri|nmkd|siax|foolhardy", "^(?!.*anime)"];
+/** Which upscale model a picture recipe starts on when its default is not there: UltraSharp, else Nomos8kSC (photos), else a general one, an anime one last. */
+export const UPSCALER_PREFER = ["nomos8ksc", "clearreality", "ultrasharp", "x4plus(?!.*anime)", "nomosuni", "remacri|nmkd|siax|foolhardy", "^(?!.*anime)", "."];
 
 /**
  * What a checkpoint starts on the first time it is used, by its line: the settings its authors give.

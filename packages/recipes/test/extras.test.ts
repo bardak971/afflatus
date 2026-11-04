@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dryContext, LATENT_GRID, LATENT_RESAMPLE, parseInput, type BuiltGraph } from "@afflatus/core";
+import { dryContext, LATENT_GRID, LATENT_RESAMPLE, parseInput, pickChoice, type BuiltGraph, type ChoiceInput } from "@afflatus/core";
 import { familyById, fluxPicture, h3Video, recipeById, recipes, sdxlTextToPicture, wanVideo } from "../src";
 import { DAEMON_NEEDED, LYING_SIGMA } from "../src/shared/detail";
 import { AUX_NODE } from "../src/shared/guide";
@@ -150,6 +150,14 @@ describe("a control image (ControlNet) on every family that has one", () => {
     const file = String(loader.inputs.control_net_name ?? loader.inputs.name);
     if (!v.input.guideModel) expect(Object.values(v.slots ?? {})).toContain(file);
   });
+  // on a PC with SDXL's ControlNet alone, FLUX.1's control image was built with it, and the pod never sent FLUX.1's
+  it.each(["flux.text-to-picture", "qwen.text-to-picture", "zimage.text-to-picture", "sdxl.text-to-picture", "sdxl.paint-over"])("%s never starts on another family's ControlNet", (id) => {
+    const r = recipes.find((x) => x.id === id)!;
+    const others = ["controlnet-union-sdxl-1.0-promax.safetensors", "FLUX.1-dev-ControlNet-Union-Pro-2.0.safetensors", "Qwen-Image-InstantX-ControlNet-Union.safetensors", "Z-Image-Turbo-Fun-Controlnet-Union-2.1-2602-8steps.safetensors"];
+    for (const spec of r.inputs.filter((i) => i.type === "choice" && (i.id === "guideModel" || i.id === "repaintModel")) as ChoiceInput[]) {
+      expect(pickChoice(spec, others.filter((f) => f !== spec.default)), `${id} ${spec.id}`).toBe(spec.default);
+    }
+  });
 });
 
 describe("reference images on SDXL (IP-Adapter)", () => {
@@ -167,6 +175,14 @@ describe("reference images on SDXL (IP-Adapter)", () => {
     const style = parseInput(r, { ...v.input, references: [{ asset: "a", role: "style" }] });
     expect(r.needsWith!(style, {}, {})).toEqual(expect.arrayContaining(["ipVision", "ipAdapter"]));
     expect(r.needsWith!(style, {}, {})).not.toContain("faceId");
+  });
+  it("finds Plus's file by its name, never FaceID's (a PC with FaceID's alone had it in the Plus slot)", () => {
+    const slots = familyById("sdxl")!.slots;
+    const hits = (id: string, file: string) => slots.find((s) => s.id === id)!.detect.some((d) => new RegExp(d, "i").test(file));
+    expect(hits("ipAdapter", "ip-adapter-faceid-plusv2_sdxl.bin")).toBe(false);
+    expect(hits("ipAdapter", "ip-adapter-plus_sdxl_vit-h.safetensors")).toBe(true);
+    expect(hits("ipAdapter", "ip-adapter-plus-face_sdxl_vit-h.safetensors")).toBe(false);
+    expect(hits("faceId", "ip-adapter-faceid-plusv2_sdxl.bin")).toBe(true);
   });
 });
 
