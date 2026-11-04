@@ -25,6 +25,12 @@ export function LayerStrip({ title, children, end, className }: { title: ReactNo
   );
 }
 
+/**
+ * A slider's width on the strip: its track, the number box and its unit together (the Slider's className sizes all three),
+ * so the unit never runs into the next option's name.
+ */
+const SLIDER = "w-48 shrink-0";
+
 /** One option on the strip: its name, then its control, kept whole (the strip wraps between options, never inside one). */
 function Option({ name, help, children }: { name: string; help?: string; children: ReactNode }) {
   return (
@@ -44,14 +50,14 @@ export function MaskOptions({ mask, grow, onGrow }: { mask: MaskLayer; grow?: nu
   return (
     <>
       <Option name="Size">
-        <Slider label="Size of the brush" value={mask.brush.size} min={BRUSH_LIMITS.size.min} max={BRUSH_LIMITS.size.max} step={1} unit=" px" onChange={(size) => mask.setBrush({ size })} className="w-40" />
+        <Slider label="Size of the brush" value={mask.brush.size} min={BRUSH_LIMITS.size.min} max={BRUSH_LIMITS.size.max} step={1} unit=" px" onChange={(size) => mask.setBrush({ size })} className={SLIDER} />
       </Option>
-      <Option name="Feather" help="The brush's soft edge, past its core: the dashed ring shows where it fades out. A box and a lasso fade out by the same.">
-        <Slider label="Feather of the brush" value={mask.brush.feather} min={BRUSH_LIMITS.feather.min} max={BRUSH_LIMITS.feather.max} step={1} unit=" px" onChange={(feather) => mask.setBrush({ feather })} className="w-32" />
+      <Option name="Feather" help="The mask's own soft edge, painted into it past the brush's core: the dashed ring shows where it fades out, and a box, a lasso or a found mask fades out by the same. Not the fix's Mask blur (⚙): that one blurs the whole mask again when the new part is put back, on top of this.">
+        <Slider label="Feather of the brush" value={mask.brush.feather} min={BRUSH_LIMITS.feather.min} max={BRUSH_LIMITS.feather.max} step={1} unit=" px" onChange={(feather) => mask.setBrush({ feather })} className={SLIDER} />
       </Option>
       {grow !== undefined && onGrow && (
         <Option name="Grow" help="Grows the whole mask outward before the fix.">
-          <Slider label="Grow the mask" value={grow} min={0} max={128} step={1} unit=" px" onChange={onGrow} className="w-28" />
+          <Slider label="Grow the mask" value={grow} min={0} max={128} step={1} unit=" px" onChange={onGrow} className={SLIDER} />
         </Option>
       )}
       <IconButton className="ml-1" label={mask.shown ? "Hide the mask" : "Show the mask"} keys="M" pressed={!mask.shown} onClick={() => mask.setShown(!mask.shown)}>
@@ -125,7 +131,7 @@ export function WandOptions({ wand }: { wand: WandTool }) {
   return (
     <>
       <Option name="Tolerance" help="How far a colour may be from the one clicked, on each of red, green and blue: 0 is that colour alone, 100 every colour.">
-        <Slider label="Tolerance of the wand" value={wand.tolerance} min={0} max={100} step={1} onChange={wand.setTolerance} className="w-36" />
+        <Slider label="Tolerance of the wand" value={wand.tolerance} min={0} max={100} step={1} onChange={wand.setTolerance} className={SLIDER} />
       </Option>
       <span className="flex items-center gap-2 text-ink-2">
         Contiguous
