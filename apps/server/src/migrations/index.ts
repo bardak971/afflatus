@@ -108,6 +108,7 @@ import m0106 from "./0106-face-facts-unread";
 import m0107 from "./0107-jobs-by-machine-start";
 import m0108 from "./0108-llm-row-gone";
 import m0109 from "./0109-mcp-token-jobs";
+import m0110 from "./0110-asset-versions";
 
 /**
  * Every migration by its name, in the order they run (Kysely sorts them by name). A name never changes once
@@ -224,4 +225,5 @@ export const migrations: Record<string, Migration> = {
   "0107_jobs_by_machine_start": m0107,
   "0108_llm_row_gone": m0108,
   "0109_mcp_token_jobs": m0109,
+  "0110_asset_versions": m0110,
 };

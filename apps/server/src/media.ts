@@ -12,6 +12,8 @@ export const assetView = (a: Tables["assets"]) => ({
   kept: a.kept_at !== null, inBin: a.deleted_at !== null, createdAt: a.created_at,
   // when the one-day countdown of an unkept item last started (it was unkept, or put back from the bin); null: it runs from createdAt
   countdownFrom: a.countdown_from ?? null,
+  // a version waiting under a picture (versions.ts): that picture, the head of its stack; null: an item of the library
+  versionOf: a.version_of ?? null,
   // a file of a linked folder: where it is on the disk (in the bin: where it was)
   path: a.file_key.startsWith("linked:") ? a.file_key.slice("linked:".length) : a.linked_path,
   // one gone from its directory, kept because something uses it: its file answers 404

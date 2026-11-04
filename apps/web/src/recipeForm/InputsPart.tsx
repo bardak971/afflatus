@@ -29,7 +29,20 @@ function useTakes() {
  * forward and the part opens: the place is there to be dropped on. While searching, what a screen adds (the
  * cast, a clip's pinned frames) steps aside: it is not a setting. The cast comes back when the search names it.
  */
-export function InputsPart({ frames, refs, framesChosen, refsCount, chosen, summary, missing, look, lookHit, lookWithFrames, frameExtra, q, render }: {
+/**
+ * A row the form does not take, where it would be, greyed with why (card #277): a control image on a model no ControlNet is
+ * made for, reference images on one that reads none. Said rather than left out, so that it is not looked for.
+ */
+function AbsentRow({ label, why }: { label: string; why: string }) {
+  return (
+    <div className="flex min-h-11 flex-col justify-center gap-0.5 opacity-60" aria-disabled="true">
+      <span className="font-semibold text-ink-3">{label}</span>
+      <span className="text-xs text-ink-2">Not on this model: {why}.</span>
+    </div>
+  );
+}
+
+export function InputsPart({ frames, refs, absent = [], framesChosen, refsCount, chosen, summary, missing, look, lookHit, lookWithFrames, frameExtra, q, render }: {
   /**
    * The cast is used by the frames alone (a Motion transfer: who goes into the picture made from the driving video), not by
    * a reference input or the words: no References tab holds it; it is picked in that picture's own box (pictureMaker.tsx).
@@ -37,6 +50,8 @@ export function InputsPart({ frames, refs, framesChosen, refsCount, chosen, summ
   lookWithFrames?: boolean;
   frames: InputSpec[];
   refs: InputSpec[];
+  /** The control image and reference rows this form does not take (Recipe.absent): greyed in their tab, with why. */
+  absent?: Array<{ id: string; label: string; why: string }>;
   framesChosen: number;
   refsCount: number;
   /** What the frames and references hold, as one string: told apart to see that something was put in. */
@@ -61,8 +76,11 @@ export function InputsPart({ frames, refs, framesChosen, refsCount, chosen, summ
   const onRefs = useParts((st) => st.open["inputs:references"] ?? false);
   const setPart = useParts((st) => st.set);
   const takes = useTakes();
-  const hasFrames = frames.length > 0 || Boolean(frameExtra?.node);
-  const hasRefs = refs.length > 0 || (Boolean(look) && !lookWithFrames && (!q || Boolean(lookHit)));
+  // a control image goes with the frames (a picture the result is built on), reference images with the references
+  const absentFrames = absent.filter((a) => a.id !== "references");
+  const absentRefs = absent.filter((a) => a.id === "references");
+  const hasFrames = frames.length > 0 || Boolean(frameExtra?.node) || (absentFrames.length > 0 && !q);
+  const hasRefs = refs.length > 0 || (Boolean(look) && !lookWithFrames && (!q || Boolean(lookHit))) || (absentRefs.length > 0 && !q);
   const tab = hasFrames && hasRefs ? (onRefs ? "references" : "frames") : hasFrames ? "frames" : "references";
   // something dragged in: the tab that takes it comes forward
   const refsTake = refs.some(takes);
@@ -114,9 +132,11 @@ export function InputsPart({ frames, refs, framesChosen, refsCount, chosen, summ
       )}
       {tabNow === "frames" && !q && frameExtra?.node}
       {(tabNow === "frames" || q) && frames.map(render)}
+      {tabNow === "frames" && !q && absentFrames.map((a) => <AbsentRow key={a.id} label={a.label} why={a.why} />)}
       {tabNow === "references" && !q && frameExtra?.refs}
       {((tabNow === "references" && !q) || lookHit) && look}
       {(tabNow === "references" || q) && refs.map(render)}
+      {tabNow === "references" && !q && absentRefs.map((a) => <AbsentRow key={a.id} label={a.label} why={a.why} />)}
     </Part>
   );
 }

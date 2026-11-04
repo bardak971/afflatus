@@ -671,7 +671,7 @@
     "controls": 22,
     "stages": 0,
     "missingNodes": 3,
-    "replaced": 4,
+    "replaced": 2,
     "notes": 5,
     "bound": {
       "result": "129",
@@ -693,7 +693,7 @@
     "controls": 22,
     "stages": 0,
     "missingNodes": 3,
-    "replaced": 4,
+    "replaced": 2,
     "notes": 6,
     "bound": {
       "result": "127",
@@ -1341,7 +1341,7 @@
   },
   "v2__lustifyWorkflowsKrea2_krea2Edit (1).json": {
     "result": true,
-    "prompt": false,
+    "prompt": true,
     "negative": false,
     "model": true,
     "startImage": true,
@@ -1350,13 +1350,14 @@
     "length": false,
     "seeds": 1,
     "toggles": 0,
-    "controls": 2,
+    "controls": 4,
     "stages": 0,
-    "missingNodes": 3,
+    "missingNodes": 1,
     "replaced": 1,
-    "notes": 3,
+    "notes": 2,
     "bound": {
       "result": "272",
+      "prompt": "247:248.value",
       "model": "117.unet_name",
       "seeds": "241.seed",
       "startImage": "72.image"
@@ -4200,7 +4201,7 @@
     "toggles": 2,
     "controls": 3,
     "stages": 3,
-    "missingNodes": 7,
+    "missingNodes": 6,
     "replaced": 4,
     "notes": 3,
     "bound": {
@@ -4223,7 +4224,7 @@
     "controls": 0,
     "stages": 0,
     "missingNodes": 11,
-    "replaced": 10,
+    "replaced": 9,
     "notes": 1,
     "bound": {
       "result": "576",

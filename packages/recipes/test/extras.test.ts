@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { dryContext, LATENT_GRID, LATENT_RESAMPLE, parseInput, type BuiltGraph } from "@afflatus/core";
-import { familyById, fluxPicture, h3Video, recipeById, sdxlTextToPicture, wanVideo } from "../src";
+import { dryContext, LATENT_GRID, LATENT_RESAMPLE, parseInput, pickChoice, type BuiltGraph, type ChoiceInput } from "@afflatus/core";
+import { familyById, fluxPicture, h3Video, recipeById, recipes, sdxlTextToPicture, wanVideo } from "../src";
 import { DAEMON_NEEDED, LYING_SIGMA } from "../src/shared/detail";
 import { AUX_NODE } from "../src/shared/guide";
 import { SAGE_NEEDED, SAGE_NODE } from "../src/shared/speed";
@@ -112,16 +112,88 @@ describe("faster sampling", () => {
   });
 });
 
-describe("the look of a picture (FLUX.1 Redux)", () => {
+describe("reference images on FLUX.1 (Redux)", () => {
   const files = { unet: "flux1-dev.safetensors", clipL: "clip_l.safetensors", t5: "t5.safetensors", vae: "ae.safetensors" };
-  it("adds what the vision model sees to the prompt, at the strength asked for", () => {
-    const b = fluxPicture.build(parseInput(fluxPicture, { prompt: "a", look: "l1", lookStrength: 0.4 }), dryContext({ slots: { ...files, redux: "r.safetensors", vision: "s.safetensors" }, uploads: { look: "l.png" } }));
-    const [, styled] = of(b, "StyleModelApply")[0]!;
-    expect(styled.inputs).toMatchObject({ strength: 0.4, strength_type: "multiply" });
-    expect(from(b, styled.inputs.conditioning).class_type).toBe("FluxGuidance");
+  const refs = [{ asset: "a", role: "style" }, { asset: "b", role: "object" }];
+  it("adds what the vision model sees of each to the prompt, at the strength asked for", () => {
+    const b = fluxPicture.build(parseInput(fluxPicture, { prompt: "a", references: refs, referenceStrength: 0.4 }), dryContext({ slots: { ...files, redux: "r.safetensors", vision: "s.safetensors" }, uploads: { "references.0": "a.png", "references.1": "b.png" } }));
+    const styled = of(b, "StyleModelApply");
+    expect(styled).toHaveLength(2);
+    for (const [, n] of styled) expect(n.inputs).toMatchObject({ strength: 0.4, strength_type: "multiply" });
+    // chained after the guidance, as the single Redux image was
+    expect(styled.map(([, n]) => from(b, n.inputs.conditioning).class_type).sort()).toEqual(["FluxGuidance", "StyleModelApply"]);
   });
   it("without its files, says which", () => {
-    expect(() => fluxPicture.build(parseInput(fluxPicture, { prompt: "a", look: "l1" }), dryContext({ slots: files, uploads: { look: "l.png" } }))).toThrow(/flux1-redux-dev/);
+    expect(() => fluxPicture.build(parseInput(fluxPicture, { prompt: "a", references: refs }), dryContext({ slots: files, uploads: { "references.0": "a.png", "references.1": "b.png" } }))).toThrow(/flux1-redux-dev/);
+  });
+});
+
+describe("a control image (ControlNet) on every family that has one", () => {
+  const slotsOf = (r: (typeof recipes)[number]) => r.variants.find((v) => /guide picture/.test(v.name))!;
+  it.each([
+    ["sdxl.text-to-picture", "ControlNetApplyAdvanced", "SetUnionControlNetType"],
+    ["sdxl.redraw", "ControlNetApplyAdvanced", "SetUnionControlNetType"],
+    ["flux.text-to-picture", "ControlNetApplyAdvanced", null],
+    ["flux.redraw", "ControlNetApplyAdvanced", null],
+    ["qwen.text-to-picture", "ControlNetApplyAdvanced", null],
+    ["qwen.redraw", "ControlNetApplyAdvanced", null],
+    ["zimage.text-to-picture", "ZImageFunControlnet", null],
+    ["zimage.redraw", "ZImageFunControlnet", null],
+  ])("%s puts it on with %s", (id, applies, union) => {
+    const r = recipes.find((x) => x.id === id)!;
+    const v = slotsOf(r);
+    const b = r.build(parseInput(r, v.input), dryContext({ slots: v.slots ?? {}, uploads: v.uploads ?? {}, media: v.media ?? {} }));
+    expect(of(b, applies), id).toHaveLength(1);
+    expect(of(b, "SetUnionControlNetType").length > 0, id).toBe(Boolean(union));
+    // the family's own file when the row is left on its download
+    const loader = Object.values(b.graph).find((n) => ["ControlNetLoader", "ModelPatchLoader"].includes(n.class_type))!;
+    const file = String(loader.inputs.control_net_name ?? loader.inputs.name);
+    if (!v.input.guideModel) expect(Object.values(v.slots ?? {})).toContain(file);
+  });
+  // on a PC with SDXL's ControlNet alone, FLUX.1's control image was built with it, and the pod never sent FLUX.1's
+  it.each(["flux.text-to-picture", "qwen.text-to-picture", "zimage.text-to-picture", "sdxl.text-to-picture", "sdxl.paint-over"])("%s never starts on another family's ControlNet", (id) => {
+    const r = recipes.find((x) => x.id === id)!;
+    const others = ["controlnet-union-sdxl-1.0-promax.safetensors", "FLUX.1-dev-ControlNet-Union-Pro-2.0.safetensors", "Qwen-Image-InstantX-ControlNet-Union.safetensors", "Z-Image-Turbo-Fun-Controlnet-Union-2.1-2602-8steps.safetensors"];
+    for (const spec of r.inputs.filter((i) => i.type === "choice" && (i.id === "guideModel" || i.id === "repaintModel")) as ChoiceInput[]) {
+      expect(pickChoice(spec, others.filter((f) => f !== spec.default)), `${id} ${spec.id}`).toBe(spec.default);
+    }
+  });
+});
+
+describe("reference images on SDXL (IP-Adapter)", () => {
+  const r = recipes.find((x) => x.id === "sdxl.text-to-picture")!;
+  const v = r.variants.find((x) => /IP-Adapter/.test(x.name))!;
+  it("reads a style by its style alone, and a person by their face (FaceID with its LoRA)", () => {
+    const b = r.build(parseInput(r, v.input), dryContext({ slots: v.slots ?? {}, uploads: v.uploads ?? {} }));
+    expect(of(b, "IPAdapterAdvanced").map(([, n]) => n.inputs.weight_type)).toEqual(["style transfer"]);
+    expect(of(b, "IPAdapterFaceID")).toHaveLength(1);
+    expect(of(b, "LoraLoaderModelOnly").map(([, n]) => n.inputs.lora_name)).toEqual(["ip-adapter-faceid-plusv2_sdxl_lora.safetensors"]);
+    // every pass samples the referenced model
+    for (const [, k] of of(b, "KSampler")) expect(from(b, k.inputs.model).class_type).toBe("IPAdapterFaceID");
+  });
+  it("asks a machine for FaceID's files only with a person", () => {
+    const style = parseInput(r, { ...v.input, references: [{ asset: "a", role: "style" }] });
+    expect(r.needsWith!(style, {}, {})).toEqual(expect.arrayContaining(["ipVision", "ipAdapter"]));
+    expect(r.needsWith!(style, {}, {})).not.toContain("faceId");
+  });
+  it("finds Plus's file by its name, never FaceID's (a PC with FaceID's alone had it in the Plus slot)", () => {
+    const slots = familyById("sdxl")!.slots;
+    const hits = (id: string, file: string) => slots.find((s) => s.id === id)!.detect.some((d) => new RegExp(d, "i").test(file));
+    expect(hits("ipAdapter", "ip-adapter-faceid-plusv2_sdxl.bin")).toBe(false);
+    expect(hits("ipAdapter", "ip-adapter-plus_sdxl_vit-h.safetensors")).toBe(true);
+    expect(hits("ipAdapter", "ip-adapter-plus-face_sdxl_vit-h.safetensors")).toBe(false);
+    expect(hits("faceId", "ip-adapter-faceid-plusv2_sdxl.bin")).toBe(true);
+  });
+});
+
+describe("ControlNet tile on SDXL's Upscale", () => {
+  const r = recipes.find((x) => x.id === "sdxl.sharper")!;
+  it.each(["ControlNet tile, whole", "ControlNet tile, in tiles"])("%s: the union in tile mode, given the picture it redraws", (name) => {
+    const v = r.variants.find((x) => x.name === name)!;
+    const b = r.build(parseInput(r, v.input), dryContext({ slots: v.slots ?? {}, uploads: v.uploads ?? {}, media: v.media ?? {} }));
+    expect(of(b, "SetUnionControlNetType").map(([, n]) => n.inputs.type)).toEqual(["tile"]);
+    const [, applied] = of(b, "ControlNetApplyAdvanced")[0]!;
+    expect(from(b, applied.inputs.image).class_type).toBe(/in tiles/.test(name) ? "SplitImageToTileList" : "ImageScale");
   });
 });
 

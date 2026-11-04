@@ -105,7 +105,7 @@ const takes = <S, W>() => expectTypeOf<Takes<S, W>>();
  * The keys of a library item the listings add (GET /api/assets): the web's one Asset has them as optional, and an item
  * read alone, or one inside another answer (a timeline's clip, an item's sources), goes without them.
  */
-type ListedOnly = "clipOf" | "draftOf" | "shownName" | "family";
+type ListedOnly = "clipOf" | "draftOf" | "shownName" | "family" | "versions";
 
 describe("the web's API types match what the server answers", () => {
   it("the library", () => {
