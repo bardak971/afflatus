@@ -14,6 +14,7 @@ type Variant = Recipe<any>["variants"][number];
  * gives (`framesFrom`) are the server's: it cuts the part before the build sees it.
  */
 const NOT_IN_GRAPH: Record<string, string> = {
+  "qwen21.text-to-picture.detailMethod": "its two ways are both Lying sigma: the built-in sharpen breaks Qwen Image 2.1's pictures (card #275); the row stays for the drafts that hold it",
   "h3.video.handover": "the timeline's plan reads it, trimming the clip before to its last lively moment",
   "h3.lipsync.handover": "the timeline's plan reads it, trimming the clip before to its last lively moment",
   "h3.video.joinFrom": "it chooses between the latent join and the frames; the latent join needs the clip before's saved latent, which the recipe tests hand over (not a variant)",

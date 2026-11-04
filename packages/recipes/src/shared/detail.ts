@@ -35,6 +35,18 @@ export const DETAIL_INPUTS: InputSpec[] = [
   { id: "detailEnd", type: "number", label: "Detail end %", min: 0, max: 1, step: 0.05, default: 0.9, showWhen: "detail", advanced: true, perModel: true },
 ];
 
+/**
+ * The detail rows of a model the built-in sharpen breaks: Qwen Image 2.1's pictures came out as grain and black blotches
+ * with it on a pod, where Lying sigma gave a clean, more detailed one (card #275's render test). The method row stays (drafts
+ * and saved model settings hold its id) with Auto and Lying sigma, both Lying sigma.
+ */
+export const DAEMON_DETAIL_INPUTS: InputSpec[] = DETAIL_INPUTS.map((i) =>
+  i.id !== "detailMethod" ? i : { ...i, options: [DETAIL_AUTO, DETAIL_DAEMON], note: "Lying sigma (dishonesty factor = strength × −0.06), Auto too: the built-in sharpen breaks this model's pictures. It needs the ComfyUI-Detail-Daemon pack" },
+);
+
+/** The detail settings of a model the built-in sharpen breaks (DAEMON_DETAIL_INPUTS): Lying sigma, whatever was picked. */
+export const asDaemon = <T extends DetailSettings>(input: T): T => ({ ...input, detailMethod: DETAIL_DAEMON });
+
 /** Whether this render boosts detail with Detail Daemon's sampler (and so samples through ComfyUI's custom sampler nodes). */
 export function usesDaemon(input: DetailSettings, ctx: BuildContext): boolean {
   if (!input.detail) return false;

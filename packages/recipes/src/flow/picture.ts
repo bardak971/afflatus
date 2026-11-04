@@ -1,7 +1,7 @@
 import { defineRecipe, GraphBuilder, roundTo, type InputSpec, type Recipe, type Ref, type SizeValue } from "@afflatus/core";
 import { pictureForm } from "../shared/pictureForm";
 import { HIRES_PASS_INPUTS, hiresPass, UPSCALER_PREFER, type HiresPass } from "../sdxl/common";
-import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
+import { asDaemon, DAEMON_DETAIL_INPUTS, DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { redrawInTiles, tileInputs, tileNodes, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import type { FlowBase, FlowKit, FlowSpec } from "./kit";
 
@@ -29,6 +29,8 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
   const grid = spec.grid ?? 16;
   const largeOf = (input: FlowPicture) => ({ width: roundTo(roundTo(input.size.width, grid) * input.hiresScale, grid), height: roundTo(roundTo(input.size.height, grid) * input.hiresScale, grid) });
   const emptyLatent = spec.latent ?? "EmptySD3LatentImage";
+  // the detail boost as it samples: Lying sigma alone on a model the built-in sharpen breaks (Qwen Image 2.1's)
+  const detailOf = (input: FlowPicture): FlowPicture => (spec.detail === "daemon" ? asDaemon(input) : input);
   // the hires pass's "?": the real noise its default starts from, on the form's first shape at its default scale (card #146)
   const shape = spec.shapes.find((s) => s.id === "tall") ?? spec.shapes[0]!;
   const hiresDefault = { scale: spec.hires?.scale ?? 1.25, denoise: spec.hires?.denoise ?? 0.4, steps: spec.hires?.steps ?? Math.max(4, Math.round(spec.sampling.steps / 2)) };
@@ -53,7 +55,7 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
           { id: "lookStrength", type: "number", label: "Redux strength", note: "1 follows the picture closely and the prompt little; 0.3 to 0.6 keeps the prompt in charge", min: 0.05, max: 1.5, step: 0.05, default: 0.5, showWhen: "look" },
         ] satisfies InputSpec[])
         : []),
-      ...DETAIL_INPUTS,
+      ...(spec.detail === "daemon" ? DAEMON_DETAIL_INPUTS : DETAIL_INPUTS),
       ...inputs.slice(0, -1),
       { id: "hires", type: "toggle", label: "Hires fix", note: "upscale, then a second pass over the larger picture", default: false, advanced: true, perModel: true },
       { id: "hiresScale", type: "number", label: "Upscale by", note: "past 2×, the second pass is redrawn in tiles (see Redraw)", min: 1.1, max: 4, step: 0.05, default: spec.hires?.scale ?? 1.25, unit: "×", showWhen: "hires", advanced: true, perModel: true },
@@ -69,8 +71,8 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),
     nodes: (input) => [
-      ...loadNodes(input).filter((n) => n !== "KSampler"), emptyLatent, ...detailNodes(input),
-      ...fullPassNodes(input, spec.turbo && input.fast ? input.turboSteps ?? input.steps : input.steps), ...(input.hires ? ["KSampler"] : []),
+      ...loadNodes(input).filter((n) => n !== "KSampler"), emptyLatent, ...detailNodes(detailOf(input)),
+      ...fullPassNodes(detailOf(input), spec.turbo && input.fast ? input.turboSteps ?? input.steps : input.steps), ...(input.hires ? ["KSampler"] : []),
       ...(spec.look && input.look ? LOOK_NODES : []),
       ...(input.hires ? ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode"] : []),
       ...tileNodes(input.hires && inTiles(input, largeOf(input), AREA)),
@@ -88,7 +90,7 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       }
       const empty = g.out(emptyLatent, { width: size.width, height: size.height, batch_size: 1 });
       g.phase("sampling");
-      const detail = { input, ctx };
+      const detail = { input: detailOf(input), ctx };
       const first = sample(g, k, input, shifted(g, k.model, input, size), c, empty, ctx.seed, {}, detail);
       let latent = first.latent;
       const passes: Array<typeof first.pass & { pixels?: number }> = [first.pass];
@@ -130,7 +132,8 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
     variants: [
       { name: "from words, as ComfyUI's template", input: { prompt: "a" } as Partial<FlowPicture>, slots: files },
       ...(spec.look ? [{ name: "the look of a picture (Redux)", input: { prompt: "a", look: "l1" } as Partial<FlowPicture>, slots: { ...files, redux: "flux1-redux-dev.safetensors", vision: "sigclip_vision_patch14_384.safetensors" }, uploads: { look: "l.png" } }] : []),
-      { name: "detail boost, hires fix 3× in tiles", input: { prompt: "a", detail: true, hires: true, hiresScale: 3, hiresUpscaler: "u.pth" } as Partial<FlowPicture>, slots: files, has: withoutDaemon },
+      // (Lying sigma alone is not in the graph checker's catalog: a family that has only it is checked without the boost)
+      { name: spec.detail === "daemon" ? "hires fix 3× in tiles" : "detail boost, hires fix 3× in tiles", input: { prompt: "a", detail: spec.detail !== "daemon", hires: true, hiresScale: 3, hiresUpscaler: "u.pth" } as Partial<FlowPicture>, slots: files, has: withoutDaemon },
       { name: "a GGUF model, in fp8 asked for (no effect on it)", input: { prompt: "a", model: `${spec.family}-Q4_K_M.gguf`, precision: "fp8_e4m3fn" } as Partial<FlowPicture>, slots: files },
       { name: "a fine-tune with a shift, a LoRA, a negative prompt and hires fix", input: { prompt: "a", ...tuned, hires: true, hiresUpscaler: "u.pth", size: { width: 1152, height: 1536 } } as Partial<FlowPicture>, slots: files },
       ...(spec.turbo

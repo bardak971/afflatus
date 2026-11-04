@@ -66,6 +66,8 @@ describe("what a model file starts on, by its name", () => {
     expect(startsOn(krea2Picture, "krea2_raw_bf16.safetensors")).toEqual({ steps: 52, cfg: 3.5, hiresSteps: 26 });
     expect(startsOn(recipeById("krea2.redraw")!, "Krea-2-RAW.safetensors")).toMatchObject({ steps: 52, cfg: 3.5 });
     expect(startsOn(krea2Picture, "krea2_turbo_fp8_scaled.safetensors")).toEqual({});
+    // a Turbo with "Raw" in its name is distilled: RAW's 52 steps at CFG 3.5 gave pure grain on a pod (card #275)
+    for (const r of recipes.filter((r) => r.family === "krea2")) expect(startsOn(r, "DasiwaKrea2TurboRaw_darkdesireV3TurboUC_int8.safetensors"), r.id).toEqual({});
   });
 
   it("a distilled FLUX.2 Klein runs 4 steps at CFG 1 on every Klein recipe; the base model keeps its 20 at CFG 5", () => {
