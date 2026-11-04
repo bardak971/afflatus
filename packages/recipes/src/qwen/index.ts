@@ -6,6 +6,7 @@ import { addedInputs, addedRow, type AddedSpec } from "../shared/addedRows";
 import { addedLora, putAdded } from "../shared/model";
 import { loadUnet, unetNodes } from "../shared/unet";
 import { qwenLint } from "../shared/lint";
+import { detectorSlots } from "../shared/detector";
 
 const HF = "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files";
 const HF_EDIT = "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_files";
@@ -60,6 +61,8 @@ export const qwen = defineFamily({
       hint: "Without it, Edit takes the full step count. Put a Qwen-Image-Edit-Lightning LoRA in ComfyUI's models/loras folder.",
       get: { file: "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors", url: "https://huggingface.co/lightx2v/Qwen-Image-Edit-2511-Lightning/resolve/main/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors" },
     },
+    // txt2img's Detail rows find faces, hands and people with these (shared/adetail.ts)
+    ...detectorSlots(["qwen.text-to-picture"]),
   ],
   loraMatch: ["qwen.?image", "qwen"],
   guide: `Qwen Image reads plain sentences, in English or Chinese, and follows long descriptions closely. Its authors' own rewriter is the rule: one continuous paragraph, the subject first (what comes first weighs most), under 200 words; 1 to 3 sentences are often enough.

@@ -6,8 +6,9 @@ import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, kSample, wi
 import { applyGuide, guideInputs, guideNodes, type GuideSettings } from "../shared/guide";
 import { redrawInTiles, tileInputs, tileNodes, TILES_ON, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import { SDXL_AREA } from "./common";
+import { adetail, ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FILES, sized, type AdetailSettings } from "../shared/adetail";
 
-export interface SdxlTextToPicture extends DetailSettings, GuideSettings, TileSettings {
+export interface SdxlTextToPicture extends DetailSettings, GuideSettings, TileSettings, AdetailSettings {
   prompt: string;
   /** Tags put in front of the prompt on every render with this model. */
   quality: string;
@@ -54,6 +55,7 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
         { id: "wide-16-9", label: "Landscape 16:9", width: 1344, height: 768 },
       ],
     },
+    ...adetailInputs("tags"),
     ...DETAIL_INPUTS,
     ...guideInputs(SDXL_UNION),
     // the checkpoint, its LoRAs and how it samples: the rows of the SDXL tools, which the skeleton lays out (pictureForm)
@@ -76,7 +78,9 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
     { id: "seed", type: "seed", label: "Seed" },
   ],
   presets: SDXL_PRESETS,
-  optionalNodes: DETAIL_OPTIONAL,
+  optionalNodes: [...DETAIL_OPTIONAL, ...ADETAIL_OPTIONAL],
+  // the Detail rows ask for their detectors
+  needsWith: adetailNeeds,
 
   nodes(input) {
     const W2 = roundTo(roundTo(input.size.width, 8, 64) * input.hiresScale, 8, 64);
@@ -157,15 +161,24 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
 
     g.phase("decoding");
     image ??= g.out("VAEDecode", { samples: latent, vae });
+    // the Detail rows: faces, hands, people redrawn by the checkpoint (its LoRAs on, the guide picture's shapes not: they are
+    // the whole picture's), each crop at the size it draws best; a prompt of its own after the checkpoint's quality tags
+    const d = adetail(g, ctx, input, image, {
+      model: () => model, clip: loaded.clip, vae,
+      cond: (text) => (text ? { positive: g.out("CLIPTextEncode", { text: [input.quality.trim().replace(/,\s*$/, ""), text].filter(Boolean).join(", "), clip: loaded.clip }), negative: loaded.negative } : { positive: loaded.positive, negative: loaded.negative }),
+      steps: input.steps, cfg: input.cfg, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed, scale: input.hires ? input.hiresScale : 1,
+    });
     // PreviewImage writes to ComfyUI's temp folder, which ComfyUI clears itself: nothing piles up in output/
-    const out = g.add("PreviewImage", { images: image });
+    const out = g.add("PreviewImage", { images: d.image });
+    const all = d.passes.length ? [...sized(passes, [W * H, W2 * H2]), ...d.passes] : passes;
     return {
       graph: g.graph,
       phases: g.phases,
       outputs: [{ node: out, kind: "image", role: "result" }],
-      totalSteps,
-      passes,
-      loads: [`checkpoints/${input.checkpoint}`],
+      totalSteps: totalSteps + d.passes.reduce((n, p) => n + p.steps, 0),
+      passes: all,
+      loads: [`checkpoints/${input.checkpoint}`, ...d.loads],
+      ...(d.warnings.length ? { warnings: d.warnings } : {}),
     };
   },
 
@@ -179,6 +192,8 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
       },
     },
     { name: "hi-res fix, latent", input: { prompt: "a", checkpoint: "x.safetensors", hires: true, hiresUpscaler: LATENT_UPSCALE } },
+    { name: "Detail: face, hands and person", input: { prompt: "a", checkpoint: "x.safetensors", ...ALL_DETAIL }, slots: DETECTOR_FILES },
+    { name: "Detail: hands after a hires fix, with a LoRA", input: { prompt: "a", checkpoint: "x.safetensors", detailHands: true, hires: true, hiresUpscaler: "u.pth", loras: [{ file: "l.safetensors", weight: 0.8 }] }, slots: DETECTOR_FILES },
     { name: "a v-prediction checkpoint, read from its name", input: { prompt: "a", checkpoint: "noobaiXL_vPred10.safetensors" } },
     { name: "said to be v-prediction, without the CFG rescale", input: { prompt: "a", checkpoint: "mystery.safetensors", prediction: "v-prediction (zsnr)", rescale: 0 } },
     { name: "detail boost (built-in sharpen)", input: { prompt: "a", checkpoint: "x.safetensors", detail: true }, has: withoutDaemon },

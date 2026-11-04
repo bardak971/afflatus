@@ -71,7 +71,7 @@ export function facePassSkipped(input: FacePassValues, ctx: Pick<BuildContext, "
 /** What the pass made: the picture, its detailer as a pass of the job's progress, the files it loads, what its job says. */
 export interface FacePassed {
   image: Ref;
-  pass: { node: string; steps: number; unsampled: string } | null;
+  pass: { node: string; steps: number; pixels: number; unsampled: string } | null;
   loads: string[];
   said: string | null;
 }
@@ -115,6 +115,7 @@ export function facePass(g: GraphBuilder, ctx: BuildContext, input: FacePassValu
   // a face over the size, or none, leaves the picture as drawn and the pass samples nothing: its job says so, where a
   // picture shown at 28 steps ran 8, and nothing said whether Face refine had done anything
   const unsampled = `Face refine left the face as drawn: it redraws a face under ${SMALL_FACE_PX} px tall, and found none (larger faces were not helped by it in Afflatus's test).`;
-  return { image: [detailer, 0], pass: { node: detailer, steps, unsampled }, loads, said: null };
+  // the crop is redrawn at the guide size, whatever the picture's: what a step of the pass samples
+  return { image: [detailer, 0], pass: { node: detailer, steps, pixels: FACE_GUIDE * FACE_GUIDE, unsampled }, loads, said: null };
 }
 

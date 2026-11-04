@@ -1,5 +1,6 @@
 import { defineFamily, type PromptLine, QUALITY_WORDS, WEIGHT_SYNTAX, wordCount } from "@afflatus/core";
 import { flowRecipes, type FlowSpec } from "../flow/recipes";
+import { detectorSlots } from "../shared/detector";
 
 const HF = "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files";
 
@@ -46,6 +47,8 @@ export const zimage = defineFamily({
       hint: "Optional: with Z-Image-Turbo-Fun-Controlnet-Union-2.1-*.safetensors in ComfyUI's models/model_patches folder, inpaint and outpaint are guided to fit the picture around them.",
       get: { file: "Z-Image-Turbo-Fun-Controlnet-Union-2.1-2602-8steps.safetensors", url: "https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.1/resolve/main/Z-Image-Turbo-Fun-Controlnet-Union-2.1-2602-8steps.safetensors" },
     },
+    // txt2img's Detail rows find faces, hands and people with these (shared/adetail.ts)
+    ...detectorSlots(["zimage.text-to-picture"]),
   ],
   loraMatch: ["z[ ._-]?image", "(^|[^a-z0-9])zit([^a-z0-9]|$)"],
   guide: `Z-Image reads plain sentences, in English or Chinese, through a Qwen3 language model: long, detailed descriptions are followed closely, and its authors' own prompt enhancer writes them that way. One flowing paragraph, the subject first; 50 to 200 words is plenty.

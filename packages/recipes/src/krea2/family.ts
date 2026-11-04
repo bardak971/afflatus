@@ -1,10 +1,10 @@
 import { defineFamily, type Family, type PromptLine, QUALITY_WORDS, WEIGHT_SYNTAX, wordCount } from "@afflatus/core";
 import { klein } from "../klein/family";
-import { FACE_DETECTOR_SLOT } from "../shared/detector";
+import { detectorSlots } from "../shared/detector";
 
 const HF = "https://huggingface.co/Comfy-Org/Krea-2/resolve/main";
 
-/** The txt2img form, the only one that takes a person reference and Face refine: their files are offered while it is. */
+/** The txt2img form, the only one that takes a person reference, Face refine and the Detail rows: their files are offered while it is. */
 const PERSON_FORMS = ["krea2.text-to-picture"];
 
 /**
@@ -66,7 +66,7 @@ export const krea2 = defineFamily({
     kleinSlot("unet", { id: "kleinUnet", label: "FLUX.2 Klein 4B (Face refine)", detect: ["^(?!.*(minimax|h3|9b)).*flux-?2.*klein.*base", "^(?!.*(minimax|h3|9b)).*(klein|f2k)"] }),
     kleinSlot("clip", { id: "kleinClip", label: "FLUX.2 Klein text encoder (Face refine)" }),
     kleinSlot("vae", { id: "kleinVae", label: "FLUX.2 Klein VAE (Face refine)" }),
-    { ...FACE_DETECTOR_SLOT, onlyFor: PERSON_FORMS },
+    ...detectorSlots(PERSON_FORMS),
   ],
   loraMatch: ["krea.?2", "(^|[^a-z0-9])k2([^a-z0-9]|$)"],
   guide: `Krea 2 reads plain sentences through a vision-language encoder: grammar, possessives, counts and spatial relations are understood; quality confetti ("masterpiece, 8k") is ignored. One flowing description, 30 to 150 words, as to a skilled visual artist.

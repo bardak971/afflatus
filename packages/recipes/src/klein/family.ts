@@ -1,4 +1,5 @@
 import { defineFamily, type PromptLine, QUALITY_WORDS, WEIGHT_SYNTAX, wordCount } from "@afflatus/core";
+import { detectorSlots } from "../shared/detector";
 
 /**
  * FLUX.2 Klein: pictures from plain sentences, and changes to a picture you have. It reads up to six
@@ -38,6 +39,8 @@ export const klein = defineFamily({
       hint: "Put flux2-vae.safetensors (or full_encoder_small_decoder.safetensors) in ComfyUI's models/vae folder.",
       get: { file: "flux2-vae.safetensors", url: "https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors" },
     },
+    // txt2img's Detail rows find faces, hands and people with these (shared/adetail.ts)
+    ...detectorSlots(["klein.picture"]),
   ],
   loraMatch: ["flux-?2", "klein"],
   guide: `FLUX.2 Klein reads plain sentences, not tags, and its guide says prompt following depends on how the prompt is written: what comes first weighs most. Subject + Action + Style + Context, 30 to 100 words, two to five sentences. No negative prompt, no weights.

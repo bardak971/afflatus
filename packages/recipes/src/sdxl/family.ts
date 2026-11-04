@@ -1,4 +1,5 @@
 import { defineFamily, type PromptLine, tagList, wordCount } from "@afflatus/core";
+import { detectorSlots } from "../shared/detector";
 
 /** The ControlNet a guide picture starts on: xinsir's union one, which follows edges, depth and pose alike. */
 export const SDXL_UNION = "controlnet-union-sdxl-1.0-promax.safetensors";
@@ -27,6 +28,8 @@ export const sdxl = defineFamily({
       get: { file: SDXL_UNION, url: "https://huggingface.co/xinsir/controlnet-union-sdxl-1.0/resolve/main/diffusion_pytorch_model_promax.safetensors" },
       hint: "Optional: with a ControlNet in ComfyUI's models/controlnet folder, txt2img can follow the edges, depth or pose of a guide picture. xinsir's Union promax, below, does all three in one file.",
     },
+    // txt2img's Detail rows find faces, hands and people with these (shared/adetail.ts)
+    ...detectorSlots(["sdxl.text-to-picture"]),
   ],
   loraMatch: ["stable-diffusion-xl", "sdxl", "pony", "illustrious", "noob"],
   guide: `SDXL checkpoints come in three lineages; the model file in use (named in the context) tells which:

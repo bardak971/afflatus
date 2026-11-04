@@ -12,6 +12,7 @@ import {
 } from "./common";
 import { DETECTOR_INPUT } from "../shared/detector";
 import { SAME_FACE } from "./facePass";
+import { adetail, ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FILES, sized, type AdetailSettings } from "../shared/adetail";
 
 const files = { unet: "flux-2-klein-base-4b.safetensors", clip: "qwen_3_4b.safetensors", vae: "flux2-vae.safetensors" };
 const photo = { width: 1536, height: 2048 };
@@ -26,7 +27,7 @@ const KLEIN_DROPS = {
 
 // ---------------------------------------------------------------- a new picture
 
-interface KleinPicture extends KleinBase, DetailSettings, TileSettings {
+interface KleinPicture extends KleinBase, DetailSettings, TileSettings, AdetailSettings {
   hiresSampler: string;
   prompt: string;
   references: ReferenceValue[];
@@ -46,7 +47,8 @@ const SAME = "a high quality photo with sharp natural detail, the same image";
 export const kleinPicture = pictureForm("txt2img", defineRecipe<KleinPicture>({
   id: "klein.picture",
   family: "klein",
-  needsWith: kleinNeeds,
+  // the Detail rows ask for their detectors
+  needsWith: (input, slots, where) => [...kleinNeeds(input, slots), ...adetailNeeds(input, slots, where)],
   version: 1,
   title: "txt2img",
   summary: "Text to image, from a natural-language prompt. With reference images of a person, a place or clothes, it keeps them.",
@@ -70,6 +72,7 @@ export const kleinPicture = pictureForm("txt2img", defineRecipe<KleinPicture>({
         { id: "wide-16-9", label: "Landscape 16:9", width: 1360, height: 768 },
       ],
     },
+    ...adetailInputs("sentences", "With reference images of a person, the face (and a person found) is redrawn from them, so that it stays them"),
     ...DETAIL_INPUTS,
     { id: "hires", type: "toggle", label: "Hires fix", note: "upscale, then a second pass over the larger picture", default: false, advanced: true, perModel: true },
     { id: "hiresScale", type: "number", label: "Upscale by", note: "past about 2.5 megapixels, the second pass is redrawn in tiles (see Redraw)", min: 1.1, max: 4, step: 0.05, default: 1.5, unit: "×", showWhen: "hires", advanced: true, perModel: true },
@@ -93,7 +96,7 @@ export const kleinPicture = pictureForm("txt2img", defineRecipe<KleinPicture>({
     ...(input.hires ? ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode", "SplitSigmasDenoise"] : []),
     ...(input.hires && inTiles(input, kleinLarge(input), REFINE_WHOLE_PIXELS / 4) ? [...tileNodes(true), ...REFERENCE_NODES.filter((n) => n !== "LoadImage")] : []),
   ],
-  optionalNodes: DETAIL_OPTIONAL,
+  optionalNodes: [...DETAIL_OPTIONAL, ...ADETAIL_OPTIONAL],
   build(input, ctx) {
     const g = new GraphBuilder();
     const k = loadKlein(g, input, ctx);
@@ -103,10 +106,24 @@ export const kleinPicture = pictureForm("txt2img", defineRecipe<KleinPicture>({
     const empty = g.out("EmptyFlux2LatentImage", { width: size.width, height: size.height, batch_size: 1 });
     const detail = { input, ctx };
     const first = kleinSample(g, k, cond, empty, size, ctx.seed, { detail });
-    if (!input.hires) {
-      const out = g.add("PreviewImage", { images: first.image });
-      return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: first.pass.steps, passes: [first.pass], loads: k.loads };
-    }
+    // the person's pictures (a cast person's go there): a face or a person found is redrawn from them, as Face refine does,
+    // so that it stays them; hands from the words alone
+    const people = pictures.filter((_, i) => input.references[i]!.role === "person");
+    /** The picture with the Detail rows gone over it, and the passes and files they add (see shared/adetail.ts). */
+    const detailed = (image: Ref, passes: Array<{ node: string; steps: number; pixels?: number }>, large: { width: number; height: number } | null, loads: string[]) => {
+      const d = adetail(g, ctx, input, image, {
+        model: () => k.model, clip: k.clip, vae: k.vae,
+        cond: (text, kind) => (kind !== "Hands" && people.length ? kleinCond(g, k, text ?? (kind === "Face" ? SAME_FACE : input.prompt), people) : kleinCond(g, k, text ?? input.prompt, [])),
+        steps: input.steps, cfg: input.cfg, sampler: input.sampler, scheduler: "simple", seed: ctx.seed, scale: large ? input.hiresScale : 1,
+      });
+      const all = d.passes.length ? [...sized(passes, [size.width * size.height, ...(large ? [large.width * large.height] : [])]), ...d.passes] : passes;
+      const out = g.add("PreviewImage", { images: d.image });
+      return {
+        graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image" as const, role: "result" as const }], totalSteps: all.reduce((n, p) => n + p.steps, 0), passes: all, loads: [...loads, ...d.loads],
+        ...(d.warnings.length ? { warnings: d.warnings } : {}),
+      };
+    };
+    if (!input.hires) return detailed(first.image, [first.pass], null, k.loads);
     // Hires fix: the picture enlarged with an upscale model, then a light second pass. Klein's schedule is cut
     // at the denoising strength, so it is laid out over hiresSteps ÷ strength steps to run hiresSteps of them.
     const large = kleinLarge(input);
@@ -130,10 +147,9 @@ export const kleinPicture = pictureForm("txt2img", defineRecipe<KleinPicture>({
       image = done.image;
       pass = done.pass;
     }
-    const out = g.add("PreviewImage", { images: image });
     // in tiles, each pass at its own size: the first at the picture's first, the tiles at a tile's
     const passes = [pass.pixels ? { ...first.pass, pixels: size.width * size.height } : first.pass, pass];
-    return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: passes.reduce((n, p) => n + p.steps, 0), passes, loads: [...k.loads, `upscale_models/${input.hiresUpscaler}`] };
+    return detailed(image, passes, large, [...k.loads, `upscale_models/${input.hiresUpscaler}`]);
   },
   variants: [
     { name: "from words", input: { prompt: "a" }, slots: files },
@@ -141,6 +157,12 @@ export const kleinPicture = pictureForm("txt2img", defineRecipe<KleinPicture>({
     { name: "from words on the 9B, with its own encoder", input: { prompt: "a" }, slots: { unet: "flux-2-klein-9b.safetensors", clip8b: "qwen_3_8b_fp8mixed.safetensors", vae: files.vae } },
     { name: "detail boost", input: { prompt: "a", detail: true }, slots: files, has: withoutDaemon },
     { name: "hires fix, whole", input: { prompt: "a", hires: true, hiresUpscaler: "u.pth" }, slots: files },
+    { name: "Detail: face, hands and person", input: { prompt: "a", ...ALL_DETAIL }, slots: { ...files, ...DETECTOR_FILES } },
+    {
+      name: "Detail: face and hands after a hires fix, a person's face from their pictures",
+      input: { prompt: "a", detailFace: true, detailHands: true, hires: true, hiresUpscaler: "u.pth", references: [{ asset: "a", role: "person" }, { asset: "c", role: "place" }] },
+      slots: { ...files, ...DETECTOR_FILES }, uploads: { "references.0": "a.png", "references.1": "c.png" },
+    },
     { name: "hires fix with a sampler of its own", input: { prompt: "a", hires: true, hiresUpscaler: "u.pth", hiresSampler: "dpmpp_2m" }, slots: files },
     { name: "hires fix 2.5× in tiles, with detail boost", input: { prompt: "a", detail: true, hires: true, hiresScale: 2.5, hiresUpscaler: "u.pth" }, slots: files, has: withoutDaemon },
     {

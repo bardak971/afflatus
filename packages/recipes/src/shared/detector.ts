@@ -1,5 +1,4 @@
 import type { ChoiceInput } from "@afflatus/core";
-import { FACE_DETECTOR_PREFER } from "../sdxl/common";
 
 /**
  * Bingsu's adetailer files at the commit their hashes were read from (2026-11-03), not at `main`: Ultralytics loads a .pt
@@ -27,7 +26,19 @@ export const DETECTOR_SLOTS = [
     hint: "Optional, 23 MB: a YOLOv8 hand detector, in ComfyUI's models/ultralytics/bbox folder. Hand refine finds hands with it (Face refine with this detection model).",
     get: { file: "bbox/hand_yolov8s.pt", url: `${ADETAILER}/hand_yolov8s.pt`, sha256: "70b540063fbc385736d8258970744a4afbc4cbf7932134bae3b24cdadeadec06" },
   },
+  {
+    // the file H3's Face refine finds a head with (its faceSeg): a segmentation model, so that a person is redrawn and not the box around them
+    id: "personDetector", label: "Person detector (Detail: person)", folder: "ultralytics", detect: ["person_yolov8m-seg", "person_yolo.*seg"], optional: true,
+    hint: "Optional, 55 MB: a YOLOv8 person segmentation model, in ComfyUI's models/ultralytics/segm folder. txt2img's Detail: person finds people with it.",
+    get: { file: "segm/person_yolov8m-seg.pt", url: `${ADETAILER}/person_yolov8m-seg.pt`, sha256: "c8ab26f517173b1fe8342d336a09f443eb61cb08dcbfc78d53fff4c2547ae81e" },
+  },
 ];
+
+/**
+ * The detectors as files of a picture family, offered while one of `onlyFor` (its txt2img) is shown: txt2img's Detail rows
+ * (shared/adetail.ts) find faces, hands and people with them, and a pod is sent the ones a job turns on.
+ */
+export const detectorSlots = (onlyFor: string[]) => DETECTOR_SLOTS.map((slot) => ({ ...slot, optional: true, onlyFor }));
 
 /** What a detection model is known as a hand detector by: its file name. */
 export const HAND_DETECTOR = "hand";
@@ -37,6 +48,9 @@ export const HAND_DETECTOR = "hand";
  * tighter crop (three hand sizes take in the arm and the body) and words about hands, as the owner's test found.
  */
 export const HAND_VALUES = { strength: 0.35, faceCrop: 2, prompt: "natural hands, five fingers, detailed skin" };
+
+/** The face detectors of the Impact Pack, best first (here, not in sdxl/common: every picture family's slots come from this file). */
+const FACE_DETECTOR_PREFER = ["face_yolov8m", "face_yolov8", "face"];
 
 /** The face detailer's detection model: a face detector by default (FACE_DETECTOR_PREFER), any other the user has in models/ultralytics. */
 export const DETECTOR_INPUT: ChoiceInput = {
