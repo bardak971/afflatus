@@ -1,4 +1,5 @@
 import { useRef, type RefObject } from "react";
+import { useLocation } from "wouter";
 import { RANDOM_SEED, typedSeed } from "@afflatus/core";
 import { useQueueVariation } from "./queueVariation";
 import type { Asset } from "./api";
@@ -14,7 +15,8 @@ import type { QueuedJob } from "./queueVariation";
 import { VARY, varyJob } from "./vary";
 import { useItemMutations, useTimelineSubmenu } from "./itemMutations";
 import { canCopyPicture } from "./secureContext";
-import { useBanners } from "./store";
+import { useBanners, useHandover } from "./store";
+import { useStageMode } from "./paintFix/useStageMode";
 import { handsInput, NO_HAND_DETECTOR, OPS } from "./viewer/shared";
 import { useMediaExtract } from "./viewer/useMediaExtract";
 import { useNewDraftActions } from "./viewer/useNewDraftActions";
@@ -62,6 +64,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
   const say = useBanners((b) => b.push);
   const { a, g, recipe, reuse, carrier, carryOn, opener, openerName, animate, mover, moverName, transfer, openerChoices, moverChoices, follower, follow, toolFor, toolInput, openTool, vary } = drafts;
   const openTune = useTune((t) => t.open);
+  const [path, go] = useLocation();
   const said = (title: string) => (sayErrors ? { onError: mutations.failed(title) } : undefined);
   // Send to: the file itself, to the Telegram chat and the Discord channel set up for the notifications
   const notify = useSettings().data?.notify;
@@ -130,7 +133,17 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
     const job = jobOf(action);
     if (job) openTune(at, { action, title: ACTIONS[action].label, job, queue: (changed, count) => queue(action, tunedJob(job, changed, count)) });
   }])) as Tunes;
-  /** A pass that opens a form with the picture in place (Inpaint, Edit, Outpaint). */
+  /**
+   * Inpaint: Paint and fix on the Stage (card #274), not a draft. From a place that does not show the picture large (a tile's
+   * menu, the command bar), the picture opens over the screen in that mode; the viewer that shows it hands its own.
+   */
+  const paintFix = () => {
+    if (!toolFor("i")) return;
+    useStageMode.getState().set(a.id, "paint");
+    useHandover.getState().set({ show: a.id });
+    if (path !== "/" && path !== "/create") go("/");
+  };
+  /** A pass that opens a form with the picture in place (Edit, Outpaint). */
   const openPass = (key: string) => {
     const tool = toolFor(key);
     if (tool) openTool.mutate(tool.id, said(`Could not open ${OPS[key]!.label}`));
@@ -202,7 +215,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
     face: () => quick("f"),
     hand: hands,
     background: () => quick("b"),
-    inpaint: () => openPass("i"),
+    inpaint: paintFix,
     edit: () => openPass("e"),
     outpaint: () => openPass("r"),
     "mirror-h": () => media.mirror.mutate("horizontal", said("Could not mirror it")),

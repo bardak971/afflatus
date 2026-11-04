@@ -1,4 +1,4 @@
-import { lazy, Suspense, type RefObject } from "react";
+import { lazy, Suspense, type ReactNode, type RefObject } from "react";
 import { useKeysHere } from "../keys/here";
 import type { Range } from "../Trim";
 import { fileUrl, type Asset } from "../api";
@@ -7,6 +7,7 @@ import type { ViewerActions } from "./useViewerActions";
 import { AudioPlayer } from "../AudioPlayer";
 import { VideoPlayer } from "../VideoPlayer";
 import { ZoomPicture } from "./ZoomPicture";
+import { PaintAndFix } from "../paintFix/PaintAndFix";
 
 // Trim is a chunk of its own: fetched the first time a video is trimmed
 const Trim = lazy(() => import("../Trim").then((m) => ({ default: m.Trim })));
@@ -27,7 +28,7 @@ const dragOf = (a: Asset) => (e: React.DragEvent) => {
  * button that opens the details; over the screen, a click on the picture copies it and a click beside the item closes the viewer.
  * A picture zooms and pans in both (ZoomPicture).
  */
-export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, onTrimRange: setTrimRange, onMenu, overlay, onDetails, onClose, onCopy }: {
+export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, onTrimRange: setTrimRange, onMenu, overlay, onDetails, onClose, onCopy, paint }: {
   acts: ViewerActions;
   player: RefObject<HTMLVideoElement | null>;
   trim: boolean;
@@ -44,13 +45,25 @@ export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, on
   onClose?(): void;
   /** Over the screen: a click on the picture, which copies it (none: the page cannot copy a picture). */
   onCopy?(): void;
+  /**
+   * Paint and fix (Inpaint on the Stage): the picture with the mask layer over it, and the versions strip under it.
+   * `stack`: the picture's stack, whose versions share the one mask.
+   */
+  paint?: { stack: string; strip: ReactNode } | null;
 }) {
   // the keys sheet's "Here now": the viewer's keys for this kind of item, and Trim's while it is open
-  useKeysHere("viewer", true, { kind: acts.a.kind, over: overlay });
+  useKeysHere("viewer", !paint, { kind: acts.a.kind, over: overlay });
   useKeysHere("trim", acts.a.kind === "video" && trim, { over: overlay });
   const { a, g, recipe, scenes, everyScene, between, extendHere, opener, carrier, cutRange } = acts;
   const mainText = recipe?.inputs.find((i) => i.type === "prompt")?.id ?? "prompt";
   const prompt = typeof g?.inputs[mainText] === "string" ? (g.inputs[mainText] as string) : "";
+  if (paint && a.kind === "image") {
+    return (
+      <div className={overlay ? "flex min-h-0 min-w-0 grow flex-col p-6" : "flex min-h-0 grow flex-col"}>
+        <PaintAndFix key={paint.stack} acts={acts} strip={paint.strip} overlay={overlay} />
+      </div>
+    );
+  }
   return (
     <div className={overlay ? "flex min-w-0 grow flex-col items-center justify-center gap-3 p-6" : "flex min-h-0 grow flex-col items-center justify-center gap-2"} onClick={overlay ? onClose : undefined}>
       {/* the picture looked at closely: wheel zoom, drag to pan once zoomed in, double-click fit / 1:1 (ZoomPicture) */}

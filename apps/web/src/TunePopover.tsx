@@ -19,7 +19,7 @@ function TunePanel({ ask, at, onClose }: { ask: TuneAsk; at: TuneAt; onClose(): 
   const modelSettings = useModelSettings();
   const { recipe } = ask.job;
   const status = setup.data?.recipes.find((x) => x.id === recipe.id);
-  const rows = useMemo(() => tunedRows(recipe, ask.action), [recipe, ask.action]);
+  const rows = useMemo(() => (ask.rows ? recipe.inputs.filter((i) => ask.rows!.includes(i.id)) : tunedRows(recipe, ask.action)), [recipe, ask.action, ask.rows]);
   const start = useMemo(() => tuneStart(ask.job, status, modelSettings.data?.items ?? [], rows), [ask.job, status, modelSettings.data, rows]);
   const [changed, setChanged] = useState<Record<string, unknown>>({});
   const [count, setCount] = useState(1);
@@ -59,9 +59,19 @@ function TunePanel({ ask, at, onClose }: { ask: TuneAsk; at: TuneAt; onClose(): 
             <Field key={i.id} spec={i} value={values[i.id]} values={values} specs={recipe.inputs} options={status?.options[i.id]} setup={status} standard={start[i.id]} onChange={(v) => set(i.id, v)} onValue={set} />
           ))}
           {counted && <Field spec={BATCH_COUNT} value={count} options={undefined} onChange={(v) => setCount(Math.max(1, Math.min(MAX_COUNT, Math.round(Number(v) || 1))))} />}
-          <Button type="submit" tone="primary" className="self-end">
-            Queue{count > 1 ? ` ×${count}` : ""} <Kbd>Enter</Kbd>
-          </Button>
+          <span className="flex items-center justify-end gap-2">
+            {ask.more && (
+              <Button onClick={() => {
+                onClose();
+                ask.more!.run(changed);
+              }}>
+                {ask.more.label}
+              </Button>
+            )}
+            <Button type="submit" tone="primary">
+              {ask.go ?? `Queue${count > 1 ? ` ×${count}` : ""}`} <Kbd>Enter</Kbd>
+            </Button>
+          </span>
         </form>
       </Popover>
     </>

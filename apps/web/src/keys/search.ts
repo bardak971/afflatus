@@ -8,7 +8,7 @@ import { PLACES, type KeyGroup, type KeyPlace, type KeyRow, type PlaceId } from 
  */
 
 /** The places first in "Here now", by how much they sit on top of the rest (Trim before the viewer it is in). */
-const ON_TOP: PlaceId[] = ["mask", "trim", "viewer", "projects", "media", "editor", "timelines", "grid", "form", "queue", "kit"];
+const ON_TOP: PlaceId[] = ["mask", "paint", "trim", "viewer", "projects", "media", "editor", "timelines", "grid", "form", "queue", "kit"];
 
 export interface Opened {
   /** The places open now, the topmost first; Everywhere last. */

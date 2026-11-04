@@ -29,7 +29,7 @@ export interface KeyGroup {
   rows: KeyRow[];
 }
 
-export type PlaceId = "everywhere" | "bar" | "menus" | "grid" | "timelines" | "form" | "viewer" | "trim" | "editor" | "media" | "projects" | "queue" | "mask" | "kit";
+export type PlaceId = "everywhere" | "bar" | "menus" | "grid" | "timelines" | "form" | "viewer" | "trim" | "editor" | "media" | "projects" | "queue" | "mask" | "paint" | "kit";
 
 export interface KeyPlace {
   id: PlaceId;
@@ -268,7 +268,7 @@ export const PLACES: KeyPlace[] = [
           { keys: "F", does: "Face refine", note: "queued at once" },
           { keys: "H", does: "Hand refine", note: "queued at once, on the hand detector" },
           { keys: "B", does: "Remove background", note: "queued at once" },
-          { keys: "I", does: "Inpaint…", note: "a new draft, the mask painter open" },
+          { keys: "I", does: "Inpaint…", note: "Paint and fix on the Stage: the fixes come back as versions" },
           { keys: "E", does: "Edit…", note: "img2img: a new draft in the form" },
           { keys: "R", does: "Outpaint…", note: "a new draft in the form" },
           { keys: "M", does: "Image to video (i2v)" },
@@ -495,10 +495,59 @@ export const PLACES: KeyPlace[] = [
       {
         name: "Painting",
         rows: [
+          // the layer's own keys (stageLayer/useLayerKeys), the same as on the Stage's Paint and fix bar C, D and R
+          { keys: "P", does: "Soft brush" },
+          { keys: "E", does: "Eraser" },
+          { keys: "B", does: "Box", note: "Shift: a square; Alt: takes away" },
+          { keys: "L", does: "Lasso", note: "Alt: takes away" },
+          { keys: "X", does: "Invert the mask" },
+          { keys: "H", does: "Hand: move the picture", note: "for touch" },
+          { keys: "[ ]", does: "Smaller / larger brush" },
+          { keys: "Shift+[ Shift+]", does: "Less / more feather" },
+          { keys: "M", does: "Show the mask" },
           { keys: "Ctrl+Z", does: "Undo the last stroke" },
           { keys: "Ctrl+Shift+Z | Ctrl+Y", does: "Redo it" },
           { keys: "Space", does: "Move the picture", note: "hold" },
           { keys: "Esc", does: "Close" },
+        ],
+      },
+      { name: "With the mouse", rows: [{ keys: "wheel", does: "Zoom around the pointer", mouse: true }] },
+    ],
+  },
+  {
+    id: "paint",
+    name: "Paint and fix",
+    about: "Inpaint (I) on the Stage: the mask painted over the picture, its fixes coming back as versions",
+    groups: [
+      {
+        name: "The tools",
+        rows: [
+          { keys: "P", does: "Soft brush" },
+          { keys: "E", does: "Eraser" },
+          { keys: "B", does: "Box", note: "Shift: a square; Alt: takes away" },
+          { keys: "L", does: "Lasso", note: "Alt: takes away" },
+          { keys: "C", does: "Click to mask", note: "Shift+click takes away" },
+          { keys: "D", does: "Find a face, hands, a person" },
+          { keys: "X", does: "Invert the mask" },
+          { keys: "H", does: "Hand: move the picture", note: "for touch" },
+          { keys: "[ ]", does: "Smaller / larger brush" },
+          { keys: "Shift+[ Shift+]", does: "Less / more feather" },
+          { keys: "M", does: "Show the mask" },
+          { keys: "R", does: "Outpaint frame" },
+        ],
+      },
+      {
+        name: "The fix",
+        rows: [
+          // FixBar.tsx: taken before the draft's own Generate
+          { keys: "Ctrl+Enter", does: "Fix", note: "the versions asked for, each on a new seed; Enter in the prompt too" },
+          { keys: "Ctrl+Z", does: "Undo the last stroke" },
+          { keys: "Ctrl+Shift+Z | Ctrl+Y", does: "Redo it" },
+          { keys: "Space", does: "Move the picture", note: "hold; the middle button too" },
+          // Viewer.tsx: its keys yield to the layer's in paint mode, but these two
+          { keys: "← →", does: "Previous / next version" },
+          { keys: "K", does: "Keep the version shown" },
+          { keys: "Esc", does: "Leave Paint and fix" },
         ],
       },
       { name: "With the mouse", rows: [{ keys: "wheel", does: "Zoom around the pointer", mouse: true }] },
