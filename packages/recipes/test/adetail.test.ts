@@ -35,8 +35,11 @@ describe("txt2img's Detail rows", () => {
     for (const r of txt2imgs) {
       const built = build(r, { detailFace: true, detailHands: true, detailPerson: true });
       const passes = of(built.graph, "DetailerForEach");
-      // SDXL's face starts lighter: at 0.4 it made another person on the pod test (card #280)
-      expect(passes.map((p) => p.inputs.denoise), r.id).toEqual([0.35, 0.35, r.family === "sdxl" ? 0.3 : 0.4]);
+      // SDXL's face starts lighter: at 0.4 it made another person on the pod test (card #280), 0.3 still drifted (card #281)
+      expect(passes.map((p) => p.inputs.denoise), r.id).toEqual([0.35, 0.35, r.family === "sdxl" ? 0.2 : 0.4]);
+      // hands are found from 0.25, where hand_yolov8s found the small hands 0.5 missed; people and faces from 0.5 (card #281)
+      expect([...of(built.graph, "SegmDetectorSEGS"), ...of(built.graph, "BboxDetectorSEGS")].map((n) => n.inputs.threshold).sort(), r.id).toEqual([0.25, 0.5, 0.5]);
+      expect(node(built.graph, node(built.graph, passes[1]!.inputs.segs).inputs.segs).inputs.threshold, r.id).toBe(0.25);
       // each one goes over the picture the one before made
       expect(node(built.graph, passes[1]!.inputs.image)).toBe(passes[0]);
       expect(node(built.graph, passes[2]!.inputs.image)).toBe(passes[1]);
@@ -129,10 +132,10 @@ describe("txt2img's Detail rows", () => {
     }
   });
 
-  it("start SDXL's face pass lighter, and SDXL's Face refine with it; the other families as they were (card #280)", () => {
+  it("start SDXL's face pass lighter, and SDXL's Face refine with it; the other families as they were (cards #280, #281)", () => {
     const denoise = (id: string, row: string) => (recipeById(id)!.inputs.find((i) => i.id === row) as { default: number }).default;
-    expect(denoise("sdxl.text-to-picture", "detailFaceDenoise")).toBe(0.3);
-    expect(denoise("sdxl.fix-face", "strength")).toBe(0.3);
+    expect(denoise("sdxl.text-to-picture", "detailFaceDenoise")).toBe(0.2);
+    expect(denoise("sdxl.fix-face", "strength")).toBe(0.2);
     for (const r of txt2imgs.filter((x) => x.family !== "sdxl")) expect(denoise(r.id, "detailFaceDenoise"), r.id).toBe(0.4);
     expect(denoise("sdxl.text-to-picture", "detailHandsDenoise")).toBe(0.35);
   });

@@ -11,6 +11,7 @@ const one = (b: Built, cls: string) => {
   return found[0]!;
 };
 const ref = (v: unknown) => (v as [string, number])[0];
+const g = (b: Built, v: unknown) => b.graph[ref(v)]!;
 
 /** A recipe built from its first variant's files with these inputs changed, against a ComfyUI that has every node, or not `missing`. */
 function built(id: string, change: Record<string, unknown>, opts: { missing?: string[]; media?: Record<string, unknown> } = {}): Built {
@@ -79,6 +80,75 @@ describe("SDXL inpaint: the union ControlNet's repaint mode guides the masked pa
     expect(pre.inputs.black_pixel_for_xinsir_cn).toBe(true);
     expect(one(b, "SetUnionControlNetType")[1].inputs.type).toBe("repaint");
     expect(nodesOf(built("sdxl.outpaint", { repaint: false }), "ControlNetApplyAdvanced")).toHaveLength(0);
+  });
+});
+
+describe("SDXL outpaint starts its new part from the stretched picture, with or without the ControlNet (card #281)", () => {
+  // on a pod (no InpaintPreprocessor) the grey padding was drawn as a wall at the old edge; the stretched start carried the street on
+  for (const [why, b] of [
+    ["the ControlNet off", () => built("sdxl.outpaint", { repaint: false })],
+    ["no aux pack: every pod", () => built("sdxl.outpaint", {}, { missing: ["InpaintPreprocessor"] })],
+    ["the ControlNet on", () => built("sdxl.outpaint", {})],
+  ] as const) {
+    it(why, () => {
+      const g = b();
+      const [, k] = one(g, "KSampler");
+      expect(k.inputs.denoise).toBe(1);
+      // the latent: the stretched, blurred picture encoded, under the padding's soft mask, through Differential Diffusion
+      const noise = g.graph[ref(k.inputs.latent_image)]!;
+      expect(noise.class_type).toBe("SetLatentNoiseMask");
+      const enc = g.graph[ref(noise.inputs.samples)]!;
+      expect(enc.class_type).toBe("VAEEncode");
+      const fill = g.graph[ref(g.graph[ref(enc.inputs.pixels)]!.inputs.image)]!;
+      expect(fill.class_type).toBe("ImageCompositeMasked");
+      expect(g.graph[ref(fill.inputs.destination)]!.class_type).toBe("ImageBlur");
+      expect(g.graph[ref(k.inputs.model)]!.class_type).toBe("DifferentialDiffusion");
+      // nothing samples from the grey padding
+      for (const [id, n] of Object.entries(g.graph)) if (n.class_type === "VAEEncodeForInpaint") expect(Object.values(g.graph).some((m) => Object.values(m.inputs).some((v) => Array.isArray(v) && v[0] === id))).toBe(false);
+    });
+  }
+});
+
+describe("Z-Image inpaint with its Fun patch draws through the hard mask (card #281)", () => {
+  const box = { x: 412, y: 401, width: 232, height: 154 };
+  const media = { source: { width: 1216, height: 832 }, mask: { width: 1216, height: 832, box } };
+
+  it("the patch on: the hard mask on the latent, the same the patch is given, and no Differential Diffusion", () => {
+    // with the soft edge on top, the old basket held in the ring and Z-Image redrew it on 3 seeds of 4, the prompt ignored
+    const b = built("zimage.paint-over", { strength: 1 }, { media });
+    const [patchId, patch] = one(b, "ZImageFunControlnet");
+    expect(patch.inputs.strength).toBe(1);
+    const [, noise] = one(b, "SetLatentNoiseMask");
+    expect(noise.inputs.mask).toEqual(patch.inputs.mask);
+    expect(nodesOf(b, "DifferentialDiffusion")).toHaveLength(0);
+    const [, k] = one(b, "KSampler");
+    expect(ref(k.inputs.model)).toBe(patchId);
+    // put back through the soft edge as before
+    const [, back] = one(b, "ImageCompositeMasked");
+    expect(ref(back.inputs.mask)).not.toBe(ref(noise.inputs.mask));
+  });
+
+  it("without the patch's file: the soft edge through Differential Diffusion, as before", () => {
+    const recipe = recipeById("zimage.paint-over") as Recipe<any>;
+    const v = recipe.variants[0]!;
+    const { inpaintCn: _, ...slots } = v.slots ?? {};
+    const b = recipe.build(parseInput(recipe, v.input) as never, dryContext({ slots, uploads: v.uploads ?? {}, media })) as Built;
+    expect(nodesOf(b, "ZImageFunControlnet")).toHaveLength(0);
+    const [, k] = one(b, "KSampler");
+    expect(g(b, k.inputs.model).class_type).toBe("DifferentialDiffusion");
+  });
+});
+
+describe("Find hands takes the small ones (card #281)", () => {
+  const find = (what: string) => {
+    const r = recipeById("tools.find-mask") as Recipe<any>;
+    const v = r.variants.find((x) => (x.input as { what?: string }).what === what)!;
+    return r.build(parseInput(r, v.input) as never, dryContext({ slots: v.slots ?? {}, uploads: v.uploads ?? {} })) as Built;
+  };
+  it("hands from 0.25, a face and a person from 0.5", () => {
+    expect(one(find("hands"), "BboxDetectorSEGS")[1].inputs.threshold).toBe(0.25);
+    expect(one(find("face"), "BboxDetectorSEGS")[1].inputs.threshold).toBe(0.5);
+    expect(one(find("person"), "SegmDetectorSEGS")[1].inputs.threshold).toBe(0.5);
   });
 });
 

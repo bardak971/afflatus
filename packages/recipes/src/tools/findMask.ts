@@ -1,5 +1,6 @@
 import { defineRecipe, GraphBuilder, TOOLS_FAMILY } from "@afflatus/core";
 import { DETECTOR_FILES } from "../shared/adetail";
+import { HAND_THRESHOLD } from "../shared/detector";
 import { SAM_FILE, samModel } from "../shared/sam";
 
 /**
@@ -15,11 +16,16 @@ import { SAM_FILE, samModel } from "../shared/sam";
 
 export const FIND_MASK = "tools.find-mask";
 
-/** What a Find looks for, and with which of the family's detectors: a person by its outline (a segmentation model), the rest by box. */
+/**
+ * What a Find looks for, with which of the family's detectors (a person by its outline, a segmentation model; the rest by box),
+ * and how sure the detector must be. Hands at 0.25: at 0.5 hand_yolov8s found none of the two small hands of an SDXL street
+ * picture and one of two on Z-Image's; at 0.25 both on each, and nothing that is not a hand (card #281's pod test, where
+ * hand_yolov9c, the larger one, did no better).
+ */
 const DETECT = {
-  face: { slot: "faceDetector", segm: false },
-  hands: { slot: "handDetector", segm: false },
-  person: { slot: "personDetector", segm: true },
+  face: { slot: "faceDetector", segm: false, threshold: 0.5 },
+  hands: { slot: "handDetector", segm: false, threshold: HAND_THRESHOLD },
+  person: { slot: "personDetector", segm: true, threshold: 0.5 },
 } as const;
 type What = keyof typeof DETECT;
 
@@ -30,7 +36,6 @@ export interface FindMask {
   add: string;
   remove: string;
   what: What;
-  threshold: number;
 }
 
 /** Points as the recipe takes them: "x,y" pairs, apart by spaces, in whole pixels (a text, as no other input holds a list of points). */
@@ -42,7 +47,6 @@ const coords = (text: string) =>
     return Number.isFinite(x) && Number.isFinite(y) ? [{ x: Math.round(x!), y: Math.round(y!) }] : [];
   }));
 
-const DETECT_THRESHOLD = 0.5;
 const SAM_THRESHOLD = 0.5;
 
 export const findMask = defineRecipe<FindMask>({
@@ -60,7 +64,6 @@ export const findMask = defineRecipe<FindMask>({
     { id: "add", type: "prompt", label: "Points on it", style: "sentences", line: true, optional: true, noCast: true, default: "", internal: true },
     { id: "remove", type: "prompt", label: "Points off it", style: "sentences", line: true, optional: true, noCast: true, default: "", internal: true },
     { id: "what", type: "choice", label: "What", options: Object.keys(DETECT), default: "face", internal: true },
-    { id: "threshold", type: "number", label: "Threshold", min: 0.05, max: 0.95, step: 0.05, default: DETECT_THRESHOLD, internal: true },
   ],
   // the file the way taken reads: a machine without it does not take the job, a pod is sent it
   needsWith: (input) => [input.way === "detect" ? DETECT[input.what].slot : "sam"],
@@ -82,7 +85,7 @@ export const findMask = defineRecipe<FindMask>({
       const file = ctx.slots[kind.slot];
       if (!file) throw new Error(`Finding ${input.what === "hands" ? "hands" : `a ${input.what}`} needs its detector (${DETECTOR_FILES[kind.slot]} in models/ultralytics; Settings › Models has it).`);
       const detector = g.add("UltralyticsDetectorProvider", { model_name: file });
-      const crop = { threshold: input.threshold, dilation: 0, crop_factor: 1, drop_size: 10, labels: "all" };
+      const crop = { threshold: kind.threshold, dilation: 0, crop_factor: 1, drop_size: 10, labels: "all" };
       const segs = kind.segm
         ? g.out("SegmDetectorSEGS", { segm_detector: [detector, 1], image, ...crop })
         : g.out("BboxDetectorSEGS", { bbox_detector: [detector, 0], image, ...crop });

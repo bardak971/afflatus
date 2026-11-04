@@ -106,6 +106,11 @@ describe("the viewer in Paint and fix", () => {
     expect(screen.getByRole("button", { name: /^Fix · 3 versions/ })).toBeTruthy();
   });
 
+  it("starts a Fix on denoise 0.95, not the Inpaint form's 0.75, which kept what was painted over (card #281)", async () => {
+    await painting();
+    expect((screen.getByRole("textbox", { name: "Denoise" }) as HTMLInputElement).value).toBe("0.95");
+  });
+
   it("is left with Esc, the viewer's keys its own again", async () => {
     await painting();
     key("Escape");

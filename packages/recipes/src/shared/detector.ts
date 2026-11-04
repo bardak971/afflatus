@@ -49,6 +49,12 @@ export const HAND_DETECTOR = "hand";
  */
 export const HAND_VALUES = { strength: 0.35, faceCrop: 2, prompt: "natural hands, five fingers, detailed skin" };
 
+/**
+ * How sure hand_yolov8s must be that it is a hand, where the face detectors keep 0.5: at 0.5 it missed the small hands of a
+ * street picture (none of two on SDXL's, one of two on Z-Image's); at 0.25 it found all four and nothing else (card #281).
+ */
+export const HAND_THRESHOLD = 0.25;
+
 /** The face detectors of the Impact Pack, best first (here, not in sdxl/common: every picture family's slots come from this file). */
 const FACE_DETECTOR_PREFER = ["face_yolov8m", "face_yolov8", "face"];
 

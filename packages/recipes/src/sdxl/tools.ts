@@ -173,9 +173,9 @@ interface SdxlOutpaint extends SdxlBase, OutpaintSettings, RepaintSettings {
 
 /**
  * The picture extended on the sides asked for: the new part is painted in at full denoise, and the picture
- * itself is put back over the result at its own size, so it comes out as it went in. With a union ControlNet
- * in repaint mode (xinsir's ProMax) the new part is guided to continue the picture, and it starts from the
- * picture stretched and blurred rather than flat grey, which a plain checkpoint reads as a wall or a frame.
+ * itself is put back over the result at its own size, so it comes out as it went in. The new part starts from the
+ * picture stretched and blurred rather than flat grey, which a plain checkpoint reads as a wall or a frame; with a
+ * union ControlNet in repaint mode (xinsir's ProMax) it is also guided to continue the picture.
  * Tried on a real ComfyUI: grey padding drew a window around the picture, the stretched one a scene; and a
  * guide picture scaled after its part was blacked out rang at that edge, which was drawn as a line.
  */
@@ -195,8 +195,8 @@ export const sdxlOutpaint = pictureForm("outpaint", defineRecipe<SdxlOutpaint>({
     ...samplingInputs(),
   ],
   presets: SDXL_PRESETS,
-  nodes: (input) => [...modelNodes(input), ...OUTPAINT_NODES, "KSampler", ...PASTE_BACK_NODES],
-  optionalNodes: [...REPAINT_NODES, "VAEEncode", "SetLatentNoiseMask", "DifferentialDiffusion"],
+  nodes: (input) => [...modelNodes(input), ...OUTPAINT_NODES, "KSampler", ...PASTE_BACK_NODES, "VAEEncode", "SetLatentNoiseMask", "DifferentialDiffusion"],
+  optionalNodes: REPAINT_NODES,
   build(form, ctx) {
     // by the sides set, or those that bring it to the aspect ratio picked
     const input = outpaintSides(form, ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 });
@@ -208,15 +208,13 @@ export const sdxlOutpaint = pictureForm("outpaint", defineRecipe<SdxlOutpaint>({
     const size = workSize(whole);
     const source = g.out("LoadImage", { image: ctx.uploads.source });
     const repaint = repaints(input, ctx);
-    const { latent, padded, pixels: grey, mask } = outpaintLatent(g, source, from, input, size, m.vae);
-    let model = m.model;
-    let cond = { positive: m.positive, negative: m.negative };
-    let start = latent;
-    if (repaint) {
-      cond = repaintGuided(g, m, input, grey, mask);
-      start = g.out("SetLatentNoiseMask", { samples: g.out("VAEEncode", { pixels: stretchedFill(g, source, input, whole, size), vae: m.vae }), mask });
-      model = g.out("DifferentialDiffusion", { model: m.model });
-    }
+    const { padded, pixels: grey, mask } = outpaintLatent(g, source, from, input, size, m.vae);
+    const cond = repaint ? repaintGuided(g, m, input, grey, mask) : { positive: m.positive, negative: m.negative };
+    // the new part starts from the stretched picture through the soft mask, with or without the ControlNet: from grey padding
+    // the checkpoint alone drew a wall or a post at the old edge, which is how every pod ran it (no InpaintPreprocessor there);
+    // from the stretched picture the street went on past the edge, the ControlNet adding little (card #281's pod test)
+    const start = g.out("SetLatentNoiseMask", { samples: g.out("VAEEncode", { pixels: stretchedFill(g, source, input, whole, size), vae: m.vae }), mask });
+    const model = g.out("DifferentialDiffusion", { model: m.model });
     g.phase("sampling");
     const sampled = g.out("KSampler", { ...samplerOf(input, m, ctx), model, ...cond, latent_image: start, steps: input.steps, denoise: 1 });
     g.phase("decoding");
@@ -231,7 +229,7 @@ export const sdxlOutpaint = pictureForm("outpaint", defineRecipe<SdxlOutpaint>({
     { name: "wider on both sides", input: { source: "p", prompt: "a", checkpoint: "x.safetensors" }, uploads: { source: "s.png" }, media: { source: picture } },
     { name: "taller, a LoRA", input: { source: "p", prompt: "a", checkpoint: "x.safetensors", padLeft: 0, padRight: 0, padTop: 256, padBottom: 128, feathering: 64, loras: [{ file: "l.safetensors", weight: 0.8 }] }, uploads: { source: "s.png" }, media: { source: { width: 1216, height: 832 } } },
     { name: "to a square, the picture in the middle", input: { source: "p", prompt: "a", checkpoint: "x.safetensors", shape: "Square 1:1" }, uploads: { source: "s.png" }, media: { source: picture } },
-    { name: "no ControlNet: grey padding, the picture put back", input: { source: "p", prompt: "a", checkpoint: "x.safetensors", repaint: false }, uploads: { source: "s.png" }, media: { source: picture } },
+    { name: "no ControlNet: the stretched picture alone, put back", input: { source: "p", prompt: "a", checkpoint: "x.safetensors", repaint: false }, uploads: { source: "s.png" }, media: { source: picture } },
   ],
 }), SDXL_DROPS);
 
@@ -369,7 +367,7 @@ export const sdxlFixFace = pictureForm("face", defineRecipe<SdxlFixFace>({
     { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
     { id: "prompt", type: "prompt", label: "Prompt", note: "the face and who it is: eye colour, hair, expression", style: "tags", optional: true, default: "" },
     // the Detail face pass's start (card #280): the same FaceDetailer on the same crop, which made another person at 0.4
-    { id: "strength", type: "number", label: "Denoising strength", note: "0.3 cleans the face, 0.6 can make another one", min: 0.1, max: 0.8, step: 0.05, default: SDXL_FACE_DENOISE },
+    { id: "strength", type: "number", label: "Denoising strength", note: "0.2 cleans the face, 0.4 can make another person", min: 0.1, max: 0.8, step: 0.05, default: SDXL_FACE_DENOISE },
     DETECTOR_INPUT,
     ...FACE_INPUTS,
     ...modelInputs,

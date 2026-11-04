@@ -31,9 +31,10 @@ export function flowPaintOver(spec: FlowSpec, kit: FlowKit): Recipe<FlowPaintOve
       ...inputs,
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),
-    nodes: (input) => [...loadNodes(input), "LoadImage", "VAEEncode", ...(spec.hardInpaint ? [] : ["DifferentialDiffusion"]), ...MASK_NODES],
+    // with an inpaint patch, Differential Diffusion is used only where the patch's file is not there
+    nodes: (input) => [...loadNodes(input), "LoadImage", "VAEEncode", ...(spec.hardInpaint || spec.inpaintPatch ? [] : ["DifferentialDiffusion"]), ...MASK_NODES],
     ...(spec.inpaintPatch ? { needsWith: inpaintPatchNeeds(spec) } : {}),
-    ...(SOMETIMES.length || spec.inpaintPatch ? { optionalNodes: [...SOMETIMES, ...(spec.inpaintPatch ? INPAINT_PATCH_NODES : [])] } : {}),
+    ...(SOMETIMES.length || spec.inpaintPatch ? { optionalNodes: [...SOMETIMES, ...(spec.inpaintPatch ? [...INPAINT_PATCH_NODES, "DifferentialDiffusion"] : [])] } : {}),
     build(input, ctx) {
       const g = new GraphBuilder();
       const k = load(g, input, ctx);
@@ -44,12 +45,16 @@ export function flowPaintOver(spec: FlowSpec, kit: FlowKit): Recipe<FlowPaintOve
       const sized = g.out("ImageScale", { image: part, upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
       const masks = maskParts(g, ctx.uploads.mask!, box, size, input);
       const c = cond(g, k, input, input.prompt);
-      // soft inpainting: the model fades the new part in by the soft edge (Differential Diffusion) instead of a hard mask and a halo;
-      // a family that inpaints with the mask as it is (hardInpaint) gets the plain one
-      const masked = g.out("SetLatentNoiseMask", { samples: g.out("VAEEncode", { pixels: sized, vae: k.vae }), mask: spec.hardInpaint ? masks.forLatent : masks.softForLatent });
       g.phase("sampling");
       const guided = inpaintPatched(g, ctx, spec, shifted(g, k.model, input, size), k.vae, sized, masks.forLatent);
-      const model = spec.hardInpaint ? guided.model : g.out("DifferentialDiffusion", { model: guided.model });
+      // soft inpainting: the model fades the new part in by the soft edge (Differential Diffusion) instead of a hard mask and a
+      // halo; a family that inpaints with the mask as it is (hardInpaint) gets the plain one. So does one guided by its inpaint
+      // patch, which fits the part to the picture itself: with the soft edge on top, the old thing held in the edge's ring
+      // through most steps and Z-Image redrew it, the prompt followed on 1 seed of 4 at denoise 1; with the hard mask, 4 of 4
+      // (the black basket asked to be "a wicker basket full of sunflowers", card #281's pod test)
+      const hard = spec.hardInpaint || guided.loads.length > 0;
+      const masked = g.out("SetLatentNoiseMask", { samples: g.out("VAEEncode", { pixels: sized, vae: k.vae }), mask: hard ? masks.forLatent : masks.softForLatent });
+      const model = hard ? guided.model : g.out("DifferentialDiffusion", { model: guided.model });
       const { latent, pass } = sample(g, k, input, model, c, masked, ctx.seed, { denoise: input.strength });
       g.phase("decoding");
       const drawn = g.out("VAEDecode", { samples: latent, vae: k.vae });
