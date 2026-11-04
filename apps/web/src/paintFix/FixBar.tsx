@@ -9,8 +9,12 @@ import type { QueuedJob } from "../queueVariation";
 import { Button, Chip, cx, fieldClass, IconButton, NumberBox } from "../ui";
 import type { FixAsk } from "./useFixJob";
 
-/** The fix's settings in ⚙: the recipe's rarer rows (the mask's blur, the sampling); the prompt, denoise and grow are on the bar and strip. */
-export const FIX_ROWS = ["maskBlur", "feathering", "negative", "steps", "cfg", "sampler", "scheduler"] as const;
+/**
+ * The fix's settings in ⚙: the sampling, and an outpaint's feathering. Short, so the popover leaves the picture in sight.
+ * The prompt, denoise and grow are on the bar and the strip; the mask's soft edge is the layer's Feather, so the recipe's
+ * Mask blur is not offered twice; it and the negative prompt stay in the full form.
+ */
+export const FIX_ROWS = ["feathering", "steps", "cfg", "sampler", "scheduler"] as const;
 
 /** How many versions a Fix makes when nothing else was asked (the mock's ×3). */
 export const FIX_COUNT = 3;
@@ -74,7 +78,7 @@ export function FixBar({ verb, tool, job, mask, grow, busy, onFix, onFullForm }:
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
   return (
-    <div className="flex w-full max-w-[880px] shrink-0 flex-col items-center gap-1.5">
+    <div className="flex w-full max-w-[1040px] shrink-0 flex-col items-center gap-1.5">
       {/* on a narrow stage the prompt keeps a row of its own, the numbers and Fix wrapping under it */}
       <div role="group" aria-label="Fix" className="flex w-full flex-wrap items-center justify-end gap-2">
         {fixing ? (
@@ -85,7 +89,8 @@ export function FixBar({ verb, tool, job, mask, grow, busy, onFix, onFullForm }:
         <input
           aria-label={fixing ? "What the painted part becomes" : "What the added parts show"}
           value={prompt}
-          placeholder={fixing ? "What the painted part becomes · empty: the picture's own prompt" : "What the added parts show · empty: the picture's own prompt"}
+          placeholder={fixing ? "What the painted part becomes" : "What the added parts show"}
+          data-tip="Empty: the picture's own prompt"
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={(e) => {
             // the layer's keys (P, E, [ ]…) are not the prompt's: it keeps every key typed in it
@@ -113,7 +118,7 @@ export function FixBar({ verb, tool, job, mask, grow, busy, onFix, onFullForm }:
           <Wand2 size={14} /> {verb} · {plural(count, "version")} <Kbd>Ctrl+Enter</Kbd>
         </Button>
       </div>
-      <span className="text-xs text-ink-3"><Kbd>Esc</Kbd> leaves {fixing ? "Paint and fix" : "Outpaint"} · an unkept version expires like any render</span>
+      <span className="text-xs text-ink-3">Empty prompt: the picture's own · <Kbd>Esc</Kbd> leaves {fixing ? "Paint and fix" : "Outpaint"} · an unkept version expires like any render</span>
     </div>
   );
 }

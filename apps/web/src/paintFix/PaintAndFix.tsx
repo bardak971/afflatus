@@ -103,8 +103,8 @@ export function PaintAndFix({ acts, mode, strip, overlay }: {
         mask={outpainting ? frameSaid(sides) : maskSaid(mask.area, mask.soft)}
         grow={grow}
         busy={fix.isPending || fullForm.isPending || outpaint.isPending || outForm.isPending}
-        onFix={(ask) => (outpainting ? outpaint.mutate({ ...ask, sides }) : void mask.png().then((png) => fix.mutate({ ...ask, png })))}
-        onFullForm={(ask) => (outpainting ? outForm.mutate({ ...ask, sides }) : void (mask.area ? mask.png() : Promise.resolve(null)).then((png) => fullForm.mutate({ ...ask, png })))}
+        onFix={(ask) => (outpainting ? outpaint.mutate({ ...ask, sides }) : void mask.png().then((png) => fix.mutate({ ...ask, soft: mask.soft, png })))}
+        onFullForm={(ask) => (outpainting ? outForm.mutate({ ...ask, sides }) : void (mask.area ? mask.png() : Promise.resolve(null)).then((png) => fullForm.mutate({ ...ask, soft: mask.soft, png })))}
       />
     </div>
   );

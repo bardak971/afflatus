@@ -83,6 +83,9 @@ describe("what a fix sends", () => {
   it("is the mask in the recipe's mask slot, the denoise and grow it takes, the prompt only when written", () => {
     expect(fixInputs(tool, { prompt: "  ", strength: 0.5, grow: 8, tuned: {} }, "zz-test-mask")).toEqual({ mask: "zz-test-mask", strength: 0.5, maskGrow: 8 });
     expect(fixInputs(tool, { prompt: "a red scarf", strength: 0.5, grow: 8, tuned: { steps: 12 } }, "zz-test-mask")).toMatchObject({ prompt: "a red scarf", steps: 12 });
+    const blurred = { ...tool, inputs: [...tool.inputs, { id: "maskBlur", type: "number" }] } as RecipeInfo;
+    expect(fixInputs(blurred, { prompt: "", strength: 0.5, grow: 8, tuned: {}, soft: true }, "zz-test-mask")).toMatchObject({ maskBlur: 1 });
+    expect(fixInputs(blurred, { prompt: "", strength: 0.5, grow: 8, tuned: {} }, "zz-test-mask")).not.toHaveProperty("maskBlur");
     const plain = { ...tool, inputs: tool.inputs.filter((i) => i.id !== "maskGrow" && i.id !== "prompt") } as RecipeInfo;
     expect(fixInputs(plain, { prompt: "a red scarf", strength: 0.5, grow: 8, tuned: {} }, "zz-test-mask")).toEqual({ mask: "zz-test-mask", strength: 0.5 });
   });

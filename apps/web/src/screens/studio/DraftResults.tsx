@@ -13,6 +13,8 @@ import { useTileMenu } from "../../TileMenu";
 import { Tile, tileName } from "../Library";
 import { ThumbWidth, VersionsBadge } from "../../Thumb";
 import { LiveTile } from "./LiveTile";
+import { useVersionDrafts } from "../../paintFix/useStageMode";
+import { VersionsOfDraft } from "../../paintFix/VersionsOfDraft";
 import { useQueueOf } from "./queueOf";
 import { drawnIndices, stackBands, useHeld, useSpan } from "./virtual";
 
@@ -54,6 +56,8 @@ export function DraftResults({ draft, folder, list, title, empty }: {
   const inLine = ours?.inLine ?? [];
   const waiting = inLine.length;
   const stop = useStop();
+  // a draft opened from Paint and fix's ⚙: its renders come back as versions of its picture, not in its own list
+  const versionsOf = useVersionDrafts((v) => (draft ? v.of[draft] : undefined));
   // what is shown large: the one that was picked, else what is forming, else the newest
   const [picked, setPicked] = useState<string | "live" | null>(null);
   const [details, setDetails] = useState<Asset | null>(null);
@@ -76,7 +80,7 @@ export function DraftResults({ draft, folder, list, title, empty }: {
   if (assets.isSuccess && !items.length && !running && !waiting) {
     if (!draft && empty) return <Empty title={empty.title} help={empty.body} />;
     if (!draft) return <Empty title="Nothing here yet" help="Nothing in this view. Another scope or folder may have what you are looking for." />;
-    return <NothingYet />;
+    return versionsOf ? <VersionsOfDraft picture={versionsOf} /> : <NothingYet />;
   }
   return (
     <div className="flex h-full min-h-0 gap-4">

@@ -359,7 +359,8 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
   }
 
   return (
-    <div ref={overlayRef} data-stage role="dialog" aria-modal="true" aria-label="Item" className="m-panel fixed inset-0 z-40 flex bg-stage/95">
+    // painting, the backdrop is whole: the Studio half seen through it read as broken under the layer's tools
+    <div ref={overlayRef} data-stage role="dialog" aria-modal="true" aria-label="Item" className={cx("m-panel fixed inset-0 z-40 flex", painting ? "bg-stage" : "bg-stage/95")}>
       {menuElement}
       {timeline.element}
       {strip && !painting ? (

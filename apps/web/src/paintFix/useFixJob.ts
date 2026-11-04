@@ -10,6 +10,8 @@ import type { ViewerActions } from "../viewer/useViewerActions";
 /** What the fix bar sends besides the mask: the prompt, the denoise, the grow, how many, and the ⚙ popover's rows. */
 export interface FixAsk {
   prompt: string;
+  /** The mask has a soft edge of its own (the layer's Feather): the recipe's own blend is kept to its least, not added on top. */
+  soft?: boolean;
   strength: number;
   grow: number;
   count: number;
@@ -27,6 +29,8 @@ export function fixInputs(tool: RecipeInfo, ask: Omit<FixAsk, "count">, mask: st
     ...(ask.prompt.trim() && has("prompt") ? { prompt: ask.prompt.trim() } : {}),
     ...(has("strength") ? { strength: ask.strength } : {}),
     ...(has("maskGrow") ? { maskGrow: ask.grow } : {}),
+    // its 0 means "picked from the size of the part", a blur over the whole mask again: with a feathered mask the feather is the edge
+    ...(ask.soft && has("maskBlur") ? { maskBlur: 1 } : {}),
     ...ask.tuned,
   };
 }
