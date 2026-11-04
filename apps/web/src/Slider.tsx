@@ -73,6 +73,7 @@ export function Slider({ value, min, max, step = 1, onChange, onCommit, label, u
       <span
         ref={track}
         role="slider"
+        data-slider
         tabIndex={0}
         aria-label={label}
         aria-valuemin={min}
