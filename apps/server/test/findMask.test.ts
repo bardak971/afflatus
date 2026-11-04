@@ -63,6 +63,8 @@ describe("find a mask", () => {
     expect(masks[0]!.box).toMatchObject({ x: 31, y: 31, width: 39, height: 19 });
     // a working picture: not in the library
     expect((await get(t.app, "/api/assets")).json().items.map((i: { id: string }) => i.id)).toEqual([pic.id]);
+    // a find (one per click): not among the queue's last finished, which the page says "done" of (Recipe.quiet)
+    expect((await get(t.app, "/api/queue")).json().recent.map((j: { id: string }) => j.id)).not.toContain(job);
   });
 
   it("by a detector: one mask per thing found, a mask that holds nothing left out", async () => {

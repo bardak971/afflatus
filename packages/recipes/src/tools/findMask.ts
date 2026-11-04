@@ -66,6 +66,8 @@ export const findMask = defineRecipe<FindMask>({
   needsWith: (input) => [input.way === "detect" ? DETECT[input.what].slot : "sam"],
   // what it makes is a working picture, never an item of the library (queueStore.ts)
   scratch: () => true,
+  // the Stage waits for it with the brush in hand, a find per click: no "done" banner nor notification for each
+  quiet: true,
   nodes: (input) =>
     input.way === "detect"
       ? ["LoadImage", "UltralyticsDetectorProvider", DETECT[input.what].segm ? "SegmDetectorSEGS" : "BboxDetectorSEGS", "ImpactSEGSToMaskList", "MaskToImage", "PreviewImage"]

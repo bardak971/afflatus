@@ -312,6 +312,11 @@ export interface Recipe<In = Record<string, unknown>> {
    */
   scratch?(input: In): boolean;
   /**
+   * A short job the page that sent it waits on itself (the Stage's find, on every click): it ends with no banner, no
+   * notification and no line among the queue's last finished ones. Its Queue history row stays.
+   */
+  quiet?: true;
+  /**
    * Of `needs`, the ones this input does without (a swap's Show the mask, or a take's Face refine alone, samples nothing: no
    * LoRA, no model): a machine is not held for them, nor a pod sent them. A need its form picks another file for is left
    * out as well, without saying (neededSlots).
