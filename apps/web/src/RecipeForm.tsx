@@ -9,7 +9,7 @@ import { api, thumbUrl, type RecipeInfo, type RecipeStatus } from "./api";
 import { useQuery } from "@tanstack/react-query";
 import { useSettled } from "./hooks";
 import { queryKeys } from "./queryKeys";
-import { useModelSettings, useRecipes, useSetup } from "./data";
+import { useEntities, useModelSettings, useRecipes, useSetup } from "./data";
 import { Field, sameValue } from "./fields";
 import { changedIn, formDefaults, layoutOf, ownValues, matchesText, pinnable, pinSaid, sectionsOf, summariesOf, thumbsOf, tuckedOf, whyHidden } from "./form";
 import { InputsPart } from "./recipeForm/InputsPart";
@@ -26,6 +26,11 @@ import { scrollInside } from "./scrollInside";
 import { est, plural } from "./format";
 import { isFamilyFile, withOfficial } from "./officialFiles";
 import { isOffered } from "./filePlaces";
+import { useFormTarget } from "./formTarget";
+import { drawRegions } from "./regions/drawRegions";
+import { RegionsField, regionsSummary } from "./regions/RegionsField";
+import { GUIDED, regionsAbsent, regionsOf, regionsSpecOf } from "./regions/types";
+import { heldElsewhere } from "./regions/useRegionsStage";
 
 // what is said under a model ComfyUI does not have (with where a preset gets it): fetched the first time one is missing, not
 // with the form on every first paint
@@ -35,6 +40,7 @@ const MissingModel = lazy(() => import("./PresetFiles").then((m) => ({ default: 
 const HELPER_WORDS = "snippets snippet designer llm roll random wildcards prompt helpers";
 const MADE_WORDS = "model family operation mode presets preset image video txt2img img2img inpaint outpaint upscale";
 const LOOK_WORDS = "cast look people person places style mood references";
+const REGIONS_WORDS = "regions region box boxes layout placement cast person";
 
 export { mainTextOf } from "./form";
 
@@ -257,6 +263,15 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
   // what a screen adds is not a setting, but it is looked for by name too ("snippets", "preset", "cast"): while
   // searching, it shows where it lives when its words match, and steps aside otherwise
   const helpersHit = Boolean(q && helpers) && matchesText(HELPER_WORDS, q);
+  // the Regions card (card #271): the boxes drawn on the Stage, one row each; on a model that takes none, said with why
+  // under Not shown now, with the boxes the draft keeps in its form on another model
+  const regionsSpec = regionsSpecOf(recipe.inputs);
+  const regionsOff = regionsSpec ? undefined : regionsAbsent(recipe.absent);
+  const regionsHit = Boolean(regionsSpec) && (!q || matchesText(`${REGIONS_WORDS} ${regionsSpec!.label}`, q));
+  const regionsHeld = useFormTarget((st) => (regionsOff ? heldElsewhere(st.target?.forms).length : 0));
+  const people = useEntities().data?.items;
+  const nameOf = (id: string) => people?.find((e) => e.id === id)?.name;
+  const regionsNow = regionsSpec ? regionsOf(values[regionsSpec.id]) : [];
   const madeHit = Boolean(q && made) && matchesText(`${MADE_WORDS} ${recipe.title}`, q);
   const lookHit = Boolean(q && look) && matchesText(LOOK_WORDS, q);
 
@@ -379,13 +394,14 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
   const lookWithFrames = refs.length === 0 && recipe.inputs.every((i) => i.type !== "prompt" || Boolean(i.noCast));
   const hasRefs = refs.length > 0 || (Boolean(look) && !lookWithFrames && (!q || lookHit));
   const promptHit = Boolean(mainText) && (!q || hit(mainText as InputSpec) || texts.length > 0 || helpersHit);
-  const found = Number(helpersHit) + Number(madeHit) + Number(lookHit) + knobs.length + loras.length + texts.length + (mainText && hit(mainText) ? 1 : 0) + frames.length + refs.length + sampling.length + afterSampling.length + upscaling.length + out.length + encoding.length + rare.length + hidden.length;
+  const found = Number(helpersHit) + Number(regionsHit) + Number(madeHit) + Number(lookHit) + knobs.length + loras.length + texts.length + (mainText && hit(mainText) ? 1 : 0) + frames.length + refs.length + sampling.length + afterSampling.length + upscaling.length + out.length + encoding.length + rare.length + hidden.length;
 
   const leads = (Array.isArray(lead) ? lead : [lead]).filter((l): l is LeadPart => Boolean(l));
   const parts = [
     ...(!q ? leads.map((l) => ({ id: l.id, label: l.title })) : []),
     ...((made && (!q || madeHit)) || knobs.length || loras.length ? [{ id: "model", label: "Model" }] : []),
     ...(promptHit && !promptMoved ? [{ id: "prompt", label: "Prompt" }] : []),
+    ...(regionsHit ? [{ id: "regions", label: "Regions" }] : []),
     ...(hasFrames || hasRefs ? [{ id: "inputs", label: "Inputs" }] : []),
     ...chapters.filter((ch) => (ch.id === "advanced" ? rare.length > 0 : ch.id === "prompt" ? promptHit : !q || sought(ch.items).length)).map((ch) => ({ id: ch.id, label: ch.label, ...(ch.under ? { under: ch.under } : {}) })),
     ...(sampling.length || afterSampling.length ? [{ id: "sampling", label: "Sampling" }] : []),
@@ -440,6 +456,21 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
           </Part>
         )],
         ["prompt", !promptMoved && <div key="prompt-block" className="contents">{promptBlock}</div>],
+        ["regions", regionsHit && regionsSpec && (
+          <Part key="regions" id="regions" title={regionsSpec.label || "Regions"} help={GUIDED} summary={regionsSummary(regionsNow, nameOf)} needs={Boolean(q)}>
+            <RegionsField
+              spec={regionsSpec}
+              value={regionsNow}
+              onChange={(v) => onChange(regionsSpec.id, v)}
+              family={family}
+              model={inUse}
+              loraOptions={status?.options[recipe.inputs.find((i) => i.type === "loras")?.id ?? ""] ?? []}
+              recipe={recipe.id}
+              stored={stored}
+              onDraw={drawRegions}
+            />
+          </Part>
+        )],
         ["inputs", (
           <InputsPart
             key="inputs"
@@ -489,12 +520,18 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
           onMove={movePinned}
         />
       )]).map(([, node]) => node)}
-      {hidden.length > 0 && (
+      {(hidden.length > 0 || (regionsOff && !q)) && (
         <section className="flex flex-col gap-1.5 rounded-control border border-line bg-raised px-3 py-2">
           <span className={PART_HEAD}>Not shown now</span>
           {hidden.map((i) => (
             <span key={i.id} className="text-xs text-ink-2"><span className="font-semibold text-ink">{i.label}</span> · {revealedBy(i)}</span>
           ))}
+          {regionsOff && !q && (
+            <span data-regions-off className="text-xs text-ink-2">
+              <span className="font-semibold text-ink">{regionsOff.label}</span> · {regionsOff.why}
+              {regionsHeld > 0 && `. The ${plural(regionsHeld, "box", "boxes")} stay with the draft and come back on a model that takes them.`}
+            </span>
+          )}
         </section>
       )}
       {fieldMenu.menu && (() => {

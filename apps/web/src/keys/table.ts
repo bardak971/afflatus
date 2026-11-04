@@ -29,7 +29,7 @@ export interface KeyGroup {
   rows: KeyRow[];
 }
 
-export type PlaceId = "everywhere" | "bar" | "menus" | "grid" | "timelines" | "form" | "viewer" | "trim" | "editor" | "media" | "projects" | "queue" | "mask" | "paint" | "kit";
+export type PlaceId = "everywhere" | "bar" | "menus" | "grid" | "timelines" | "form" | "viewer" | "trim" | "editor" | "media" | "projects" | "queue" | "mask" | "paint" | "regions" | "kit";
 
 export interface KeyPlace {
   id: PlaceId;
@@ -549,6 +549,32 @@ export const PLACES: KeyPlace[] = [
           { keys: "K", does: "Keep the version shown" },
           { keys: "Esc", does: "Leave Paint and fix" },
         ],
+      },
+      { name: "With the mouse", rows: [{ keys: "wheel", does: "Zoom around the pointer", mouse: true }] },
+    ],
+  },
+  {
+    id: "regions",
+    name: "Regions",
+    about: "boxes on the Stage, each with its prompt, its cast person and its LoRA: they guide where things go",
+    groups: [
+      {
+        name: "The tools",
+        rows: [
+          // regions/RegionsStage.tsx: the layer's keys (useLayerKeys) and its own Del and Esc
+          { keys: "V", does: "Select and move", note: "a box's handles resize it" },
+          { keys: "B", does: "Box: draw a region", note: "a click on a box picks it" },
+          { keys: "T", does: "Text box", note: "MOSS" },
+          { keys: "@", does: "Show the cast", note: "drag a person onto a box, or onto the frame for a new box" },
+          { keys: "H", does: "Hand: move the picture", note: "for touch" },
+          { keys: "Delete | Backspace", does: "Remove the box picked" },
+          { keys: "Esc", does: "Let the box go", note: "then, over a picture, back to it" },
+          { keys: "Space", does: "Move the picture", note: "hold; the middle button too" },
+        ],
+      },
+      {
+        name: "In a region's prompt",
+        rows: [{ keys: "@", does: "A cast person by name", note: "Tab or Enter puts them on the region" }],
       },
       { name: "With the mouse", rows: [{ keys: "wheel", does: "Zoom around the pointer", mouse: true }] },
     ],
