@@ -42,6 +42,7 @@ export const SETTING_INDEX: SettingSpot[] = [
   { tab: "model-files", label: "Model files", key: "modelFiles.list", words: "disk space free delete not used unused recycle bin set aside duplicates copies clean up checkpoint lora vae size drop add" },
   { tab: "models", label: "Models", key: "models.families", words: "models on or off in the lists families switch hide ready missing files nodes operations" },
   { tab: "models", label: "Files in use", key: "models.files", near: "models.families", words: "which file several fit checkpoint text encoder vae slot automatic pick choose" },
+  { tab: "models", label: "Edit model for boxes", key: "models.boxEdit", words: "edit in box boxes instruction editor paint and fix stage qwen klein kontext default model" },
   { tab: "models", label: "Civitai API key", key: "models.civitaiKey", near: "server.civitaiLookups", words: "token" },
   { tab: "model-files", label: "Your models online", key: "models.online", words: "hash sha256 civitai hugging face match find models browse" },
   { tab: "models", label: "Hugging Face token", key: "models.huggingFaceToken", near: "server.civitaiLookups", words: "hf token gated access key" },

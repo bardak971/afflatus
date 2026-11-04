@@ -1,5 +1,5 @@
 import type { NotifyKind, Settings, SettingsPatch } from "../api";
-import { SETTING_HELP } from "@afflatus/core";
+import { BOX_EDIT_DEFAULT, BOX_EDIT_FAMILIES, BOX_EDITOR_NAMES, SETTING_HELP, type BoxEditFamily } from "@afflatus/core";
 import { INDEX, settingHref, TABS, type Tab } from "../screens/settings/settingsIndex";
 import { allowNotifications, useBanners, useCompareResult, useExplain, useHoverPlay, useNotify } from "../store";
 import { DEFAULT_PROGRESS, PROGRESS_STYLES, type ProgressStyle } from "../progress/style";
@@ -70,6 +70,13 @@ const barPart = (key: "snippets" | "cast", label: string, about: string, words: 
 });
 
 export const SETTINGS: SettingEntry[] = [
+  {
+    id: "models.boxEdit", label: "Edit model for boxes", page: "models", words: "edit in box boxes instruction editor paint and fix stage qwen klein kontext default model", scope: "Afflatus", kind: "choice",
+    about: SETTING_HELP.boxEditModel,
+    get: (c) => c.server?.boxEditModel ?? BOX_EDIT_DEFAULT,
+    set: (c, v) => c.save({ boxEditModel: v as BoxEditFamily }),
+    options: () => BOX_EDIT_FAMILIES.map((f) => ({ value: f, label: BOX_EDITOR_NAMES[f] })),
+  },
   { id: "hover.video", label: "Play videos on hover", page: "interface", words: "mouse card preview", scope: "this browser", kind: "switch", about: "Videos in the library play, muted, while the mouse rests on them. Off: a video card shows its frame until you open it.", get: () => useHoverPlay.getState().video, set: (_c, v) => useHoverPlay.getState().set({ video: Boolean(v) }) },
   { id: "hover.sound", label: "Play sound on hover", page: "interface", words: "audio mouse card", scope: "this browser", kind: "switch", about: "The sound of a video playing on hover, and of a sound card. Off: they stay silent until opened.", get: () => useHoverPlay.getState().sound, set: (_c, v) => useHoverPlay.getState().set({ sound: Boolean(v) }) },
   { id: "explain", label: "Explain every setting in the forms", page: "interface", words: "help tooltips notes", scope: "this browser", kind: "switch", about: "On: a line under each setting of a form says what it does. Off: it sits behind the ? beside its name.", get: () => useExplain.getState().on, set: (_c, v) => useExplain.getState().set(Boolean(v)) },

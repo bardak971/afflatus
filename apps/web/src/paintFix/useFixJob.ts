@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import type { RegionValue } from "@afflatus/core";
 import { api, type RecipeInfo } from "../api";
 import { nameFor } from "../maskName";
 import { useSendJob } from "../queueVariation";
@@ -55,6 +56,14 @@ export function outInputs(tool: RecipeInfo, ask: Pick<FixAsk, "prompt" | "tuned"
 export function editInputs(tool: RecipeInfo, ask: Pick<FixAsk, "prompt" | "strength" | "tuned">): Record<string, unknown> {
   const has = (id: string) => tool.inputs.some((i) => i.id === id);
   return { ...(ask.prompt.trim() && has("prompt") ? { prompt: ask.prompt.trim() } : {}), ...(has("strength") ? { strength: ask.strength } : {}), ...ask.tuned };
+}
+
+/**
+ * Edit in box's inputs (card #284): the boxes as the recipe takes them (each its place and its instruction, nothing of a
+ * region's cast or LoRA), then the ⚙ rows.
+ */
+export function boxInputs(boxes: readonly RegionValue[], tuned: Record<string, unknown>): Record<string, unknown> {
+  return { boxes: boxes.map((b) => ({ id: b.id, box: b.box, prompt: b.prompt.trim() })), ...tuned };
 }
 
 /**
@@ -129,5 +138,13 @@ export function useFixJob(acts: ViewerActions) {
     },
     onError: failed("The full form could not be opened"),
   });
-  return { tool, fix, fullForm, out, outpaint, outForm, editTool, edit, editForm };
+  /** Edit in box: each box's instruction done there by the editor picked, one after another, into one version of the picture. */
+  const boxEdit = useMutation({
+    mutationFn: async ({ recipe, boxes, tuned }: { recipe: RecipeInfo; boxes: RegionValue[]; tuned: Record<string, unknown> }) => {
+      await send({ recipe, stored: { ...toolInput(recipe), ...boxInputs(boxes, tuned) }, label: "Edit in box", from: a.id, versionOf: a.id });
+    },
+    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.queue() }),
+    onError: failed("The edit in box could not be queued"),
+  });
+  return { tool, fix, fullForm, out, outpaint, outForm, editTool, edit, editForm, boxEdit };
 }

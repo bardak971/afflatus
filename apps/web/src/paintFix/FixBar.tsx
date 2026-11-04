@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { Settings2, Wand2 } from "lucide-react";
 import type { InputSpec } from "@afflatus/core";
 import type { RecipeInfo } from "../api";
 import { plural } from "../format";
+import { dialogOver } from "../Dialog";
 import { Kbd } from "../Keys";
 import { MAX_COUNT, tuneAt, useTune } from "../passTune";
 import type { QueuedJob } from "../queueVariation";
@@ -25,6 +26,26 @@ export const FIX_COUNT = 3;
  * 0.95; Z-Image's black basket stayed at 0.8 on four seeds of four and became the wicker one asked for at 0.9 (card #281).
  */
 export const FIX_DENOISE = 0.95;
+
+/**
+ * Ctrl+Enter runs the bar's job while the bar shows: taken on the capture phase, before the draft's Generate hears it (that
+ * one skips a key already taken). Not under a dialog opened over the bar (`root`); the viewer over the screen, a dialog
+ * itself, holds the bar and leaves it the key.
+ */
+export function useCtrlEnter(run: () => void, root: RefObject<HTMLElement | null>) {
+  const now = useRef(run);
+  now.current = run;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !e.defaultPrevented && !dialogOver(root.current)) {
+        e.preventDefault();
+        now.current();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [root]);
+}
 
 /**
  * The bar under the picture in Paint and fix: what the mask is, what the painted part becomes, the denoise, how many
@@ -78,21 +99,10 @@ export function FixBar({ verb, tool, job, mask, grow, busy, note, onFix, onFullF
       },
       more: { label: "Open the full form", run: (changed) => onFullForm({ ...ask, tuned: { ...tuned, ...changed } }) },
     });
-  // Ctrl+Enter fixes while the bar shows: taken before the draft's Generate hears it (that one skips a key already taken)
-  const fixNow = useRef(fix);
-  fixNow.current = fix;
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !e.defaultPrevented && !document.querySelector("[role=dialog][aria-modal=true]")) {
-        e.preventDefault();
-        fixNow.current();
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, []);
+  const root = useRef<HTMLDivElement>(null);
+  useCtrlEnter(fix, root);
   return (
-    <div className="flex w-full max-w-[1040px] shrink-0 flex-col items-center gap-1.5">
+    <div ref={root} className="flex w-full max-w-[1040px] shrink-0 flex-col items-center gap-1.5">
       {/* on a narrow stage the prompt keeps a row of its own, the numbers and Fix wrapping under it */}
       <div role="group" aria-label="Fix" className="flex w-full flex-wrap items-center justify-end gap-2">
         {editing ? (

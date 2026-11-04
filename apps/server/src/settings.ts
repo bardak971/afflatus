@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { LIMITS, sigmaOfOldDenoise } from "@afflatus/core";
+import { BOX_EDIT_DEFAULT, BOX_EDIT_FAMILIES, LIMITS, sigmaOfOldDenoise } from "@afflatus/core";
 import { presetFileSchema } from "@afflatus/core/presetSchemas";
 import { envSaid } from "./config";
 import type { Db } from "./db";
@@ -324,6 +324,8 @@ export const settingsSchema = z.object({
   designerGuides: z.record(z.string().max(120), z.string().max(12000)).default({}),
   /** Tags written for an anime model are compared with danbooru's list, under the prompt and in what the designer writes. */
   tagCheck: z.boolean().default(true),
+  /** The family whose instruction editor does Edit in box (card #284) on a picture whose own model has none. */
+  boxEditModel: z.enum(BOX_EDIT_FAMILIES).default(BOX_EDIT_DEFAULT),
   /**
    * A render's picture downloaded or exported carries how it was made (pngInfo.ts): A1111's "parameters" with the model's
    * and the LoRAs' hashes, which Civitai links a posted picture by, and Afflatus's own form for an exact round trip. Its
@@ -946,6 +948,7 @@ export function publicSettings(s: Settings, here: (url: string) => boolean = () 
     designerInstruction: s.designerInstructions.some((i) => i.id === s.designerInstruction) ? s.designerInstruction : "",
     designerGuides: s.designerGuides,
     tagCheck: s.tagCheck,
+    boxEditModel: s.boxEditModel,
     pngInfo: s.pngInfo,
     families: s.families,
     allFamilies: s.allFamilies,

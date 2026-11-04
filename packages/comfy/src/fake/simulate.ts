@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { isRef, type Graph } from "@afflatus/core";
 import type { FakeInit, FakeState } from "../testing";
 import { makePng, tint } from "./png";
@@ -28,7 +29,9 @@ function signatures(graph: Graph): Record<string, string> {
       const v = node.inputs[k];
       return [k, isRef(v) ? `<${of(v[0])}>${v[1]}` : v];
     });
-    return (out[id] = JSON.stringify([node.class_type, inputs]));
+    // hashed: a node's signature holds those of its inputs, and written out whole they double at each node a deep graph
+    // reads twice (Edit in box's chain of crops and pastes ran out of string length)
+    return (out[id] = createHash("sha1").update(JSON.stringify([node.class_type, inputs])).digest("hex"));
   };
   for (const id of Object.keys(graph)) of(id);
   return out;

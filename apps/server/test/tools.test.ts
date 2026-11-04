@@ -198,6 +198,8 @@ describe("the other things done to a picture", () => {
       "sdxl.redraw", "sdxl.paint-over", "sdxl.outpaint", "sdxl.sharper", "sdxl.fix-face", "klein.edit", "klein.redraw", "klein.variation", "klein.paint-over", "klein.change-shape", "klein.sharper", "klein.fix-face", "krea2.redraw", "krea2.paint-over", "krea2.outpaint", "krea2.sharper", "krea2.fix-face",
       "flux.edit", "flux.redraw", "flux.paint-over", "flux.outpaint", "flux.sharper", "flux.fix-face", "qwen.edit", "qwen.redraw", "qwen.paint-over", "qwen.outpaint", "qwen.sharper", "qwen.fix-face", "qwen21.edit", "qwen21.redraw", "qwen21.paint-over", "qwen21.outpaint", "qwen21.sharper", "qwen21.fix-face", "qwen21.motion-picture",
       "zimage.redraw", "zimage.paint-over", "zimage.outpaint", "zimage.sharper", "zimage.fix-face", "tools.remove-background", "tools.seedvr-upscale", "tools.find-mask",
+      // the Stage's Edit in box, one per instruction editor (card #284): hidden, sent from Paint and fix's bar
+      "qwen.edit-in-box", "qwen21.edit-in-box", "klein.edit-in-box", "flux.edit-in-box",
     ]);
     const setup = unlistOptions((await get(t.app, "/api/setup")).json());
     const of = (id: string) => setup.recipes.find((r: { id: string }) => r.id === id);
@@ -206,5 +208,39 @@ describe("the other things done to a picture", () => {
     expect(of("sdxl.sharper")).toMatchObject({ ready: true, options: { upscaler: ["anime_x4.pth", "RealESRGAN_x4plus.pth"] } });
     expect(of("sdxl.fix-face")).toMatchObject({ ready: false, emptyInputs: ["detector"] });
     expect(of("tools.remove-background")).toMatchObject({ ready: false, emptyInputs: ["model"] });
+  });
+});
+
+describe("editing a picture in boxes (card #284)", () => {
+  const boxes = [
+    { id: "a", box: { x: 0.1, y: 0.2, w: 0.25, h: 0.3 }, prompt: "a deer drinking at the stream" },
+    { id: "b", box: { x: 0.6, y: 0.5, w: 0.3, h: 0.4 }, prompt: "remove the lamp" },
+  ];
+
+  it("sends every box in one job, each cropped from what the box before left, and files the one picture as a version", async () => {
+    const picture = await upload(await plain(1216, 832), "name=zz-test forest.png");
+    const res = await post(t.app, "/api/jobs", { recipe: "klein.edit-in-box", input: { source: picture.id, boxes }, versionOf: picture.id });
+    expect(res.statusCode, res.body).toBe(200);
+    const job = res.json().ids[0] as string;
+    await until(() => fake.prompts.size === 1);
+    const [promptId, graph] = [...fake.prompts.entries()].at(-1)!;
+    // one model loaded, a sampling per box, each box's own instruction
+    expect(nodes(graph, "UNETLoader")).toHaveLength(1);
+    expect(nodes(graph, "KSampler").length + nodes(graph, "SamplerCustomAdvanced").length).toBe(2);
+    expect(nodes(graph, "CLIPTextEncode").map((n) => n.inputs.text)).toEqual(expect.arrayContaining(["a deer drinking at the stream", "remove the lamp"]));
+    // the first box 304 × 250 at (122, 166) of the picture, pasted back where it was
+    expect(nodes(graph, "ImageCompositeMasked").map((n) => [n.inputs.x, n.inputs.y])).toEqual([[122, 166], [730, 416]]);
+    complete(fake, promptId);
+    await until(async () => (await t.db.selectFrom("jobs").select("status").where("id", "=", job).executeTakeFirstOrThrow()).status === "done");
+    const { generation_id } = await t.db.selectFrom("jobs").select("generation_id").where("id", "=", job).executeTakeFirstOrThrow();
+    const made = await t.db.selectFrom("assets").selectAll().where("generation_id", "=", generation_id!).execute();
+    expect(made).toHaveLength(1);
+    expect(made[0]!.version_of).toBe(picture.id);
+    expect((await get(t.app, "/api/assets")).json().items.map((a: { id: string }) => a.id)).toEqual([picture.id]);
+  });
+
+  it("fails the whole job, with why, when a box says nothing to do", async () => {
+    const picture = await upload(await plain(800, 600));
+    expect(await refusal("klein.edit-in-box", { source: picture.id, boxes: [boxes[0], { ...boxes[1], prompt: " " }] })).toContain("Box 2 says nothing to do");
   });
 });
