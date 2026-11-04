@@ -5,7 +5,7 @@ import { GraphBuilder, inBoxOf, isRef, MAX_BOXES, regionBox, roundTo, type Build
  * (Qwen Image Edit, Qwen Image 2.1, Klein, Kontext) doing each one there. All of it is one ComfyUI graph, built here around
  * the editor's own recipe: for each box in turn, the picture so far is cropped round the box with a margin, brought to the
  * editor's working size, edited by the editor's graph as it stands, brought back, colour-matched to the original at the
- * box's edge, and pasted inside the box with a soft edge. The next box crops the picture the last one left, so the boxes
+ * box's edge, and pasted over the box with a soft edge in the margin round it. The next box crops the picture the last one left, so the boxes
  * run one after another on one machine, never side by side, and a box that fails fails the job with ComfyUI's reason. The
  * job is a version of the picture like any other pass (the queue files it), on the user's ComfyUI or a pod alike, since
  * every step past the editor is a core node.
@@ -16,11 +16,13 @@ export const MARGIN = 0.3;
 /**
  * The soft edge where the edit fades into what was there, as a share of the box's shorter side, and the share of it that lies
  * outside the box (in the margin the editor saw), so that the box itself is the edit's to its edge. At 0.1 inside the box,
- * a removal that took the light with it ("remove the lamp", its glow on the wall) left a faint band at the box's edge on
- * Qwen Image Edit, and the fade could pale an added thing that touched it (a bicycle's wheel; card #284's pod A/B).
+ * a removal that took the light with it ("remove the lamp", its glow on the wall) left a hard band at the box's edge on
+ * Qwen Image Edit, and the fade paled an added thing that touched it (a bicycle's wheel; card #284's pod A/B). On the same
+ * pictures and seed (card #286), 0.25 all outside softened the band as much as any, and kept the wheel whole and the deer as
+ * it was; a fade inside the box let the removed lamp show through it (0.25 inside, 0.4 half inside).
  */
-export const FEATHER = 0.1;
-export const OUTSIDE = 0;
+export const FEATHER = 0.25;
+export const OUTSIDE = 1;
 /** The least a box is, in the picture's pixels, on a side: a smaller one is grown about its centre. */
 const LEAST_BOX = 16;
 /** The ring round the box the colour match reads must hold at least this share of the box's area, or it says too little. */

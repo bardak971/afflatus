@@ -31,10 +31,13 @@ describe("where a box is cropped and pasted", () => {
     expect(plan.inner).toEqual({ x: plan.box.x - plan.crop.x, y: plan.box.y - plan.crop.y, w: plan.box.w, h: plan.box.h });
   });
 
-  it("fades the paste inside the box on every side but one the picture's own edge cuts", () => {
+  it("fades the paste in the margin round the box on every side but one the picture's own edge cuts", () => {
     const middle = planBox({ x: 0.4, y: 0.4, w: 0.2, h: 0.2 }, picture, kontextSize);
     const f = Math.round(FEATHER * Math.min(middle.box.w, middle.box.h));
     expect(middle.feather).toEqual({ left: f, top: f, right: f, bottom: f });
+    // the whole fade outside the box, a quarter of its shorter side wide: a fade inside let a removed lamp show through it (card #286)
+    expect(FEATHER).toBe(0.25);
+    expect(middle.paste).toEqual({ x: middle.box.x - f, y: middle.box.y - f, w: middle.box.w + 2 * f, h: middle.box.h + 2 * f });
     const corner = planBox({ x: 0, y: 0.7, w: 0.3, h: 0.3 }, picture, kontextSize);
     expect(corner.feather).toMatchObject({ left: 0, bottom: 0 });
     expect(corner.feather.top).toBeGreaterThan(0);
