@@ -38,6 +38,7 @@ import { cannotWhy, packFacts, packsSaid, type PackFacts } from "./jobPacks";
 import { formPacks, type FormPackNote } from "./formPacks";
 import { refusedSaid } from "./modelSetCheck";
 import { NO_WILDCARDS, settleTexts, type WildcardPlaces } from "./wildcardFiles";
+import { stackRoot } from "./versions";
 
 // what the routes and the services name from here: the options, and the RIFE model lookup the timelines routes share with the slow-motion tool
 export { DEFAULT_QUEUE_OPTIONS, type QueueOptions };
@@ -123,6 +124,8 @@ export interface CutExtra {
 /** What a render's job is queued with (Queue.enqueue). */
 export interface EnqueueOptions {
   label?: string; dependsOn?: string; clip?: { id: string; fit: boolean; mirror?: readonly string[] }; draft?: string | null; folder?: string | null;
+  /** The picture its results come back under as versions (versions.ts), any one of its stack: written as the stack's root. */
+  versionOf?: string | null;
   warm?: boolean; look?: unknown; finishedFrom?: string | null; asked?: Record<string, unknown>; machine?: string | null;
   /** What the job is to the person when its files are refused ("Clip 3" of a timeline's Render): the refusal starts with it. */
   who?: string;
@@ -664,7 +667,7 @@ export class Queue {
       status: "queued", warm: opts.warm ? 1 : 0, look: opts.look ? JSON.stringify(opts.look) : null, priority: recipe.output === "image" ? 0 : 10, depends_on: opts.dependsOn ?? null,
       attempts: 0, resume: null, error: null, generation_id: null, clip_id: opts.clip?.id ?? null, clip_fit: opts.clip?.fit ? 1 : 0, clip_mirror: opts.clip?.mirror?.length ? JSON.stringify(opts.clip.mirror) : null,
       draft_id: opts.draft ?? null, folder_id: opts.folder ?? null, finished_from: opts.finishedFrom ?? null, pin_machine: pin,
-      mcp_token_id: opts.mcpToken ?? null,
+      mcp_token_id: opts.mcpToken ?? null, version_of: opts.versionOf ? await stackRoot(this.db, opts.versionOf) : null,
       created_at: at, started_at: null, finished_at: null, updated_at: at,
     } satisfies Insertable<Tables["jobs"]>;
   }
@@ -992,6 +995,8 @@ export class Queue {
       // with the flips it was sent with: done again, it renders what it was asked to, whatever the clip says now
       clip: row.clip_id ? { id: row.clip_id, fit: Boolean(row.clip_fit), mirror: readJson<string[]>(row.clip_mirror, []) } : undefined,
       draft: row.draft_id, folder: row.folder_id, warm: Boolean(row.warm), look: readJson(row.look, undefined),
+      // done again, its results still come back under the same picture
+      versionOf: row.version_of ?? null,
       // a finish done again is still the finished version of the same take
       finishedFrom: row.finished_from,
       // what the person asked stays theirs, with what was changed now

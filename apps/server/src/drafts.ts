@@ -2,7 +2,7 @@ import { chatJson } from "./llm";
 import { BATCH, formModelInput, formsWithout, type Recipe } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { NOT_IN_LIBRARY } from "./library";
+import { inLibrary } from "./library";
 import { httpError } from "./errors";
 import { oneAtATime } from "./keyedLock";
 import { newId, now, OWNER, toRun, type Db, type Tables } from "./db";
@@ -215,7 +215,7 @@ export async function draftsList(s: Services, project: string | undefined, limit
   const outputs = rows.length
     ? await s.db.selectFrom("generations").crossJoin("assets").whereRef("assets.generation_id", "=", "generations.id")
       .select(["generations.draft_id as draft", "assets.id as id", "assets.kind as kind"]).select(ASSETS_SPACE.as("bytes"))
-      .where("generations.draft_id", "in", rows.map((d) => d.id)).where("assets.deleted_at", "is", null).where("assets.origin", "not in", NOT_IN_LIBRARY)
+      .where("generations.draft_id", "in", rows.map((d) => d.id)).where("assets.deleted_at", "is", null).where(inLibrary)
       .orderBy("assets.created_at", "desc").execute()
     : [];
   // the families its outputs were made with, newest first, with how many each made: a draft is an idea tried on models
@@ -223,7 +223,7 @@ export async function draftsList(s: Services, project: string | undefined, limit
   if (rows.length) {
     const tries = await s.db.selectFrom("generations").crossJoin("assets").whereRef("assets.generation_id", "=", "generations.id")
       .select(["generations.draft_id as draft", "generations.family as family"]).select((eb) => [eb.fn.countAll<number>().as("n"), eb.fn.max("assets.created_at").as("last")])
-      .where("generations.draft_id", "in", rows.map((d) => d.id)).where("assets.deleted_at", "is", null).where("assets.origin", "not in", NOT_IN_LIBRARY)
+      .where("generations.draft_id", "in", rows.map((d) => d.id)).where("assets.deleted_at", "is", null).where(inLibrary)
       .groupBy(["generations.draft_id", "generations.family"]).orderBy("last", "desc").execute();
     for (const t of tries) {
       if (!t.draft) continue;

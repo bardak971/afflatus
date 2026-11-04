@@ -56,7 +56,8 @@ export async function binItem(s: Services, { asset }: AssetLookup, id: string): 
   } else {
     await unlessUsed(s, async (tx) => {
       await refuseUsed(tx, a.id, "take it out of there first");
-      await tx.updateTable("assets").set({ deleted_at: now() }).where("id", "=", id).execute();
+      // a version binned leaves its stack: it is a plain picture in the Bin, and back from it (versions.ts)
+      await tx.updateTable("assets").set({ deleted_at: now(), version_of: null }).where("id", "=", id).execute();
     });
   }
   s.queue.events.emit("library", { change: "binned", items: [a.id], folders: [a.folder_id] } satisfies LibraryChange);
@@ -110,7 +111,7 @@ export async function bulkItems(s: Services, { fileInLinked }: AssetLookup, aske
     s.queue.events.emit("library", change);
     return said(special);
   }
-  const set = b.action === "keep" ? { kept_at: now() } : b.action === "unkeep" ? { kept_at: null } : b.action === "bin" ? { deleted_at: now() } : { deleted_at: null };
+  const set = b.action === "keep" ? { kept_at: now() } : b.action === "unkeep" ? { kept_at: null } : b.action === "bin" ? { deleted_at: now(), version_of: null } : { deleted_at: null };
   const done = await unlessUsed(s, async (tx) => {
     // what something took up since the first look (a linked file moved on the disk in between) is spared too
     if (b.action === "unkeep" || b.action === "bin") {

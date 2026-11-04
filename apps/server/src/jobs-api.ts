@@ -26,6 +26,8 @@ export const jobBody = z.strictObject({
   /** The draft it is sent from, and the folder that is open: its results are filed there. */
   draft: z.string().max(64).optional(),
   folder: z.string().max(64).optional(),
+  /** The picture its results come back under as versions (versions.ts): any one of the stack, the head or a version. */
+  versionOf: z.string().max(64).optional(),
   /** The machine it renders on (a Machine's id), pinned there; left out, whichever would end it first (Generate's machine slice). */
   machine: z.string().min(1).max(40).optional(),
 });
@@ -79,7 +81,7 @@ export async function queueRender(s: Services, body: z.output<typeof jobBody>, b
       // renders pick the same
       const own = recipe && look ? await settleTexts(s.wildcards, recipe, seeded) : seeded;
       const each = recipe && look ? (await compose(s.db, recipe, own, look)).input : own;
-      await ask.render(body.recipe, each, { label, draft: body.draft, folder: body.folder, look, asked: each === own ? undefined : askedOf(own, each), machine: body.machine ?? null, mcpToken: by.mcpToken ?? null });
+      await ask.render(body.recipe, each, { label, draft: body.draft, folder: body.folder, versionOf: body.versionOf, look, asked: each === own ? undefined : askedOf(own, each), machine: body.machine ?? null, mcpToken: by.mcpToken ?? null });
     }
   });
 }
