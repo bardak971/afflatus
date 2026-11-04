@@ -93,10 +93,13 @@ export async function status(
     .orderBy("priority")
     .orderBy("created_at")
     .execute();
+  // what the page waited on itself (Recipe.quiet: the Stage's find) is not among the last finished: each would be said done
+  const quiet = core.registry.recipes().filter((r) => r.quiet).map((r) => r.id);
   const recent = await core.db
     .selectFrom("jobs")
     .selectAll()
     .where(statusOf(core.db), "in", FINISHED)
+    .$if(quiet.length > 0, (q) => q.where("recipe_id", "not in", quiet))
     .orderBy("finished_at", "desc")
     .limit(20)
     .execute();
