@@ -150,6 +150,12 @@ describe("a control image (ControlNet) on every family that has one", () => {
     const file = String(loader.inputs.control_net_name ?? loader.inputs.name);
     if (!v.input.guideModel) expect(Object.values(v.slots ?? {})).toContain(file);
   });
+  it("starts Qwen Image's union above 1: at 1 its edges and pose did nothing on the pod (2026-11-04)", () => {
+    for (const id of ["qwen.text-to-picture", "qwen.redraw"]) {
+      const strength = recipes.find((x) => x.id === id)!.inputs.find((i) => i.id === "guideStrength") as { default: number };
+      expect(strength.default, id).toBe(1.25);
+    }
+  });
   // on a PC with SDXL's ControlNet alone, FLUX.1's control image was built with it, and the pod never sent FLUX.1's
   it.each(["flux.text-to-picture", "qwen.text-to-picture", "zimage.text-to-picture", "sdxl.text-to-picture", "sdxl.paint-over"])("%s never starts on another family's ControlNet", (id) => {
     const r = recipes.find((x) => x.id === id)!;

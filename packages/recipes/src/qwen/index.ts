@@ -15,10 +15,12 @@ const HF_EDIT = "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolv
 const QWEN_UNION = "Qwen-Image-InstantX-ControlNet-Union.safetensors";
 /**
  * The InstantX union on both texts, as ComfyUI's template for it does (ControlNetLoader, ControlNetApplyAdvanced with the VAE),
- * at its authors' strength of 1 held to the end; the kind is read from the picture.
+ * held to the end; the kind is read from the picture. It starts at 1.25, not its authors' 1: on Qwen Image 2512 at 1, edges and
+ * pose came out as without a guide (pod test, 2026-11-04: same seed, 24–25 dB from the unguided picture), at 1.25 and 1.5 they
+ * held the framing; depth held at 1.
  */
 const QWEN_GUIDE: GuideWay = {
-  kind: "controlnet", slot: "controlnet", file: QWEN_UNION, prefer: ["qwen.?image.*instantx.*union", "qwen.?image.*(union|controlnet)", "qwen"], strength: 1, end: 1,
+  kind: "controlnet", slot: "controlnet", file: QWEN_UNION, prefer: ["qwen.?image.*instantx.*union", "qwen.?image.*(union|controlnet)", "qwen"], strength: 1.25, end: 1,
   missing: "A control image on Qwen Image needs its ControlNet: put Qwen-Image-InstantX-ControlNet-Union.safetensors in ComfyUI's models/controlnet folder (it can be downloaded from Settings).",
 };
 
