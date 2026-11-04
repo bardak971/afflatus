@@ -136,6 +136,8 @@ export interface EnqueueOptions {
   who?: string;
   /** The MCP token whose call queued it (mcpTokens.ts): its limits count it, and a token without Spend keeps it off rented pods. */
   mcpToken?: string | null;
+  /** A cell of an X/Y/Z grid (grids.ts): the grid's id and the cell's place on its board ("x.y.z"), carried by what it makes. */
+  grid?: { id: string; cell: string };
 }
 
 /**
@@ -673,6 +675,7 @@ export class Queue {
       attempts: 0, resume: null, error: null, generation_id: null, clip_id: opts.clip?.id ?? null, clip_fit: opts.clip?.fit ? 1 : 0, clip_mirror: opts.clip?.mirror?.length ? JSON.stringify(opts.clip.mirror) : null,
       draft_id: opts.draft ?? null, folder_id: opts.folder ?? null, finished_from: opts.finishedFrom ?? null, pin_machine: pin,
       mcp_token_id: opts.mcpToken ?? null, version_of: opts.versionOf ? await stackRoot(this.db, opts.versionOf) : null,
+      grid_id: opts.grid?.id ?? null, grid_cell: opts.grid?.cell ?? null,
       created_at: at, started_at: null, finished_at: null, updated_at: at,
     } satisfies Insertable<Tables["jobs"]>;
   }
@@ -1002,6 +1005,8 @@ export class Queue {
       draft: row.draft_id, folder: row.folder_id, warm: Boolean(row.warm), look: readJson(row.look, undefined),
       // done again, its results still come back under the same picture
       versionOf: row.version_of ?? null,
+      // and a grid's cell done again lands in its place on the board
+      grid: row.grid_id && row.grid_cell ? { id: row.grid_id, cell: row.grid_cell } : undefined,
       // a finish done again is still the finished version of the same take
       finishedFrom: row.finished_from,
       // what the person asked stays theirs, with what was changed now

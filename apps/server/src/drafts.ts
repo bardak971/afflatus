@@ -1,5 +1,5 @@
 import { chatJson } from "./llm";
-import { BATCH, formModelInput, formsWithout, type Recipe } from "@afflatus/core";
+import { BATCH, formModelInput, formsWithout, type GridSetup, type Recipe } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { inLibrary } from "./library";
@@ -40,6 +40,8 @@ export const saveBody = z.strictObject({
   designer: z.strictObject({ llm: z.string().max(40).optional(), instruction: z.string().max(40).optional() }).nullable().optional(),
   /** A name of one's own for it; an empty one goes back to the start of what was written. */
   name: z.string().max(80).optional(),
+  /** Its X/Y/Z grid's set-up (card #21): the axes as typed, X then Y then Z; null: none. Not read here, kept to open on again. */
+  grid: z.strictObject({ axes: z.array(z.strictObject({ field: z.string().max(600), values: z.string().max(4000) })).max(3) }).nullable().optional(),
 });
 
 /** A draft is a few fields of text; anything much larger is a mistake. */
@@ -195,6 +197,7 @@ const full = (d: Tables["drafts"]) => ({
   ...brief(d), forms: JSON.parse(d.forms) as Record<string, Record<string, unknown>>, count: d.count, look: d.look ? (JSON.parse(d.look) as Look) : null,
   chat: d.chat ? (JSON.parse(d.chat) as unknown[]) : [],
   designer: d.designer ? (JSON.parse(d.designer) as { llm?: string; instruction?: string }) : null,
+  grid: d.grid ? (JSON.parse(d.grid) as GridSetup) : null,
 });
 /** A draft as GET /api/drafts/:id answers it, and MCP's draft tools read it: what the web's types are held against (test/apiTypes.test.ts). */
 export type DraftView = ReturnType<typeof full>;
@@ -315,6 +318,7 @@ async function saved(s: Services, current: Tables["drafts"], body: z.output<type
     ...(body.chat !== undefined ? { chat: chatJson(body.chat, MAX_BYTES) } : {}),
     ...(body.designer !== undefined ? { designer: body.designer ? JSON.stringify(body.designer) : null } : {}),
     ...(body.name !== undefined ? { name: body.name.trim() || null } : {}),
+    ...(body.grid !== undefined ? { grid: body.grid?.axes.length ? JSON.stringify(body.grid) : null } : {}),
   };
   const after = { ...current, ...next };
   if (!pending.has(current.id)) await s.db.updateTable("drafts").set(next).where("id", "=", current.id).execute();

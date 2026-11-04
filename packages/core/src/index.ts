@@ -39,3 +39,4 @@ export * from "./trims";
 export * from "./carryOver";
 export * from "./sigmas";
 export * from "./comfyNeeds";
+export * from "./grid";

@@ -25,6 +25,7 @@ import { allowedHosts, ANY_HOST, crossSite, crossSiteRead, hostAllowed, marked, 
 import { registerHistory } from "./history-api";
 import { registerHunt } from "./hunt";
 import { registerJobs } from "./jobs-api";
+import { registerGrids } from "./grids";
 import { registerLookup } from "./lookup-api";
 import { registerMeasures } from "./measures-api";
 import { registerMcp } from "./mcp";
@@ -197,6 +198,7 @@ export function buildApp(s: Services, opts: { webDir?: string; /** Where the dat
   registerEvents(app, s, VERSION);
   registerLookup(app, s);
   registerJobs(app, s);
+  registerGrids(app, s);
   registerHistory(app, s);
   registerAssets(app, s);
   if (opts.updates) registerUpdates(app, opts.updates);

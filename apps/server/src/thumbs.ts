@@ -195,3 +195,43 @@ export const thumbKey = (assetId: string) => `thumbs/${assetId.slice(0, 2)}/${as
  * erased with the item (sweep.ts eraseAsset), and named after the item's id, so the sweep of files no item names finds it.
  */
 export const smallThumbKey = (assetId: string) => `thumbs/${assetId.slice(0, 2)}/${assetId}-${SMALL_EDGE}.webp`;
+
+/** Text put in an SVG label: its markup characters escaped, and cut to `most` characters with an ellipsis. */
+const svgText = (text: string, most: number) => (text.length > most ? `${text.slice(0, most - 1)}…` : text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+/**
+ * An X/Y/Z grid's page as one labelled sheet, as A1111 saves its grid image (card #21): a title line, the X values over
+ * the columns, the Y values left of the rows, each cell's picture brought inside `cell` (a cell with no picture, failed or
+ * binned, left blank). A PNG, or null when the image library did not load.
+ */
+export async function gridSheet(o: { title: string; cols: string[]; rows: string[]; cell: { width: number; height: number }; cells: ReadonlyArray<{ x: number; y: number; bytes: Uint8Array | null }> }): Promise<Uint8Array | null> {
+  const lib = await sharp();
+  if (!lib) return null;
+  const gap = 8;
+  const font = Math.max(18, Math.round(o.cell.width / 18));
+  const titleH = Math.round(font * 2.2);
+  const headH = o.cols.some(Boolean) ? Math.round(font * 2) : 0;
+  const leftW = o.rows.some(Boolean) ? Math.min(Math.round(o.cell.width * 0.6), Math.max(...o.rows.map((r) => r.length)) * Math.round(font * 0.6) + 2 * gap) : 0;
+  const width = leftW + o.cols.length * (o.cell.width + gap) + gap;
+  const height = titleH + headH + o.rows.length * (o.cell.height + gap) + gap;
+  const label = (text: string, w: number, h: number, anchor: "middle" | "end" | "start", bold = false) => {
+    // as many characters as the width holds at this size, about 0.55 of the font size each
+    const fits = Math.max(4, Math.floor(w / (font * 0.55)));
+    const x = anchor === "middle" ? w / 2 : anchor === "end" ? w - gap : gap;
+    return Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><text x="${x}" y="${Math.round(h / 2 + font * 0.35)}" font-family="sans-serif" font-size="${font}"${bold ? ' font-weight="700"' : ""} fill="#111" text-anchor="${anchor}">${svgText(text, fits)}</text></svg>`);
+  };
+  try {
+    const layers: Array<{ input: Buffer; left: number; top: number }> = [{ input: label(o.title, width, titleH, "start", true), left: 0, top: 0 }];
+    o.cols.forEach((c, x) => c && layers.push({ input: label(c, o.cell.width, headH, "middle", true), left: leftW + gap + x * (o.cell.width + gap), top: titleH }));
+    o.rows.forEach((r, y) => r && layers.push({ input: label(r, leftW, o.cell.height, "end", true), left: 0, top: titleH + headH + y * (o.cell.height + gap) }));
+    for (const c of o.cells) {
+      if (!c.bytes || !looksLikePicture(c.bytes)) continue;
+      const { data, info } = await lib(c.bytes).rotate().resize({ width: o.cell.width, height: o.cell.height, fit: "inside" }).png().toBuffer({ resolveWithObject: true });
+      // a cell of another shape than the first (a size axis) is centred in its place
+      layers.push({ input: data, left: leftW + gap + c.x * (o.cell.width + gap) + Math.floor((o.cell.width - info.width) / 2), top: titleH + headH + c.y * (o.cell.height + gap) + Math.floor((o.cell.height - info.height) / 2) });
+    }
+    return new Uint8Array(await lib({ create: { width, height, channels: 3, background: "#fff" } }).composite(layers).png().toBuffer());
+  } catch {
+    return null;
+  }
+}

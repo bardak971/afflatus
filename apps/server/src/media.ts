@@ -14,11 +14,19 @@ export const assetView = (a: Tables["assets"]) => ({
   countdownFrom: a.countdown_from ?? null,
   // a version waiting under a picture (versions.ts): that picture, the head of its stack; null: an item of the library
   versionOf: a.version_of ?? null,
+  // a cell of an X/Y/Z grid (card #21): its grid and its place on the board ("x.y.z" read as numbers); null: none
+  grid: a.grid_id && a.grid_cell ? gridCellOf(a.grid_id, a.grid_cell) : null,
   // a file of a linked folder: where it is on the disk (in the bin: where it was)
   path: a.file_key.startsWith("linked:") ? a.file_key.slice("linked:".length) : a.linked_path,
   // one gone from its directory, kept because something uses it: its file answers 404
   ...(missingFiles.has(a.file_key) ? { missing: true as const } : {}),
 });
+
+/** A grid cell's place as the browser gets it, from its "x.y.z". */
+export function gridCellOf(id: string, cell: string): { id: string; x: number; y: number; z: number } {
+  const [x = 0, y = 0, z = 0] = cell.split(".").map(Number);
+  return { id, x, y, z };
+}
 
 type AssetInsert = Insertable<Tables["assets"]>;
 type Defaulted = "owner_id" | "kept_at" | "deleted_at" | "created_at" | "fine_latent_key";

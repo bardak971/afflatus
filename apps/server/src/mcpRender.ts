@@ -1,10 +1,11 @@
 import { setTimeout as sleep } from "node:timers/promises";
-import { BATCH, cents, notFilled, plural, usd, usdFor, verb, type Recipe } from "@afflatus/core";
+import { BATCH, cents, GRID_AXES, gridAxes, gridCount, notFilled, plural, usd, usdFor, verb, type InputSpec, type Recipe } from "@afflatus/core";
 import { z } from "zod";
 import type { Tables } from "./db";
 import { compose, lookSchema, withMentions, type Look } from "./entities";
 import { httpError } from "./errors";
 import { jobBody, queueRender } from "./jobs-api";
+import { queueGrid } from "./grids";
 import { oneAtATime } from "./keyedLock";
 import { scrubbed, secretsOf } from "./logScrub";
 import { readJson } from "./queueModel";
@@ -409,6 +410,36 @@ export async function renderForm(args: { draft?: string; form?: string; values?:
   });
 }
 
+const renderGrid = tool({
+  name: "render_grid",
+  scope: "make",
+  title: "Render an X/Y/Z grid",
+  description: "Render every combination of up to three axes of a draft's form (or a form with values), as A1111's X/Y/Z plot and Create's Grid card: one job per cell through the same path as render, so its refusals, the token's renders-an-hour limit (each cell counts) and the rented-pod rules hold, and a failed cell fails alone. An axis is a setting id (describe_form), \"sr\" for Prompt S/R (the first value must be in the prompt, each value replaces it) or \"lora:<list id>:<file>\" for a LoRA's weight, with its values typed as A1111 types them: \"20, 30, 40\", \"1-5\", \"1-10 (+2)\", \"0-1 [5]\", quotes around a value with commas. Left out, the draft's own Grid card is used. A random seed is drawn once for the whole grid. Answers the grid's id (its cells are the library's items with that grid, search_library), the job ids, the count and what it may cost; the user sees the board on the draft's Stage.",
+  input: {
+    ...formArgs,
+    axes: z.array(z.object({ field: z.string().max(600), values: z.string().max(4000) })).max(GRID_AXES.length).optional().describe("X, Y, Z in order: each a setting and its values. Left out: the draft's Grid card."),
+    machine: z.string().optional().describe("A machine's id or name (overview); left out, the queue picks among those this token may use."),
+  },
+  run: async (args, ctx) => {
+    const { s, token } = ctx;
+    const at = await seen(s);
+    const form = await sendable(s, at, args);
+    const axes = args.axes ?? form.draft?.grid?.axes;
+    if (!axes?.some((a) => a.field)) throw httpError(`${form.name}: no axes, and the draft has no Grid of its own: give axes`);
+    const read = gridAxes(form.recipe.inputs as InputSpec[], form.input, { axes });
+    if ("error" in read) throw httpError(`${GRID_AXES[read.axis] ?? "X"}: ${read.error}`);
+    const machine = args.machine ? machineOf(at, args.machine) : undefined;
+    return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
+      // every cell is a render: counted against the renders an hour, and its cost on a pod asked before any is queued
+      const usd = await mayQueue(s, ctx, at, { recipe: form.recipe.id, input: form.input, takes: gridCount(read.axes), machine });
+      const grid = await queueGrid(s, { recipe: form.recipe.id, input: form.input, axes, look: form.look, draft: form.draft?.id, machine: machine?.id }, { mcpToken: token.id });
+      ctx.said(`Rendered a grid of ${plural(grid.count, "cell")} of ${quoted(form.name)}${machine ? ` on ${quoted(machineName(machine))}` : ""}`);
+      return { grid: grid.id, jobs: grid.jobs, count: grid.count, ...(usd ? { mayCostUsd: cents(usd) } : {}) };
+    });
+  },
+  task: (a: { jobs: string[] }) => ({ jobs: a.jobs }),
+});
+
 const loadModel = tool({
   name: "load_model",
   scope: "make",
@@ -667,4 +698,4 @@ const resumeMachine = tool({
   },
 });
 
-export const RENDER_TOOLS = [render, queueStatus, job, cancel, retry, pauseMachine, resumeMachine, loadModel];
+export const RENDER_TOOLS = [render, renderGrid, queueStatus, job, cancel, retry, pauseMachine, resumeMachine, loadModel];

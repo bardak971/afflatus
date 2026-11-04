@@ -41,6 +41,8 @@ const listQuery = z.object({
   lora: z.string().max(500).optional(),
   /** Only what this draft made. */
   draft: z.string().max(64).optional(),
+  /** Only the cells of this X/Y/Z grid (card #21): its board. */
+  grid: z.string().max(64).optional(),
   /** Only what was made since this moment (ISO). */
   since: z.string().max(40).optional(),
   /**
@@ -72,6 +74,7 @@ async function filterAssets(s: Services, q: ListQuery) {
   if (q.since) query = query.where("created_at", ">=", q.since);
   if (q.family) query = query.where("generation_id", "in", s.db.selectFrom("generations").select("id").where("family", "=", q.family));
   if (q.draft) query = query.where("generation_id", "in", s.db.selectFrom("generations").select("id").where("draft_id", "=", q.draft));
+  if (q.grid) query = query.where("grid_id", "=", q.grid);
   return query;
 }
 type Filtered = Awaited<ReturnType<typeof filterAssets>>;
@@ -223,7 +226,7 @@ class AssetSearch {
    * library's words where there is one (SQLite), else by reading the library (a search by files alone, or on Postgres).
    */
   private searched(filtered: Filtered, q: ListQuery): Promise<Ranked[]> {
-    const key = JSON.stringify([q.q, q.model, q.lora, q.kind, q.bin, q.folder, q.project, q.kept, q.sound, q.since, q.family, q.draft]);
+    const key = JSON.stringify([q.q, q.model, q.lora, q.kind, q.bin, q.folder, q.project, q.kept, q.sound, q.since, q.family, q.draft, q.grid]);
     return this.ranked.get(key, () => {
       const words = wordsOf(q.q ?? "");
       return (words.length && this.s.dbKind === "sqlite" ? this.byIndex(filtered, q, words) : this.byReading(filtered, q)).then((found) =>

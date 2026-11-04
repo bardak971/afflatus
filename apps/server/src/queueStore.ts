@@ -91,7 +91,7 @@ export const draftOf = (db: Db, asset: Tables["assets"]) => walkFinished(db, ass
 export async function store(
   core: QueueCore, comfy: Comfy, recipe: Recipe<any>, input: Record<string, unknown>, resume: Resume,
   outputs: Outputs,
-  row: Pick<JobRow, "id" | "draft_id" | "folder_id" | "look" | "asked"> & { clip_id?: string | null; label?: string | null; version_of?: string | null },
+  row: Pick<JobRow, "id" | "draft_id" | "folder_id" | "look" | "asked"> & { clip_id?: string | null; label?: string | null; version_of?: string | null; grid_id?: string | null; grid_cell?: string | null },
 ): Promise<{ id: string; measuring: Promise<number> | null }> {
   const { db, storage } = core;
   const files = collectOutputs(resume, outputs);
@@ -130,7 +130,8 @@ export async function store(
     for (const { file, kind } of files) {
       const one = await fileOne(core, comfy, recipe, input, resume, { file, kind }, sides, written);
       if (one.measure) measure = { asset: one.row.id, work: one.measure };
-      rows.push(newAssetRow({ ...one.row, ...(scratch ? { origin: "scratch" as const } : {}), folder_id: folder, generation_id: generationId, created_at: at }));
+      // a cell of an X/Y/Z grid carries its grid and its place on the board, however it is filed (card #21)
+      rows.push(newAssetRow({ ...one.row, ...(scratch ? { origin: "scratch" as const } : {}), ...(row.grid_id ? { grid_id: row.grid_id, grid_cell: row.grid_cell ?? null } : {}), folder_id: folder, generation_id: generationId, created_at: at }));
     }
     // what a draft made is named after it, numbered on; a timeline clip's take is named once it is placed (autoName.ts)
     const prompts = recipe.inputs.filter((s) => s.type === "prompt" && !s.optional).map((s) => s.id);

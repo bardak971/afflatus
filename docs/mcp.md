@@ -104,7 +104,7 @@ Written from the tool registry by `scripts/mcp-docs.ts`; a check fails when this
 
 <!-- tools:start (written by scripts/mcp-docs.ts from the registry: edit the tools, not this list) -->
 
-123 tools in all.
+124 tools in all.
 
 ### Where the user is
 
@@ -136,6 +136,7 @@ Written from the tool registry by `scripts/mcp-docs.ts`; a check fails when this
 ### Render and the queue
 
 - `render` · Make. Render a draft as it stands (or a form with values): N takes, on a machine or wherever the queue would end it first. The same path as Create's Render, with the same refusals (an unfilled input, files that give black frames). The token's renders-an-hour limit holds; a rented pod needs Spend (a token without it never lands on one, picked or pinned) and stays within the token's spend cap, its waiting and running work counted. Answers the job ids (job, queue_status follow them) and what it may cost; a client that follows MCP Tasks gets that answer as a task, with each job's end, and has nothing to wait for (job's wait is for the others). Render a draft when the user should be able to open and change what made the take in Create (new_draft, edit_draft); a form with values leaves no draft. A video comes out on the model's own frame count, a little off the seconds asked (H3's 6 s: 5.875 s): not a failure.
+- `render_grid` · Make. Render every combination of up to three axes of a draft's form (or a form with values), as A1111's X/Y/Z plot and Create's Grid card: one job per cell through the same path as render, so its refusals, the token's renders-an-hour limit (each cell counts) and the rented-pod rules hold, and a failed cell fails alone. An axis is a setting id (describe_form), "sr" for Prompt S/R (the first value must be in the prompt, each value replaces it) or "lora:<list id>:<file>" for a LoRA's weight, with its values typed as A1111 types them: "20, 30, 40", "1-5", "1-10 (+2)", "0-1 [5]", quotes around a value with commas. Left out, the draft's own Grid card is used. A random seed is drawn once for the whole grid. Answers the grid's id (its cells are the library's items with that grid, search_library), the job ids, the count and what it may cost; the user sees the board on the draft's Stage.
 - `queue_status` · Look. The queue now: what each machine renders (progress, time left, phase), the jobs waiting in order (when each starts, how long it takes, who queued it), whether it is paused, and when it is all done.
 - `job` · Look. One job: waiting (when it starts, how long it takes), running (progress, time left, phase), or ended (done with the library items it made, which view_item shows; failed with why; cancelled). `wait` holds the answer until the job ends or that many seconds pass, rather than asking again and again: for a client that does not follow MCP Tasks (one that does gets the long calls answered as a task, and has nothing to wait for). A job not ended says when to check again (`hint`), from the queue's forecast.
 - `cancel` · Make. Stop a job: waiting, it is taken out; running, its render is stopped on its machine. This token's own jobs and the ones the user queued; another token's are refused.

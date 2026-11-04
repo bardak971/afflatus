@@ -83,6 +83,8 @@ export function Form(props: {
   helpers?: ReactNode;
   /** Chapters of the screen's own before every other (a timeline clip's Source and Takes): first in the strip too, in this order. */
   lead?: LeadPart | ReadonlyArray<LeadPart | undefined>;
+  /** The X/Y/Z grid's card (card #21): after the recipe's own chapters, before Sampling, as the mock lays it out. */
+  grid?: LeadPart;
   /** What the screen puts at the top of one of the recipe's own chapters, by its id (a swap clip's Mask: who is replaced, Show the mask). */
   chapterExtra?: Record<string, ReactNode>;
   /** What the screen adds to the Inputs chapter's frames (a timeline clip's pinned frames), with its words for the summary. */
@@ -138,7 +140,7 @@ export function useWrittenPrompt(recipe: RecipeInfo, stored: Record<string, unkn
   return asked?.into && asked.text ? { into: asked.into, text: asked.text } : null;
 }
 
-function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, frameExtra, chapterExtra, keepEmpty, promptInView, machine, noPins, off, agentRings }: {
+function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSummary, look, lookSummary, helpers, lead, grid, frameExtra, chapterExtra, keepEmpty, promptInView, machine, noPins, off, agentRings }: {
   recipe: RecipeInfo;
   status: RecipeStatus | undefined;
   /** What the draft holds for this recipe: only what was touched. */
@@ -158,6 +160,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
   helpers?: ReactNode;
   /** Chapters of the screen's own before every other (a timeline clip's Source and Takes): first in the strip too, in this order. */
   lead?: LeadPart | ReadonlyArray<LeadPart | undefined>;
+  grid?: LeadPart;
   /** What the screen puts at the top of one of the recipe's own chapters, by its id (a swap clip's Mask: who is replaced, Show the mask). */
   chapterExtra?: Record<string, ReactNode>;
   /** What the screen adds to the Inputs chapter's frames (a timeline clip's pinned frames), with its words for the summary. */
@@ -404,6 +407,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
     ...(regionsHit ? [{ id: "regions", label: "Regions" }] : []),
     ...(hasFrames || hasRefs ? [{ id: "inputs", label: "Inputs" }] : []),
     ...chapters.filter((ch) => (ch.id === "advanced" ? rare.length > 0 : ch.id === "prompt" ? promptHit : !q || sought(ch.items).length)).map((ch) => ({ id: ch.id, label: ch.label, ...(ch.under ? { under: ch.under } : {}) })),
+    ...(grid && !q ? [{ id: grid.id, label: grid.title }] : []),
     ...(sampling.length || afterSampling.length ? [{ id: "sampling", label: "Sampling" }] : []),
     ...(out.length || encoding.length || upscaling.length ? [{ id: "output", label: "Output" }] : []),
     ...(rare.length && !advancedMoved ? [{ id: "advanced", label: "Advanced" }] : []),
@@ -493,6 +497,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
             </Part>
           )];
         }),
+        [grid?.id ?? "grid", grid && !q && <Part key={grid.id} id={grid.id} title={grid.title} help={grid.help} summary={grid.summary}>{grid.node}</Part>],
         ["sampling", (sampling.length > 0 || afterSampling.length > 0) && (
           <Part key="sampling" id="sampling" title="Sampling" summary={<>{said.samplingSaid}{changedMark([...sampling, ...afterSampling])}</>} needs={Boolean(q)}>
             {!q && <ModelDefaults recipe={recipe} setup={setup} file={file} hasSaved={hasSaved} values={values} defaults={defaults} onClear={onClear} />}

@@ -23,6 +23,8 @@ export interface Job {
   draftId: string | null;
   /** What it makes lands as a version of this picture (the root of its stack, moved along when a version is kept); null: a new item. */
   versionOf?: string | null;
+  /** Of a cell of an X/Y/Z grid: the grid, and the cell's place on its board ("x.y.z"); null otherwise. */
+  grid?: { id: string; cell: string } | null;
   /** Of a waiting or running job: the MCP token whose call queued it, and how many of that token's renders wait or run now; null: the page queued it. */
   by?: { name: string; jobs: number } | null;
   /** Of a clip render, once its graph is built: how it joins the clip before (in the latent, or on pinned frames); null when it starts on its own. */

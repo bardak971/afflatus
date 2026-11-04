@@ -134,6 +134,8 @@ export async function status(
     kind: kindOf(r),
     /** The picture whose versions it renders (the root of the stack: Keep moves it to the kept one); null: it makes new items. */
     versionOf: r.version_of ?? null,
+    /** Of a cell of an X/Y/Z grid: the grid and the cell's place on its board ("x.y.z"), for its live tile there; null otherwise. */
+    grid: r.grid_id && r.grid_cell ? { id: r.grid_id, cell: r.grid_cell } : null,
     /** The MCP token whose call queued it, by name, and how many renders of that token wait or run now (the status bar's "Claude Code rendering 2 takes"); null: the page queued it. */
     by: r.mcp_token_id ? by.get(r.mcp_token_id) ?? null : null,
     upscaler: upscalerOf(r),
@@ -401,7 +403,7 @@ export async function history(core: QueueCore, opts: { status?: "done" | "failed
   }
   // only what the list shows: the resume of a job (its built graph, about a kilobyte) stays in the table
   const rows = await query
-    .select(["id", "recipe_id", "label", "status", "error", "error_trace", "warning", "warm", "inputs", "generation_id", "clip_id", "draft_id", "version_of", "created_at", "started_at", "finished_at"])
+    .select(["id", "recipe_id", "label", "status", "error", "error_trace", "warning", "warm", "inputs", "generation_id", "clip_id", "draft_id", "version_of", "grid_id", "grid_cell", "created_at", "started_at", "finished_at"])
     .orderBy("finished_at", "desc").orderBy("created_at", "desc").orderBy("id", "desc")
     .limit(limit + 1).offset(cursor ? 0 : offset).execute();
   const more = rows.length > limit;
@@ -424,7 +426,7 @@ export async function history(core: QueueCore, opts: { status?: "done" | "failed
     const tookMs = r.started_at && r.finished_at ? new Date(r.finished_at).getTime() - new Date(r.started_at).getTime() : null;
     const kind = kindOf(r);
     return {
-      id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, warning: r.warning ?? null, generationId: r.generation_id, clipId: r.clip_id, draftId: r.draft_id, versionOf: r.version_of ?? null,
+      id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, warning: r.warning ?? null, generationId: r.generation_id, clipId: r.clip_id, draftId: r.draft_id, versionOf: r.version_of ?? null, grid: r.grid_id && r.grid_cell ? { id: r.grid_id, cell: r.grid_cell } : null,
       kind,
       upscaler: upscalerOf(r),
       input: r.status === "failed" && kind !== "export" && kind !== "cut" ? input : null,

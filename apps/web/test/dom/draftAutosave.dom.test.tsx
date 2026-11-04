@@ -12,7 +12,7 @@ import { draw } from "./render";
 
 const draft = (id: string): Draft => ({
   id, recipe: "zz-test.text", title: "", name: null, updatedAt: "", empty: false, projectId: null,
-  forms: { "zz-test.text": { prompt: "as saved" } }, count: 1, look: null, chat: [], designer: null,
+  forms: { "zz-test.text": { prompt: "as saved" } }, count: 1, look: null, chat: [], designer: null, grid: null,
 });
 
 /** The Create form's open draft and the Projects panel's actions, drawn together, on the draft `first`. */
