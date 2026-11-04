@@ -1,7 +1,23 @@
 import { defineFamily, defineRecipe, GraphBuilder, type InputSpec, type PromptLine, QUALITY_WORDS, WEIGHT_SYNTAX, wordCount } from "@afflatus/core";
 import { pictureForm } from "../shared/pictureForm";
+import { REDUX_NODES, reduxInputs, reduxNeeds, withRedux, type ReferenceSettings } from "../shared/references";
+import type { GuideWay } from "../shared/guide";
 import { flowKit, flowRecipes, type FlowBase, type FlowSpec } from "../flow/recipes";
 import { detectorSlots } from "../shared/detector";
+
+/** The forms that read reference images through Redux, and those that take a control image (card #277). */
+const REFERENCE_FORMS = ["flux.text-to-picture", "flux.redraw", "flux.edit"];
+const GUIDE_FORMS = ["flux.text-to-picture", "flux.redraw"];
+const FLUX_UNION = "FLUX.1-dev-ControlNet-Union-Pro-2.0.safetensors";
+
+/**
+ * Union Pro 2.0 put on both texts, as ComfyUI loads it (ControlNetLoader, ControlNetApplyAdvanced with the VAE); 0.7 and an end
+ * at 0.8 are its authors' settings for edges and depth (pose wants 0.9 and 0.65).
+ */
+const FLUX_GUIDE: GuideWay = {
+  kind: "controlnet", slot: "controlnet", file: FLUX_UNION, prefer: ["flux.*union.?pro.?2", "union.?pro", "flux.*(union|controlnet)", "flux"],
+  missing: "A control image on FLUX.1 needs a FLUX.1 ControlNet: put FLUX.1-dev-ControlNet-Union-Pro-2.0.safetensors (Shakker Labs) in ComfyUI's models/controlnet folder (it can be downloaded from Settings).",
+};
 
 /**
  * FLUX.1: pictures from plain sentences. Written blind from ComfyUI's own templates
@@ -51,13 +67,21 @@ export const flux = defineFamily({
       get: { file: "flux1-dev-kontext_fp8_scaled.safetensors", url: "https://huggingface.co/Comfy-Org/flux1-kontext-dev_ComfyUI/resolve/main/split_files/diffusion_models/flux1-dev-kontext_fp8_scaled.safetensors" },
     },
     {
-      id: "redux", label: "Redux (look from a picture)", folder: "style_models", detect: ["redux"], optional: true,
-      hint: "Optional: with flux1-redux-dev.safetensors in ComfyUI's models/style_models folder, txt2img can take the look of a picture. It is on Black Forest Labs' FLUX.1-Redux-dev page on Hugging Face (accept its licence there first).",
+      // Comfy-Org's copy of Black Forest Labs' file, which needs no licence accepted on Hugging Face first (the licence is the same)
+      id: "redux", label: "Redux (reference images)", folder: "style_models", detect: ["redux"], optional: true, onlyFor: REFERENCE_FORMS,
+      hint: "Optional: with flux1-redux-dev.safetensors in ComfyUI's models/style_models folder, txt2img, img2img and Edit take reference images.",
+      get: { file: "flux1-redux-dev.safetensors", url: "https://huggingface.co/Comfy-Org/Flux-1-Redux-Dev/resolve/b23a47a2b678424b5c9b4ca8bd6654d73fbd61b5/flux1-redux-dev.safetensors", sha256: "a1b3bdcb4bdc58ce04874b9ca776d61fc3e914bb6beab41efb63e4e2694dca45" },
     },
     {
-      id: "vision", label: "Vision model for Redux (SigCLIP)", folder: "clip_vision", detect: ["sigclip"], optional: true,
+      id: "vision", label: "Vision model for Redux (SigCLIP)", folder: "clip_vision", detect: ["sigclip"], optional: true, onlyFor: REFERENCE_FORMS,
       hint: "Optional, with Redux: sigclip_vision_patch14_384.safetensors in ComfyUI's models/clip_vision folder.",
       get: { file: "sigclip_vision_patch14_384.safetensors", url: "https://huggingface.co/Comfy-Org/sigclip_vision_384/resolve/main/sigclip_vision_patch14_384.safetensors" },
+    },
+    {
+      // Shakker Labs' Union Pro 2.0: canny, soft edge, depth, pose and grey in one file, told which by the picture alone
+      id: "controlnet", label: "ControlNet Union Pro 2.0 (control image)", folder: "controlnet", detect: ["flux.*union.?pro.?2", "union.?pro.?2"], optional: true, onlyFor: GUIDE_FORMS,
+      hint: "Optional: with FLUX.1-dev-ControlNet-Union-Pro-2.0.safetensors in ComfyUI's models/controlnet folder, txt2img and img2img follow the edges, depth or pose of a control image.",
+      get: { file: FLUX_UNION, url: "https://huggingface.co/Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro-2.0/resolve/5d700aaad96c5ddcdf8a38ef9b22a82aac2c38e5/diffusion_pytorch_model.safetensors", sha256: "9d03f63f36206bab2f36aed5cfedc8693c2881397534e9d5f9ae9a0a41362517" },
     },
     // txt2img's Detail rows find faces, hands and people with these (shared/adetail.ts)
     ...detectorSlots(["flux.text-to-picture"]),
@@ -94,7 +118,8 @@ An instruction: Change the mug to a white enamel one with a chipped rim, keeping
 
 const spec: FlowSpec = {
   family: "flux",
-  look: true,
+  references: "redux",
+  guide: FLUX_GUIDE,
   model: {
     id: "model", type: "model", label: "Model", folder: "diffusion_models", slot: "unet", match: ["^(?!.*(kontext|fill|canny|depth|redux)).*flux.?1", "flux(?!.?2)"],
     note: "FLUX.1 dev, Krea dev, schnell, or a fine-tune",
@@ -140,7 +165,7 @@ export const fluxFixFace = made.fixFace;
 
 // ---------------------------------------------------------------- edit (Kontext)
 
-interface FluxEdit extends FlowBase {
+interface FluxEdit extends FlowBase, ReferenceSettings {
   source: string;
   prompt: string;
 }
@@ -168,9 +193,12 @@ export const fluxEdit = pictureForm("edit", defineRecipe<FluxEdit>({
     kontextModel,
     { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
     { id: "prompt", type: "prompt", label: "Instruction", style: "sentences", placeholder: "Change the car to red, keep everything else the same." },
+    ...reduxInputs(),
     ...kit.inputs.map((i) => (i.id === "guidance" ? { ...i, default: 2.5, note: "2.5 is Kontext's usual one" } : i) as InputSpec),
   ],
-  nodes: (input) => [...kit.loadNodes(input), "LoadImage", "FluxKontextImageScale", "VAEEncode", "ReferenceLatent"],
+  // reference images ask for Redux and its vision model
+  needsWith: (input) => reduxNeeds(input),
+  nodes: (input) => [...kit.loadNodes(input), "LoadImage", "FluxKontextImageScale", "VAEEncode", "ReferenceLatent", ...(input.references.length ? REDUX_NODES : [])],
   // the guidance is part of how Kontext is used: it is always there
   optionalNodes: kit.SOMETIMES,
   build(input, ctx) {
@@ -180,7 +208,9 @@ export const fluxEdit = pictureForm("edit", defineRecipe<FluxEdit>({
     const sized = g.out("FluxKontextImageScale", { image: g.out("LoadImage", { image: ctx.uploads.source }) });
     const latent = g.out("VAEEncode", { pixels: sized, vae: k.vae });
     const said = g.out("CLIPTextEncode", { text: input.prompt, clip: k.clip });
-    const positive = g.out("FluxGuidance", { conditioning: g.out("ReferenceLatent", { conditioning: said, latent }), guidance: input.guidance ?? 2.5 });
+    // the picture to change as Kontext's reference latent; reference images added by Redux to the instruction beside it
+    const redux = withRedux(g, ctx, g.out("ReferenceLatent", { conditioning: said, latent }), input);
+    const positive = g.out("FluxGuidance", { conditioning: redux.positive, guidance: input.guidance ?? 2.5 });
     const negative = input.negative.trim() ? g.out("CLIPTextEncode", { text: input.negative, clip: k.clip }) : g.out("ConditioningZeroOut", { conditioning: said });
     // Kontext works at about a megapixel (FluxKontextImageScale brings the picture there): the shift goes with that size, not the picture's own
     const size = kit.sizeOf(ctx.media.source, 1.05, 0.9);
@@ -188,9 +218,13 @@ export const fluxEdit = pictureForm("edit", defineRecipe<FluxEdit>({
     const { latent: done, pass } = kit.sample(g, k, input, kit.shifted(g, k.model, input, size), { positive, negative }, latent, ctx.seed);
     g.phase("decoding");
     const out = g.add("PreviewImage", { images: g.out("VAEDecode", { samples: done, vae: k.vae }) });
-    return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: pass.steps, passes: [pass], loads: k.loads };
+    return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: pass.steps, passes: [pass], loads: [...k.loads, ...redux.loads] };
   },
   variants: [
+    {
+      name: "with a reference image (Redux)", input: { source: "p", prompt: "a", references: [{ asset: "a", role: "clothing" }] },
+      slots: { ...spec.files, kontext: "flux1-dev-kontext.safetensors", redux: "flux1-redux-dev.safetensors", vision: "sigclip_vision_patch14_384.safetensors" }, uploads: { source: "s.png", "references.0": "a.png" }, media: { source: { width: 896, height: 1152 } },
+    },
     { name: "from an instruction", input: { source: "p", prompt: "a" }, slots: { ...spec.files, kontext: "flux1-dev-kontext.safetensors" }, uploads: { source: "s.png" }, media: { source: { width: 896, height: 1152 } } },
     {
       name: "a fine-tune, a LoRA, a negative prompt and a shift",
@@ -198,4 +232,4 @@ export const fluxEdit = pictureForm("edit", defineRecipe<FluxEdit>({
       slots: { ...spec.files, kontext: "flux1-dev-kontext.safetensors" }, uploads: { source: "s.png" }, media: { source: { width: 1536, height: 2048 } },
     },
   ],
-}), { references: "Kontext reads one picture, the one it changes" });
+}));

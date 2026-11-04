@@ -1,5 +1,5 @@
 import { beyondPack, defineRecipe, GraphBuilder, packCommit, roundTo, type ReferenceValue, type Ref, type SizeValue } from "@afflatus/core";
-import { pictureForm } from "../shared/pictureForm";
+import { dropsFor, noReferences, pictureForm } from "../shared/pictureForm";
 import { HIRES_PASS_INPUTS, hiresPass, UPSCALER_PREFER, type HiresPass } from "../sdxl/common";
 import type { FlowBase } from "../flow/kit";
 import { flowFixFace } from "../flow/fix-face";
@@ -116,11 +116,11 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
     { id: "refBoost", type: "number", label: "Reference boost", note: "Krea2Edit's ref_boost: how hard the picture pulls toward the person's photo. 1 is off; 2 is what Afflatus's test measured", min: 1, max: 4, step: 0.1, default: 2, showWhen: "person", advanced: true },
     ...FACE_PASS_INPUTS,
     {
-      id: "references", type: "references", label: "Style reference images", max: STYLE_IMAGES, roles: ["style"],
+      id: "references", type: "references", label: "Reference images", max: STYLE_IMAGES, roles: ["style"],
       note: "the look to follow (a drawing style, a colour mood, a kind of photo), not who is in it. Needs the style-reference LoRA. Not with a person reference",
     },
     // (drawn as the weight of the style-reference LoRA's row in the LoRA list, card #160)
-    { id: "referenceStrength", type: "number", label: "Style strength", note: "the weight of the style-reference LoRA. At 0 it is not loaded", min: 0, max: 1.5, step: 0.05, default: 1, showWhen: "references", advanced: true, inList: "loras" },
+    { id: "referenceStrength", type: "number", label: "Reference strength", note: "the weight of the style-reference LoRA. At 0 it is not loaded", min: 0, max: 1.5, step: 0.05, default: 1, showWhen: "references", advanced: true, inList: "loras" },
     { id: "size", type: "size", label: "Size", default: "tall", grid: 16, min: 256, max: 2048, perModel: true, shapes: krea2Spec.shapes },
     ...adetailInputs("sentences", PERSON_FACE),
     ...DETAIL_INPUTS,
@@ -325,11 +325,12 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
       slots: withPerson, uploads: { "person.0": "p.png" },
     },
   ],
-}), krea2Spec.drops);
+}), dropsFor("txt2img", krea2Spec.drops));
 
 // ---------------------------------------------------------------- img2img, inpaint, outpaint, upscale 2x, face detailer: the picture models' own
 
-export const krea2Redraw = flowRedraw(krea2Spec, krea2Kit);
+// its img2img takes neither the style references nor the person of txt2img: those are read by txt2img's own graph
+export const krea2Redraw = flowRedraw({ ...krea2Spec, drops: { ...krea2Spec.drops, ...noReferences("Krea 2's img2img reads no reference image: txt2img takes them (a style, a person)") } }, krea2Kit);
 export const krea2PaintOver = flowPaintOver(krea2Spec, krea2Kit);
 export const krea2Outpaint = flowOutpaint(krea2Spec, krea2Kit);
 export const krea2Sharper = flowSharper(krea2Spec, krea2Kit);

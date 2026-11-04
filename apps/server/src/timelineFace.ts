@@ -54,7 +54,7 @@ async function facedClips(core: TimelineCore, timelineId: string): Promise<Faced
     const recipe = clip.kind === "video" && clip.recipe_id ? core.registry.recipe(clip.recipe_id) : undefined;
     // any recipe with reference pictures: a render carrying on from a Swap character or Motion transfer clip reads its
     // pictures too (TimelinePlan.carryFace), and the editor said "the first of its run" there (card #231)
-    if (!recipe?.inputs.some((i) => i.type === "references" && !i.media)) return { clip, recipe, face: null, carries: null, holds: false };
+    if (!recipe?.inputs.some((i) => i.type === "references" && !i.media && !i.noCast)) return { clip, recipe, face: null, carries: null, holds: false };
     const own = ownInputIds(recipe);
     const typed = Object.fromEntries(Object.entries(JSON.parse(clip.inputs) as Record<string, unknown>).filter(([k]) => own.has(k)));
     const look = lookOf(clip.look) ?? timelineLook;
@@ -113,7 +113,7 @@ export async function spreadFace(core: TimelineCore, clipId: string): Promise<{ 
     const at = all.findIndex((p) => p.clip.id === clipId);
     const source = all[at]!.clip;
     const recipeOf = (p: Placed) => core.registry.recipe(p.clip.recipe_id ?? "");
-    const refsSpec = (r: Recipe<any> | undefined) => r?.inputs.find((i) => i.type === "references" && !i.media);
+    const refsSpec = (r: Recipe<any> | undefined) => r?.inputs.find((i) => i.type === "references" && !i.media && !i.noCast);
     const theirs = (inputs: Record<string, unknown>, r: Recipe<any> | undefined): ReferenceValue[] => {
       const spec = refsSpec(r);
       return spec && Array.isArray(inputs[spec.id]) ? (inputs[spec.id] as ReferenceValue[]) : [];

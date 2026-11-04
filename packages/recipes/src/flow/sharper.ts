@@ -1,5 +1,5 @@
 import { defineRecipe, GraphBuilder, roundTo, type Recipe, type Ref } from "@afflatus/core";
-import { pictureForm } from "../shared/pictureForm";
+import { dropsFor, pictureForm } from "../shared/pictureForm";
 import { FACTOR_INPUT, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_PREFER, type RefineColourMatch, type UpscaleSettings } from "../sdxl/common";
 import { redrawInTiles, tileInputs, tilePass, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
 import { rowsWhile } from "../shared/addedRows";
@@ -107,5 +107,5 @@ export function flowSharper(spec: FlowSpec, kit: FlowKit): Recipe<FlowSharper> {
       // Turbo's branch: the LoRA put on, its steps at CFG 1 (the operations' other variants have no turbo file)
       ...(kit.turboFiles ? [{ name: "Turbo with its LoRA", input: { source: "p", upscaler: "u.pth", fast: true, turboSteps: 6 } as Partial<FlowSharper>, slots: kit.turboFiles, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } }] : []),
     ],
-  }), spec.drops);
+  }), dropsFor("upscale", spec.drops));
 }

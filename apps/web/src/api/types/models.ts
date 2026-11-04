@@ -23,6 +23,8 @@ export interface RecipeInfo {
   chapters?: Chapter[];
   /** The form's cards drawn first, in this order, by id. */
   first?: string[];
+  /** Rows every form of its kind has that this one does not take (a control image on a model with no ControlNet), with why: drawn greyed. */
+  absent?: Array<{ id: string; label: string; why: string }>;
   /** Of a video recipe: what it can do on a timeline. */
   traits: VideoTraits | null;
   /** The model files it names itself (an imported workflow's). */

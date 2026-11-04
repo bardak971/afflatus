@@ -33,7 +33,7 @@ export async function pictureOwners(db: Db): Promise<Map<string, string>> {
  * the faces were read or a picture was added (card #231), while nothing the user did changed.
  */
 export function faceOf(recipe: Pick<Recipe<any>, "inputs"> | undefined, input: Record<string, unknown>, look: Look | null | undefined, owners: ReadonlyMap<string, string>): string[] {
-  const spec = recipe?.inputs.find((i) => i.type === "references" && !i.media);
+  const spec = recipe?.inputs.find((i) => i.type === "references" && !i.media && !i.noCast);
   const refs = spec && Array.isArray(input[spec.id]) ? (input[spec.id] as ReferenceValue[]) : [];
   // (a pick no longer theirs is left aside, as compose leaves it)
   const picked = (who: string) => {

@@ -41,6 +41,11 @@ interface Base {
    * rather than as a field of its own.
    */
   inList?: string;
+  /**
+   * The id it was saved under before (card #277: FLUX.1's single Redux image became its reference images): a saved draft's
+   * value there is read as this input's, a single picture as the first of a references input. A value under its own id wins.
+   */
+  was?: string;
 }
 
 interface PromptInput extends Base {
@@ -373,6 +378,12 @@ interface ReferencesInput extends Base {
    * picture to be described), the voice's owner comes first (a voice goes with the first picture), and a last frame stays.
    */
   subjects?: true;
+  /**
+   * A cast person's or place's pictures are not put in it, nor is it where their face is looked for: pictures only the user
+   * gives (SDXL's IP-Adapter, FLUX.1's Redux, card #277). A cast person there would turn every render of them into one that
+   * needs the adapter's files, and Redux copies a photo's whole look, not who is in it.
+   */
+  noCast?: true;
 }
 export interface ReferenceValue {
   /** The picture's id in the library. */
@@ -777,7 +788,20 @@ export function formGap(recipe: { inputs: readonly InputSpec[]; traits?: { conti
  */
 export function withoutOldZeros(specs: readonly InputSpec[], values: Record<string, unknown>): Record<string, unknown> {
   const old = new Set(specs.filter((s) => s.type === "number" && s.oldZero).map((s) => s.id));
-  return fromOldDenoise(specs, Object.fromEntries(Object.entries(values).filter(([id, v]) => !(old.has(id) && v === 0))));
+  return fromOldDenoise(specs, fromOldIds(specs, Object.fromEntries(Object.entries(values).filter(([id, v]) => !(old.has(id) && v === 0)))));
+}
+
+/** A value saved under an input's older id (`was`) read as its own: a single picture as the first of its references. */
+function fromOldIds(specs: readonly InputSpec[], values: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...values };
+  for (const spec of specs) {
+    if (!spec.was || !(spec.was in out)) continue;
+    const value = out[spec.was];
+    delete out[spec.was];
+    if (spec.id in out || value === undefined || value === null || value === "") continue;
+    out[spec.id] = spec.type === "references" && typeof value === "string" ? [{ asset: value, role: spec.roles.includes("style") ? "style" : spec.roles[0] }] : value;
+  }
+  return out;
 }
 
 function fromOldDenoise(specs: readonly InputSpec[], values: Record<string, unknown>): Record<string, unknown> {

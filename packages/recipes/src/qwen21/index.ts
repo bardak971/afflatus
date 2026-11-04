@@ -1,6 +1,6 @@
 import { defineFamily, defineRecipe, GraphBuilder, REFERENCE_ROLES, roundTo, type InputSpec, type LoraValue, type Ref, type ReferenceValue } from "@afflatus/core";
 import { flowRecipes, type FlowSpec } from "../flow/recipes";
-import { pictureForm } from "../shared/pictureForm";
+import { dropsFor, noGuide, noReferences, pictureForm } from "../shared/pictureForm";
 import { loadUnet, unetNodes } from "../shared/unet";
 import { qwen21Lint } from "../shared/lint";
 import { FACE_AT_NODE, FACE_NODE, faceScore } from "../shared/face";
@@ -122,7 +122,12 @@ function load(g: GraphBuilder, input: Qwen21Base, ctx: Parameters<typeof loadUne
 }
 const NODES = (input: Qwen21Base) => [...unetNodes(input.model), "QwenImage21Cache", "CLIPLoader", "VAELoader", "TextEncodeQwenImage21", "KSampler", "VAEDecode", "PreviewImage"];
 /** The sampling rows of the picture forms (pictureForm) that Qwen Image 2.1's do not take. */
-const QWEN21_DROPS = { shift: "ComfyUI's Qwen Image 2.1 templates set no shift: the model samples at its own" };
+const QWEN21_DROPS = {
+  shift: "ComfyUI's Qwen Image 2.1 templates set no shift: the model samples at its own",
+  // read on Hugging Face and in ComfyUI's nodes, 2026-11-04 (card #277)
+  ...noGuide("Alibaba's Fun ControlNet Union for Qwen Image 2.1 runs in VideoX-Fun only: ComfyUI has no node that loads it yet"),
+  ...noReferences("Qwen Image 2.1's txt2img and img2img read no reference image: its Edit takes them"),
+};
 const files = { unet: "qwen_image_2.1_int8_convrot.safetensors", clip: "qwen3vl_8b_int8_convrot.safetensors", vae: "qwen_image_2.1_vae_bf16.safetensors" };
 
 /**
@@ -257,7 +262,7 @@ export const qwen21Edit = pictureForm("edit", defineRecipe<Qwen21Edit>({
       slots: files, uploads: { source: "s.png", "references.0": "a.png", "references.1": "b.png" }, media: { source: { width: 1536, height: 2048 } },
     },
   ],
-}), QWEN21_DROPS);
+}), dropsFor("edit", QWEN21_DROPS));
 
 /** The photos as the instruction names them, every one: "<image2>", "<image2> and <image3>", "<image2>, <image3> and <image4>". */
 const photoTags = (n: number) => {
@@ -392,4 +397,4 @@ export const qwen21MotionPicture = pictureForm("own", defineRecipe<Qwen21MotionP
     },
     { name: "without relight", input: { source: "f", people: [{ asset: "a", role: "person" }], relight: false }, slots: files, uploads: { source: "f.png", "people.0": "a.png" }, media: { source: { width: 480, height: 854 } } },
   ],
-}), QWEN21_DROPS);
+}), dropsFor("own", QWEN21_DROPS));

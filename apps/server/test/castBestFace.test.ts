@@ -128,8 +128,8 @@ describe("the forms send a cast person's clearest face", () => {
   });
 
   it("gives a model that takes several pictures of a person their clearest face first", async () => {
-    const several = recipes.find((r) => (r.inputs as InputSpec[]).some((i) => i.type === "references" && !i.media && !i.subjects && i.max >= 3 && i.roles.includes("person")))!;
-    const refId = (several.inputs as InputSpec[]).find((i) => i.type === "references" && !i.media)!.id;
+    const several = recipes.find((r) => (r.inputs as InputSpec[]).some((i) => i.type === "references" && !i.media && !i.noCast && !i.subjects && i.max >= 3 && i.roles.includes("person")))!;
+    const refId = (several.inputs as InputSpec[]).find((i) => i.type === "references" && !i.media && !i.noCast)!.id;
     const { input } = await compose(t!.db, several, { prompt: "zz-test" }, { cast: [{ id: who }], snippets: [] });
     expect((input[refId] as Array<{ asset: string }>).map((r) => r.asset)).toEqual([good, far, selfie]);
   });

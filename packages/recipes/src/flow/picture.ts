@@ -1,15 +1,15 @@
-import { defineRecipe, GraphBuilder, roundTo, type InputSpec, type Recipe, type Ref, type SizeValue } from "@afflatus/core";
-import { pictureForm } from "../shared/pictureForm";
+import { defineRecipe, GraphBuilder, roundTo, type Recipe, type Ref, type SizeValue } from "@afflatus/core";
+import { dropsFor, pictureForm } from "../shared/pictureForm";
 import { HIRES_PASS_INPUTS, hiresPass, UPSCALER_PREFER, type HiresPass } from "../sdxl/common";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { redrawInTiles, tileInputs, tileNodes, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import { adetail, ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FILES, sized, type AdetailSettings } from "../shared/adetail";
+import { applyGuide, FOLLOW_MAP, guideInputs, guideNeeds, guideNodes, type GuideSettings } from "../shared/guide";
+import { REDUX_NODES, reduxInputs, reduxNeeds, withRedux, type ReferenceSettings } from "../shared/references";
 import type { FlowBase, FlowKit, FlowSpec } from "./kit";
 
-export interface FlowPicture extends FlowBase, HiresPass, DetailSettings, TileSettings, AdetailSettings {
+export interface FlowPicture extends FlowBase, HiresPass, DetailSettings, TileSettings, AdetailSettings, GuideSettings, ReferenceSettings {
   prompt: string;
-  look?: string;
-  lookStrength: number;
   size: SizeValue;
   hires: boolean;
   hiresScale: number;
@@ -17,9 +17,6 @@ export interface FlowPicture extends FlowBase, HiresPass, DetailSettings, TileSe
   hiresDenoise: number;
   hiresSteps: number;
 }
-
-const LOOK_NODES = ["LoadImage", "CLIPVisionLoader", "CLIPVisionEncode", "StyleModelLoader", "StyleModelApply"];
-const LOOK_NEEDED = "The look of a picture needs FLUX.1 Redux and its vision model: flux1-redux-dev.safetensors in ComfyUI's models/style_models folder and sigclip_vision_patch14_384.safetensors in models/clip_vision (both are listed in Settings).";
 
 /** txt2img, with hires fix: an upscale, then a second pass over the larger picture (in tiles past about twice the model's size each side). */
 export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
@@ -42,19 +39,18 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
     title: "txt2img",
     summary: spec.pictureSummary ?? "Text to image, from a natural-language prompt, with optional hires fix.",
     output: "image",
-    // the look of a picture asks for Redux and its vision model, which the build refuses it without (card #226); the Detail
-    // rows for their detectors
-    needsWith: (input: FlowPicture, slots, where) => [...(spec.look && input.look ? ["redux", "vision"] : []), ...adetailNeeds(input, slots, where)],
+    // reference images ask for Redux and its vision model, which the build refuses them without (card #226); a guide picture
+    // for its ControlNet; the Detail rows for their detectors
+    needsWith: (input: FlowPicture, slots, where) => [
+      ...(spec.references ? reduxNeeds(input) : []), ...(spec.guide ? guideNeeds(input, spec.guide) : []), ...adetailNeeds(input, slots, where),
+    ],
     inputs: [
       spec.model,
       { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: spec.placeholder },
+      // FLUX.1's single Redux image (look, lookStrength) before card #277: a saved draft's is read as its first reference
+      ...(spec.references ? reduxInputs({ image: "look", strength: "lookStrength" }) : []),
+      ...(spec.guide ? guideInputs(spec.guide) : []),
       { id: "size", type: "size", label: "Size", default: "tall", grid, min: 256, max: spec.maxSize ?? 2048, perModel: true, shapes: spec.shapes, ...(spec.maxPixels ? { maxPixels: spec.maxPixels } : {}) },
-      ...(spec.look
-        ? ([
-          { id: "look", type: "image", role: "guide", label: "Redux image", optional: true, note: "its style, colours and subject are added to the prompt (Redux): the new picture is like it, not a copy" },
-          { id: "lookStrength", type: "number", label: "Redux strength", note: "1 follows the picture closely and the prompt little; 0.3 to 0.6 keeps the prompt in charge", min: 0.05, max: 1.5, step: 0.05, default: 0.5, showWhen: "look" },
-        ] satisfies InputSpec[])
-        : []),
       ...adetailInputs("sentences"),
       ...DETAIL_INPUTS,
       ...inputs.slice(0, -1),
@@ -74,7 +70,8 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
     nodes: (input) => [
       ...loadNodes(input).filter((n) => n !== "KSampler"), emptyLatent, ...detailNodes(input),
       ...fullPassNodes(input, spec.turbo && input.fast ? input.turboSteps ?? input.steps : input.steps), ...(input.hires ? ["KSampler"] : []),
-      ...(spec.look && input.look ? LOOK_NODES : []),
+      ...(spec.references && input.references.length ? REDUX_NODES : []),
+      ...(spec.guide ? guideNodes(input, spec.guide) : []),
       ...(input.hires ? ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode"] : []),
       ...tileNodes(input.hires && inTiles(input, largeOf(input), AREA)),
     ],
@@ -84,18 +81,22 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       const k = load(g, input, ctx);
       const size = { width: roundTo(input.size.width, grid), height: roundTo(input.size.height, grid) };
       let c = cond(g, k, input, input.prompt);
-      if (spec.look && input.look) {
-        if (!ctx.slots.redux || !ctx.slots.vision) throw new Error(LOOK_NEEDED);
-        const seen = g.out("CLIPVisionEncode", { clip_vision: g.out("CLIPVisionLoader", { clip_name: ctx.slots.vision }), image: g.out("LoadImage", { image: ctx.uploads.look }), crop: "center" });
-        c = { ...c, positive: g.out("StyleModelApply", { conditioning: c.positive, style_model: g.out("StyleModelLoader", { style_model_name: ctx.slots.redux }), clip_vision_output: seen, strength: input.lookStrength, strength_type: "multiply" }) };
+      const loads = [...k.loads];
+      if (spec.references) {
+        const r = withRedux(g, ctx, c.positive, input);
+        c = { ...c, positive: r.positive };
+        loads.push(...r.loads);
       }
+      // the guide picture holds the shapes of the first pass, drawn whole at its size; the hires pass and the Detail rows
+      // redraw from the text alone, as SDXL's tiles do
+      const guided = spec.guide ? applyGuide(g, ctx, spec.guide, { model: k.model, ...c }, k.vae, size, input) : { model: k.model, ...c, loads: [] };
+      loads.push(...guided.loads);
       const empty = g.out(emptyLatent, { width: size.width, height: size.height, batch_size: 1 });
       g.phase("sampling");
       const detail = { input, ctx };
-      const first = sample(g, k, input, shifted(g, k.model, input, size), c, empty, ctx.seed, {}, detail);
+      const first = sample(g, k, input, shifted(g, guided.model, input, size), guided, empty, ctx.seed, {}, detail);
       let latent = first.latent;
       const passes: Array<typeof first.pass & { pixels?: number }> = [first.pass];
-      const loads = [...k.loads];
       let image: Ref | null = null;
       if (input.hires) {
         const large = largeOf(input);
@@ -142,7 +143,19 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
     },
     variants: [
       { name: "from words, as ComfyUI's template", input: { prompt: "a" } as Partial<FlowPicture>, slots: files },
-      ...(spec.look ? [{ name: "the look of a picture (Redux)", input: { prompt: "a", look: "l1" } as Partial<FlowPicture>, slots: { ...files, redux: "flux1-redux-dev.safetensors", vision: "sigclip_vision_patch14_384.safetensors" }, uploads: { look: "l.png" } }] : []),
+      ...(spec.references
+        ? [{
+          name: "two reference images (Redux)", input: { prompt: "a", references: [{ asset: "a", role: "style" }, { asset: "b", role: "object" }] } as Partial<FlowPicture>,
+          slots: { ...files, redux: "flux1-redux-dev.safetensors", vision: "sigclip_vision_patch14_384.safetensors" }, uploads: { "references.0": "a.png", "references.1": "b.png" },
+        }]
+        : []),
+      ...(spec.guide
+        ? [
+          { name: "a guide picture's edges (ControlNet)", input: { prompt: "a", guide: "g1" } as Partial<FlowPicture>, slots: { ...files, [spec.guide.slot]: spec.guide.file }, uploads: { guide: "g.png" } },
+          { name: "a guide picture's pose, with hires fix", input: { prompt: "a", guide: "g1", guideFollows: "Pose", hires: true, hiresUpscaler: "u.pth" } as Partial<FlowPicture>, slots: { ...files, [spec.guide.slot]: spec.guide.file }, uploads: { guide: "g.png" } },
+          { name: "a guide map of the user's own ControlNet", input: { prompt: "a", guide: "g1", guideFollows: FOLLOW_MAP, guideModel: "mine.safetensors" } as Partial<FlowPicture>, slots: files, uploads: { guide: "g.png" } },
+        ]
+        : []),
       { name: "Detail: face, hands and person", input: { prompt: "a", ...ALL_DETAIL } as Partial<FlowPicture>, slots: { ...files, ...DETECTOR_FILES } },
       { name: "Detail: face after a hires fix", input: { prompt: "a", detailFace: true, hires: true, hiresUpscaler: "u.pth" } as Partial<FlowPicture>, slots: { ...files, ...DETECTOR_FILES } },
       { name: "detail boost, hires fix 3× in tiles", input: { prompt: "a", detail: true, hires: true, hiresScale: 3, hiresUpscaler: "u.pth" } as Partial<FlowPicture>, slots: files, has: withoutDaemon },
@@ -155,5 +168,5 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
         ]
         : []),
     ],
-  }), spec.drops);
+  }), dropsFor("txt2img", spec.drops));
 }
