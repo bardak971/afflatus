@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Asset, type AssetDetail, type RecipeInfo } from "./api";
 import { useFamilies, useRecipes, useSetup } from "./data";
 import { plural } from "./format";
-import { ACTIONS, PASS_KEYS, SELECTION_PASSES, type ActionId, type SelectionPass, type TuneAt } from "./itemActions";
+import { ACTIONS, PASS_KEYS, SELECTION_PASSES, VERSION_PASSES, type ActionId, type SelectionPass, type TuneAt } from "./itemActions";
 import { TUNED_ROWS, tunedJob, useTune } from "./passTune";
 import { useSendJob, type QueuedJob } from "./queueVariation";
 import { queryKeys } from "./queryKeys";
@@ -47,7 +47,8 @@ export function passJob(pass: SelectionPass, d: AssetDetail, place: PassPlace): 
     if (way.missing) throw new Error(NO_HAND_DETECTOR);
     Object.assign(stored, way.values);
   }
-  return { recipe: tool, stored, label: OPS[key]!.label, from: d.id };
+  // Face and Hand refine of a grid's pictures land under each picture as versions, as from the picture itself
+  return { recipe: tool, stored, label: OPS[key]!.label, from: d.id, ...(VERSION_PASSES.has(key) ? { versionOf: d.id } : {}) };
 }
 
 /**
@@ -98,7 +99,7 @@ export function useSelectionPasses() {
       const label = ACTIONS[pass].label;
       if (queued) {
         void client.invalidateQueries({ queryKey: queryKeys.queue() });
-        say({ id: `queued:${Date.now()}`, tone: "good", title: `${label}${count > 1 ? ` ×${count}` : ""} queued on ${plural(queued, "picture")}`, href: "/queue", go: "Open the Queue" });
+        say({ id: `queued:${Date.now()}`, tone: "good", title: `${label}${count > 1 ? ` ×${count}` : ""} queued on ${plural(queued, "picture")}`, ...(VERSION_PASSES.has(PASS_KEYS[pass] ?? "") ? { text: "Each comes back as a version under its picture, not as a new item: K keeps it." } : {}), href: "/queue", go: "Open the Queue" });
       }
       if (failed.length) say(failedBanner({ id: `queued-many:${pass}`, href: "/settings", go: "Open Settings" }, `${label} could not be queued on ${plural(failed.length, "picture")}`, failed[0]));
     },

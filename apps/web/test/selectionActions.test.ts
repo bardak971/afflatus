@@ -62,4 +62,10 @@ describe("a pass on each ticked picture", () => {
     expect(() => passJob("hand", made("zz-test-3"), place({ detector: ["bbox/face_yolov8m.pt"] }))).toThrow(NO_HAND_DETECTOR);
     expect(() => passJob("background", made("zz-test-3"), place())).toThrow("No model is installed for it.");
   });
+
+  it("lands Face and Hand refine as versions under each picture, Upscale as a new item (card #274)", () => {
+    expect(passJob("face", made("zz-test-4"), place()).versionOf).toBe("zz-test-4");
+    expect(passJob("hand", made("zz-test-5"), place()).versionOf).toBe("zz-test-5");
+    expect(passJob("upscale", made("zz-test-6"), place())).not.toHaveProperty("versionOf");
+  });
 });
