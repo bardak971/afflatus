@@ -1,8 +1,23 @@
 import { defineFamily, type PromptLine, tagList, wordCount } from "@afflatus/core";
 import { detectorSlots } from "../shared/detector";
+import type { GuideWay } from "../shared/guide";
 
-/** The ControlNet a guide picture starts on: xinsir's union one, which follows edges, depth and pose alike. */
+/** The ControlNet a guide picture starts on: xinsir's union one, which follows edges, depth and pose alike (and tiles, for Upscale). */
 export const SDXL_UNION = "controlnet-union-sdxl-1.0-promax.safetensors";
+
+/** SDXL's ControlNets in the folder, by name: none of another family's (FLUX.1's Union Pro, Qwen's InstantX, Z-Image's Fun Union). */
+export const SDXL_NETS = ["union.*promax", "^(?!.*(flux|qwen|z.?image|instantx|union.?pro)).*union", "xinsir", "^(?!.*(flux|qwen|z.?image|instantx|union.?pro))"];
+
+/** xinsir's union on both texts, told which kind by SetUnionControlNetType; never another family's ControlNet in the folder. */
+export const SDXL_GUIDE: GuideWay = {
+  kind: "controlnet", union: true, slot: "controlnet", file: SDXL_UNION, prefer: SDXL_NETS,
+  missing: "A guide picture needs a ControlNet: put one in ComfyUI's models/controlnet folder (xinsir's ControlNet Union SDXL promax does edges, depth and pose; it can be downloaded from Settings).",
+};
+
+/** The forms that read reference images through IP-Adapter (card #277). */
+const IP_FORMS = ["sdxl.text-to-picture", "sdxl.redraw"];
+const H94 = "https://huggingface.co/h94/IP-Adapter/resolve/018e402774aeeddd60609b4ecdb7e298259dc729";
+const H94_FACEID = "https://huggingface.co/h94/IP-Adapter-FaceID/resolve/43907e6f44d079bf1a9102d9a6e56aef7a219bae";
 
 /** SDXL and everything built on it: Illustrious, NoobAI, Pony. One checkpoint file holds model, CLIP and VAE. */
 export const sdxl = defineFamily({
@@ -24,9 +39,33 @@ export const sdxl = defineFamily({
       get: { file: "sd_xl_base_1.0.safetensors", url: "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors" },
     },
     {
-      id: "controlnet", label: "ControlNet Union (guide picture)", folder: "controlnet", detect: ["union"], optional: true,
-      get: { file: SDXL_UNION, url: "https://huggingface.co/xinsir/controlnet-union-sdxl-1.0/resolve/main/diffusion_pytorch_model_promax.safetensors" },
-      hint: "Optional: with a ControlNet in ComfyUI's models/controlnet folder, txt2img can follow the edges, depth or pose of a guide picture. xinsir's Union promax, below, does all three in one file.",
+      // never FLUX.1's Union Pro or Qwen Image's InstantX union, which are other families' (card #277)
+      id: "controlnet", label: "ControlNet Union (guide picture)", folder: "controlnet", detect: ["^(?!.*(flux|qwen|instantx|union.?pro)).*union"], optional: true,
+      get: { file: SDXL_UNION, url: "https://huggingface.co/xinsir/controlnet-union-sdxl-1.0/resolve/801a4a3fa3d4c936f4feea95b98607bc6726f80c/diffusion_pytorch_model_promax.safetensors", sha256: "9fae2e50cb431bfcbe05822b59ec2228df545ef27f711dea8949e9f4ed9f7cdc" },
+      hint: "Optional: with a ControlNet in ComfyUI's models/controlnet folder, txt2img and img2img follow the edges, depth or pose of a guide picture, inpaint fits the painted part to the picture, and Upscale holds its tiles to the picture. xinsir's Union promax, below, does all of them in one file.",
+    },
+    {
+      // IP-Adapter Plus for SDXL, the ViT-H one: what a reference image looks like, its subject and its style
+      id: "ipAdapter", label: "IP-Adapter Plus (reference images)", folder: "ipadapter", detect: ["ip.?adapter.?plus_sdxl_vit.?h", "^(?!.*face)ip.?adapter.*plus.*sdxl"], optional: true, onlyFor: IP_FORMS,
+      hint: "Optional: with ip-adapter-plus_sdxl_vit-h.safetensors in ComfyUI's models/ipadapter folder (and the ComfyUI_IPAdapter_plus pack), txt2img and img2img take reference images.",
+      get: { file: "ip-adapter-plus_sdxl_vit-h.safetensors", url: `${H94}/sdxl_models/ip-adapter-plus_sdxl_vit-h.safetensors`, sha256: "3f5062b8400c94b7159665b21ba5c62acdcd7682262743d7f2aefedef00e6581" },
+    },
+    {
+      // the ViT-H image encoder both IP-Adapters read the pictures with, under the name the pack's own loader looks for
+      id: "ipVision", label: "Vision model for IP-Adapter (CLIP ViT-H)", folder: "clip_vision", detect: ["vit.?h.?14", "clip.?vit.?h(?!.*bigg)"], optional: true, onlyFor: IP_FORMS,
+      hint: "Optional, with IP-Adapter: CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors in ComfyUI's models/clip_vision folder.",
+      get: { file: "CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors", url: `${H94}/models/image_encoder/model.safetensors`, sha256: "6ca9667da1ca9e0b0f75e46bb030f7e011f44f86cbfb8d5a36590fcd7507b030" },
+    },
+    {
+      // FaceID Plus V2 comes as a pickle only: fetched at a commit, with its bytes checked
+      id: "faceId", label: "IP-Adapter FaceID Plus V2 (person reference)", folder: "ipadapter", detect: ["faceid.?plus.?v2.*sdxl(?!.*lora)"], optional: true, onlyFor: IP_FORMS,
+      hint: "Optional: with ip-adapter-faceid-plusv2_sdxl.bin in ComfyUI's models/ipadapter folder, its LoRA, and InsightFace in ComfyUI, a person's reference image keeps their face.",
+      get: { file: "ip-adapter-faceid-plusv2_sdxl.bin", url: `${H94_FACEID}/ip-adapter-faceid-plusv2_sdxl.bin`, sha256: "c6945d82b543700cc3ccbb98d363b837e9c596281607857c74b713a876daf5fb" },
+    },
+    {
+      id: "faceIdLora", label: "FaceID Plus V2 LoRA", folder: "loras", detect: ["faceid.?plus.?v2.*sdxl.*lora"], optional: true, onlyFor: IP_FORMS,
+      hint: "Optional, with FaceID: ip-adapter-faceid-plusv2_sdxl_lora.safetensors in ComfyUI's models/loras folder.",
+      get: { file: "ip-adapter-faceid-plusv2_sdxl_lora.safetensors", url: `${H94_FACEID}/ip-adapter-faceid-plusv2_sdxl_lora.safetensors`, sha256: "f24b4bb2dad6638a09c00f151cde84991baf374409385bcbab53c1871a30cb7b" },
     },
     // txt2img's Detail rows find faces, hands and people with these (shared/adetail.ts)
     ...detectorSlots(["sdxl.text-to-picture"]),

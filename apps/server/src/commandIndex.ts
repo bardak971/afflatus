@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { sql, type Expression, type SqlBool } from "kysely";
 import type { InputSpec } from "@afflatus/core";
 import { z } from "zod";
-import { NOT_IN_LIBRARY } from "./library";
+import { inLibrary } from "./library";
 import { OWNER, type Db, type Tables } from "./db";
 import { SPACE, spaceOf } from "./media";
 import { httpError } from "./errors";
@@ -82,9 +82,9 @@ export async function commandIndex(s: Services, opts: { items?: string[] } = {})
     placesOf(db),
     // the library's items (not in the bin, as the library counts them) by folder; the loose ones under null
     db.selectFrom("assets").select((eb) => ["folder_id", eb.fn.countAll().as("n"), eb.fn.sum<number>(SPACE).as("b")])
-      .where("deleted_at", "is", null).where("origin", "not in", NOT_IN_LIBRARY).groupBy("folder_id").execute(),
-    db.selectFrom("assets").select(ITEM).where("deleted_at", "is", null).where("origin", "not in", NOT_IN_LIBRARY).orderBy("created_at", "desc").orderBy("id", "desc").limit(NEWEST).execute(),
-    named.length ? db.selectFrom("assets").select(ITEM).where("id", "in", named).where("origin", "not in", NOT_IN_LIBRARY).execute() : Promise.resolve([]),
+      .where("deleted_at", "is", null).where(inLibrary).groupBy("folder_id").execute(),
+    db.selectFrom("assets").select(ITEM).where("deleted_at", "is", null).where(inLibrary).orderBy("created_at", "desc").orderBy("id", "desc").limit(NEWEST).execute(),
+    named.length ? db.selectFrom("assets").select(ITEM).where("id", "in", named).where(inLibrary).execute() : Promise.resolve([]),
     db.selectFrom("drafts").select(["id", "name", "title", "recipe_id", "project_id", "created_at", "updated_at"]).where("owner_id", "=", OWNER).orderBy("updated_at", "desc").execute(),
     // by family too: the models a draft was tried on, the newest first
     db.selectFrom("generations").select((eb) => ["draft_id", "family", eb.fn.countAll().as("n"), eb.fn.max("created_at").as("last")]).where("draft_id", "is not", null).groupBy(["draft_id", "family"]).orderBy("last", "desc").execute(),
@@ -216,7 +216,7 @@ export async function commandItems(s: Services, raw: unknown): Promise<{ entries
   if (!match) return { entries: [] };
   const [places, rows] = await Promise.all([
     placesOf(s.db),
-    s.db.selectFrom("assets").select(ITEM).where("origin", "not in", NOT_IN_LIBRARY).where(match.test)
+    s.db.selectFrom("assets").select(ITEM).where(inLibrary).where(match.test)
       .orderBy(sql`case when ${match.inside} then 0 else 1 end`).orderBy(sql`length(name)`).orderBy("created_at", "desc").orderBy("id", "desc").limit(limit).execute(),
   ]);
   return { entries: rows.map(places.itemEntry) };

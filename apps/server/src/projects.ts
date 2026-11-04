@@ -5,7 +5,7 @@ import { httpError } from "./errors";
 import { newId, now, OWNER, type Db } from "./db";
 import { SPACE } from "./media";
 import type { Services } from "./services";
-import { NOT_IN_LIBRARY } from "./library";
+import { inLibrary } from "./library";
 import { inUseShown, unusedSize, unusedTakes } from "./timelineUnused";
 import { unusedDrafts } from "./drafts";
 import { updateSettings } from "./settings";
@@ -56,7 +56,7 @@ export async function projectsTree(s: Services, q?: string, only?: "image" | "vi
   const folders = await db.selectFrom("folders").select(["id", "parent_id", "name", "path", "project_id", "created_at"]).where("owner_id", "=", OWNER).execute();
   // the library's items (not in the bin, not a mask or a kit picture), by folder; the loose ones under null
   const byFolder = new Map(
-    (await db.selectFrom("assets").select((eb) => ["folder_id", eb.fn.countAll().as("n"), eb.fn.sum<number>(SPACE).as("b")]).where("deleted_at", "is", null).where("origin", "not in", NOT_IN_LIBRARY).$if(Boolean(only), (qb) => qb.where("kind", "=", only!)).groupBy("folder_id").execute())
+    (await db.selectFrom("assets").select((eb) => ["folder_id", eb.fn.countAll().as("n"), eb.fn.sum<number>(SPACE).as("b")]).where("deleted_at", "is", null).where(inLibrary).$if(Boolean(only), (qb) => qb.where("kind", "=", only!)).groupBy("folder_id").execute())
       .map((r) => [r.folder_id, { n: Number(r.n), b: Number(r.b ?? 0) }]),
   );
   const total = await db.selectFrom("assets").select((eb) => eb.fn.sum<number>(SPACE).as("b")).where("deleted_at", "is", null).executeTakeFirst();

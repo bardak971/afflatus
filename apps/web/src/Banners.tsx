@@ -28,12 +28,16 @@ interface Fold {
   labels: Set<string>;
   exports: number;
   last: string | null;
+  /** The picture every job of the fold made versions of; null once one made anything else (undefined: none yet). */
+  of?: string | null;
 }
 const noFold = (): Fold => ({ count: 0, labels: new Set(), exports: 0, last: null });
 /** "Portrait done", "8 done", "8 done · Portrait" (one name for the whole batch). */
 const foldTitle = (f: Fold, word: string) => (f.count === 1 ? `${[...f.labels][0]} ${word}` : `${f.count} ${word}`);
 const foldText = (f: Fold) => (f.count > 1 && f.labels.size === 1 ? [...f.labels][0] : f.count > 1 ? `Last: ${f.last}` : undefined);
 
+/** What a pass that came back as a version says when done: it is under its picture, not in the library. */
+const VERSION_DONE = "A version under its picture: Open shows it, K keeps it.";
 /** The downloads asked without a machine (the one ComfyUI of a single-machine setup): grouped under this key. */
 const HERE = "";
 
@@ -123,6 +127,7 @@ export function Banners() {
         f.labels.add(j.label);
         f.last = j.label;
         if (j.kind === "export") f.exports++;
+        f.of = f.of === undefined || f.of === (j.versionOf ?? null) ? (j.versionOf ?? null) : null;
       };
       for (const j of over) {
         if (seenJobs.current.has(j.id)) continue;
@@ -152,7 +157,13 @@ export function Banners() {
             useHandover.getState().set({ show: from });
             if (path !== "/" && path !== "/create") go("/");
           } } } : {};
-          push({ id: "jobs:done", tone: "good", title: foldTitle(f, "done"), text: foldText(f), ...compare, ...(there || compare.action ? {} : allExports ? { href: "/timelines", go: "Open the Timelines" } : { href: "/", go: "Open the library" }) });
+          // a version is under its picture, not in the library: Open shows the picture, its versions in the strip under it
+          const of = f.of;
+          const version = of ? { text: f.count === 1 ? VERSION_DONE : `${plural(f.count, "version")} under its picture: Open shows them, K keeps one.`, action: { label: "Open", run: () => {
+            useHandover.getState().set({ show: of });
+            if (path !== "/" && path !== "/create") go("/");
+          } } } : {};
+          push({ id: "jobs:done", tone: "good", title: foldTitle(f, "done"), text: foldText(f), ...compare, ...version, ...(there || compare.action || version.action ? {} : allExports ? { href: "/timelines", go: "Open the Timelines" } : { href: "/", go: "Open the library" }) });
         }
       }
     }

@@ -4,7 +4,7 @@ import { size } from "./format";
 import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 export type { ModelInfo };
 import type { Advice, DeployOverhead, FillPlan, FormPacks, SetFinding, GpuOffer, HuntAsk, HuntView, HistoryPage, NetworkVolume, VolumeFilesView, VolumePlan, Job, QueueAnswer, QueuePart, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RedeployOffer, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
-import type { Asset, AssetDetail, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
+import type { Asset, AssetDetail, AssetVersions, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch, FaceRoute, TakeMade } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView, type PresetFile } from "./api/types/designer";
 import type { DeployAsk, FfmpegGetView, Health, FinishRedo, FinishSettings, MachineProbe, McpActivity, McpScope, McpStart, McpToken, SessionState, Settings, SettingsPatch, SignedDevices } from "./api/types/settings";
@@ -424,9 +424,9 @@ export const api = {
   rentedSpending: (o?: Asked) => call<{ spending: RentedSpending | null }>("GET", "/rented/spending", undefined, o?.signal),
   /** Where to open ComfyUI's own page: locked, its login with a one-time code. */
   openMachine: (id: string) => call<{ url: string }>("POST", `/machines/${encodeURIComponent(id)}/open`, {}),
-  /** `into`: the draft it is sent from, the folder that is open (where its results are filed), and the machine it is pinned to. */
-  enqueue: (recipe: string, input: Record<string, unknown>, count: number, look?: Look | null, into?: { draft?: string; folder?: string; seedMode?: "up" | "down"; machine?: string; label?: string }) =>
-    call<{ ids: string[] }>("POST", "/jobs", { recipe, input, count, ...(lookAdds(look) ? { look } : {}), ...(into?.label ? { label: into.label } : {}), ...(into?.draft ? { draft: into.draft } : {}), ...(into?.folder ? { folder: into.folder } : {}), ...(into?.seedMode ? { seedMode: into.seedMode } : {}), ...(into?.machine ? { machine: into.machine } : {}) }),
+  /** `into`: the draft it is sent from, the folder that is open (where its results are filed), the machine it is pinned to, and the picture its results are versions of. */
+  enqueue: (recipe: string, input: Record<string, unknown>, count: number, look?: Look | null, into?: { draft?: string; folder?: string; seedMode?: "up" | "down"; machine?: string; label?: string; versionOf?: string }) =>
+    call<{ ids: string[] }>("POST", "/jobs", { recipe, input, count, ...(lookAdds(look) ? { look } : {}), ...(into?.label ? { label: into.label } : {}), ...(into?.draft ? { draft: into.draft } : {}), ...(into?.folder ? { folder: into.folder } : {}), ...(into?.seedMode ? { seedMode: into.seedMode } : {}), ...(into?.machine ? { machine: into.machine } : {}), ...(into?.versionOf ? { versionOf: into.versionOf } : {}) }),
   /** Load the models this form would render with, ahead of the render. A job in the queue that makes nothing. */
   /** A form's models loaded ahead: on `machine` (a Machine's id), else where its render would run. */
   warm: (recipe: string, input: Record<string, unknown>, look?: Look | null, machine?: string) => call<{ id: string }>("POST", "/jobs/warm", { recipe, input, ...(lookAdds(look) ? { look } : {}), ...(machine ? { machine } : {}) }),
@@ -606,6 +606,12 @@ export const api = {
   },
   asset: (id: string, o?: Asked) => call<AssetDetail>("GET", `/assets/${id}`, undefined, o?.signal),
   keep: (id: string, kept: boolean) => call<Asset>("POST", `/assets/${id}/keep`, { kept }),
+  /** A picture's versions (any id of its stack: the root's stack comes back), and Keep: one becomes the picture, the rest count down to the bin. */
+  versions: (id: string, o?: Asked) => call<AssetVersions>("GET", `/assets/${id}/versions`, undefined, o?.signal),
+  /** `version`: the version kept as the picture, or the picture's own id to keep it and let its versions go. */
+  keepVersion: (id: string, version: string) => call<AssetVersions>("POST", `/assets/${id}/versions/keep`, { version }),
+  /** Every version kept as a picture of its own, beside the original. */
+  keepAllVersions: (id: string) => call<AssetVersions>("POST", `/assets/${id}/versions/keep-all`, {}),
   /** Several items at once: kept or not, to the bin, or back from it. */
   /** `inUse`: how many were left as they were because something still uses them (a timeline, the kit, a draft, a job to run). */
   bulkAssets: (ids: string[], action: "keep" | "unkeep" | "bin" | "restore") => call<{ changed: number; inUse?: number }>("POST", "/assets/bulk", { ids, action }),

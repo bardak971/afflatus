@@ -247,13 +247,15 @@ export async function sweep(db: Db, storage: Storage, at = Date.now(), keep: Kee
       .select("id")
       .where("deleted_at", "is", null)
       .where("kept_at", "is", null)
-      .where("origin", "=", "generated")
+      // and a version a Keep set aside, whatever it was (an uploaded original too: versions.ts)
+      .where((eb) => eb.or([eb("origin", "=", "generated"), eb("version_of", "is not", null)]))
       .where((eb) => eb(eb.fn.coalesce("countdown_from", "created_at"), "<", unkeptBefore))
       .execute();
     const bin = due.map((a) => a.id).filter((id) => !used.has(id));
     let n = 0;
     for (let i = 0; i < bin.length; i += 500) {
-      const r = await tx.updateTable("assets").set({ deleted_at: now() }).where("id", "in", bin.slice(i, i + 500)).where("deleted_at", "is", null).where("kept_at", "is", null).executeTakeFirst();
+      // a version binned leaves its stack, as by hand (assetsBin.ts): a plain picture in the Bin
+      const r = await tx.updateTable("assets").set({ deleted_at: now(), version_of: null }).where("id", "in", bin.slice(i, i + 500)).where("deleted_at", "is", null).where("kept_at", "is", null).executeTakeFirst();
       n += Number(r.numUpdatedRows);
     }
     return n;

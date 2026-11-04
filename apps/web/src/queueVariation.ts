@@ -22,11 +22,12 @@ export function useQueueVariation(into?: { draft?: string; folder?: string }) {
   return useMutation({
     mutationFn: async (job: QueuedJob) => {
       await send(job);
-      return job.count && job.count > 1 ? `${job.label} ×${job.count}` : job.label;
+      return { label: job.count && job.count > 1 ? `${job.label} ×${job.count}` : job.label, version: Boolean(job.versionOf) };
     },
-    onSuccess: (label) => {
+    onSuccess: ({ label, version }) => {
       void client.invalidateQueries({ queryKey: queryKeys.queue() });
-      say({ id: `queued:${Date.now()}`, tone: "good", title: `${label} queued`, href: "/queue", go: "Open the Queue" });
+      // a version lands under its picture, not in the library: said, since a Face refine from a grid tile showed nowhere else
+      say({ id: `queued:${Date.now()}`, tone: "good", title: `${label} queued`, ...(version ? { text: VERSION_WORDS } : {}), href: "/queue", go: "Open the Queue" });
     },
     onError: (err, job) => say(failedBanner({ id: "queued", href: "/settings", go: "Open Settings" }, `${job.label} could not be queued`, err)),
   });
@@ -41,7 +42,12 @@ export interface QueuedJob {
   from?: string;
   /** How many copies, each on a new seed when its seed is random (a batch count); absent: one. */
   count?: number;
+  /** What it makes comes back as versions of this picture (Inpaint, Face and Hand refine, Edit, Outpaint), not as new items. */
+  versionOf?: string;
 }
+
+/** Where a version goes, as the banners say it. */
+export const VERSION_WORDS = "It comes back as a version under the picture, not as a new item: K keeps it.";
 
 /**
  * The one way a job queued from an item is sent, alone (useQueueVariation) or one per item of a selection (selectionPasses.ts):
@@ -57,7 +63,7 @@ export function useSendJob(into?: { draft?: string; folder?: string }) {
     const input = wholeForm(job.recipe, status, modelSettings.data?.items ?? [], job.stored);
     const has = new Set(job.recipe.inputs.map((i) => i.id));
     for (const id of Object.keys(input)) if (input[id] === undefined || !has.has(id)) delete input[id];
-    const queued = await api.enqueue(job.recipe.id, input, job.count ?? 1, null, into);
+    const queued = await api.enqueue(job.recipe.id, input, job.count ?? 1, null, job.versionOf ? { ...into, versionOf: job.versionOf } : into);
     if (job.from) for (const id of queued.ids) passFrom.set(id, job.from);
   };
 }

@@ -34,7 +34,7 @@ const CORE_SINCE_TABLE: Array<[string, string[]]> = [
   ["0.15.0", ["ImageMergeTileList", "SplitImageToTileList"]],
   ["0.16.0", ["SDPoseDrawKeypoints", "SDPoseKeypointExtractor", "WanSCAILToVideo"]],
   ["0.19.0", ["RTDETR_detect"]],
-  ["0.20.0", ["ColorTransfer", "FrameInterpolate", "FrameInterpolationModelLoader", "SAM3_VideoTrack"]],
+  ["0.20.0", ["ColorTransfer", "FrameInterpolate", "FrameInterpolationModelLoader", "SAM3_Detect", "SAM3_VideoTrack"]],
   ["0.21.0", ["LoadBackgroundRemovalModel", "RemoveBackground"]],
   ["0.25.0", ["SCAIL2ColoredMask"]],
   ["0.28.0", ["SeedVR2Conditioning", "SeedVR2PostProcessing", "SeedVR2Preprocess", "SeedVR2TemporalChunk", "SeedVR2TemporalMerge"]],

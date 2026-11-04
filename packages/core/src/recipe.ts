@@ -288,6 +288,11 @@ export interface Recipe<In = Record<string, unknown>> {
   inputs: InputSpec[];
   /** Chapters of the form the recipe arranges itself (an imported workflow's sections), in order; the inputs name theirs with `chapter`. */
   chapters?: Chapter[];
+  /**
+   * Rows every form of its kind has that this one does not take (a guide picture on a model with no ControlNet), each with
+   * why: the form shows them greyed where they would be, so that their absence is said (the picture forms' skeleton sets it).
+   */
+  absent?: Array<{ id: string; label: string; why: string }>;
   /** The form's cards drawn first, in this order, by id (model, takes, a chapter's id); the others follow as the form has them. */
   first?: string[];
   /**
@@ -306,6 +311,11 @@ export interface Recipe<In = Record<string, unknown>> {
    * the model that edits): it is not ready while their files are missing.
    */
   needs?: string[];
+  /**
+   * What this input makes is a working picture (origin "scratch"), out of the library and gone after a day unless picked: a
+   * look at a swap's masks (Show the mask), a mask the Stage found (tools.find-mask). Left out: items of the library.
+   */
+  scratch?(input: In): boolean;
   /**
    * Of `needs`, the ones this input does without (a swap's Show the mask, or a take's Face refine alone, samples nothing: no
    * LoRA, no model): a machine is not held for them, nor a pod sent them. A need its form picks another file for is left
@@ -447,6 +457,7 @@ export function describeRecipe(r: Recipe<any>) {
     ...(r.partsInto ? { partsInto: r.partsInto } : {}),
     ...(r.partsStartOn?.length ? { partsStartOn: [...r.partsStartOn] } : {}),
     ...(r.chapters?.length ? { chapters: r.chapters } : {}),
+    ...(r.absent?.length ? { absent: r.absent } : {}),
     ...(r.first?.length ? { first: r.first } : {}),
     // the family's optional files it cannot run without (Edit's Kontext model): Settings › Models says which operations use each file
     ...(r.needs?.length ? { needs: r.needs } : {}),

@@ -15,6 +15,11 @@ export function makePng(width: number, height: number, top: [number, number, num
       raw[row + 3 + x * 3] = Math.min(255, rgb[2]! + band);
     }
   }
+  return pngOf(width, height, raw);
+}
+
+/** An RGB PNG of these rows (each a filter byte, then its pixels). */
+function pngOf(width: number, height: number, raw: Buffer): Uint8Array {
   const chunk = (type: string, data: Buffer) => {
     const out = Buffer.alloc(12 + data.length);
     out.writeUInt32BE(data.length, 0);
@@ -40,4 +45,22 @@ export function tint(seed: number, shift: number): [number, number, number] {
   const x = c * (1 - Math.abs((h % 2) - 1));
   const [r, g, b] = h < 1 ? [c, x, 0] : h < 2 ? [x, c, 0] : h < 3 ? [0, c, x] : h < 4 ? [0, x, c] : h < 5 ? [x, 0, c] : [c, 0, x];
   return [Math.round(r + m), Math.round(g + m), Math.round(b + m)];
+}
+
+/**
+ * A mask as a find returns one (white on black, grey at its soft edge): an ellipse of `rx` by `ry` around (cx, cy), in a
+ * picture of `width` by `height`, `peak` at its middle. What the demo's pretend SAM finds around a click (scripts/demo.ts).
+ */
+export function makeMaskPng(width: number, height: number, cx: number, cy: number, rx: number, ry: number, peak = 255): Uint8Array {
+  const raw = Buffer.alloc((width * 3 + 1) * height);
+  for (let y = 0; y < height; y++) {
+    const row = y * (width * 3 + 1);
+    for (let x = 0; x < width; x++) {
+      const d = Math.hypot((x - cx) / Math.max(1, rx), (y - cy) / Math.max(1, ry));
+      // the last tenth of the radius fades out, as a soft mask does
+      const v = Math.round(peak * Math.min(1, Math.max(0, (1 - d) / 0.1)));
+      raw.fill(v, row + 1 + x * 3, row + 4 + x * 3);
+    }
+  }
+  return pngOf(width, height, raw);
 }

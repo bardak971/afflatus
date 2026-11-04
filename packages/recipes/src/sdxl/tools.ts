@@ -1,4 +1,4 @@
-import { defineRecipe, GraphBuilder, roundTo, type Ref } from "@afflatus/core";
+import { defineRecipe, GraphBuilder, roundTo, type BuildContext, type Ref } from "@afflatus/core";
 import { pictureForm } from "../shared/pictureForm";
 import { redrawInTiles, tileInputs, TILE_NODES, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import {
@@ -7,12 +7,15 @@ import {
   type SdxlBase,
 } from "./common";
 import { DETECTOR_INPUT } from "../shared/detector";
+import { applyGuide, guideInputs, guideNeeds, guideNodes, type GuideSettings } from "../shared/guide";
+import { IP_ADAPTER_INPUTS, IP_FILES, ipAdapterNeeds, ipAdapterNodes, withIpAdapter, type ReferenceSettings } from "../shared/references";
+import { SDXL_GUIDE } from "./family";
 
 const picture = { width: 832, height: 1216 };
 
 // ---------------------------------------------------------------- redraw a picture
 
-interface SdxlRedraw extends SdxlBase {
+interface SdxlRedraw extends SdxlBase, GuideSettings, ReferenceSettings {
   source: string;
   prompt: string;
   strength: number;
@@ -30,11 +33,15 @@ export const sdxlRedraw = pictureForm("img2img", defineRecipe<SdxlRedraw>({
     { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
     { id: "prompt", type: "prompt", label: "Prompt", style: "tags", placeholder: "what the picture shows, as it should come out" },
     { id: "strength", type: "number", label: "Denoising strength", note: "0.3 keeps it close, 0.7 only keeps the layout", min: 0.05, max: 1, step: 0.05, default: 0.55 },
+    ...IP_ADAPTER_INPUTS,
+    ...guideInputs(SDXL_GUIDE),
     ...modelInputs,
     ...samplingInputs(),
   ],
   presets: SDXL_PRESETS,
-  nodes: (input) => [...modelNodes(input), "LoadImage", "ImageScale", "VAEEncode", "KSampler", "VAEDecode", "PreviewImage"],
+  // reference images ask for IP-Adapter's files, a guide picture for its ControlNet (as txt2img's)
+  needsWith: (input) => [...ipAdapterNeeds(input), ...guideNeeds(input, SDXL_GUIDE)],
+  nodes: (input) => [...modelNodes(input), "LoadImage", "ImageScale", "VAEEncode", "KSampler", "VAEDecode", "PreviewImage", ...ipAdapterNodes(input), ...guideNodes(input, SDXL_GUIDE)],
   build(input, ctx) {
     const g = new GraphBuilder();
     const m = loadSdxl(g, input, input.prompt);
@@ -42,13 +49,16 @@ export const sdxlRedraw = pictureForm("img2img", defineRecipe<SdxlRedraw>({
     const source = g.out("LoadImage", { image: ctx.uploads.source });
     const sized = g.out("ImageScale", { image: source, upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
     const latent = g.out("VAEEncode", { pixels: sized, vae: m.vae });
+    // reference images on the checkpoint (IP-Adapter), a guide picture on both texts at the size it is redrawn at
+    const referenced = withIpAdapter(g, ctx, m.model, input);
+    const guided = applyGuide(g, ctx, SDXL_GUIDE, { model: referenced.model, positive: m.positive, negative: m.negative }, m.vae, size, input);
     g.phase("sampling");
-    const sampled = g.out("KSampler", { ...samplerOf(input, m, ctx), latent_image: latent, steps: input.steps, denoise: input.strength });
+    const sampled = g.out("KSampler", { ...samplerOf(input, { ...m, ...guided }, ctx), latent_image: latent, steps: input.steps, denoise: input.strength });
     g.phase("decoding");
     const out = g.add("PreviewImage", { images: g.out("VAEDecode", { samples: sampled, vae: m.vae }) });
     return {
       graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }],
-      totalSteps: input.steps, passes: [{ node: sampled[0], steps: input.steps }], loads: [`checkpoints/${input.checkpoint}`],
+      totalSteps: input.steps, passes: [{ node: sampled[0], steps: input.steps }], loads: [`checkpoints/${input.checkpoint}`, ...referenced.loads, ...guided.loads],
     };
   },
   variants: [
@@ -57,6 +67,15 @@ export const sdxlRedraw = pictureForm("img2img", defineRecipe<SdxlRedraw>({
       name: "LoRA, clip skip, strong",
       input: { source: "p", prompt: "a", checkpoint: "x.safetensors", strength: 0.8, clipSkip: 2, loras: [{ file: "l.safetensors", weight: 0.8 }] },
       uploads: { source: "s.png" }, media: { source: { width: 3000, height: 2000 } },
+    },
+    {
+      name: "a reference image (IP-Adapter Plus) and a guide picture's edges",
+      input: { source: "p", prompt: "a", checkpoint: "x.safetensors", references: [{ asset: "a", role: "object" }], guide: "g1" },
+      slots: { ...IP_FILES, controlnet: SDXL_GUIDE.file }, uploads: { source: "s.png", guide: "g.png", "references.0": "a.png" }, media: { source: picture },
+    },
+    {
+      name: "a person's reference image (FaceID)", input: { source: "p", prompt: "a", checkpoint: "x.safetensors", references: [{ asset: "a", role: "person" }] },
+      slots: IP_FILES, uploads: { source: "s.png", "references.0": "a.png" }, media: { source: picture },
     },
   ],
 }), SDXL_DROPS);
@@ -221,6 +240,23 @@ interface SdxlSharper extends SdxlBase, UpscaleSettings, TileSettings, RefineCol
   upscaler: string;
   refine: boolean;
   strength: number;
+  tileGuide: boolean;
+  tileGuideStrength: number;
+}
+
+/**
+ * The tile ControlNet over the img2img pass (card #277), Ultimate SD Upscale's usual pair: xinsir's union in its tile mode,
+ * given the enlarged picture (in tiles, each tile its own piece: ComfyUI runs the ControlNet once per tile of the list), holds
+ * the pass to it, so that a higher denoise adds detail without drawing new things.
+ */
+const TILE_GUIDE_NODES = ["ControlNetLoader", "SetUnionControlNetType", "ControlNetApplyAdvanced"];
+const TILE_GUIDE_NEEDED = "ControlNet tile needs xinsir's ControlNet Union SDXL (promax), whose tile mode it uses: put controlnet-union-sdxl-1.0-promax.safetensors in ComfyUI's models/controlnet folder (it can be downloaded from Settings), or turn ControlNet tile off.";
+function tileGuided(g: GraphBuilder, ctx: BuildContext, m: { positive: Ref; negative: Ref; vae: Ref }, input: SdxlSharper, hint: Ref): { positive: Ref; negative: Ref } {
+  if (!input.tileGuide) return m;
+  if (!ctx.slots.controlnet) throw new Error(TILE_GUIDE_NEEDED);
+  const net = g.out("SetUnionControlNetType", { control_net: g.out("ControlNetLoader", { control_net_name: ctx.slots.controlnet }), type: "tile" });
+  const applied = g.add("ControlNetApplyAdvanced", { positive: m.positive, negative: m.negative, control_net: net, image: hint, vae: m.vae, strength: input.tileGuideStrength, start_percent: 0, end_percent: 1 });
+  return { positive: [applied, 0], negative: [applied, 1] };
 }
 
 /** Past this many pixels an SDXL pass over the whole picture is slow and falls apart: Auto makes it in tiles. Asked whole, it is made whole: never skipped for its size. */
@@ -241,6 +277,11 @@ export const sdxlSharper = pictureForm("upscale", defineRecipe<SdxlSharper>({
     FACTOR_INPUT,
     { id: "refine", type: "toggle", label: "img2img pass after upscale", note: "a light pass with the checkpoint; past about 4 megapixels it is made in tiles", default: true, section: "out" },
     { id: "strength", type: "number", label: "Denoising strength", min: 0.05, max: 0.6, step: 0.01, default: 0.28, showWhen: "refine", advanced: true, section: "out" },
+    {
+      id: "tileGuide", type: "toggle", label: "ControlNet tile", default: false, showWhen: "refine", advanced: true, section: "out",
+      note: "the pass held to the enlarged picture by xinsir's ControlNet Union in tile mode, as with Ultimate SD Upscale: a denoise of 0.4 to 0.5 then adds detail without new things",
+    },
+    { id: "tileGuideStrength", type: "number", label: "ControlNet tile strength", min: 0.1, max: 1.5, step: 0.05, default: 0.6, showWhen: "tileGuide", advanced: true, section: "out", note: "how closely the pass keeps to the enlarged picture" },
     REFINE_COLOUR_MATCH_INPUT,
     ...tileInputs("refine"),
     ...modelInputs,
@@ -249,7 +290,9 @@ export const sdxlSharper = pictureForm("upscale", defineRecipe<SdxlSharper>({
   presets: SDXL_PRESETS,
   nodes: () => ["LoadImage", "UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "PreviewImage"],
   // the second pass: only when it is asked for and the result is small enough for it. All are ComfyUI's own nodes.
-  optionalNodes: [...REFINE_NODES, ...TILE_NODES, "ColorTransfer"],
+  optionalNodes: [...REFINE_NODES, ...TILE_NODES, ...TILE_GUIDE_NODES, "ColorTransfer"],
+  // ControlNet tile asks for the union ControlNet, on the pass it holds
+  needsWith: (input) => (input.refine && input.tileGuide ? ["controlnet"] : []),
   build(input, ctx) {
     const g = new GraphBuilder();
     const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
@@ -273,11 +316,12 @@ export const sdxlSharper = pictureForm("upscale", defineRecipe<SdxlSharper>({
     let picture: Ref;
     if (tiled) {
       g.phase("refining");
-      picture = redrawInTiles(g, ctx, sized, m.vae, { width: W, height: H }, input, (latent) => (sampled = g.out("KSampler", { ...samplerOf(input, m, ctx), latent_image: latent, steps, denoise: input.strength })));
+      // each tile held to its own piece of the enlarged picture
+      picture = redrawInTiles(g, ctx, sized, m.vae, { width: W, height: H }, input, (latent, tiles) => (sampled = g.out("KSampler", { ...samplerOf(input, { ...m, ...tileGuided(g, ctx, m, input, tiles) }, ctx), latent_image: latent, steps, denoise: input.strength })));
     } else {
       const latent = g.out("VAEEncode", { pixels: sized, vae: m.vae });
       g.phase("refining");
-      sampled = g.out("KSampler", { ...samplerOf(input, m, ctx), latent_image: latent, steps, denoise: input.strength });
+      sampled = g.out("KSampler", { ...samplerOf(input, { ...m, ...tileGuided(g, ctx, m, input, sized) }, ctx), latent_image: latent, steps, denoise: input.strength });
       g.phase("decoding");
       picture = g.out("VAEDecode", { samples: sampled, vae: m.vae });
     }
@@ -287,7 +331,7 @@ export const sdxlSharper = pictureForm("upscale", defineRecipe<SdxlSharper>({
     const pass = tiled ? tilePass({ node: sampled[0], steps }, { width: W, height: H }, input) : { node: sampled[0], steps };
     return {
       graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }],
-      totalSteps: pass.steps, passes: [pass], loads: [...loads, `checkpoints/${input.checkpoint}`],
+      totalSteps: pass.steps, passes: [pass], loads: [...loads, `checkpoints/${input.checkpoint}`, ...(input.tileGuide ? [`controlnet/${ctx.slots.controlnet}`] : [])],
     };
   },
   variants: [
@@ -295,6 +339,8 @@ export const sdxlSharper = pictureForm("upscale", defineRecipe<SdxlSharper>({
     { name: "only enlarged", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth", refine: false }, uploads: { source: "s.png" }, media: { source: picture } },
     { name: "gone over, no colour match", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth", colourMatch: false }, uploads: { source: "s.png" }, media: { source: picture } },
     { name: "too large to go over whole: in tiles", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth", clipSkip: 2 }, uploads: { source: "s.png" }, media: { source: { width: 1664, height: 2432 } } },
+    { name: "ControlNet tile, whole", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth", tileGuide: true, strength: 0.45 }, slots: { controlnet: SDXL_GUIDE.file }, uploads: { source: "s.png" }, media: { source: picture } },
+    { name: "ControlNet tile, in tiles", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth", tileGuide: true }, slots: { controlnet: SDXL_GUIDE.file }, uploads: { source: "s.png" }, media: { source: { width: 1664, height: 2432 } } },
     { name: "too large, asked whole: gone over whole", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth", tiles: "Whole picture" }, uploads: { source: "s.png" }, media: { source: { width: 1664, height: 2432 } } },
   ],
 }), SDXL_DROPS);

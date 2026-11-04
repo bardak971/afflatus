@@ -61,8 +61,8 @@ export const ACTIONS: Record<ActionId, Spec> = {
   "vary-subtle": { group: "passes", sub: "passes", label: "Vary subtle", kinds: ["image"], icon: Sparkle, tip: "img2img of it on its own model at a low denoise: the same picture, its details drawn again on a new seed. Queued at once; Shift+click or ▾ for the denoise and a batch count." },
   "vary-strong": { group: "passes", sub: "passes", label: "Vary strong", kinds: ["image"], icon: Sparkles, tip: "img2img of it on its own model at a high denoise: its layout and colours kept, the rest drawn anew on a new seed. Queued at once; Shift+click or ▾ for the denoise and a batch count." },
   upscale: { group: "passes", sub: "passes", label: "Upscale 2x", key: "U", kinds: ["image"], icon: Maximize2, tip: "Upscale 2x: queued at once with the picture's generation parameters. Shift+click or ▾: the factor and the upscaler first." },
-  face: { group: "passes", sub: "passes", label: "Face refine", key: "F", kinds: ["image"], icon: Smile, tip: "Face refine: queued at once with the picture's generation parameters. Shift+click or ▾: the denoise and the detector first." },
-  hand: { group: "passes", sub: "passes", label: "Hand refine", key: "H", kinds: ["image"], icon: Hand, tip: "Hand refine: Face refine on the hand detector (hand_yolov8s), at denoise 0.35, crop factor 2, a prompt about hands; queued at once with the picture's generation parameters. Shift+click or ▾: the denoise and the detector first." },
+  face: { group: "passes", sub: "passes", label: "Face refine", key: "F", kinds: ["image"], icon: Smile, tip: "Face refine: queued at once with the picture's generation parameters; it comes back as a version under the picture. Shift+click or ▾: the denoise and the detector first." },
+  hand: { group: "passes", sub: "passes", label: "Hand refine", key: "H", kinds: ["image"], icon: Hand, tip: "Hand refine: Face refine on the hand detector (hand_yolov8s), at denoise 0.35, crop factor 2, a prompt about hands; queued at once with the picture's generation parameters; it comes back as a version under the picture. Shift+click or ▾: the denoise and the detector first." },
   background: { group: "passes", sub: "passes", label: "Remove background", key: "B", kinds: ["image"], icon: Eraser, tip: "Remove background: queued at once." },
   inpaint: { group: "passes", sub: "passes", label: "Inpaint…", key: "I", kinds: ["image"], icon: Paintbrush, tip: "Inpaint: a new draft with this picture as the source, the mask painter open." },
   edit: { group: "passes", sub: "passes", label: "Edit…", key: "E", kinds: ["image"], icon: PenLine, tip: "Edit / img2img: a new draft in the form with this picture as the source." },
@@ -96,6 +96,11 @@ export const actionIds = (kind: Kind): ActionId[] => ORDER.filter((id) => ACTION
 
 /** The passes by the viewer's key for them (viewer/shared.ts OPS reads the recipe for each). */
 export const PASS_KEYS: Partial<Record<ActionId, string>> = { upscale: "u", face: "f", hand: "h", background: "b", inpaint: "i", edit: "e", outpaint: "r" };
+/**
+ * The passes whose results come back as versions of the picture, under it (the owner's choice, card #274): same picture,
+ * same framing. Upscale and Remove background make new items.
+ */
+export const VERSION_PASSES: ReadonlySet<string> = new Set(["f", "h", "i", "e", "r"]);
 
 /** A group's heading, where a place shows headings (the viewer's side); a video's tools and a sound's are named for it. */
 export const groupTitle = (group: GroupId, kind: Kind): string =>

@@ -1,9 +1,11 @@
 import { defineRecipe, GraphBuilder, type Recipe } from "@afflatus/core";
-import { pictureForm } from "../shared/pictureForm";
+import { dropsFor, pictureForm } from "../shared/pictureForm";
+import { applyGuide, guideInputs, guideNeeds, guideNodes, type GuideSettings } from "../shared/guide";
+import { REDUX_NODES, reduxInputs, reduxNeeds, withRedux, type ReferenceSettings } from "../shared/references";
 import { sigmaWords } from "../shared/sigmaWords";
 import type { FlowBase, FlowKit, FlowSpec } from "./kit";
 
-export interface FlowRedraw extends FlowBase { source: string; prompt: string; strength: number }
+export interface FlowRedraw extends FlowBase, GuideSettings, ReferenceSettings { source: string; prompt: string; strength: number }
 
 /** img2img: a picture you have, drawn again from a prompt, a little (the same picture, cleaner) or a lot (the same layout, a new picture). */
 export function flowRedraw(spec: FlowSpec, kit: FlowKit): Recipe<FlowRedraw> {
@@ -22,15 +24,22 @@ export function flowRedraw(spec: FlowSpec, kit: FlowKit): Recipe<FlowRedraw> {
     title: "img2img",
     summary: "Image to image: an image redrawn from a prompt. The denoising strength says how far it may go from the original.",
     output: "image",
+    // reference images ask for Redux and its vision model, a guide picture for its ControlNet (as txt2img's)
+    ...(spec.references || spec.guide ? { needsWith: (input: FlowRedraw) => [...(spec.references ? reduxNeeds(input) : []), ...(spec.guide ? guideNeeds(input, spec.guide) : [])] } : {}),
     inputs: [
       spec.model,
       { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
       { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: "what the picture shows, as it should come out" },
       { id: "strength", type: "number", label: "Denoising strength", note: strengthNote, min: 0.05, max: 1, step: 0.05, default: 0.55 },
+      ...(spec.references ? reduxInputs() : []),
+      ...(spec.guide ? guideInputs(spec.guide) : []),
       ...inputs,
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),
-    nodes: (input) => [...loadNodes(input), "LoadImage", "ImageScale", "VAEEncode"],
+    nodes: (input) => [
+      ...loadNodes(input), "LoadImage", "ImageScale", "VAEEncode",
+      ...(spec.references && input.references.length ? REDUX_NODES : []), ...(spec.guide ? guideNodes(input, spec.guide) : []),
+    ],
     ...(SOMETIMES.length ? { optionalNodes: SOMETIMES } : {}),
     build(input, ctx) {
       const g = new GraphBuilder();
@@ -38,18 +47,39 @@ export function flowRedraw(spec: FlowSpec, kit: FlowKit): Recipe<FlowRedraw> {
       const size = sizeOf(ctx.media.source);
       const source = g.out("LoadImage", { image: ctx.uploads.source });
       const sized = g.out("ImageScale", { image: source, upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
-      const c = cond(g, k, input, input.prompt);
+      let c = cond(g, k, input, input.prompt);
+      const loads = [...k.loads];
+      if (spec.references) {
+        const r = withRedux(g, ctx, c.positive, input);
+        c = { ...c, positive: r.positive };
+        loads.push(...r.loads);
+      }
+      // the guide picture at the size the picture is redrawn at: the redraw keeps its shapes as well as the picture's own
+      const guided = spec.guide ? applyGuide(g, ctx, spec.guide, { model: k.model, ...c }, k.vae, size, input) : { model: k.model, ...c, loads: [] };
+      loads.push(...guided.loads);
       g.phase("sampling");
-      const { latent, pass } = sample(g, k, input, shifted(g, k.model, input, size), c, g.out("VAEEncode", { pixels: sized, vae: k.vae }), ctx.seed, { denoise: input.strength });
+      const { latent, pass } = sample(g, k, input, shifted(g, guided.model, input, size), guided, g.out("VAEEncode", { pixels: sized, vae: k.vae }), ctx.seed, { denoise: input.strength });
       g.phase("decoding");
       const out = g.add("PreviewImage", { images: g.out("VAEDecode", { samples: latent, vae: k.vae }) });
-      return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: pass.steps, passes: [pass], loads: k.loads };
+      return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: pass.steps, passes: [pass], loads };
     },
     variants: [
       { name: "plain", input: { source: "p", prompt: "a" } as Partial<FlowRedraw>, slots: files, uploads: { source: "s.png" }, media: { source: { width: 896, height: 1152 } } },
       { name: "a large picture, a fine-tune, a LoRA, strong", input: { source: "p", prompt: "a", strength: 0.8, ...tuned } as Partial<FlowRedraw>, slots: files, uploads: { source: "s.png" }, media: { source: { width: 3000, height: 2000 } } },
       // Turbo's branch: the LoRA put on, its steps at CFG 1 (the operations' other variants have no turbo file)
+      ...(spec.references
+        ? [{
+          name: "a reference image (Redux)", input: { source: "p", prompt: "a", references: [{ asset: "a", role: "style" }] } as Partial<FlowRedraw>,
+          slots: { ...files, redux: "flux1-redux-dev.safetensors", vision: "sigclip_vision_patch14_384.safetensors" }, uploads: { source: "s.png", "references.0": "a.png" }, media: { source: { width: 896, height: 1152 } },
+        }]
+        : []),
+      ...(spec.guide
+        ? [{
+          name: "a guide picture's depth (ControlNet)", input: { source: "p", prompt: "a", strength: 0.8, guide: "g1", guideFollows: "Depth" } as Partial<FlowRedraw>,
+          slots: { ...files, [spec.guide.slot]: spec.guide.file }, uploads: { source: "s.png", guide: "g.png" }, media: { source: { width: 896, height: 1152 } },
+        }]
+        : []),
       ...(kit.turboFiles ? [{ name: "Turbo with its LoRA", input: { source: "p", prompt: "a", fast: true, turboSteps: 6 } as Partial<FlowRedraw>, slots: kit.turboFiles, uploads: { source: "s.png" }, media: { source: { width: 896, height: 1152 } } }] : []),
     ],
-  }), spec.drops);
+  }), dropsFor("img2img", spec.drops));
 }

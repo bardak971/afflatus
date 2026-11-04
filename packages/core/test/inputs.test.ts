@@ -120,7 +120,12 @@ describe("a saved file this ComfyUI does not have at all", () => {
     expect(pickChoice(vae as never, ["pixel_space"])).toBe("QwenImage/qwen_image_vae.safetensors");
   });
   it("is stood in for when the input says which files will do", () => {
-    expect(pickChoice({ ...vae, prefer: ["nothing-like-it"] } as never, ["ae.safetensors"])).toBe("ae.safetensors");
+    expect(pickChoice({ ...vae, prefer: ["^ae\\."] } as never, ["LTX23_audio_vae_bf16.safetensors", "ae.safetensors"])).toBe("ae.safetensors");
+    expect(pickChoice({ ...vae, prefer: ["."] } as never, ["ae.safetensors"])).toBe("ae.safetensors");
+  });
+  it("stays when none of the files it says will do is there (card #277: FLUX.1's control image took SDXL's ControlNet)", () => {
+    const net = { id: "guideModel", type: "choice", label: "ControlNet", options: { node: "ControlNetLoader", input: "control_net_name" }, default: "FLUX.1-dev-ControlNet-Union-Pro-2.0.safetensors", prefer: ["flux.*union.?pro.?2", "flux"] } as const;
+    expect(pickChoice(net as never, ["controlnet-union-sdxl-1.0-promax.safetensors"])).toBe("FLUX.1-dev-ControlNet-Union-Pro-2.0.safetensors");
   });
   it("a setting that is not a file still starts on one this ComfyUI has", () => {
     expect(pickChoice({ id: "s", type: "choice", label: "Sampler", options: { node: "KSampler", input: "sampler_name" }, default: "gone" } as never, ["euler", "heun"])).toBe("euler");

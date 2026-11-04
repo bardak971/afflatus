@@ -15,6 +15,7 @@ import { folderOfTimeline } from "./timelineFolder";
 import { readVideo, videoFacts, type VideoFacts } from "./video";
 import { readJson, type JobRow, type QueueCore, type Resume } from "./queueModel";
 import { linkUses } from "./modelUses";
+import { stackRoot } from "./versions";
 
 /** What a finished render leaves behind: its files in storage, its rows in the library, and the record of how it was made. */
 
@@ -90,7 +91,7 @@ export const draftOf = (db: Db, asset: Tables["assets"]) => walkFinished(db, ass
 export async function store(
   core: QueueCore, comfy: Comfy, recipe: Recipe<any>, input: Record<string, unknown>, resume: Resume,
   outputs: Outputs,
-  row: Pick<JobRow, "id" | "draft_id" | "folder_id" | "look" | "asked"> & { clip_id?: string | null; label?: string | null },
+  row: Pick<JobRow, "id" | "draft_id" | "folder_id" | "look" | "asked"> & { clip_id?: string | null; label?: string | null; version_of?: string | null },
 ): Promise<{ id: string; measuring: Promise<number> | null }> {
   const { db, storage } = core;
   const files = collectOutputs(resume, outputs);
@@ -123,9 +124,9 @@ export async function store(
     const rows: AssetRow[] = [];
     // the last video's measure is the generation's, as it always was
     let measure: { asset: string; work: () => Promise<Measure | null> } | null = null;
-    // made from a box's working picture (Make the picture's frame): a working picture too, out of the library until picked
-    // and a swap's Show the mask: a look at its masks, not a result to keep (gone after a day, as a working picture)
-    const scratch = input.maskPreview === true || (await fromScratch(db, recipe, input));
+    // made from a box's working picture (Make the picture's frame): a working picture too, out of the library until picked;
+    // and what its recipe says is one (a swap's Show the mask, a mask the Stage found): a look, not a result to keep
+    const scratch = recipe.scratch?.(input) === true || (await fromScratch(db, recipe, input));
     for (const { file, kind } of files) {
       const one = await fileOne(core, comfy, recipe, input, resume, { file, kind }, sides, written);
       if (one.measure) measure = { asset: one.row.id, work: one.measure };
@@ -404,7 +405,7 @@ function sourcesOf(recipe: Recipe<any>, input: Record<string, unknown>, resume: 
 /** The generation, its lineage and its assets, in one transaction; the job names its generation from then on. */
 async function writeRows(
   db: Db, g: { id: string; recipe: Recipe<any>; input: Record<string, unknown>; resolved: Record<string, unknown>; genMs: number; at: string },
-  row: Pick<JobRow, "id" | "draft_id" | "asked">, sources: Array<{ asset: string; role: string }>, rows: AssetRow[],
+  row: Pick<JobRow, "id" | "draft_id" | "asked"> & { version_of?: string | null }, sources: Array<{ asset: string; role: string }>, rows: AssetRow[],
 ): Promise<void> {
   await db.transaction().execute(async (tx) => {
     await tx
@@ -427,7 +428,11 @@ async function writeRows(
         .onConflict((oc) => oc.columns(["generation_id", "asset_id", "role"]).doNothing())
         .execute();
     }
-    for (const r of rows) await tx.insertInto("assets").values(r).execute();
+    // sent as versions of a picture: they join its stack's root as it is now (a version kept meanwhile is the root), never
+    // another version, so that a stack stays flat; the lineage keeps the picture each was made from. A stack with no head
+    // left (erased, binned) gets none: what was made is a plain item. A working picture is never a version
+    const head = row.version_of ? await stackRoot(tx, row.version_of) : null;
+    for (const r of rows) await tx.insertInto("assets").values(head && r.origin !== "scratch" ? { ...r, version_of: head } : r).execute();
   });
   // its files' uses name what it made (Settings › Model files' "Made with it"), past the job's own prune: after the
   // transaction and only a note, so that it never fails a result (a failed statement in a Postgres transaction ends it)

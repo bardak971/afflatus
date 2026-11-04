@@ -1,5 +1,6 @@
 import { defineFamily, defineRecipe, GraphBuilder, REMOVE_BACKGROUND, TOOLS_FAMILY } from "@afflatus/core";
 import { DETECTOR_SLOTS } from "../shared/detector";
+import { SAM_FILE, samSlot } from "../shared/sam";
 import { SEEDVR_COLOURS, SEEDVR_NODES, SEEDVR_SLOTS, seedvrUpscale } from "../video/upscale";
 
 /** Things done to a picture that need no picture model: nothing is drawn, so there is no prompt. */
@@ -22,6 +23,8 @@ export const tools = defineFamily({
     },
     ...SEEDVR_SLOTS,
     ...DETECTOR_SLOTS,
+    // the Stage's click to mask (findMask.ts); its finds take the detectors above
+    samSlot({ id: "sam", label: "SAM 3 (click to mask)", optional: true, hint: `For the Stage's click to mask: SAM 3.1 finds what was clicked. Put ${SAM_FILE} in ComfyUI's models/checkpoints folder.` }),
   ],
   loraMatch: [],
 });
@@ -77,7 +80,7 @@ export const removeBackground = defineRecipe<RemoveBackground>({
     { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
     {
       id: "model", type: "choice", label: "Background removal model", note: "from ComfyUI's models/background_removal folder. ComfyUI's node loads BiRefNet-type files: birefnet (general), lucida (a BiRefNet tuned for fine edges: hair, glass, text)",
-      options: { node: "LoadBackgroundRemovalModel", input: "bg_removal_name" }, default: "birefnet.safetensors", prefer: ["lucida", "birefnet", "rmbg"],
+      options: { node: "LoadBackgroundRemovalModel", input: "bg_removal_name" }, default: "birefnet.safetensors", prefer: ["lucida", "birefnet", "rmbg", "."],
     },
   ],
   nodes: () => ["LoadImage", "LoadBackgroundRemovalModel", "RemoveBackground", "InvertMask", "JoinImageWithAlpha", "PreviewImage"],

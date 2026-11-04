@@ -7,6 +7,8 @@ import { fromRender } from "./aiMark";
 import { fromName, nameOf, shownNames, soundName } from "./autoName";
 import { registerAssetSearch, withShownName } from "./assetSearch";
 import { registerAssetsBin } from "./assetsBin";
+import { registerVersions } from "./versions-api";
+import { registerFindMask } from "./findMask";
 import { registerAssetsZip } from "./assetsZip";
 import { registerAssetUpload } from "./assetUpload";
 import { openInComfy } from "./comfyOpen";
@@ -217,6 +219,8 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
   registerAssetSearch(app, s);
   registerAssetUpload(app, s, lookup);
   registerAssetsBin(app, s, lookup);
+  registerVersions(app, s, lookup);
+  registerFindMask(app, s);
   registerAssetsZip(app, s);
 
   /** A new name for a picture, a video or a sound: what the library shows and searches by. The file on the disk keeps its own. */
