@@ -25,8 +25,17 @@ export interface Option {
   /** What shows on hover over the row, with its own head: more than its detail line holds. */
   tip?: string;
   tipHead?: string;
+  /** A small picture before the label (a LoRA's cover on Civitai): loaded when its row is shown. */
+  image?: string;
   /** One of the choices put forward (what a picture was made with, among everything it could be changed with): drawn so that it stands out. */
   marked?: boolean;
+}
+
+/** An option's picture: a grey square in its place when the address does not answer (a picture taken off Civitai). */
+function OptionImage({ src }: { src: string }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) return <span className="h-9 w-9 shrink-0 rounded-md bg-raised" />;
+  return <img src={src} alt="" loading="lazy" decoding="async" onError={() => setBroken(true)} className="h-9 w-9 shrink-0 rounded-md bg-raised object-cover" />;
 }
 
 /** Shown at most at once: a longer list is narrowed by typing. */
@@ -82,6 +91,7 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
     return sections.flatMap((g) => fuzzyFilter(options.filter((o) => o.group === g), query, textOf));
   }, [options, query]);
   const shown = found.slice(0, SHOWN);
+  const pictured = useMemo(() => options.some((o) => o.image), [options]);
 
   const close = (refocus = true) => {
     setOpen(false);
@@ -258,6 +268,8 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
                 )}
               >
                 <span className="flex h-4 w-4 shrink-0 items-center justify-center text-accent">{o.value === value && <Check size={14} strokeWidth={3} />}</span>
+                {/* a list where some have a picture keeps the place of one in every row, so that the names line up */}
+                {pictured && (o.image ? <OptionImage src={o.image} /> : <span className="h-9 w-9 shrink-0 rounded-md bg-raised" />)}
                 <span className="flex min-w-0 grow flex-col">
                   <span className={cx("break-words", o.marked && "font-medium", o.muted && "text-ink-3")}>{o.label}</span>
                   {/* two lines at most: a LoRA's trigger words can run to a hundred tags, which made each row a page; all of it

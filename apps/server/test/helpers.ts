@@ -31,7 +31,7 @@ export const FAST: QueueOptions = {
  */
 export function queueDeps(t: { services: Services }): QueueDeps {
   const d = t.services.queue.deps;
-  return { money: { ...d.money }, pods: { ...d.pods }, packs: { ...d.packs }, notices: { ...d.notices }, clips: d.clips };
+  return { money: { ...d.money }, pods: { ...d.pods }, packs: { ...d.packs }, notices: { ...d.notices }, clips: d.clips, wildcards: d.wildcards };
 }
 
 /**

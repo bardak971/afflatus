@@ -91,8 +91,9 @@ export function WritingCard() {
       <Row setting="server.tagCheck" label="Danbooru tag check" help={SETTING_HELP.tagCheck}>
         <Toggle bare on={settings.data?.tagCheck ?? true} onChange={(v) => save.mutate({ tagCheck: v })} label="Check tags against the danbooru tag list" />
       </Row>
-      <Row setting="prompts.wildcards" label="Wildcards and weights" help="In every prompt: {red|black|white} is a wildcard that picks one of the choices for each output, and Ctrl + ↑ or ↓ changes the weight of the tag the cursor is in (not for MiniMax H3, which has no prompt weights).">
+      <Row setting="prompts.wildcards" label="Wildcards and weights" help="In every prompt: {red|black|white} is a wildcard that picks one of the choices for each output, and __colors__ picks a line of the wildcard file colors.txt (__clothes/hats__: clothes/hats.txt). The files are read from the wildcards folder of Afflatus's data folder, then from the Impact pack's and Dynamic Prompts' wildcard folders in ComfyUI's folder, when it is on this computer. With a typed seed the same seed picks the same. Ctrl + ↑ or ↓ changes the weight of the tag the cursor is in (not for MiniMax H3, which has no prompt weights).">
         <Fact tip="A wildcard: one of the choices for each output">{"{red|black|white}"}</Fact>
+        <Fact tip="A wildcard file: one line of colors.txt for each output">__colors__</Fact>
         <Fact tip="Changes the weight of the tag the cursor is in">Ctrl + ↑ ↓</Fact>
       </Row>
       {save.isError && <Block><Failed what="Not saved" error={save.error} /></Block>}

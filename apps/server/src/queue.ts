@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { ComfyAway, ComfyCancelled, ComfyError, ComfyFailed, ComfyLost, ComfyUnreachable, filesIn, systemLoadFromStatus, waitForOutputs, type Measured } from "@afflatus/comfy";
-import { expandWildcards, fileKey, formModelInput, lorasOverSaid, modelFileName, modelOf, modelStart, parseInput, refusalOf, removedSaid, sameFile, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
+import { fileKey, formModelInput, lorasOverSaid, modelFileName, modelOf, modelStart, parseInput, refusalOf, removedSaid, sameFile, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
 import { Comfy, NO_COMFY_URL, type MachineComfy } from "./comfy";
 import { fileName } from "./media";
 import type { Insertable } from "kysely";
@@ -37,6 +37,7 @@ import { OwnPacks } from "./queuePacks";
 import { cannotWhy, packFacts, packsSaid, type PackFacts } from "./jobPacks";
 import { formPacks, type FormPackNote } from "./formPacks";
 import { refusedSaid } from "./modelSetCheck";
+import { NO_WILDCARDS, settleTexts, type WildcardPlaces } from "./wildcardFiles";
 
 // what the routes and the services name from here: the options, and the RIFE model lookup the timelines routes share with the slow-motion tool
 export { DEFAULT_QUEUE_OPTIONS, type QueueOptions };
@@ -202,6 +203,8 @@ export interface QueueDeps {
   };
   /** The timelines, for jobs that render a clip of one: they are made after the queue, so services.ts gives them through a getter. */
   readonly clips: Timelines;
+  /** Where the wildcard files of `__name__` are read from (wildcardFiles.ts); left out (in tests), none: only {a|b} is settled. */
+  wildcards?: WildcardPlaces;
 }
 
 export class Queue {
@@ -620,10 +623,13 @@ export class Queue {
     if (this.registry.pending(recipeId)) throw httpError(waitingWords(recipe.title), 409);
     // loading the models is asked for while the form is still being filled in: a text not written yet is no reason to refuse
     const input = parseInput(recipe, await this.startedOn(recipe, opts.warm ? submitting.withTexts(recipe, rawInput) : rawInput)) as Record<string, unknown>; // a refused form throws a 400 that names its fields (core saidRefusal)
-    // choices written in a text ({red|black|white}) are settled now, one per job: what is kept is what was picked
-    for (const spec of recipe.inputs as InputSpec[]) {
-      if (spec.type === "prompt" && typeof input[spec.id] === "string") input[spec.id] = expandWildcards(input[spec.id] as string);
-    }
+    // choices written in a text ({red|black|white}, __colors__) are settled now, one per job: what is kept is what was
+    // picked, the prompt as sent. A load ahead's text is still being written: a file not there yet is no reason to refuse it
+    const settled = await settleTexts(this.deps.wildcards ?? NO_WILDCARDS, recipe, input).catch((err: unknown) => {
+      if (opts.warm) return input;
+      throw err;
+    });
+    Object.assign(input, settled);
     // a mix of inputs the recipe cannot render (Krea 2's person and style references) is refused before it is queued: left
     // to its build on the machine, the job waited for or booted a pod and failed there (card #219). A load ahead is not:
     // it is asked while the form is still being filled in

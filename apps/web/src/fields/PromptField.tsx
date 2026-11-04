@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
-import type { InputSpec } from "@afflatus/core";
-import { api, type TagIssue } from "../api";
+import { CLIP_CHUNK, type InputSpec } from "@afflatus/core";
+import { api, type FamilyInfo, type TagIssue } from "../api";
+import { useDebounced } from "../hooks";
+import { queryKeys } from "../queryKeys";
 import { useSettings } from "../data";
 import { Popover } from "../Popover";
 import { nudgeWeight, replaceTag } from "../promptText";
@@ -11,6 +14,7 @@ import { useLoraWords } from "./Loras";
 import { useSnippetKeys } from "../bar/SnippetKeys";
 import { useKeysHere } from "../keys/here";
 import { plural, verb } from "../format";
+import { usePromptHistory } from "./PromptHistory";
 
 /**
  * Under a prompt written in tags: one short line when some of its tags are not danbooru tags (what anime
@@ -102,11 +106,38 @@ function TagCheck({ text, ignore, onChange }: { text: string; ignore: string[]; 
   );
 }
 
+/** The families whose prompts go through CLIP's 77-token window, cut in chunks of 75 (SDXL, Illustrious, Pony). */
+const CLIP_FAMILIES = new Set(["sdxl"]);
+
+/**
+ * Under an SDXL prompt: its CLIP tokens over the chunks they fill, as A1111 says it ("92/150"), counted by the server a
+ * moment after the typing stops, as ComfyUI cuts them. A guess is said as one ("≈"): ComfyUI's tokenizer file is not on
+ * this computer. Its tip says each chunk's tokens: a tag cut in two by a chunk's end loses some of its sense.
+ */
+function TokenCount({ text }: { text: string }) {
+  const asked = useDebounced(text, 250, true, text);
+  const count = useQuery({ queryKey: queryKeys.promptTokens(asked), queryFn: ({ signal }) => api.promptTokens(asked, { signal }), enabled: Boolean(asked.trim()), placeholderData: keepPreviousData, staleTime: Infinity });
+  if (!text.trim() || !count.data) return null;
+  const { chunks, exact } = count.data;
+  const total = chunks.reduce((a, b) => a + b, 0);
+  const each = chunks.length > 1 ? `\n${chunks.map((n, i) => `Chunk ${i + 1}: ${n}`).join(" · ")}` : "";
+  const how = exact ? "Counted with ComfyUI's own tokenizer, as its CLIPTextEncode cuts them" : "An estimate from the words: ComfyUI's tokenizer file (comfy/sd1_tokenizer) is not on this computer";
+  return (
+    <span
+      data-tip={`CLIP reads ${CLIP_CHUNK} tokens at a time: a longer prompt is cut in chunks encoded apart, and a weighted tag is moved whole into the next chunk.${each}\n${how}.`}
+      data-tip-head="CLIP tokens"
+      className="font-mono text-meta text-ink-3 tabular-nums"
+    >
+      {exact ? "" : "≈"}{total}/{chunks.length * CLIP_CHUNK}
+    </span>
+  );
+}
+
 /**
  * A text box of a prompt. Ctrl + ↑ / ↓ changes the weight of the tag the cursor is in, or of what is
  * selected: (red dress:1.1). In a prompt of sentences only a selection is weighed.
  */
-export function PromptField({ spec, id, value, values, onChange, bare }: { spec: Extract<InputSpec, { type: "prompt" }>; id: string; value: string; values?: Record<string, unknown>; onChange(value: string): void; bare?: boolean }) {
+export function PromptField({ spec, id, value, values, family, onChange, bare }: { spec: Extract<InputSpec, { type: "prompt" }>; id: string; value: string; values?: Record<string, unknown>; family?: FamilyInfo; onChange(value: string): void; bare?: boolean }) {
   // the keys sheet's "Here now": a prompt box is on screen (its weights, snippets, wildcards)
   useKeysHere("form");
   const settings = useSettings();
@@ -115,9 +146,13 @@ export function PromptField({ spec, id, value, values, onChange, bare }: { spec:
   const weighs = spec.weights !== false;
   // `;name` puts a snippet of the Prompt kit in (Settings › Interface › Command bar)
   const snippetKeys = useSnippetKeys({ value, onChange });
+  // the prompts rendered before: the main text's (the history holds those), not a negative's nor a few words on one line
+  const remembers = !spec.line && !spec.optional && spec.id !== "negative";
+  const history = usePromptHistory({ value, onChange, label: spec.label });
+  const counted = !spec.line && Boolean(family && CLIP_FAMILIES.has(family.id));
   // the keys it takes, in its ? rather than over the text on every hover
   // a few words on one line (a swap's Track) take no weights and no choices: neither is said
-  const keys = spec.line ? "" : `${weighs ? `Ctrl + ↑ or ↓: the weight of ${spec.style === "tags" ? "the tag the cursor is in, or of " : ""}what is selected. ` : ""}{a|b|c}: one is picked for each result.`;
+  const keys = spec.line ? "" : `${weighs ? `Ctrl + ↑ or ↓: the weight of ${spec.style === "tags" ? "the tag the cursor is in, or of " : ""}what is selected. ` : ""}{a|b|c}, __name__ (a wildcard file): one is picked for each result.${remembers ? " ↑ in an empty prompt: the recent prompts." : ""}`;
   return (
     <div className="flex flex-col gap-1.5">
       {/* bare: the head over it already names it (the Create panel's Prompt row) */}
@@ -132,8 +167,10 @@ export function PromptField({ spec, id, value, values, onChange, bare }: { spec:
         placeholder={spec.placeholder && !spec.optional ? `e.g. ${spec.placeholder}` : spec.placeholder}
         onChange={(e) => onChange(e.target.value)}
         onSelect={snippetKeys.onSelect}
+        onBlur={history.close}
         onKeyDown={(e) => {
           if (snippetKeys.onKeyDown(e)) return;
+          if (remembers && history.onKeyDown(e)) return;
           // a few words on one line: Enter makes no second line
           if (spec.line && e.key === "Enter") return void e.preventDefault();
           if (!weighs || !(e.ctrlKey || e.metaKey) || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
@@ -148,11 +185,18 @@ export function PromptField({ spec, id, value, values, onChange, bare }: { spec:
         className={cx(field, "py-2.5 leading-normal placeholder:italic", spec.optional && !spec.example ? "text-body" : "text-sm")}
       />
       {snippetKeys.list}
+      {remembers && history.list}
+      {remembers && <span className={cx("absolute bottom-1.5", bare && keys ? "right-8" : "right-1.5")}>{history.button}</span>}
       {/* the main prompt in its card, whose head has no ?: the keys it takes in a corner of its own, out of the way of
           the text (the other texts' rows have a ? of their own) */}
       {bare && !spec.optional && keys && <Help title={spec.label} text={keys} className="absolute right-2 bottom-2 opacity-60 hover:opacity-100" />}
       </div>
-      {checked && <TagCheck text={value} ignore={ignore} onChange={onChange} />}
+      {(checked || counted) && (
+        <div className="flex items-start gap-2">
+          {checked && <TagCheck text={value} ignore={ignore} onChange={onChange} />}
+          {counted && <span className="ml-auto shrink-0"><TokenCount text={value} /></span>}
+        </div>
+      )}
     </div>
   );
 }

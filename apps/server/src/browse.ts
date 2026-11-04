@@ -152,10 +152,10 @@ export function forAdults(m: Pick<CivModel, "name" | "nsfw" | "tags">): boolean 
   return m.nsfw === true || MILD.test(m.name) || [m.name, ...(m.tags ?? [])].some((w) => EXPLICIT.test(w ?? ""));
 }
 
-/** A Civitai picture at 450 wide (a video's first frame as a still), from its full-size address. */
-export function thumbOf(img: CivImage | undefined): string | null {
+/** A Civitai picture at 450 wide, or the width asked (a video's first frame as a still), from its full-size address. */
+export function thumbOf(img: CivImage | undefined, width = 450): string | null {
   if (!img?.url) return null;
-  const size = img.type === "video" ? "anim=false,transcode=true,width=450" : "width=450";
+  const size = img.type === "video" ? `anim=false,transcode=true,width=${width}` : `width=${width}`;
   return /\/(original=true|width=\d+)[^/]*\//.test(img.url) ? img.url.replace(/\/(original=true|width=\d+)[^/]*\//, `/${size}/`) : img.url;
 }
 

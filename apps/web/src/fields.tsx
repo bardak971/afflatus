@@ -82,7 +82,7 @@ export function Field({ spec, value, values, specs, options, setup, family, mode
   const castVoice = useCastVoice(spec.id);
   switch (spec.type) {
     case "prompt":
-      return <PromptField spec={spec} id={id} value={String(value ?? "")} values={values} onChange={onChange} bare={bare} />;
+      return <PromptField spec={spec} id={id} value={String(value ?? "")} values={values} family={family} onChange={onChange} bare={bare} />;
 
     case "model":
       return <ModelField id={id} spec={spec} value={String(value ?? "")} options={options} family={family} onChange={onChange} />;

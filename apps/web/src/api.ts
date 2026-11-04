@@ -582,6 +582,8 @@ export const api = {
   assetModels: (o?: Asked) => call<{ models: Array<{ file: string; count: number }>; loras: Array<{ file: string; count: number }> }>("GET", "/assets/models", undefined, o?.signal),
   /** Which tags of a prompt danbooru does not have. */
   checkTags: (text: string, ignore: string[]) => call<{ issues: TagIssue[] }>("POST", "/tags/check", { text, ignore }),
+  /** The CLIP tokens of each chunk of 75 a prompt fills, as ComfyUI cuts them; `exact` false when they are a guess (ComfyUI's tokenizer file not at hand). */
+  promptTokens: (text: string, o?: Asked) => call<{ chunks: number[]; exact: boolean }>("POST", "/prompt/tokens", { text }, o?.signal),
   /** The words known for the files of a model folder beyond what the files say, by file name (lower case, without sub-folder). */
   modelWords: (folder: string, o?: Asked) => call<{ items: Record<string, ModelWords> }>("GET", `/models/${folder}/words`, undefined, o?.signal),
   /** The user's own words for a file; empty takes them away. */

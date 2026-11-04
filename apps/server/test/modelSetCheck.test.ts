@@ -77,6 +77,13 @@ describe("a render's files held together", () => {
     expect(said.findings).toEqual([expect.objectContaining({ at: "loras", black: false, text: "This LoRA was trained for SDXL: on Wan 2.2 it does nothing." })]);
   });
 
+  it("gives a LoRA the cover picture of the Civitai version its hash matched, small, as kept", async () => {
+    await t.db.insertInto("model_hashes").values({ folder: "loras", file: "film_grain.safetensors", size: 1, mtime: 1, sha256: "AB", hashed_at: "x", civitai_version: 7, hf_url: null, matched_at: "x", civitai_base: "SDXL 1.0" }).execute();
+    await t.db.insertInto("model_civitai").values({ version_id: 7, model_id: 3, model_name: "Film grain", version_name: "v1", base: "SDXL 1.0", picture: "https://image.civitai.com/abc/def/original=true/1.jpeg", read_at: "x" }).execute();
+    const info = (await t.app.inject({ method: "GET", url: "/api/models/loras/info" })).json() as { items: Record<string, { picture?: string }> };
+    expect(info.items["film_grain.safetensors"]?.picture).toBe("https://image.civitai.com/abc/def/width=160/1.jpeg");
+  });
+
   it("refuses a timeline's Render when one clip is a black mix, naming the clip and queueing none of the clips (card #97)", async () => {
     // held: a clip queued is only looked at here, never sent
     await t.services.queue.setPaused(true);
