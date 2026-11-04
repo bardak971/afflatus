@@ -90,8 +90,9 @@ describe("Qwen Image 2.1's outpaint and Turbo face (card #286)", () => {
   it("the Turbo file's face pass keeps its own step spacing: 8 or 30 steps at 0.4 gave grainy skin", () => {
     const steps = (change: Record<string, unknown>) => (of(built("qwen21.fix-face", change), "FaceDetailer")[0]![1].inputs.steps as number);
     const turbo = "qwen_image_2.1_turbo_int8_convrot.safetensors";
-    expect(steps({ model: turbo, steps: 8, strength: 0.4 })).toBe(4);
-    expect(steps({ model: turbo, steps: 8, strength: 0.3 })).toBe(3);
+    // 3 at the start (8 × 0.4): clean on the pod, where 4 left a faint grain
+    expect(steps({ model: turbo, steps: 8, strength: 0.4 })).toBe(3);
+    expect(steps({ model: turbo, steps: 8, strength: 0.5 })).toBe(4);
     expect(steps({ model: turbo, steps: 30, strength: 0.4 })).toBe(12);
     expect(steps({ model: turbo, steps: 8, strength: 0.1 })).toBe(2);
     // the full model as before: the form's steps, 8 to 30

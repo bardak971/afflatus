@@ -228,8 +228,9 @@ describe("editing a picture in boxes (card #284)", () => {
     expect(nodes(graph, "UNETLoader")).toHaveLength(1);
     expect(nodes(graph, "KSampler").length + nodes(graph, "SamplerCustomAdvanced").length).toBe(2);
     expect(nodes(graph, "CLIPTextEncode").map((n) => n.inputs.text)).toEqual(expect.arrayContaining(["a deer drinking at the stream", "remove the lamp"]));
-    // the first box 304 × 250 at (122, 166) of the picture, pasted back where it was
-    expect(nodes(graph, "ImageCompositeMasked").map((n) => [n.inputs.x, n.inputs.y])).toEqual([[122, 166], [730, 416]]);
+    // the first box 304 × 250 at (122, 166) of the picture, pasted back where it was with its soft edge in the margin round
+    // it, a quarter of its shorter side wide (63 px; card #286)
+    expect(nodes(graph, "ImageCompositeMasked").map((n) => [n.inputs.x, n.inputs.y])).toEqual([[122 - 63, 166 - 63], [730 - 83, 416 - 83]]);
     complete(fake, promptId);
     await until(async () => (await t.db.selectFrom("jobs").select("status").where("id", "=", job).executeTakeFirstOrThrow()).status === "done");
     const { generation_id } = await t.db.selectFrom("jobs").select("generation_id").where("id", "=", job).executeTakeFirstOrThrow();
