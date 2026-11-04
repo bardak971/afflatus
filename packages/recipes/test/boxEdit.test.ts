@@ -91,6 +91,15 @@ describe("an Edit in box of every instruction editor", () => {
     expect(b.graph[b.outputs[0]!.node]!.inputs.images).toEqual([pastes[2]![0], 0]);
   });
 
+  it("takes the edit as three channels before matching and pasting it: Qwen Image 2.1 decodes four (RGBA)", () => {
+    const b = build(recipe("qwen21.edit-in-box"), { boxes: [box(0.3, 0.3, 0.3, 0.3)] });
+    const decode = nodes(b, "VAEDecode")[0]![0];
+    const split = nodes(b, "SplitImageWithAlpha");
+    expect(split.map(([, n]) => n.inputs.image)).toEqual([[decode, 0]]);
+    // what is scaled back is the split's picture, never the decode's own
+    expect(nodes(b, "ImageScale").some(([, n]) => (n.inputs.image as [string, number])[0] === decode)).toBe(false);
+  });
+
   it("matches the colours at the box's edge where it can, and says so where this ComfyUI has no ColorTransfer", () => {
     const r = recipe("klein.edit-in-box");
     const matched = build(r, { boxes: [box(0.3, 0.3, 0.3, 0.3)] });

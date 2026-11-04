@@ -32,6 +32,7 @@ const SERVER: Record<string, string> = {
   designerGuides: "prompts.guides",
   designerInstruction: "internal: the system prompt picked in the designer's panel, remembered for the next conversation",
   tagCheck: "server.tagCheck",
+  boxEditModel: "models.boxEdit",
   pngInfo: "server.pngInfo",
   families: "models.families",
   allFamilies: "models.families",

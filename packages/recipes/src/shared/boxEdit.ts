@@ -223,7 +223,7 @@ function colourMatched(g: GraphBuilder, edited: Ref, original: Ref, plan: BoxPla
 }
 
 /** The core nodes the boxes take round the editor's graph; the colour match's are used only where this ComfyUI has them. */
-const BOX_NODES = ["ImageCrop", "ImageScale", "SolidMask", "FeatherMask", "ImageCompositeMasked"];
+const BOX_NODES = ["ImageCrop", "ImageScale", "SplitImageWithAlpha", "SolidMask", "FeatherMask", "ImageCompositeMasked"];
 const MATCH_NODES = ["ColorTransfer", "ImageStitch", "ImageBatch", "ImageFromBatch"];
 
 /** What an Edit in box adds to its editor's input: the boxes, each with its instruction. */
@@ -290,7 +290,10 @@ export function inBox<In extends { source: string; prompt: string }>(edit: Recip
         warnings.push(...(built.warnings ?? []));
         totalSteps += built.totalSteps;
         g.phase("processing");
-        const back = g.out("ImageScale", { image: done.image, upscale_method: "lanczos", width: plan.crop.w, height: plan.crop.h, crop: "disabled" });
+        // as a picture of three channels: Qwen Image 2.1's VAE decodes four (it makes RGBA pictures), which ColorTransfer
+        // refuses and a paste onto the picture could not take (a pod, 2026-11-04)
+        const rgb = g.out("SplitImageWithAlpha", { image: done.image });
+        const back = g.out("ImageScale", { image: rgb, upscale_method: "lanczos", width: plan.crop.w, height: plan.crop.h, crop: "disabled" });
         const matched = matching && plan.ring.length ? colourMatched(g, back, crop, plan) : back;
         const mask = g.out("FeatherMask", { mask: g.out("SolidMask", { value: 1, width: plan.box.w, height: plan.box.h }), ...plan.feather });
         current = g.out("ImageCompositeMasked", { destination: current, source: cut(g, matched, plan.inner), x: plan.box.x, y: plan.box.y, resize_source: false, mask });
