@@ -123,7 +123,7 @@ describe("MOSS-Image", () => {
     const input = { prompt: "a", size: { width: 896, height: 1152 }, regions };
     const b = build(moss, input, MOSS_FILES);
     const canvas = one(b, "CreateBoundingBoxes");
-    expect(canvas.inputs.editor_state).toEqual([
+    expect((canvas.inputs.editor_state as { __value__: unknown }).__value__).toEqual([
       { x: 0, y: 346, width: 448, height: 806, metadata: { type: "obj", text: "", desc: "a red fox", palette: [] } },
       { x: 448, y: 346, width: 448, height: 806, metadata: { type: "obj", text: "", desc: "a woman", palette: [] } },
       { x: 90, y: 0, width: 717, height: 288, metadata: { type: "text", text: "FOREST", desc: "big cream serif capitals", palette: [] } },
