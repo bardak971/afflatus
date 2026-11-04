@@ -1,6 +1,7 @@
 import { defineFamily, wordCount, type Family, type FrameGrid } from "@afflatus/core";
 import { wan } from "../wan/family";
 import { faceRefineSlots } from "../h3/faceSlots";
+import { SAM_FILE, samSlot } from "../shared/sam";
 
 const HF = "https://huggingface.co/Comfy-Org/SCAIL-2/resolve/main";
 
@@ -46,11 +47,7 @@ export const scail = defineFamily({
       hint: "Put clip_vision_h.safetensors in ComfyUI's models/clip_vision folder.",
       get: { file: "clip_vision_h.safetensors", url: "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/clip_vision/clip_vision_h.safetensors" },
     },
-    {
-      id: "sam", label: "SAM 3 (finds the people)", folder: "checkpoints", detect: ["sam3"], byName: true,
-      hint: "Put sam3.1_multiplex_fp16.safetensors in ComfyUI's models/checkpoints folder.",
-      get: { file: "sam3.1_multiplex_fp16.safetensors", url: "https://huggingface.co/Comfy-Org/sam3.1/resolve/main/checkpoints/sam3.1_multiplex_fp16.safetensors" },
-    },
+    samSlot({ id: "sam", label: "SAM 3 (finds the people)", hint: `Put ${SAM_FILE} in ComfyUI's models/checkpoints folder.` }),
     fromWan("tinyVae"),
     fromWan("rife"),
     // Face refine's files, for SCAIL-2 at 24 fps (H3's pass on SCAIL's own frames)

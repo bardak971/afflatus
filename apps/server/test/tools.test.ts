@@ -197,7 +197,7 @@ describe("the other things done to a picture", () => {
     expect(takesOne.map((r: { id: string }) => r.id)).toEqual([
       "sdxl.redraw", "sdxl.paint-over", "sdxl.outpaint", "sdxl.sharper", "sdxl.fix-face", "klein.edit", "klein.redraw", "klein.variation", "klein.paint-over", "klein.change-shape", "klein.sharper", "klein.fix-face", "krea2.redraw", "krea2.paint-over", "krea2.outpaint", "krea2.sharper", "krea2.fix-face",
       "flux.edit", "flux.redraw", "flux.paint-over", "flux.outpaint", "flux.sharper", "flux.fix-face", "qwen.edit", "qwen.redraw", "qwen.paint-over", "qwen.outpaint", "qwen.sharper", "qwen.fix-face", "qwen21.edit", "qwen21.redraw", "qwen21.paint-over", "qwen21.outpaint", "qwen21.sharper", "qwen21.fix-face", "qwen21.motion-picture",
-      "zimage.redraw", "zimage.paint-over", "zimage.outpaint", "zimage.sharper", "zimage.fix-face", "tools.remove-background", "tools.seedvr-upscale",
+      "zimage.redraw", "zimage.paint-over", "zimage.outpaint", "zimage.sharper", "zimage.fix-face", "tools.remove-background", "tools.seedvr-upscale", "tools.find-mask",
     ]);
     const setup = unlistOptions((await get(t.app, "/api/setup")).json());
     const of = (id: string) => setup.recipes.find((r: { id: string }) => r.id === id);

@@ -21,6 +21,7 @@ import { qwen21, qwen21Edit, qwen21FixFace, qwen21MotionPicture, qwen21Outpaint,
 import { scail } from "./scail/family";
 import { scailMotion, scailMotion24 } from "./scail/motion";
 import { removeBackground, seedvrPicture, tools } from "./tools";
+import { findMask } from "./tools/findMask";
 import { wan } from "./wan/family";
 import { wanVideo } from "./wan/video";
 import { zimage, zimageFixFace, zimageOutpaint, zimagePaintOver, zimagePicture, zimageRedraw, zimageSharper } from "./zimage";
@@ -47,7 +48,7 @@ export const recipes: Recipe<any>[] = [
   ltxLipSync,
   ltx25Video,
   ltx25LipSync,
-  removeBackground, seedvrPicture,
+  removeBackground, seedvrPicture, findMask,
 ];
 
 export const familyById = (id: string) => families.find((f) => f.id === id);
@@ -64,6 +65,7 @@ export { LTX_REFINE_SIGMAS, LTX_SIGMAS } from "./ltx/video";
 export type { LtxVideo } from "./ltx/video";
 export type { WanVideo } from "./wan/video";
 export { h3Canvas, h3Frames, H3_FPS } from "./h3/family";
+export { FIND_MASK, pointsText } from "./tools/findMask";
 export { isSeedvr7b, pixelUpscale, RTX_NODES, seedvrChunk, seedvrWindow, sharpened, UPSCALE, upscaleNodes } from "./video/upscale";
 export { saveVideo } from "./shared/out";
 export { AUDIO_LOCK, FACE_REFINE_MASK, FACE_REFINE_NODES, faceModelOf, faceRefined, faceRefineNeeds, faceRefineSkipped } from "./h3/faceRefine";

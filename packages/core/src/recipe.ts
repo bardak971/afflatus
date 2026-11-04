@@ -312,6 +312,11 @@ export interface Recipe<In = Record<string, unknown>> {
    */
   needs?: string[];
   /**
+   * What this input makes is a working picture (origin "scratch"), out of the library and gone after a day unless picked: a
+   * look at a swap's masks (Show the mask), a mask the Stage found (tools.find-mask). Left out: items of the library.
+   */
+  scratch?(input: In): boolean;
+  /**
    * Of `needs`, the ones this input does without (a swap's Show the mask, or a take's Face refine alone, samples nothing: no
    * LoRA, no model): a machine is not held for them, nor a pod sent them. A need its form picks another file for is left
    * out as well, without saying (neededSlots).
