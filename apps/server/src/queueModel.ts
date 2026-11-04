@@ -90,6 +90,11 @@ export interface Running {
   seed?: number;
   /** Whether its models had to be loaded (none were in memory): until its first step, "loading" or only "preparing". */
   cold?: boolean;
+  /**
+   * The model it freed the memory for and brings in, with its family, from the moment it did: the strip names it ("Loading
+   * <it>…", then "<family> · <it>"). The model noted on the machine is the one before it until ComfyUI takes the prompt.
+   */
+  loads?: { model: string; family: string };
 }
 
 /**

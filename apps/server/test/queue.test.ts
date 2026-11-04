@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ComfyClient } from "@afflatus/comfy";
 import type { FakeComfy } from "@afflatus/comfy/testing";
 import { openSqlite, OWNER } from "../src/db";
 import type { Comfy } from "../src/comfy";
@@ -456,6 +457,45 @@ describe("when ComfyUI goes away", () => {
     q.noteReachable(false);
     await until(async () => (await queue()).online === false);
     expect(await queue()).toMatchObject({ model: null, modelFamily: null });
+  });
+
+  it("names on the running job the model it brings in from the moment it frees the memory for it, while the machine's note is still the one before", async () => {
+    const first = await enqueue();
+    await until(() => submitted().length === 1);
+    complete(fake, submitted()[0]!);
+    await until(async () => (await statusOf(first)).status === "done");
+    const before = (await queue()).model;
+    expect(before).not.toBeNull();
+    // ComfyUI's /free held until let go: the render that changes the model stays between deciding to load and its prompt
+    let letGo = () => {};
+    const gate = new Promise<void>((resolve) => { letGo = resolve; });
+    const free = ComfyClient.prototype.free;
+    const spy = vi.spyOn(ComfyClient.prototype, "free").mockImplementation(async function (this: ComfyClient) { await gate; return free.call(this); });
+    try {
+      const id = await enqueue({ checkpoint: "other.safetensors" });
+      await until(async () => Boolean((await queue()).running?.loads));
+      const q = await queue();
+      expect(q.running).toMatchObject({ id, phase: "waiting", loads: { model: expect.stringContaining("other"), family: "sdxl" } });
+      // each machine's own running job says it too
+      expect(q.machines.find((m: { running: { id: string } | null }) => m.running?.id === id)?.running.loads).toEqual(q.running.loads);
+      // the note stays the model before it: a strip reading only that said "Loading <the previous model>…"
+      expect(q.model).toBe(before);
+      letGo();
+      await until(() => submitted().length === 2);
+      await until(async () => (await queue()).model === q.running.loads.model);
+      expect(await queue()).toMatchObject({ model: q.running.loads.model, modelFamily: "sdxl", running: { loads: q.running.loads } });
+      complete(fake, submitted()[1]!);
+      await until(async () => (await statusOf(id)).status === "done");
+      // a render on the model held brings nothing in
+      const warm = await enqueue({ prompt: "a dog", checkpoint: "other.safetensors" });
+      await until(() => submitted().length === 3);
+      expect((await queue()).running).toMatchObject({ id: warm, loads: null });
+      complete(fake, submitted()[2]!);
+      await until(async () => (await statusOf(warm)).status === "done");
+    } finally {
+      letGo();
+      spy.mockRestore();
+    }
   });
 
   it("gives a job queued long after ComfyUI went away its full wait, not the time it had already been away", async () => {

@@ -180,13 +180,18 @@ export interface RunningJob extends Job {
   busy?: string | null;
   /** The seed its graph was built with, once it is sent to ComfyUI; null before, and for a job with none (an export, a cut). */
   seed?: number | null;
+  /**
+   * The model it freed the memory for and brings in, with its family id: named from then on, while the machine's `model` is
+   * the one before it until ComfyUI takes the prompt. Null for a job that loads none, or finds its model held.
+   */
+  loads?: { model: string; family: string } | null;
 }
 /**
  * What a "progress" live event carries: the running job's id and the figures that moved. The job in
  * the queue on screen is changed in place with them (live.ts), so a render that reports every step
  * costs no request. The id is the job's, not ComfyUI's prompt id.
  */
-export type ProgressUpdate = Pick<RunningJob, "id" | "progress" | "eta" | "phase" | "step" | "steps" | "previewSeq" | "stages" | "previewMime" | "spilling" | "seed" | "machine">;
+export type ProgressUpdate = Pick<RunningJob, "id" | "progress" | "eta" | "phase" | "step" | "steps" | "previewSeq" | "stages" | "previewMime" | "spilling" | "seed" | "machine" | "loads">;
 /** A ComfyUI as the queue sees it: its settings, whether it answered, whether it is paused on its own, what it holds and runs. */
 export interface MachineState {
   id: string;
