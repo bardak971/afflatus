@@ -1,4 +1,4 @@
-import { Send, ArrowRightFromLine, AudioLines, Clapperboard, ClipboardCopy, Columns2, Copy, Download, Eraser, ExternalLink, Eye, Film, FlipHorizontal2, FlipVertical2, FolderKanban, Hand, Image as Picture, ImageDown, Info, Maximize2, Mic, Paintbrush, Pencil, PenLine, PersonStanding, Scissors, Shuffle, SlidersHorizontal, Smile, SquareDashed, Star, Trash2, Undo2, VolumeX, Wand2, Wrench, type LucideIcon } from "lucide-react";
+import { Send, Sparkle, Sparkles, ArrowRightFromLine, AudioLines, Clapperboard, ClipboardCopy, Columns2, Copy, Download, Eraser, ExternalLink, Eye, Film, FlipHorizontal2, FlipVertical2, FolderKanban, Hand, Image as Picture, ImageDown, Info, Maximize2, Mic, Paintbrush, Pencil, PenLine, PersonStanding, Scissors, Shuffle, SlidersHorizontal, Smile, SquareDashed, Star, Trash2, Undo2, VolumeX, Wand2, Wrench, type LucideIcon } from "lucide-react";
 import { plural } from "@afflatus/core";
 import { fold, type MenuItem } from "./ContextMenu";
 
@@ -16,7 +16,7 @@ export type Kind = "image" | "video" | "audio";
 export type ActionId =
   | "open" | "keep" | "download" | "rename"
   | "reuse-same" | "reuse-new" | "variation" | "i2v" | "extend" | "motion"
-  | "upscale" | "face" | "hand" | "background" | "inpaint" | "edit" | "outpaint" | "mirror-h" | "mirror-v"
+  | "vary-subtle" | "vary-strong" | "upscale" | "face" | "hand" | "background" | "inpaint" | "edit" | "outpaint" | "mirror-h" | "mirror-v"
   | "trim" | "save-frame" | "extract-audio" | "remove-sound" | "voice"
   | "compare" | "details" | "copy-image" | "copy-seed" | "copy-prompt" | "comfy"
   | "timeline" | "move" | "send"
@@ -54,13 +54,15 @@ export const ACTIONS: Record<ActionId, Spec> = {
   rename: { group: "item", label: "Rename…", key: "F2", kinds: ALL, icon: Pencil, tip: "A name of your own, which the library shows and the search goes by." },
   "reuse-same": { group: "make", label: "Reuse · same seed", key: "L", kinds: ALL, icon: SlidersHorizontal, tip: "Open the form with the same generation parameters and the same seed, as a new draft." },
   "reuse-new": { group: "make", label: "Reuse · new seed", key: "Shift+L", kinds: ALL, icon: SlidersHorizontal, tip: "Open the form with the same generation parameters and a new seed, as a new draft." },
-  variation: { group: "make", label: "Variation", key: "V", kinds: ALL, icon: Shuffle, tip: "Same parameters, new seed: queued at once." },
+  variation: { group: "make", label: "Variation", key: "V", kinds: ALL, icon: Shuffle, tip: "Same parameters, new seed: queued at once. Shift+click or ▾ for a batch count." },
   i2v: { group: "make", sub: "video", label: "Image to video (i2v)", key: "M", kinds: ["image"], icon: Clapperboard, tip: "A new video with this picture as the first frame, on the video model used last." },
   extend: { group: "make", sub: "video", label: "Extend", key: "C", kinds: ["video"], icon: ArrowRightFromLine, tip: "A new clip that carries on from the end of this one, same model and parameters." },
   motion: { group: "make", sub: "video", label: "Motion transfer…", key: "Shift+M", kinds: SEEN, icon: PersonStanding, tip: "A new draft of Motion transfer with this in its place: a picture is what moves, a video is how it moves (the source video)." },
-  upscale: { group: "passes", sub: "passes", label: "Upscale 2x", key: "U", kinds: ["image"], icon: Maximize2, tip: "Upscale 2x: queued at once with the picture's generation parameters." },
-  face: { group: "passes", sub: "passes", label: "Face refine", key: "F", kinds: ["image"], icon: Smile, tip: "Face refine: queued at once with the picture's generation parameters." },
-  hand: { group: "passes", sub: "passes", label: "Hand refine", key: "H", kinds: ["image"], icon: Hand, tip: "Hand refine: Face refine on the hand detector (hand_yolov8s), at denoise 0.35, crop factor 2, a prompt about hands; queued at once with the picture's generation parameters." },
+  "vary-subtle": { group: "passes", sub: "passes", label: "Vary subtle", kinds: ["image"], icon: Sparkle, tip: "img2img of it on its own model at a low denoise: the same picture, its details drawn again on a new seed. Queued at once; Shift+click or ▾ for the denoise and a batch count." },
+  "vary-strong": { group: "passes", sub: "passes", label: "Vary strong", kinds: ["image"], icon: Sparkles, tip: "img2img of it on its own model at a high denoise: its layout and colours kept, the rest drawn anew on a new seed. Queued at once; Shift+click or ▾ for the denoise and a batch count." },
+  upscale: { group: "passes", sub: "passes", label: "Upscale 2x", key: "U", kinds: ["image"], icon: Maximize2, tip: "Upscale 2x: queued at once with the picture's generation parameters. Shift+click or ▾: the factor and the upscaler first." },
+  face: { group: "passes", sub: "passes", label: "Face refine", key: "F", kinds: ["image"], icon: Smile, tip: "Face refine: queued at once with the picture's generation parameters. Shift+click or ▾: the denoise and the detector first." },
+  hand: { group: "passes", sub: "passes", label: "Hand refine", key: "H", kinds: ["image"], icon: Hand, tip: "Hand refine: Face refine on the hand detector (hand_yolov8s), at denoise 0.35, crop factor 2, a prompt about hands; queued at once with the picture's generation parameters. Shift+click or ▾: the denoise and the detector first." },
   background: { group: "passes", sub: "passes", label: "Remove background", key: "B", kinds: ["image"], icon: Eraser, tip: "Remove background: queued at once." },
   inpaint: { group: "passes", sub: "passes", label: "Inpaint…", key: "I", kinds: ["image"], icon: Paintbrush, tip: "Inpaint: a new draft with this picture as the source, the mask painter open." },
   edit: { group: "passes", sub: "passes", label: "Edit…", key: "E", kinds: ["image"], icon: PenLine, tip: "Edit / img2img: a new draft in the form with this picture as the source." },
@@ -187,10 +189,16 @@ export interface ItemAction {
   done?: boolean;
   danger?: boolean;
   run?(): void;
+  /** Its settings first, in a popover, then queued (a pass's Shift+click or ▾, TunePopover.tsx); absent: it has none. */
+  tune?(at: TuneAt): void;
   items?: MenuItem[];
 }
 
 export type Runs = Partial<Record<ActionId, () => void>>;
+/** Where a pass's settings open (passTune.ts): the box of what was clicked, a button or a menu row. */
+export interface TuneAt { left: number; top: number; width: number; height: number }
+/** What opens each action's settings in a place (passTune.ts): the passes that have some. */
+export type Tunes = Partial<Record<ActionId, (at: TuneAt) => void>>;
 
 /** Out of everything but its own little submenus: the reason it is off, or nothing when one of its lines works. */
 const anyOn = (items: MenuItem[]): boolean => items.some((it) => it !== "—" && !it.disabled && (it.run || (it.items && anyOn(it.items))));
@@ -206,7 +214,7 @@ function dead(f: ItemFacts, id: ActionId): boolean {
   const none = (known: boolean) => !known && (!f.reading || Boolean(f.madeElsewhere));
   switch (id) {
     case "open": return Boolean(f.shownHere);
-    case "reuse-same": case "reuse-new": case "variation": case "comfy": return none(f.madeHere);
+    case "reuse-same": case "reuse-new": case "variation": case "vary-subtle": case "vary-strong": case "comfy": return none(f.madeHere);
     case "copy-seed": return none(f.seed !== null);
     case "copy-prompt": return none(Boolean(f.prompt));
     case "extract-audio": case "remove-sound": return !f.hasSound;
@@ -223,13 +231,15 @@ function dead(f: ItemFacts, id: ActionId): boolean {
  * Compare (a look that changes nothing), Delete now last; nothing else, as nothing else can be done there.
  * `runs` is what each does in the place; an action with no run there is off. `notes` are the place's own words on one.
  */
-export function itemActions(f: ItemFacts, runs: Runs, notes: Partial<Record<ActionId, string>> = {}): ItemAction[] {
+export function itemActions(f: ItemFacts, runs: Runs, notes: Partial<Record<ActionId, string>> = {}, tunes: Tunes = {}): ItemAction[] {
   const notMade = f.reading ? "reading…" : f.madeHere ? "its model is not here" : "not generated here";
   const why = (id: ActionId): string | undefined => {
     if (f.inBin && !["open", "download", "bin", "compare"].includes(id)) return "in the bin";
     switch (id) {
       case "open": return f.shownHere ? "shown here" : undefined;
       case "reuse-same": case "reuse-new": case "variation": return f.generated ? undefined : notMade;
+      // on the model it was made with alone: another model's img2img would not vary it, it would redraw it
+      case "vary-subtle": case "vary-strong": return !f.generated ? notMade : f.passes[id] ? undefined : "its model has no img2img";
       case "i2v": return f.opener ? undefined : "no video model takes a first frame";
       case "extend": return f.carrier ? undefined : "no video model carries a clip on";
       case "motion": return f.mover ? undefined : "no model does motion transfer";
@@ -252,7 +262,7 @@ export function itemActions(f: ItemFacts, runs: Runs, notes: Partial<Record<Acti
     const run = runs[id];
     // a row that is running says so, as a greyed row says why
     const busy = f.busy?.[id] ? "running…" : undefined;
-    const base: ItemAction = { id, group: spec.group, sub: spec.sub, label: spec.label, key: spec.key, icon: spec.icon, tip: spec.tip, note: off ?? busy ?? notes[id], disabled: Boolean(off) || Boolean(busy) || (!run && !items?.length), run, items: off ? undefined : items };
+    const base: ItemAction = { id, group: spec.group, sub: spec.sub, label: spec.label, key: spec.key, icon: spec.icon, tip: spec.tip, note: off ?? busy ?? notes[id], disabled: Boolean(off) || Boolean(busy) || (!run && !items?.length), run, items: off ? undefined : items, ...(run && tunes[id] && !off && !busy ? { tune: tunes[id] } : {}) };
     if (f.queued?.[id] && !off) return { ...base, label: "Queued", done: true };
     switch (id) {
       case "keep": return { ...base, label: f.kept ? "Unkeep" : "Keep", pressed: f.kept, tip: f.kept ? "Kept: it stays. Unkeep it to let it go to the bin after a day again." : spec.tip };
@@ -280,7 +290,7 @@ export function itemActions(f: ItemFacts, runs: Runs, notes: Partial<Record<Acti
 }
 
 /** The passes a library selection queues on each of its pictures at once: those that need no form (no mask, no frame to set). */
-export const SELECTION_PASSES = ["upscale", "face", "hand", "background"] as const satisfies readonly ActionId[];
+export const SELECTION_PASSES = ["vary-subtle", "vary-strong", "upscale", "face", "hand", "background"] as const satisfies readonly ActionId[];
 export type SelectionPass = (typeof SELECTION_PASSES)[number];
 
 /** What a library selection is: how many of each kind are ticked, and what the place can do with them. */
@@ -301,7 +311,7 @@ export interface SelectionFacts {
  * quick pass queued on every picture ticked (one job each), Compare when exactly two are ticked. The same actions as an
  * item's (their labels, icons and tips), said for many; in the bin only Download and Compare, as an item's list there.
  */
-export function selectionActions(f: SelectionFacts, runs: { zip?(): void; pass?(id: SelectionPass): void; compare?(): void }): ItemAction[] {
+export function selectionActions(f: SelectionFacts, runs: { zip?(): void; pass?(id: SelectionPass): void; tunes?: Partial<Record<SelectionPass, (at: TuneAt) => void>>; compare?(): void }): ItemAction[] {
   const of = (id: ActionId, over: Partial<ItemAction>): ItemAction => {
     const spec = ACTIONS[id];
     return { id, group: spec.group, sub: spec.sub, label: spec.label, icon: spec.icon, tip: spec.tip, disabled: false, ...over };
@@ -318,6 +328,7 @@ export function selectionActions(f: SelectionFacts, runs: { zip?(): void; pass?(
       note: off ?? `on ${plural(f.pictures, "picture")}`,
       disabled: Boolean(off) || !runs.pass,
       run: runs.pass && !off ? () => runs.pass!(id) : undefined,
+      tune: runs.pass && !off ? runs.tunes?.[id] : undefined,
     });
   });
   const compare = f.seen === 2 && f.count === 2 ? [of("compare", { tip: "The two ticked side by side, pictures also with a wipe, zoom and pan in step; videos play in step.", run: runs.compare, disabled: !runs.compare })] : [];
@@ -366,7 +377,7 @@ const SUBMENUS: Record<SubId, { label: string; icon: LucideIcon; min: number }> 
 export function toMenu(list: ItemAction[], place: Place, folds: boolean | "passes" = true, organise: MenuItem[] = []): MenuItem[] {
   const line = (a: ItemAction): MenuItem => ({
     label: a.label, key: keysShown(place, a.id) ? a.key : undefined, icon: <a.icon size={14} />, note: a.note, danger: a.danger, disabled: a.disabled,
-    ...(a.items ? { items: a.items } : { run: a.run }),
+    ...(a.items ? { items: a.items } : { run: a.run, ...(a.tune ? { tune: a.tune } : {}) }),
   });
   const folding = (sub: SubId | undefined): sub is SubId => Boolean(sub) && (folds === true || (folds === "passes" && sub === "passes"));
   const out: MenuItem[] = [];

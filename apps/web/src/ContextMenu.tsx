@@ -20,7 +20,7 @@
  */
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronRight } from "lucide-react";
+import { Check, ChevronDown, ChevronRight } from "lucide-react";
 import { thumbUrl } from "./api";
 import { Keys } from "./Keys";
 import { parseKeys } from "./keys/grammar";
@@ -44,6 +44,11 @@ export type MenuItem =
       /** A setting turned on or off: its tick stands where the icon would. Left out, the item is a plain action. */
       checked?: boolean;
       run?(): void;
+      /**
+       * Its settings first (a pass's popover, TunePopover.tsx), next to the box given: Shift+click or Shift+Enter on the row, or
+       * the ▾ at its end.
+       */
+      tune?(at: { left: number; top: number; width: number; height: number }): void;
       /** A submenu: opened on hover, → or Enter; ← or Escape closes it. */
       items?: MenuItem[];
     }
@@ -342,12 +347,15 @@ function Panel({ at, flipX, items, label, head, onClose, onBack, keyed = true }:
     const it = items[i];
     if (it && it !== "—" && it.items?.length && !it.disabled) setSub({ index: i, keyed });
   };
-  const choose = (i: number) => {
+  const choose = (i: number, settings = false) => {
     const it = items[i];
     if (!it || it === "—" || it.disabled) return;
     if (it.items) return openSub(i, true);
+    // read before the menu goes: the popover opens where the row was
+    const box = rows.current[i]?.getBoundingClientRect();
     onClose();
-    it.run?.();
+    if (settings && it.tune && box) it.tune({ left: box.left, top: box.top, width: box.width, height: box.height });
+    else it.run?.();
   };
 
   // the innermost panel has the focus (a submenu once open, its parent again once it closes): its active item is
@@ -378,7 +386,7 @@ function Panel({ at, flipX, items, label, head, onClose, onBack, keyed = true }:
       else if (step.do === "back") onBack?.();
       else if (step.do === "move") setActive(step.to);
       else if (step.do === "sub") openSub(active, true);
-      else choose(active);
+      else choose(active, e.shiftKey);
     };
     window.addEventListener("keydown", key, true);
     return () => window.removeEventListener("keydown", key, true);
@@ -433,7 +441,7 @@ function Panel({ at, flipX, items, label, head, onClose, onBack, keyed = true }:
                 if (it.items) openSub(i, false);
                 else setSub(null);
               }}
-              onClick={() => choose(i)}
+              onClick={(e) => choose(i, e.shiftKey)}
               className={cx(
                 "flex min-h-8 shrink-0 items-center gap-2.5 rounded-lg px-2 text-left text-sm disabled:opacity-40",
                 it.disabled && it.note && "py-1",
@@ -453,6 +461,20 @@ function Panel({ at, flipX, items, label, head, onClose, onBack, keyed = true }:
               )}
               {it.key && <Keys keys={it.key} size="sm" className="text-ink-2" />}
               {it.items && <ChevronRight size={14} className="shrink-0 text-ink-2" />}
+              {it.tune && !it.disabled && (
+                // a part of the row rather than a button inside a button: the row's own Shift+click and Shift+Enter do the same
+                <span
+                  aria-hidden
+                  data-tip="Its settings first, then queue (Shift+click does the same)"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    choose(i, true);
+                  }}
+                  className="-mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-hover hover:text-ink"
+                >
+                  <ChevronDown size={13} />
+                </span>
+              )}
             </button>
           ),
         )}

@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 import { Link, Redirect, Route, Switch, useLocation } from "wouter";
 import { Banners } from "./Banners";
+import { TunePopoverHost } from "./TunePopover";
 import { useSearchKey } from "./Keys";
 import { TabProgress } from "./TabProgress";
 import { DropTray } from "./DropTray";
@@ -171,6 +172,7 @@ export function App() {
       <BarHost />
       <UpdateNews />
       <ConfirmHost />
+      <TunePopoverHost />
       <DeployHost />
       <FindModelsHost />
       <Suspense fallback={null}><KeysHelp /></Suspense>
