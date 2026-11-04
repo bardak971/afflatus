@@ -204,6 +204,8 @@ export interface MachineState {
   files?: PodFile[];
   /** The model it was last asked to load, by name; null when none is, or it is not known. */
   model: string | null;
+  /** The family id of the job that loaded it; null when not known. */
+  modelFamily?: string | null;
   /** Its learned pace against the others (1 the common pace, 2 half as fast); null with nothing to compare yet. */
   pace: number | null;
   running: RunningJob | null;
@@ -222,6 +224,8 @@ export interface QueueStatus {
   paused: boolean;
   /** The model the first ComfyUI was last asked to load, by name. Null when none is, or when it is not known. */
   model: string | null;
+  /** The family id of the job that loaded it (Krea 2, SDXL); null when not known. */
+  modelFamily?: string | null;
   online: boolean;
   offlineForMs: number;
   /** The first running job (the screens that show one); every machine's is in `machines`. */

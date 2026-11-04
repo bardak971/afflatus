@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefO
 import { createPortal } from "react-dom";
 import { useLeave } from "./leave";
 import { popFrom } from "./motion";
+import { scrollAway } from "./scrollAway";
 import { cx } from "./ui";
 
 /**
@@ -29,6 +30,8 @@ export function Popover({ anchor, onClose, label, width = 360, height = 420, bes
   const panel = useRef<HTMLDivElement>(null);
   const panelRef = useLeave("m-pop-out", panel);
   const [place, setPlace] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number; origin: string } | null>(null);
+  // counted up to place it again under its anchor, as a scroll still going when it opened moves that anchor
+  const [moved, setMoved] = useState(0);
   useLayoutEffect(() => {
     const r = anchor.current?.getBoundingClientRect();
     if (!r) return;
@@ -46,7 +49,7 @@ export function Popover({ anchor, onClose, label, width = 360, height = 420, bes
     // window's right side
     const x = `${Math.max(0, Math.min(width, r.left + r.width / 2 - left))}px`;
     setPlace(below >= Math.min(height, 260) || below >= above ? { left, top: r.bottom + 4, maxHeight: Math.max(160, below), origin: `${x} top` } : { left, bottom: window.innerHeight - r.top + 4, maxHeight: Math.max(160, above), origin: `${x} bottom` });
-  }, [anchor, width, height, beside]);
+  }, [anchor, width, height, beside, moved]);
   useEffect(() => {
     const outside = (e: PointerEvent) => {
       const t = e.target as Node;
@@ -54,7 +57,13 @@ export function Popover({ anchor, onClose, label, width = 360, height = 420, bes
       if (panel.current?.contains(t) || anchor.current?.contains(t) || (t as Element).closest?.("[data-floating]")) return;
       onClose();
     };
-    const scrolled = (e: Event) => !panel.current?.contains(e.target as Node) && !(e.target as Element).closest?.("[data-floating]") && onClose();
+    // a scroll begun while it is open closes it; the tail of one still going as it was clicked does not (scrollAway.ts)
+    const scrolled = scrollAway({
+      anchor: () => anchor.current,
+      inside: (t) => Boolean(panel.current?.contains(t as Node) || (t as Element | null)?.closest?.("[data-floating]")),
+      follow: () => setMoved((n) => n + 1),
+      close: onClose,
+    });
     const key = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("pointerdown", outside, true);
     window.addEventListener("scroll", scrolled, true);

@@ -58,6 +58,8 @@ const PAUSED_ALL_KEY = "queue.pausedAll";
 const MODEL_KEY = "queue.model";
 /** The base models the last job had a ComfyUI load, kept across restarts of this app (ComfyUI keeps running through them). */
 const LOADS_KEY = "queue.loads";
+/** The family of the job that loaded them (its recipe's), so that the strip names the family of what is held, not of the last job seen. */
+const FAMILY_KEY = "queue.family";
 const keyOf = (key: string, machine: string) => (machine === FIRST_MACHINE ? key : `${key}.${machine}`);
 /** At most how often a running render's step count is saved on its job, when the options do not say. */
 const STEPS_SAVE_MS = 5_000;
@@ -381,7 +383,7 @@ export class Queue {
     if (lane) return lane;
     const self = this;
     lane = {
-      id, machine: null, comfy: null, running: null, starting: null, holds: false, unloadTimer: null, lastLoads: null, lastModel: null, paused: false, reachable: null, device: null,
+      id, machine: null, comfy: null, running: null, starting: null, holds: false, unloadTimer: null, lastLoads: null, lastModel: null, lastFamily: null, paused: false, reachable: null, device: null,
       outside: null, outsideAt: 0, outsideRead: null, outsideAgain: false,
       ready: Promise.resolve(),
       core: null as unknown as QueueCore,
@@ -397,8 +399,9 @@ export class Queue {
       get paused() { return self.paused || l.paused; },
       get lastLoads() { return l.lastLoads; },
       get lastModel() { return l.lastModel; },
+      get lastFamily() { return l.lastFamily; },
       get offlineSince() { return self.offline.since; },
-      loaded: (loads, model) => this.loaded(l, loads, model),
+      loaded: (loads, model, family) => this.loaded(l, loads, model, family),
       usual: () => this.forecasts.usual(),
       statRows: (modelFile) => this.forecasts.statRows(modelFile),
       familyReads: this.forecasts.familyReads,
@@ -547,6 +550,7 @@ export class Queue {
     const loaded = await value(keyOf(LOADS_KEY, lane.id));
     const named = await value(keyOf(MODEL_KEY, lane.id));
     lane.lastModel = loaded ? named || null : null;
+    lane.lastFamily = loaded ? (await value(keyOf(FAMILY_KEY, lane.id))) || null : null;
     if (loaded !== undefined) lane.lastLoads = loaded || null;
     else if (lane.id === FIRST_MACHINE) {
       // nothing noted yet (a database from before the note existed): what the last render loaded
@@ -951,14 +955,16 @@ export class Queue {
   }
 
   /** Note what a ComfyUI was last asked to load, here and in the database. */
-  private async loaded(lane: Lane, loads: string | null, model: string | null = null): Promise<void> {
-    if (lane.lastLoads === loads && lane.lastModel === model) return;
+  private async loaded(lane: Lane, loads: string | null, model: string | null = null, family: string | null = null): Promise<void> {
+    if (lane.lastLoads === loads && lane.lastModel === model && lane.lastFamily === family) return;
     lane.lastLoads = loads;
     lane.lastModel = model;
+    lane.lastFamily = family;
     // only a note: a database that cannot take it costs one needless unload after the next restart.
     // Freed by hand is noted as empty, which is not the same as nothing noted.
     await this.setting(keyOf(MODEL_KEY, lane.id), model ?? "").catch(() => {});
     await this.setting(keyOf(LOADS_KEY, lane.id), loads ?? "").catch(() => {});
+    await this.setting(keyOf(FAMILY_KEY, lane.id), family ?? "").catch(() => {});
   }
 
   /** After a render or a job on the GPU: when it is set in Settings, the machine's models are unloaded once it has not rendered for that long. */

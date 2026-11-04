@@ -442,6 +442,22 @@ describe("when ComfyUI goes away", () => {
     await until(async () => (await queue()).online === true);
   });
 
+  it("names the family of the model it holds with the model, from the job that loaded it, and forgets both when that is not known", async () => {
+    const id = await enqueue();
+    // noted once ComfyUI took the prompt, a moment after the fake has it: the strip says "SDXL · <checkpoint>", never the
+    // family of another job seen last
+    await until(async () => (await queue()).model !== null);
+    expect((await queue()).modelFamily).toBe("sdxl");
+    complete(fake, submitted()[0]!);
+    await until(async () => (await statusOf(id)).status === "done");
+    expect((await queue()).modelFamily).toBe("sdxl");
+    const q = t.services.queue;
+    q.noteReachable(false);
+    q.noteReachable(false);
+    await until(async () => (await queue()).online === false);
+    expect(await queue()).toMatchObject({ model: null, modelFamily: null });
+  });
+
   it("gives a job queued long after ComfyUI went away its full wait, not the time it had already been away", async () => {
     // A ComfyUI that answers every request with an error: the line finds it away on each pass, and the passes can be
     // counted. The clock is set by hand, so that no wait in this test depends on how fast the machine is.

@@ -153,16 +153,16 @@ function Loading({ name }: { name: string }) {
 }
 
 /**
- * The family of the model ComfyUI holds ("Krea 2"), from the job that loaded it (the running one, else the last that
- * rendered or loaded): a file name alone ("gonzalomoKrea2_v40_3128457") does not always say what it is. Null when no
- * job says.
+ * The family of the model ComfyUI holds ("Krea 2"), as the server noted it with the model: a file name alone
+ * ("gonzalomoKrea2_v40_3128457") does not always say what it is. Not guessed from the last job seen: that one may have run
+ * on a pod, or loaded nothing (a finish), and an SDXL checkpoint was named "Krea 2" for as long as it stayed first. Null
+ * when not known.
  */
 function useHeldFamily(): string | null {
   const queue = useQueue();
   const recipes = useRecipes();
-  const job = queue.data?.running ?? queue.data?.recent.find((j) => (j.kind === "render" || j.kind === "load") && j.status === "done");
-  const recipe = job ? recipes.data?.recipes.find((r) => r.id === job.recipe) : undefined;
-  return recipe ? recipes.data?.families.find((f) => f.id === recipe.family)?.name ?? null : null;
+  const id = queue.data?.modelFamily;
+  return id ? recipes.data?.families.find((f) => f.id === id)?.name ?? null : null;
 }
 
 /** The model that is loaded, by its name. Nothing when none is. Not `sure`: whether the open form renders with it cannot be told yet, and the icon does not say it does. */
