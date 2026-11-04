@@ -7,7 +7,7 @@ import type { LayerPlace } from "../viewer/ZoomPicture";
 import { boxFrom, percentOf } from "./geometry";
 import { planeFrom, pngOf } from "./maskImage";
 import {
-  bounds, clear as clearPlane, combine, dab, EMPTY_BELOW, fillPolygon, fillRect, History, invert, line, newPlane, resample, tint, union, workSize,
+  bounds, clear as clearPlane, combine, dab, EMPTY_BELOW, feathered, fillPolygon, fillRect, History, invert, line, newPlane, resample, tint, union, workSize,
   type Ink, type Plane, type Rect,
 } from "./raster";
 import type { LayerPointer, LayerTool } from "./tools";
@@ -54,8 +54,11 @@ export interface MaskLayer {
   failed: string | null;
   /** The mask as a PNG at the picture's own size; an empty one is an error. */
   png(): Promise<Blob>;
-  /** A mask from elsewhere (a click's, a detector's), at any size, added or taken away as one step. */
-  apply(found: Plane, ink: Ink): void;
+  /**
+   * A mask from elsewhere (a click's, a detector's), at any size, added or taken away as one step, with the brush's feather
+   * past its edge. Returns the mask's version after it: the step is still the last one while `version` says the same.
+   */
+  apply(found: Plane, ink: Ink): number;
   /** The mask drawn over the picture, for StageLayer. */
   view(place: LayerPlace): ReactNode;
 }
@@ -72,6 +75,8 @@ export function useMaskLayer({ natural, from = null, start = { size: 64, feather
   const [brush, setBrushState] = useState<Brush>(start);
   const [shown, setShown] = useState(true);
   const [version, setVersion] = useState(0);
+  // the version as it is this instant (the state is a render late): what apply returns
+  const versionNow = useRef(0);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   const [said, setSaid] = useState<{ area: Rect | null; soft: boolean }>({ area: null, soft: false });
@@ -104,7 +109,8 @@ export function useMaskLayer({ natural, from = null, start = { size: 64, feather
   /** After a step: what the mask covers, said again, in the picture's pixels. */
   const changed = useCallback(() => {
     const p = plane.current;
-    setVersion((v) => v + 1);
+    versionNow.current += 1;
+    setVersion(versionNow.current);
     if (!p || !natural) return;
     const b = bounds(p);
     const s = p.w / natural.w;
@@ -291,9 +297,10 @@ export function useMaskLayer({ natural, from = null, start = { size: 64, feather
     },
     apply: (found, ink) => {
       const p = plane.current;
-      if (!p) return;
+      if (!p || !natural) return versionNow.current;
       const fitted = found.w === p.w && found.h === p.h ? found : resample(found, p.w, p.h);
-      step((q) => combine(q, fitted, ink));
+      step((q) => combine(q, feathered(fitted, brush.feather * (p.w / natural.w)), ink));
+      return versionNow.current;
     },
     view: (place) => (
       <canvas

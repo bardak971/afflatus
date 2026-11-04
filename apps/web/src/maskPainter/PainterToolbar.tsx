@@ -2,7 +2,7 @@ import { Eraser, Redo2, Undo2 } from "lucide-react";
 import { Button, CloseButton, Help } from "../ui";
 
 /** How the painter is used, for its ?. */
-const HOW = "Paint a little wider than the thing itself: only what is painted is redone, the rest stays as it is, and the feather fades the fix out. Tools: P brush, E eraser, B box, L lasso, X invert, H move; [ ] the brush's size, Shift+[ ] its feather, M shows the mask. Mouse wheel: zoom in where the pointer is. Space held or the middle button: drag the picture around.";
+const HOW = "Paint a little wider than the thing itself: only what is painted is redone, the rest stays as it is, and the feather fades the fix out. Tools: P brush, E eraser, B box, L lasso, W colour wand, X invert, H move; [ ] the brush's size, Shift+[ ] its feather, M shows the mask. Mouse wheel: zoom in where the pointer is. Space held or the middle button: drag the picture around.";
 
 /** The painter's bar: undo, redo and start over, and Done. The tools are down the left, the brush on the strip under it. */
 export function PainterToolbar({ canUndo, onUndo, canRedo, onRedo, canClear, onClear, error, saving, canSave, onSave, onClose }: {

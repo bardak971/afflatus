@@ -36,3 +36,14 @@ export async function pngOf(plane: Plane, w: number, h: number): Promise<Blob> {
   if (!blob) throw new Error("the mask could not be saved");
   return blob;
 }
+
+/** A picture's own pixels (RGBA) at `w` × `h`: what the colour wand reads. */
+export async function picturePixels(src: string, w: number, h: number): Promise<Uint8ClampedArray> {
+  const img = await loadImage(src);
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext("2d", { willReadFrequently: true })!;
+  ctx.drawImage(img, 0, 0, w, h);
+  return ctx.getImageData(0, 0, w, h).data;
+}

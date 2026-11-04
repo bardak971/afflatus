@@ -1,6 +1,7 @@
 import { Hand, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import type { LayerPlace } from "../viewer/ZoomPicture";
+import type { Rect } from "./raster";
 
 /**
  * The tools of the Stage's drawing layer, one shape for all: the mask's brush, rubber, box, lasso and invert, the
@@ -43,6 +44,18 @@ export interface LayerTool {
   draw?(place: LayerPlace): ReactNode;
   /** Off, with why in its tip (a click to mask while the picture has nothing to find in). */
   disabled?: string;
+}
+
+/**
+ * A shape a tool leaves on the layer and keeps, for more than a mask: a detector's face to click, later a region's box
+ * with its prompt, cast and LoRA (#271). `payload` is the user's own (what the shape is for).
+ */
+export interface LayerShape<P> {
+  id: string;
+  /** Where it is, in the picture's pixels. */
+  box: Rect;
+  label: string;
+  payload: P;
 }
 
 /** The toolbar's list: tools, and a rule between groups of them. */
