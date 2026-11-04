@@ -72,6 +72,11 @@ export interface Tables {
     countdown_from: string | null;
     /** set = in the bin. */
     deleted_at: string | null;
+    /**
+     * Of a version of a picture (versions.ts): the head of its stack, always the root one; hidden from the library until it
+     * is kept. Optional on insert, as the database fills it with null.
+     */
+    version_of?: string | null;
     /** Of a file of a linked folder that is in the bin: where it was on the disk, to put it back there. */
     linked_path: string | null;
     created_at: string;
@@ -236,6 +241,8 @@ export interface Tables {
     packs?: string | null;
     /** The MCP token whose call queued it (mcpTokens.ts), for its limits, Costs and the status bar; null: the page, or from before 0094. */
     mcp_token_id?: string | null;
+    /** The head of the stack its results join as versions (versions.ts), as the root when it was queued; null: new items. */
+    version_of?: string | null;
     created_at: string;
     started_at: string | null;
     finished_at: string | null;

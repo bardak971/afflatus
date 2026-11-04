@@ -6,8 +6,9 @@ import { Kept } from "./kept";
 import { draftLabel, promptOf, recipeWords, shownNames } from "./autoName";
 import type { DbKind, Tables } from "./db";
 import { assetView, SPACE } from "./media";
-import { folderIdsOf, NOT_IN_LIBRARY } from "./library";
+import { folderIdsOf, inLibrary } from "./library";
 import { readJson } from "./queueModel";
+import { versionCounts } from "./versions";
 import type { Services } from "./services";
 
 /** The library listed and searched: a page at a time, by kind, folder, project, model, LoRA, draft and words; and the filters' choices. */
@@ -54,7 +55,7 @@ type ListQuery = z.infer<typeof listQuery>;
 
 /** The library by a list's filters (bin, kind, folder or project, kept, since, family, draft), before any order, page or search. */
 async function filterAssets(s: Services, q: ListQuery) {
-  let query = s.db.selectFrom("assets").where("deleted_at", q.bin ? "is not" : "is", null).where("origin", "not in", NOT_IN_LIBRARY);
+  let query = s.db.selectFrom("assets").where("deleted_at", q.bin ? "is not" : "is", null).where(inLibrary);
   if (q.kind) query = query.where("kind", "=", q.kind);
   if (q.folder === "none") query = query.where("folder_id", "is", null);
   else if (q.folder) query = query.where("folder_id", "=", q.folder);
@@ -392,7 +393,9 @@ class AssetSearch {
       }
     }
     const shown = await shownNames(this.s.db, rows, (id) => this.s.registry.recipe(id)?.title);
-    return rows.map((r) => ({ ...assetView(r), ...(shown.has(r.id) ? { shownName: shown.get(r.id)! } : {}), clipOf: placed.get(r.id) ?? null, draftOf: (r.generation_id && drafts.get(r.generation_id)) || null, family: (r.generation_id && families.get(r.generation_id)) || null }));
+    // how many versions wait under each picture, for its tile's "3 versions" (versions.ts)
+    const versions = await versionCounts(this.s.db, rows.filter((r) => r.kind === "image").map((r) => r.id));
+    return rows.map((r) => ({ ...assetView(r), ...(shown.has(r.id) ? { shownName: shown.get(r.id)! } : {}), clipOf: placed.get(r.id) ?? null, draftOf: (r.generation_id && drafts.get(r.generation_id)) || null, family: (r.generation_id && families.get(r.generation_id)) || null, versions: versions.get(r.id) ?? 0 }));
   }
 
   /**
@@ -429,7 +432,7 @@ class AssetSearch {
     const rows = await this.s.db
       .selectFrom("generations").innerJoin("assets", "assets.generation_id", "generations.id")
       .select(["generations.id", "generations.recipe_id", "generations.inputs", "generations.resolved"])
-      .where("assets.deleted_at", "is", null).where("assets.origin", "not in", NOT_IN_LIBRARY)
+      .where("assets.deleted_at", "is", null).where(inLibrary)
       .execute();
     const models = new Map<string, number>();
     const loras = new Map<string, number>();

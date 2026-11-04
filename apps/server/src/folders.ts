@@ -38,6 +38,8 @@ export async function foldersList(s: Services) {
     .select((eb) => ["folder_id", eb.fn.countAll().as("n")])
     .where("deleted_at", "is", null)
     .where("folder_id", "is not", null)
+    // a version waiting under its picture is not one of the folder's items until it is kept (versions.ts)
+    .where("version_of", "is", null)
     .groupBy("folder_id")
     .execute();
   const byFolder = new Map(counts.map((c) => [c.folder_id, Number(c.n)]));

@@ -1,7 +1,7 @@
 import { sql } from "kysely";
 import type { InputSpec, Recipe } from "@afflatus/core";
 import { z } from "zod";
-import { NOT_IN_LIBRARY } from "./library";
+import { inLibrary } from "./library";
 import type { Services } from "./services";
 
 /**
@@ -69,7 +69,7 @@ export async function promptHistory(s: Services, raw: unknown): Promise<{ items:
     const gens = open.flatMap((i) => i.gens.slice(i.checked));
     if (!gens.length) return;
     const outputs = await s.db.selectFrom("assets").select(["id", "generation_id"])
-      .where("generation_id", "in", gens).where("deleted_at", "is", null).where("origin", "not in", NOT_IN_LIBRARY)
+      .where("generation_id", "in", gens).where("deleted_at", "is", null).where(inLibrary)
       .orderBy("created_at").orderBy("id").execute();
     const first = new Map<string, string>();
     for (const a of outputs) if (a.generation_id && !first.has(a.generation_id)) first.set(a.generation_id, a.id);
