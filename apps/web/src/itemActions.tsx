@@ -456,14 +456,15 @@ export const sideSlot = (id: ActionId): SideSlot => {
   const group = ACTIONS[id].group;
   if (group === "make" || group === "passes" || group === "tools") return "buttons";
   switch (id) {
-    case "compare": case "details": case "copy-image": case "download": case "send": return "buttons";
+    case "compare": case "details": case "copy-image": case "download": return "buttons";
     case "keep": return "status";
     case "rename": return "name";
     case "copy-seed": return "seed";
     // each text sent has its own Copy there
     case "copy-prompt": return "prompt";
     case "comfy": return "parameters";
-    case "timeline": return "put";
+    // Send to is a row of the side's one Put it in: as a button of its group it made a second Put it in over it
+    case "timeline": case "send": return "put";
     case "move": return "folder";
     case "bin": return "foot";
     default: return "none";

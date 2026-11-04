@@ -113,13 +113,14 @@ export function FixBar({ verb, tool, job, mask, grow, busy, note, onFix, onFullF
         />
         {denoise && verb !== "Outpaint" && (
           <span className="flex items-center gap-1.5 text-xs text-ink-2">
-            Denoise <NumberBox label="Denoise" value={strength} min={denoise.min ?? 0.05} max={denoise.max ?? 1} step={denoise.step ?? 0.05} onCommit={setStrength} className="w-16" />
+            Denoise <NumberBox label="Denoise" value={strength} min={denoise.min ?? 0.05} max={denoise.max ?? 1} step={denoise.step ?? 0.05} onCommit={setStrength} />
           </span>
         )}
         <span className="flex items-center gap-1.5 text-xs text-ink-2" data-tip="How many versions one Fix makes, each on a new seed">
-          × <NumberBox label="Versions" value={count} min={1} max={MAX_COUNT} onCommit={(n) => setCount(Math.round(n))} className="w-12" />
+          × <NumberBox label="Versions" value={count} min={1} max={MAX_COUNT} onCommit={(n) => setCount(Math.round(n))} />
         </span>
-        <IconButton label="The fix's settings" tip="The fix's settings: mask blur, steps, sampler… and the full Inpaint form" tone="outline" size={36} onClick={(e) => tune(e.currentTarget)}>
+        {/* its own box at the number boxes' height, the bar's gap on each side */}
+        <IconButton label="The fix's settings" tip="Steps, sampler… and the full form" tone="outline" size={32} onClick={(e) => tune(e.currentTarget)}>
           <Settings2 size={15} />
         </IconButton>
         <Button tone="primary" disabled={Boolean(why)} data-tip={why ?? `${plural(count, "version")} of the picture, each on a new seed`} onClick={() => fix()} className="h-9 shrink-0">
