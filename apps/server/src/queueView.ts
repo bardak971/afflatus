@@ -175,7 +175,7 @@ export async function status(
     const monitor = own && lane ? (await lane.core.comfy()).monitor : null;
     // the seed it was built with, once sent: from memory, or from the job when another process sent it
     const seed = own?.seed ?? readJson<Partial<Resume>>(r.resume, {}).seed ?? null;
-    return { ...brief(r), seed, ...behind(figures(monitor, own, own?.promptId, idle(r)), lane), spilling: own && lane ? await spillingNow(lane.core) : false, busy: own ? lane?.busy ?? null : null };
+    return { ...brief(r), seed, ...behind(figures(monitor, own, own?.promptId, idle(r)), lane), spilling: own && lane ? await spillingNow(lane.core) : false, busy: own ? lane?.busy ?? null : null, loads: own?.loads ?? null };
   };
   const ran = rows.filter((r) => r.status === "running");
   const cards = await Promise.all(lanes.map((l) => {
@@ -344,7 +344,7 @@ export async function progress(lanes: LaneView[]) {
   for (const lane of lanes) {
     const run = lane.core.running;
     if (!run) continue;
-    all.push({ id: run.id, machine: lane.machine?.id ?? null, ...behind(figures((await lane.core.comfy()).monitor, run, run.promptId, run.tool ?? "waiting"), lane), seed: run.seed ?? null, spilling: await spillingNow(lane.core) });
+    all.push({ id: run.id, machine: lane.machine?.id ?? null, ...behind(figures((await lane.core.comfy()).monitor, run, run.promptId, run.tool ?? "waiting"), lane), seed: run.seed ?? null, spilling: await spillingNow(lane.core), loads: run.loads ?? null });
   }
   return all.length ? { ...all[0]!, all } : null;
 }

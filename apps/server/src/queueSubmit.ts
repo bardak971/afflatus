@@ -331,6 +331,12 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   await measuredFirst(joinedOnto(recipe, input));
   going(signal);
   if (cold) {
+    // named on the running job from now on: the machine's note is cleared below and written only once ComfyUI took the prompt
+    const model = mainModel(built);
+    if (model && core.running?.id === row.id) {
+      core.running.loads = { model, family: recipe.family };
+      core.events.emit("queue");
+    }
     await timedPart("free", () => comfy.client.free().catch(() => {}));
     await core.loaded(null);
   }

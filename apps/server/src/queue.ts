@@ -965,6 +965,8 @@ export class Queue {
     await this.setting(keyOf(MODEL_KEY, lane.id), model ?? "").catch(() => {});
     await this.setting(keyOf(LOADS_KEY, lane.id), loads ?? "").catch(() => {});
     await this.setting(keyOf(FAMILY_KEY, lane.id), family ?? "").catch(() => {});
+    // the strip reads the model from the queue: a progress event changes only the running job's figures
+    this.events.emit("queue");
   }
 
   /** After a render or a job on the GPU: when it is set in Settings, the machine's models are unloaded once it has not rendered for that long. */

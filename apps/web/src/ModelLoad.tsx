@@ -115,7 +115,11 @@ export function StripModel() {
   if (queue.data?.online === false) return null;
   // with several ComfyUIs the machines' pill says what each holds (MachinesPill): here only a form's own model, and where it is
   if (severalMachines(queue.data).length) return form ? <ModelMenu><OfForm {...form} /></ModelMenu> : null;
-  // a render still bringing its model in: the model is named as it will be held, but it is not in yet
+  // a render that freed the memory for its model names that one until it ends: the queue's model is the one before it until
+  // ComfyUI takes the prompt, and a progress event changes the phase without reading the queue again
+  const loads = queue.data?.running?.loads;
+  if (loads) return <ModelMenu>{NOT_IN.has(queue.data!.running!.phase) ? <Loading name={loads.model} family={loads.family} /> : form ? <OfForm {...form} /> : <Held name={loads.model} family={loads.family} />}</ModelMenu>;
+  // a render still bringing in the model held (its graph sent, its models not told warm yet): named as it is held
   if (queue.data?.running?.phase === "loading" && queue.data.model) return <ModelMenu><Loading name={queue.data.model} /></ModelMenu>;
   return <ModelMenu>{form ? <OfForm {...form} /> : <Held name={queue.data?.model ?? null} />}</ModelMenu>;
 }
@@ -140,12 +144,18 @@ function ModelMenu({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** The model the running render is loading into ComfyUI: grey until it is in. */
-function Loading({ name }: { name: string }) {
+/** The phases of a running render before its model is in: its files going up, its prompt behind another, the load itself. */
+const NOT_IN = new Set(["waiting", "behind", "loading"]);
+
+/** The model the running render is loading into ComfyUI: grey until it is in. `family`: its family id, when the render said it. */
+function Loading({ name, family: id }: { name: string; family?: string }) {
+  const family = useFamilyName(id ?? null);
   return (
     <span className={cx(stripGhost, "min-w-0 hover:bg-transparent")} data-tip={`ComfyUI is loading ${name} for the running render. It stays loaded after it, for the next one.`}>
       <Light on={false} />
       <span className="shrink-0">Loading</span>
+      {family && <span className="shrink-0 font-semibold text-ink">{family}</span>}
+      {family && <span className="shrink-0 text-ink-3 max-xl:hidden">·</span>}
       <span className={cx("max-w-60", nameClass)}>{name}</span>
       <span className="shrink-0">…</span>
     </span>
@@ -159,15 +169,24 @@ function Loading({ name }: { name: string }) {
  * when not known.
  */
 function useHeldFamily(): string | null {
-  const queue = useQueue();
+  return useFamilyName(useQueue().data?.modelFamily ?? null);
+}
+
+/** A family's name ("Krea 2") by its id; null when not known. */
+function useFamilyName(id: string | null): string | null {
   const recipes = useRecipes();
-  const id = queue.data?.modelFamily;
   return id ? recipes.data?.families.find((f) => f.id === id)?.name ?? null : null;
 }
 
-/** The model that is loaded, by its name. Nothing when none is. Not `sure`: whether the open form renders with it cannot be told yet, and the icon does not say it does. */
-function Held({ name, sure = true }: { name: string | null; sure?: boolean }) {
-  const family = useHeldFamily();
+/**
+ * The model that is loaded, by its name. Nothing when none is. Not `sure`: whether the open form renders with it cannot be
+ * told yet, and the icon does not say it does. `family`: its family id when the caller knows it (the running render's),
+ * else the one noted with the machine's model.
+ */
+function Held({ name, sure = true, family: id }: { name: string | null; sure?: boolean; family?: string }) {
+  const noted = useHeldFamily();
+  const named = useFamilyName(id ?? null);
+  const family = id ? named : noted;
   if (!name) return null;
   if (!sure) {
     return (
@@ -218,7 +237,8 @@ function OfForm({ recipe, input, look }: OpenForm) {
   const state = several.length && loaded.data && loaded.data.loaded !== null ? Boolean(loaded.data.on) : loaded.data?.loaded;
   // with several ComfyUIs: the one that holds it, named; none holding it is said for all of them
   const on = several.length ? machineName(queue.data, loaded.data?.on) : null;
-  const held = several.length ? null : queue.data?.model ?? null;
+  // the running render's own model once it freed the memory for it: the queue's is the one before it until ComfyUI takes it
+  const held = several.length ? null : queue.data?.running?.loads?.model ?? queue.data?.model ?? null;
   // a model file the form uses that ComfyUI does not have yet (an official file picked greyed, a family file to come):
   // there is nothing to load before its Download. Matched as the field and the server match it (picksUnlisted).
   const status = setup.data?.recipes.find((r) => r.id === recipe.id);
