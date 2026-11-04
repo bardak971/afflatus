@@ -2,10 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { useState } from "react";
 import { Brush } from "lucide-react";
+import { FrameOptions } from "../../src/stageLayer/LayerStrip";
 import { LayerToolbar } from "../../src/stageLayer/LayerToolbar";
 import { StageLayer, useLayerKeys } from "../../src/stageLayer/StageLayer";
 import { HAND_TOOL, type LayerTool, type ToolbarItem } from "../../src/stageLayer/tools";
+import { useFrameTool, type FrameSides, type FrameTool } from "../../src/stageLayer/useFrameTool";
 import { useMaskLayer, type MaskLayer } from "../../src/stageLayer/useMaskLayer";
+import { FIT, fitted, placed } from "../../src/viewer/zoom";
 import { ZoomPicture } from "../../src/viewer/ZoomPicture";
 import { draw } from "./render";
 
@@ -196,5 +199,66 @@ describe("the mask layer", () => {
     expect(document.querySelector("[data-stage-layer] polygon")).not.toBeNull();
     fireEvent.pointerUp(layer(), { pointerId: 1, pointerType: "mouse" });
     expect(mask!.area).toEqual({ x: 100, y: 100, w: 200, h: 200 });
+  });
+});
+
+describe("the outpaint frame", () => {
+  let said: FrameSides[] = [];
+  let frame: FrameTool | null = null;
+  function FrameRig() {
+    const f = useFrameTool({ natural: NATURAL, onSides: (s) => said.push(s) });
+    frame = f;
+    return (
+      <>
+        <FrameOptions frame={f} natural={NATURAL} />
+        <ZoomPicture src="/api/assets/zz-test/file" natural={NATURAL} panMode="layer" canvas={f.canvas} overlay={(place) => <StageLayer place={place} tool={f.tool} />} />
+      </>
+    );
+  }
+  /** Where a point of the picture is on the screen, in the frame the Stage fits now. */
+  const onScreen = (x: number, y: number) => {
+    const c = frame!.canvas!;
+    const fit = fitted({ w: c.w, h: c.h }, { w: 800, h: 600 });
+    const shown = placed(FIT, fit, { w: 800, h: 600 });
+    const k = fit.w / c.w;
+    return { clientX: shown.left + (x + c.x) * k, clientY: shown.top + (y + c.y) * k };
+  };
+  beforeEach(() => {
+    said = [];
+  });
+
+  it("drags a corner out, snapped, and says the sides when let go", () => {
+    draw(<FrameRig />);
+    const from = onScreen(0, 0);
+    fireEvent.pointerDown(layer(), { button: 0, pointerId: 1, pointerType: "mouse", ...from });
+    // the Stage's frame is held still while dragging: the same sums place the pointer
+    fireEvent.pointerMove(layer(), { pointerId: 1, pointerType: "mouse", ...onScreen(-200, -120) });
+    expect(said).toEqual([]);
+    expect(document.querySelectorAll("[data-handle]").length).toBe(8);
+    fireEvent.pointerUp(layer(), { pointerId: 1, pointerType: "mouse" });
+    // 800 × 600: 200 out on the left makes 1000, snapped to 1024 (+224); 120 up makes 720, snapped to 704 (+104)
+    expect(said).toEqual([{ shape: "Custom", padLeft: 224, padTop: 104, padRight: 0, padBottom: 0 }]);
+    expect(document.body.textContent).toContain("800 × 600 → 1024 × 704");
+  });
+
+  it("a press away from the frame's edges does nothing", () => {
+    draw(<FrameRig />);
+    fireEvent.pointerDown(layer(), { button: 0, pointerId: 1, pointerType: "mouse", ...onScreen(400, 300) });
+    fireEvent.pointerMove(layer(), { pointerId: 1, pointerType: "mouse", ...onScreen(100, 100) });
+    fireEvent.pointerUp(layer(), { pointerId: 1, pointerType: "mouse" });
+    expect(said).toEqual([]);
+    expect(frame!.pads).toEqual({ padLeft: 0, padTop: 0, padRight: 0, padBottom: 0 });
+  });
+
+  it("brings the picture to a shape by its chip, and back by the reset", () => {
+    draw(<FrameRig />);
+    fireEvent.click([...document.querySelectorAll<HTMLElement>("[role=radio]")].find((b) => b.textContent === "16:9")!);
+    const last = said[said.length - 1]!;
+    // both sizes on the 64 px step: 600 is not, so the frame is 640 high, about 16:9 at 1088 wide
+    expect(800 + last.padLeft + last.padRight).toBe(1088);
+    expect(600 + last.padTop + last.padBottom).toBe(640);
+    expect(last.padTop).toBe(20);
+    fireEvent.click(document.querySelector<HTMLElement>('[aria-label="Back to the picture\'s edges"]')!);
+    expect(said[said.length - 1]).toEqual({ shape: "Custom", padLeft: 0, padTop: 0, padRight: 0, padBottom: 0 });
   });
 });

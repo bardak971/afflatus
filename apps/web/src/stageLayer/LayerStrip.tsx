@@ -1,9 +1,12 @@
 import type { ReactNode } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, RotateCcw } from "lucide-react";
 import { cx } from "../cx";
 import { Slider } from "../Slider";
-import { Help, IconButton } from "../ui";
+import { Help, IconButton, Segmented } from "../ui";
+import { FRAME_ASPECTS, padded } from "./frame";
+import type { FrameTool } from "./useFrameTool";
 import { BRUSH_LIMITS, type MaskLayer } from "./useMaskLayer";
+import type { Size } from "../viewer/zoom";
 
 /**
  * The strip over the Stage while the layer is on: what it is doing (its title), then the active tool's options. The same
@@ -51,6 +54,27 @@ export function MaskOptions({ mask, grow, onGrow }: { mask: MaskLayer; grow?: nu
       )}
       <IconButton className="ml-1" label={mask.shown ? "Hide the mask" : "Show the mask"} keys="M" pressed={!mask.shown} onClick={() => mask.setShown(!mask.shown)}>
         {mask.shown ? <Eye size={15} /> : <EyeOff size={15} />}
+      </IconButton>
+    </>
+  );
+}
+
+/**
+ * The outpaint frame's options: the shape it is held to (Free: each side as dragged), the size it brings the picture to,
+ * and back to the picture's own edges. `step` and `most`: the frame tool's rules, said in its ?.
+ */
+export function FrameOptions({ frame, natural, step = 64, most = 1024 }: { frame: FrameTool; natural: Size | null; step?: number; most?: number }) {
+  return (
+    <>
+      <Segmented<string> label="Shape of the frame" size="sm" oneLine value={frame.aspect} options={FRAME_ASPECTS.map((a) => ({ value: a, label: a }))} onChange={frame.setAspect} />
+      {natural && (
+        <span className="font-mono text-xs text-ink-2 tabular-nums">
+          {natural.w} × {natural.h} → <b className="text-ink">{frame.size.w} × {frame.size.h}</b>
+        </span>
+      )}
+      <Help text={`The frame's size snaps to ${step} px, the step the model draws in; Alt held while dragging: not snapped. Each side adds at most ${most} px.`} />
+      <IconButton label="Back to the picture's edges" disabled={!padded(frame.pads)} onClick={frame.reset}>
+        <RotateCcw size={15} />
       </IconButton>
     </>
   );
