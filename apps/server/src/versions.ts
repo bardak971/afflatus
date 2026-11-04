@@ -1,6 +1,6 @@
 import type { Kysely } from "kysely";
 import type { AssetLookup } from "./assets-api";
-import { shownNames } from "./autoName";
+import { capName, shownNames } from "./autoName";
 import { now, type Tables } from "./db";
 import { httpError } from "./errors";
 import { isLinked } from "./linked";
@@ -99,16 +99,34 @@ export async function keepVersion(s: Services, { fileInLinked }: AssetLookup, id
 
 /**
  * Keep every version of a stack as a picture of its own (POST /api/assets/:id/versions/keep-all): each leaves the stack,
- * kept, in the head's folder; the head stays as it is. Returns the stack after: the head with no versions, unless jobs
- * for it still run (what they make comes back under it).
+ * kept, in the head's folder; the head stays as it is. One whose name another picture of the stack already has (the old
+ * head, after a Keep gave its name to the kept version) is numbered on, "<name> · 2", so that no two come out alike.
+ * Returns the stack after: the head with no versions, unless jobs for it still run (what they make comes back under it).
  */
 export async function keepAllVersions(s: Services, { fileInLinked }: AssetLookup, id: string) {
   const head = await headOf(s.db, id);
   if (!head) throw httpError("there is no such picture", 404);
-  const top = await s.db.selectFrom("assets").select("folder_id").where("id", "=", head.id).executeTakeFirstOrThrow();
+  const top = await s.db.selectFrom("assets").select(["folder_id", "name"]).where("id", "=", head.id).executeTakeFirstOrThrow();
   const at = now();
-  const kept = await s.db.updateTable("assets").set({ version_of: null, folder_id: top.folder_id, kept_at: at, countdown_from: null })
-    .where("version_of", "=", head.id).where("deleted_at", "is", null).returning("id").execute();
+  const kept = await s.db.transaction().execute(async (tx) => {
+    const rows = await tx.selectFrom("assets").select(["id", "name"]).where("version_of", "=", head.id).where("deleted_at", "is", null).orderBy("created_at").orderBy("id").execute();
+    // a nameless one is called after how it was made (shownNames), which tells it apart already
+    const key = (name: string) => name.trim().toLowerCase();
+    const taken = new Set([top.name, ...rows.map((r) => r.name)].map(key).filter(Boolean));
+    const seen = new Set([key(top.name)].filter(Boolean));
+    for (const r of rows) {
+      let name = r.name;
+      if (key(name) && seen.has(key(name))) {
+        let n = 2;
+        while (taken.has(key(capName(`${r.name} · ${n}`)))) n++;
+        name = capName(`${r.name} · ${n}`);
+        taken.add(key(name));
+      }
+      seen.add(key(name));
+      await tx.updateTable("assets").set({ version_of: null, folder_id: top.folder_id, kept_at: at, countdown_from: null, name }).where("id", "=", r.id).execute();
+    }
+    return rows;
+  });
   for (const k of kept) await fileInLinked(k.id);
   s.queue.events.emit("library", {});
   return versionsOf(s, head.id);

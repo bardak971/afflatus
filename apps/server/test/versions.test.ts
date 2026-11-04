@@ -186,4 +186,19 @@ describe("Keep", () => {
     }
     expect((await listed()).map((i) => i.id).sort()).toEqual([head.id, a.id, b.id].sort());
   });
+
+  it("all as pictures after a Keep: none comes out with the name of another (the old head numbered on)", async () => {
+    const head = await upload("zz-test terrace");
+    const a = await make(head.id);
+    const b = await make(head.id);
+    await t.db.updateTable("assets").set({ name: "zz-test terrace" }).where("id", "=", b.id).execute();
+    // the kept one takes the head's name; the old head, a version now, still has it
+    await post(t.app, `/api/assets/${head.id}/versions/keep`, { version: a.id });
+    expect((await row(a.id)).name).toBe("zz-test terrace");
+    await post(t.app, `/api/assets/${a.id}/versions/keep-all`);
+    // oldest first: the old head, then b, each numbered past what is taken
+    expect((await row(head.id)).name).toBe("zz-test terrace · 2");
+    expect((await row(b.id)).name).toBe("zz-test terrace · 3");
+    expect((await row(a.id)).name).toBe("zz-test terrace");
+  });
 });
