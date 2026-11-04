@@ -3,11 +3,12 @@ import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { fromRender, markPng } from "./aiMark";
+import { fromRender } from "./aiMark";
 import { stamp } from "./backup";
 import { markedVideoFile } from "./cut";
 import { httpError } from "./errors";
 import { extOf } from "./media";
+import { outgoingPng } from "./pngInfo";
 import type { Services } from "./services";
 import { sourceOf } from "./storage";
 import { ZipStream } from "./zipStream";
@@ -76,7 +77,8 @@ export function registerAssetsZip(app: FastifyInstance, s: Services): void {
           if (req.raw.destroyed) break;
           const path = names[i]!;
           const at = new Date(a.created_at);
-          // a render goes in marked as made by a model, as the item's own Download gives it (aiMark.ts)
+          // a render goes in as the item's own Download gives it: marked as made by a model, a PNG with how it was made when
+          // Settings says so (aiMark.ts, pngInfo.ts)
           if ((a.kind === "video" || a.mime === "image/png") && (await fromRender(s.db, a))) {
             if (a.kind === "video") {
               // read from the marked copy on the disk as it goes in, then removed: one video in memory at a time would be too much
@@ -88,7 +90,7 @@ export function registerAssetsZip(app: FastifyInstance, s: Services): void {
               }
               continue;
             }
-            const marked = markPng(await s.storage.get(a.file_key));
+            const marked = await outgoingPng(s, a, await s.storage.get(a.file_key));
             await zip.add(path, Readable.from([Buffer.from(marked.buffer, marked.byteOffset, marked.byteLength)]), at, marked.length);
             continue;
           }

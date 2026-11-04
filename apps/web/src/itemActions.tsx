@@ -308,7 +308,7 @@ export function selectionActions(f: SelectionFacts, runs: { zip?(): void; pass?(
   };
   const zip = of("download", {
     label: "Download zip",
-    tip: `The ${plural(f.count, "item")} ticked as one zip, each under its name, renders marked as made by a model as one by one. Written to your downloads as it comes.`,
+    tip: `The ${plural(f.count, "item")} ticked as one zip, each under its name and as its own Download gives it. Written to your downloads as it comes.`,
     run: runs.zip, disabled: !runs.zip,
   });
   const passes = f.inBin || !f.pictures ? [] : SELECTION_PASSES.map((id) => {

@@ -40,8 +40,10 @@ describe("a selection downloaded as a zip", () => {
       expect(at("render.png")).toBeGreaterThanOrEqual(0);
       expect(at("render.png")).toBeLessThan(at("same.png"));
       expect(at("same.png")).toBeLessThan(at("same (2).png"));
-      // only the render is marked as made by a model
+      // only the render is marked as made by a model, and goes in as its own Download gives it, byte for byte (stored as it is)
       expect(body.split(AI_COMMENT).length - 1).toBe(1);
+      const single = (await get(t.app, `/api/assets/${made.id}/file?download=1`)).rawPayload;
+      expect(zip.rawPayload.includes(single)).toBe(true);
       // the end of central directory record says three entries
       const end = zip.rawPayload.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
       expect(zip.rawPayload.readUInt16LE(end + 10)).toBe(3);
