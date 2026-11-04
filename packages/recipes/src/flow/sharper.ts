@@ -53,7 +53,7 @@ export function flowSharper(spec: FlowSpec, kit: FlowKit): Recipe<FlowSharper> {
     ...(spec.presets ? { presets: spec.presets } : {}),
     nodes: () => ["LoadImage", "UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "PreviewImage"],
     // the second pass: only when it is asked for. All are ComfyUI's own nodes.
-    optionalNodes: [...SECOND_PASS, "ColorTransfer"],
+    optionalNodes: [...SECOND_PASS, "ColorTransfer", ...(spec.alpha ? ["SplitImageWithAlpha"] : [])],
     build(input, ctx) {
       const g = new GraphBuilder();
       const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
@@ -94,6 +94,8 @@ export function flowSharper(spec: FlowSpec, kit: FlowKit): Recipe<FlowSharper> {
         picture = g.out("VAEDecode", { samples: done.latent, vae: k.vae });
       }
       g.phase("decoding");
+      // ColorTransfer takes the colours only: a decode with an alpha gives them alone (the picture is opaque, its source too)
+      if (spec.alpha && input.colourMatch && ctx.has("ColorTransfer")) picture = g.out("SplitImageWithAlpha", { image: picture });
       const out = g.add("PreviewImage", { images: refineColourMatched(g, ctx, picture, sized, input) });
       return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: pass.steps, passes: [pass], loads: [...loads, ...k.loads] };
     },

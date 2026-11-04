@@ -154,6 +154,8 @@ export const qwen21Spec: FlowSpec = {
   sampling: { steps: 40, stepsNote: "about 40 with euler, as Qwen's authors give; ComfyUI's template starts at 25", cfg: 1, cfgNote: "1 is the model's own setting", sampler: "euler", scheduler: "simple" },
   inputs: sampling,
   latent: "EmptyLatentImage",
+  alpha: true,
+  detail: "daemon",
   grid: 32,
   // up to the 2K sizes Qwen's authors list, the largest of which (2400 × 1792) has just over 4.3 megapixels
   maxSize: 2752,
@@ -173,6 +175,15 @@ export const qwen21Spec: FlowSpec = {
     { id: "wide-16-9-2k", label: "Landscape 16:9 2K", width: 2752, height: 1536 },
   ],
   megapixels: 1.6,
+  presets: [
+    {
+      // the distilled file (qwen_image_2.1_turbo_*): at the full model's 40 steps its pictures came out overcooked on a pod, at 8
+      // clean, in 5.5 s against 24 (card #275's render test). Its hires pass in half as many, as Z-Image Turbo's (untried)
+      match: "qwen.?image.?2\\.1.*turbo",
+      values: { steps: 8, hiresSteps: 4 },
+      note: "Qwen Image 2.1 Turbo: distilled, 8 steps",
+    },
+  ],
   placeholder: "A photograph of a small bakery at dawn, a chalkboard by the door that reads \"FRESH BREAD\", warm light from the windows on wet cobblestones.",
   pictureSummary: "Text to image with Qwen Image 2.1: natural-language prompts, legible text, up to 2K, with optional hires fix.",
   drops: QWEN21_DROPS,

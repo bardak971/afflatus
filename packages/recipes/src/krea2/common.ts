@@ -53,8 +53,10 @@ export const krea2Spec: FlowSpec = {
   presets: [
     {
       // RAW is the undistilled model Turbo was made from: the many steps and the real CFG of Krea's own settings,
-      // and a hires pass of half as many steps, as the other undistilled models have (Turbo's 4 would leave it rough)
-      match: "krea.?2.*raw",
+      // and a hires pass of half as many steps, as the other undistilled models have (Turbo's 4 would leave it rough). A file
+      // named Turbo is not it, "Raw" in its name or not: DasiwaKrea2TurboRaw is distilled, and at 52 steps and CFG 3.5 it
+      // gave pure grain on a pod (card #275's render test)
+      match: "^(?!.*turbo).*krea.?2.*raw",
       values: { steps: 52, cfg: 3.5, hiresSteps: 26 },
       note: "Krea 2 RAW: not distilled, 52 steps at CFG 3.5 as Krea gives it; the negative prompt acts",
     },

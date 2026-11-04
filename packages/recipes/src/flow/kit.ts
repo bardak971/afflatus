@@ -28,6 +28,14 @@ export interface FlowSpec {
   patch?: { nodes: string[]; put(g: GraphBuilder, model: Ref, input: FlowBase): Ref };
   /** The empty latent a new picture starts from, when the family's template has another than EmptySD3LatentImage. */
   latent?: "EmptyLatentImage";
+  /**
+   * Its VAE decodes a fourth channel, an alpha (Qwen Image 2.1's, which makes transparent pictures): a node that takes the
+   * colours only is given them alone. Upscale 2x's ColorTransfer failed on it on a pod ("Input size must have a shape of
+   * (*, 3, H, W)", card #275's render test).
+   */
+  alpha?: true;
+  /** The detail boost by Detail Daemon's Lying sigma only (DAEMON_DETAIL_INPUTS): the built-in sharpen breaks Qwen Image 2.1's pictures. */
+  detail?: "daemon";
   /** The grid both edges of a picture are on (16 unless said: Qwen Image 2.1's is 32), and the longest edge of a new one (2048). */
   grid?: number;
   maxSize?: number;
