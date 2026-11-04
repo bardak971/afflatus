@@ -191,6 +191,30 @@ describe("the mask layer", () => {
     expect(mask!.area).toEqual({ x: 200, y: 100, w: 100, h: 100 });
   });
 
+  it("keeps what was painted when the caller hands a new {w, h} at every render", async () => {
+    let fresh: MaskLayer | null = null;
+    function Fresh() {
+      // a new object each render, as an inline literal is
+      const m = useMaskLayer({ natural: { w: NATURAL.w, h: NATURAL.h } });
+      fresh = m;
+      const [, bump] = useState(0);
+      return (
+        <>
+          <button type="button" onClick={() => bump((n) => n + 1)}>again</button>
+          <ZoomPicture src="/api/assets/zz-test/file" natural={NATURAL} panMode="layer" overlay={(place) => <StageLayer place={place} tool={m.tools.brush} mask={m} />} />
+        </>
+      );
+    }
+    draw(<Fresh />);
+    await vi.waitFor(() => expect(fresh!.ready).toBe(true));
+    press(100, 100);
+    expect(fresh!.area).not.toBeNull();
+    for (let i = 0; i < 3; i++) fireEvent.click(document.querySelector("button")!);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fresh!.area).not.toBeNull();
+    expect(fresh!.steps).toBe(1);
+  });
+
   it("fills round a lasso", async () => {
     draw(<MaskRig />);
     await vi.waitFor(() => expect(mask!.ready).toBe(true));

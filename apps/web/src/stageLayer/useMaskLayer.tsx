@@ -106,16 +106,20 @@ export function useMaskLayer({ natural, from = null, start = { size: 64, feather
     if (c && plane.current) paint({ x: 0, y: 0, w: plane.current.w, h: plane.current.h });
   }, [paint]);
 
+  // read through a ref: a caller handing a new {w, h} at each render must not make the plane again (only its size does)
+  const naturalNow = useRef(natural);
+  naturalNow.current = natural;
   /** After a step: what the mask covers, said again, in the picture's pixels. */
   const changed = useCallback(() => {
     const p = plane.current;
     versionNow.current += 1;
     setVersion(versionNow.current);
-    if (!p || !natural) return;
+    const n = naturalNow.current;
+    if (!p || !n) return;
     const b = bounds(p);
-    const s = p.w / natural.w;
+    const s = p.w / n.w;
     setSaid({ area: b && { x: b.x / s, y: b.y / s, w: b.w / s, h: b.h / s }, soft: isSoft(p) });
-  }, [natural]);
+  }, []);
 
   const w = natural?.w ?? 0;
   const h = natural?.h ?? 0;
