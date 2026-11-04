@@ -114,7 +114,8 @@ export function withIpAdapter(g: GraphBuilder, ctx: BuildContext, model: Ref, in
   if (people) {
     model = g.out("LoraLoaderModelOnly", { model, lora_name: ctx.slots.faceIdLora, strength_model: 0.6 });
     const adapter = g.out("IPAdapterModelLoader", { ipadapter_file: ctx.slots.faceId });
-    const faces = g.out("IPAdapterInsightFaceLoader", { provider: "CPU", model_name: "buffalo_l" });
+    // the pack Manager installs loads buffalo_l and has no input to name it (its nodes read from a pod, 2026-11-04)
+    const faces = g.out("IPAdapterInsightFaceLoader", { provider: "CPU" });
     loads.push(`ipadapter/${ctx.slots.faceId}`, `loras/${ctx.slots.faceIdLora}`);
     input.references.forEach((r, i) => {
       if (!isPerson(r)) return;
