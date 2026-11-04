@@ -1,4 +1,4 @@
-import { BATCH, formDefaults, madeAroundRecording, plural, sentForm, usd, usdFor, type InputSpec, type Recipe } from "@afflatus/core";
+import { BATCH, formDefaults, madeAroundRecording, plural, sentForm, usd, usdFor, type GridSetup, type InputSpec, type Recipe } from "@afflatus/core";
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
 import { z } from "zod";
 import { OWNER } from "./db";
@@ -298,13 +298,13 @@ const estimate = tool({
 });
 
 /** The form a call names: a draft's (its form, values and batch), or a form with values. */
-export async function formAsked(s: Services, args: { draft?: string; form?: string; values?: Record<string, unknown> }): Promise<{ recipe: Recipe<any>; stored: Record<string, unknown>; count: number; name: string; draft?: { id: string; look: unknown } }> {
+export async function formAsked(s: Services, args: { draft?: string; form?: string; values?: Record<string, unknown> }): Promise<{ recipe: Recipe<any>; stored: Record<string, unknown>; count: number; name: string; draft?: { id: string; look: unknown; grid?: GridSetup | null } }> {
   if (args.draft) {
     const d = await findDraft(s.db, args.draft);
     if (!d) throw httpError("There is no such draft: list_drafts gives the ids.", 404);
     const recipe = formOf(s, d.recipe_id);
     const forms = JSON.parse(d.forms) as Record<string, Record<string, unknown>>;
-    return { recipe, stored: { ...forms[recipe.id], ...(args.values ?? {}) }, count: d.count, name: `“${d.name || d.title || "Untitled draft"}”`, draft: { id: d.id, look: d.look ? JSON.parse(d.look) : null } };
+    return { recipe, stored: { ...forms[recipe.id], ...(args.values ?? {}) }, count: d.count, name: `“${d.name || d.title || "Untitled draft"}”`, draft: { id: d.id, look: d.look ? JSON.parse(d.look) : null, grid: d.grid ? (JSON.parse(d.grid) as GridSetup) : null } };
   }
   if (!args.form) throw refusal("Name a draft, or a form with its values.");
   const recipe = formOf(s, args.form);

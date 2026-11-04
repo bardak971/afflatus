@@ -1,7 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { AddressInfo } from "node:net";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { CHECKPOINT, get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
+import { mcpClient } from "./mcpClient";
 
 /** X/Y/Z grids (card #21): one job per cell through the queue, tagged; the cells on the board; a page as a labelled sheet. */
 const recipe = "sdxl.text-to-picture";
@@ -110,5 +112,30 @@ describe("an X/Y/Z grid, as it is queued", () => {
     expect((await put({ axes })).json().grid).toEqual({ axes });
     expect((await get(t.app, `/api/drafts/${draft.id}`)).json().grid).toEqual({ axes });
     expect((await put({ axes: [] })).json().grid).toBeNull();
+  });
+
+  it("MCP's render_grid queues a draft's own grid, each cell counted against the token's renders an hour", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const draft = (await post(t.app, "/api/drafts", { recipe, forms: { [recipe]: { prompt: input.prompt, checkpoint: CHECKPOINT } } })).json();
+    await t.app.inject({ method: "PUT", url: `/api/drafts/${draft.id}`, payload: { grid: { axes: [{ field: "cfg", values: "4, 6" }, { field: "sr", values: "red coat, blue coat" }] } } });
+    const made = await t.app.inject({ method: "POST", url: "/api/mcp/tokens", payload: { name: "zz-test grid", start: "make" } });
+    await t.app.listen({ port: 0, host: "127.0.0.1" });
+    const c = await mcpClient(`http://127.0.0.1:${(t.app.server.address() as AddressInfo).port}/mcp`, made.json().token as string);
+    try {
+      const r = await c.callTool({ name: "render_grid", arguments: { draft: draft.id } });
+      expect(r.isError).toBeFalsy();
+      const answer = JSON.parse((r.content as Array<{ text: string }>)[0]!.text) as { grid: string; jobs: string[]; count: number };
+      expect(answer).toMatchObject({ count: 4, jobs: expect.any(Array) });
+      const jobs = await t.db.selectFrom("jobs").select(["grid_cell", "mcp_token_id"]).where("grid_id", "=", answer.grid).execute();
+      expect(jobs).toHaveLength(4);
+      expect(new Set(jobs.map((j) => j.mcp_token_id)).size).toBe(1);
+      expect(jobs[0]!.mcp_token_id).toBeTruthy();
+      // axes it cannot read: refused, nothing more queued
+      const bad = await c.callTool({ name: "render_grid", arguments: { draft: draft.id, axes: [{ field: "sr", values: "green coat, blue coat" }] } });
+      expect(bad.isError).toBe(true);
+      expect(await t.db.selectFrom("jobs").select("id").execute()).toHaveLength(4);
+    } finally {
+      await c.close();
+    }
   });
 });
