@@ -19,6 +19,9 @@ import { RegionsStage } from "../../regions/RegionsStage";
 import { useRegionsHere, useRegionsStage } from "../../regions/useRegionsStage";
 import { useQueueOf } from "./queueOf";
 import { drawnIndices, stackBands, useHeld, useSpan } from "./virtual";
+import { GridBoard } from "../../grid/GridBoard";
+import { DraftGrids } from "../../grid/DraftGrids";
+import { useGridBoard } from "../../grid/boardLayout";
 
 /**
  * What the draft in the form has made: the newest result large, with what can be done with it under
@@ -80,6 +83,9 @@ export function DraftResults({ draft, folder, list, title, empty }: {
   const mine = regions && draft && regions.draftId === draft ? regions : null;
   const regionsOver = useRegionsStage((r) => (draft && r.over === draft ? r.over : null));
   const leaveRegions = useRegionsStage((r) => r.leave);
+  // the draft's X/Y/Z grid shown as its board on the Stage, in place of the results (card #21)
+  const board = useGridBoard((b) => (draft ? b.of[draft] : undefined));
+  const closeBoard = useGridBoard((b) => b.close);
   const overPicture = mine && regionsOver && shown?.kind === "image" && shown.width && shown.height ? { src: fileUrl(shown.id), natural: { w: shown.width, h: shown.height } } : null;
 
   // the first page on its way, nothing forming to show instead: the stage and its column as placeholders, at their size
@@ -94,7 +100,8 @@ export function DraftResults({ draft, folder, list, title, empty }: {
   return (
     <div className="flex h-full min-h-0 gap-4">
       <div data-stage className="flex min-h-0 min-w-0 grow flex-col rounded-xl bg-stage p-[var(--stage-pad)]">
-        {live && running && (
+        {board && draft && <GridBoard key={board} grid={board} draft={draft} folder={folder} onClose={() => closeBoard(draft)} />}
+        {!board && live && running && (
           <div className="flex min-h-0 grow flex-col items-center justify-center gap-3 pb-4">
             <LiveStage id={running} />
             <div className="flex w-72 flex-col items-center gap-1.5 text-center">
@@ -115,9 +122,9 @@ export function DraftResults({ draft, folder, list, title, empty }: {
           </div>
         )}
         {/* a result picked while a render is under way: the way back to it, on the stage itself (and Esc) */}
-        {!live && running && <BackToLive id={running} onClick={() => setPicked("live")} />}
-        {!live && overPicture && <RegionsStage here={mine!} picture={overPicture} onLeave={leaveRegions} />}
-        {!live && shown && !overPicture && (
+        {!board && !live && running && <BackToLive id={running} onClick={() => setPicked("live")} />}
+        {!board && !live && overPicture && <RegionsStage here={mine!} picture={overPicture} onLeave={leaveRegions} />}
+        {!board && !live && shown && !overPicture && (
           <Viewer
             inline
             asset={shown}
@@ -140,6 +147,7 @@ export function DraftResults({ draft, folder, list, title, empty }: {
             <CloseButton size={24} label={`Remove the ${waiting} queued jobs from the queue`} tip="Remove from the queue" disabled={stop.isPending} onClose={() => stop.mutate(inLine)} />
           </span>
         )}
+        {draft && <DraftGrids draft={draft} open={board} />}
         {/* the newer pages, let go past the cap (useAssets) */}
         {assets.hasPreviousPage && <Button size="sm" onClick={() => assets.fetchPreviousPage()} disabled={busy}>Newer</Button>}
         <StripItems items={items} byModel={Boolean(draft)} shown={live ? undefined : shown?.id} onPick={(a) => setPicked(a.id)} onMenu={(e, a) => tileMenu.open(e, a)} />

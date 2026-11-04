@@ -29,6 +29,9 @@ import { useGenerate } from "./useGenerate";
 import { queryKeys } from "../../queryKeys";
 import { failedBanner } from "../../sayFailed";
 import { usePickedMachine } from "../../GenerateOn";
+import { GridCard } from "../../grid/GridCard";
+import { useGridPlan } from "../../grid/gridPlan";
+import { useQueueGrid } from "../../grid/useQueueGrid";
 
 // the designer's panel is a chunk of its own: fetched the first time it opens
 const Designer = lazy(() => import("../../Designer").then((m) => ({ default: m.Designer })));
@@ -120,6 +123,10 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
   const cast = useCastAdded(recipe, whole, draft?.look).added?.refs;
   const missing = inputMissing(recipe, whole, cast);
   const send = useGenerate({ recipe, draft, defaults, folder: folder?.id, d, blocked: blocked ?? missing });
+  // the X/Y/Z grid (card #21): a picture form's own card, its plan said on it and on Queue grid beside Render
+  const gridOn = recipe?.output === "image";
+  const gridPlan = useGridPlan(gridOn ? recipe : undefined, whole, draft?.grid, status, draft?.id);
+  const queueGrid = useQueueGrid({ recipe, draft, defaults, folder: folder?.id, status, plan: gridPlan });
   // Generate from elsewhere (the command bar), refused as the button is
   const makeNow = useRef((_machine?: string) => {});
   makeNow.current = (machine) => {
@@ -208,6 +215,12 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
             onClear={(inputs) => (editedHere(inputs), d.clearValues(recipe.id, inputs))}
             made={<ModelPicker pick={pick} recipe={recipe} presets={<PresetMenu presets={presets} current={{ recipe: recipe.id, values: whole }} onApply={applyPreset} onSave={(name) => savePreset.mutate(name)} error={presetError} />} />}
             madeSummary={pick.group ? `${pick.group.name} · ${recipe.title}` : recipe.title}
+            grid={gridOn ? {
+              id: "grid", title: "Grid (X/Y/Z)",
+              help: "Renders every combination of the axes' values, as A1111's X/Y/Z plot, laid out as one board on the Stage. Each cell is a normal picture of this draft.",
+              summary: gridPlan.count ? `${gridPlan.axes.map((a) => a.label).join(" × ")} · ${gridPlan.said}` : "no axes",
+              node: <GridCard recipe={recipe} whole={whole} status={status} setup={draft.grid} plan={gridPlan} onChange={d.setGrid} />,
+            } : undefined}
             look={takesLook ? <LookBar look={draft.look} onChange={d.setLook} recipe={recipe} input={whole} /> : undefined}
             lookSummary={takesLook ? lookWords(draft.look, entities.data?.items ?? []) : undefined}
             helpers={
@@ -230,7 +243,7 @@ export const CreatePanel = memo(function CreatePanel({ folder, onClose }: { fold
         )}
       </ScrollColumn>
 
-      <GenerateBar recipe={recipe} draft={draft} whole={whole} folder={folder ? { name: folder.name, path: folder.path } : null} blocked={blocked} missing={missing} waits={waitsOn(whole)} send={send} onCount={d.setCount} />
+      <GenerateBar recipe={recipe} draft={draft} whole={whole} folder={folder ? { name: folder.name, path: folder.path } : null} blocked={blocked} missing={missing} waits={waitsOn(whole)} send={send} onCount={d.setCount} grid={gridOn ? { plan: gridPlan, queue: queueGrid } : undefined} />
 
       {designing && recipe && draft && (
         <Suspense fallback={null}>

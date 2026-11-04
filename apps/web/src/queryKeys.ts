@@ -176,6 +176,12 @@ export const queryKeys = {
   formPacks: (recipe: string | undefined, values: string, machine?: string) => ["setup", "formPacks", recipe, values, machine ?? null] as const,
   setCheck: (recipe: string | undefined, values: string) => ["setup", "setCheck", recipe, values] as const,
   formPrompt: (recipe: string, values: string) => ["setup", "formPrompt", recipe, values] as const,
+  /** X/Y/Z grids (card #21): one grid's cells' jobs, and a draft's grids; under "grids", read again as their cells end. */
+  grids: {
+    all: () => ["grids"] as const,
+    one: (id: string) => ["grids", id] as const,
+    ofDraft: (draft: string) => ["grids", "draft", draft] as const,
+  },
   advice: {
     all: () => ["advice"] as const,
     form: (recipe: string | undefined, values: string, held: string | null) => ["advice", recipe, values, held] as const,

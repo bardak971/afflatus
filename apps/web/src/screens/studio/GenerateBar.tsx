@@ -8,13 +8,15 @@ import { Keys } from "../../Keys";
 import { FormModel, ResultsPlace } from "../../ModelLoad";
 import { Button, cx, ErrorNote, Failed, Help } from "../../ui";
 import { useQueue } from "../../data";
-import { aboutMs } from "../../format";
+import { aboutMs, usd } from "../../format";
 import { severalMachines } from "../../machines";
 import { GenerateOn, shortName, usePickedMachine } from "../../GenerateOn";
 import type { useGenerate } from "./useGenerate";
+import type { GridPlan } from "../../grid/gridPlan";
+import type { useQueueGrid } from "../../grid/useQueueGrid";
 
 /** The foot of the Create panel: what stops the form, where its results go, the batch count, and Render with what it will take. */
-export function GenerateBar({ recipe, draft, whole, folder, blocked, missing, waits, send, onCount }: {
+export function GenerateBar({ recipe, draft, whole, folder, blocked, missing, waits, send, onCount, grid }: {
   recipe: RecipeInfo | undefined;
   draft: Draft | null;
   /** The whole form as it stands. */
@@ -27,6 +29,8 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, missing, wa
   waits?: string | null;
   send: ReturnType<typeof useGenerate>;
   onCount(count: number): void;
+  /** The draft's X/Y/Z grid, planned, and what queues it: Queue grid shows beside Render while it has cells. */
+  grid?: { plan: GridPlan; queue: ReturnType<typeof useQueueGrid> };
 }) {
   const count = draft?.count ?? 1;
   const several = severalMachines(useQueue().data).length > 0;
@@ -42,6 +46,7 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, missing, wa
   return (
     <div className="flex shrink-0 flex-col gap-2 border-t border-line p-3">
       {send.isError && <Failed what="Not rendered" error={send.error} />}
+      {grid?.queue.isError && <Failed what="The grid was not queued" error={grid.queue.error} />}
       {blocked && (
         <ErrorNote>
           {blocked} <Link href="/settings/models" className="font-semibold underline">Open settings</Link>
@@ -57,6 +62,18 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, missing, wa
       )}
       {recipe && draft && !blocked && <FormModel recipe={recipe} input={whole} look={draft.look} />}
       <ResultsPlace folder={folder} />
+      {/* the grid's own action, beside Render: never Render itself, which stays one render (card #21); its count and cost said on it */}
+      {grid && grid.plan.count > 0 && (
+        <Button
+          data-queue-grid
+          className="h-9 w-full min-w-0 text-sm"
+          disabled={!recipe || !draft || Boolean(blocked) || Boolean(missing) || Boolean(grid.plan.error) || grid.queue.isPending}
+          data-tip={grid.plan.error ? `${"XYZ"[grid.plan.error.axis]}: ${grid.plan.error.text}` : missing ?? "Queue every cell of the grid; they land on the Stage as one board"}
+          onClick={() => grid.queue.mutate()}
+        >
+          <span className="truncate">{grid.queue.isPending ? "Queuing the grid…" : `Queue grid · ${grid.plan.said}${grid.plan.ms !== null ? ` · ${aboutMs(grid.plan.ms)}` : ""}${grid.plan.pod?.usd != null ? ` · ${usd(grid.plan.pod.usd)}` : ""}`}</span>
+        </Button>
+      )}
       {/* a container: on a narrow panel the keys leave the button (they stay in its tip) before the label is cut */}
       <div className="@container flex items-center gap-2.5">
         <div role="group" aria-label="Batch count" data-tip={`Batch count, ${BATCH.least} to ${BATCH.most}`} className="flex h-11 shrink-0 items-center gap-0.5 rounded-lg border border-line px-1.5">

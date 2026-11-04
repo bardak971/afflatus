@@ -44,7 +44,7 @@ describe("a draft saved", () => {
     await putDraft("d1", saveBodyOf(draft), true);
     expect(asked[0]!.init.keepalive).toBe(true);
     expect((asked[0]!.init.headers as Record<string, string>)["X-Afflatus"]).toBe("1");
-    expect(JSON.parse(String(asked[0]!.init.body))).toEqual({ recipe: "sdxl.text", forms: draft.forms, count: 2, look: null, chat: draft.chat, designer: null });
+    expect(JSON.parse(String(asked[0]!.init.body))).toEqual({ recipe: "sdxl.text", forms: draft.forms, count: 2, look: null, chat: draft.chat, designer: null, grid: null });
   });
   it("that is gone is made again with all the page holds of it, its conversation and its name included", async () => {
     const asked = answers({ status: 200, body: { ...draft, id: "d2", chat: [], name: null } }, { status: 200, body: { ...draft, id: "d2" } });

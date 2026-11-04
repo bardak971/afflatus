@@ -183,3 +183,24 @@ export interface DraftLeaf {
   /** Also from the drafts list: the model families its outputs were made with, the newest first. */
   models?: Array<{ family: string; outputs: number }>;
 }
+
+/** An X/Y/Z grid as its board reads it (GET /api/grids/:id): its axes as said, where it came from, its cells' jobs by place. */
+export interface GridView {
+  id: string;
+  draftId: string | null;
+  recipe: string;
+  /** X, Y, Z in order: the setting's id and name, and its values as the board labels them. */
+  axes: Array<{ field: string; label: string; labels: string[] }>;
+  count: number;
+  createdAt: string;
+  /** By cell ("x.y.z"): its job while the queue holds it; a cell with none was dismissed from the queue, or is still to be read. */
+  jobs: Record<string, { id: string; status: string; error: string | null }>;
+}
+/** One of a draft's grids, as its column lists them. */
+export interface GridBrief {
+  id: string;
+  /** Its axes' names, X first. */
+  axes: string[];
+  count: number;
+  createdAt: string;
+}

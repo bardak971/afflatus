@@ -33,7 +33,7 @@ const holdsNothing = (d: Draft) =>
 
 /** What a save sends: the whole of what the page holds of the draft. */
 
-export const saveBodyOf = (d: Draft) => ({ recipe: d.recipe, forms: d.forms, count: d.count, look: d.look, chat: d.chat, designer: d.designer });
+export const saveBodyOf = (d: Draft) => ({ recipe: d.recipe, forms: d.forms, count: d.count, look: d.look, chat: d.chat, designer: d.designer, grid: d.grid ?? null });
 
 
 /**
@@ -67,7 +67,7 @@ export async function putDraft(id: string, body: Partial<ReturnType<typeof saveB
 export async function remade(d: Draft): Promise<Draft> {
   const made = await api.createDraft({ recipe: d.recipe, forms: d.forms, count: d.count, look: d.look, project: d.projectId });
   // what a new draft cannot be made with: put in at once
-  return d.chat.length || d.designer || d.name ? api.saveDraft(made.id, { chat: d.chat, designer: d.designer, ...(d.name ? { name: d.name } : {}) }) : made;
+  return d.chat.length || d.designer || d.name || d.grid ? api.saveDraft(made.id, { chat: d.chat, designer: d.designer, ...(d.name ? { name: d.name } : {}), ...(d.grid ? { grid: d.grid } : {}) }) : made;
 }
 
 /**
@@ -361,6 +361,8 @@ export function useDraft(firstRecipe: string | undefined) {
     setLook: (look: Draft["look"]) => change((d) => ({ ...d, look })),
     /** Which language model and instructions this draft's conversation with the designer is held with. */
     setDesigner: (designer: Draft["designer"]) => change((d) => ({ ...d, designer })),
+    /** Its X/Y/Z grid's set-up, kept with it to open on again. */
+    setGrid: (grid: Draft["grid"]) => change((d) => ({ ...d, grid })),
     /** Several inputs of one form at once (what the designer proposed). */
     setValues: (recipe: string, values: Record<string, unknown>) => change((d) => ({ ...d, forms: { ...d.forms, [recipe]: { ...d.forms[recipe], ...values } } })),
     /**
