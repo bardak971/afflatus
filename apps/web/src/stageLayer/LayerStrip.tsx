@@ -65,7 +65,6 @@ export function MaskOptions({ mask, grow, onGrow }: { mask: MaskLayer; grow?: nu
  * The outpaint frame's options: the shape it is held to (Free: each side as dragged), the size it brings the picture to,
  * and back to the picture's own edges. `step` and `most`: the frame tool's rules, said in its ?.
  *
- * @public The Stage's Paint and fix mounts it (card #274, session C); until then only the tests do.
  */
 export function FrameOptions({ frame, natural, step = 64, most = 1024 }: { frame: FrameTool; natural: Size | null; step?: number; most?: number }) {
   return (

@@ -72,7 +72,6 @@ export interface FrameTool {
  * on the model's step (`rules.step`; Alt held, not snapped), each side under the recipes' most, optionally held to an
  * aspect. `onSides` hears the sides when a drag ends or a chip is picked, as the outpaint rows take them.
  *
- * @public The Stage's Paint and fix mounts it (card #274, session C); until then only the tests do.
  */
 export function useFrameTool({ natural, rules = FRAME_RULES, start = NO_PADS, onSides }: {
   natural: Size | null;
