@@ -60,3 +60,42 @@ describe("Qwen Image 2.1's picture forms, as they rendered on a pod (card #275)"
     }
   });
 });
+
+describe("Qwen Image 2.1's outpaint and Turbo face (card #286)", () => {
+  it("outpaints as an edit of the padded picture: from noise beside a mask, each new side came out another place", () => {
+    const g = built("qwen21.outpaint", { padLeft: 256, padRight: 256 }, { source: { width: 896, height: 1152 } });
+    expect(of(g, "SetLatentNoiseMask")).toEqual([]);
+    expect(of(g, "DifferentialDiffusion")).toEqual([]);
+    const [readId, read] = of(g, "TextEncodeQwenImage21")[0]!;
+    expect(of(g, "TextEncodeQwenImage21")).toHaveLength(1);
+    // the picture to edit is the padded one at the drawing size, read at that size; the latent is the encoder's, of its size
+    const [canvas] = read.inputs["images.image_1"] as [string, number];
+    expect(g[canvas]!.class_type).toBe("ImageScale");
+    expect(g[(g[canvas]!.inputs.image as [string, number])[0]]!.class_type).toBe("ImagePadForOutpaint");
+    expect(read.inputs.resolution).toBe(0);
+    expect(read.inputs.prompt).toMatch(/^The plain grey areas at the edges of <image1> are empty\..* stays exactly the same\. a$/);
+    expect(read.inputs.prompt).not.toMatch(/\b(not|never|don't)\b/i);
+    const [, sampler] = of(g, "KSampler")[0]!;
+    expect(of(g, "KSampler")).toHaveLength(1);
+    expect(sampler.inputs.latent_image).toEqual([readId, 2]);
+    expect(sampler.inputs.denoise).toBe(1);
+    // the picture is put back over the colours alone (the VAE decodes an alpha too)
+    const [, paste] = of(g, "ImageCompositeMasked").at(-1)!;
+    const [scaled] = paste.inputs.destination as [string, number];
+    expect(g[(g[scaled]!.inputs.image as [string, number])[0]]!.class_type).toBe("SplitImageWithAlpha");
+    // the other families keep their outpaint
+    expect(of(built("zimage.outpaint", {}, { source: { width: 896, height: 1152 } }), "SetLatentNoiseMask").length).toBeGreaterThan(0);
+  });
+
+  it("the Turbo file's face pass keeps its own step spacing: 8 or 30 steps at 0.4 gave grainy skin", () => {
+    const steps = (change: Record<string, unknown>) => (of(built("qwen21.fix-face", change), "FaceDetailer")[0]![1].inputs.steps as number);
+    const turbo = "qwen_image_2.1_turbo_int8_convrot.safetensors";
+    expect(steps({ model: turbo, steps: 8, strength: 0.4 })).toBe(4);
+    expect(steps({ model: turbo, steps: 8, strength: 0.3 })).toBe(3);
+    expect(steps({ model: turbo, steps: 30, strength: 0.4 })).toBe(12);
+    expect(steps({ model: turbo, steps: 8, strength: 0.1 })).toBe(2);
+    // the full model as before: the form's steps, 8 to 30
+    expect(steps({ steps: 40, strength: 0.4 })).toBe(30);
+    expect(steps({ model: "qwen_image_2.1_int8_convrot.safetensors", steps: 4, strength: 0.4 })).toBe(8);
+  });
+});

@@ -35,7 +35,9 @@ export function flowOutpaint(spec: FlowSpec, kit: FlowKit): Recipe<FlowOutpaint>
       ...inputs,
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),
-    nodes: (input) => [...loadNodes(input).filter((n) => n !== "VAEDecode" && n !== "PreviewImage"), ...OUTPAINT_NODES, ...PASTE_BACK_NODES, "GrowMask", "VAEEncode", "SetLatentNoiseMask", ...(spec.hardInpaint ? [] : ["DifferentialDiffusion"])],
+    nodes: (input) => spec.extend
+      ? [...loadNodes(input), ...spec.extend.nodes, "LoadImage", "ImagePadForOutpaint", "ImageScale", "SplitImageWithAlpha", ...PASTE_BACK_NODES, "GrowMask", "MaskToImage", "ImageToMask"]
+      : [...loadNodes(input).filter((n) => n !== "VAEDecode" && n !== "PreviewImage"), ...OUTPAINT_NODES, ...PASTE_BACK_NODES, "GrowMask", "VAEEncode", "SetLatentNoiseMask", ...(spec.hardInpaint ? [] : ["DifferentialDiffusion"])],
     ...(spec.inpaintPatch ? { needsWith: inpaintPatchNeeds(spec) } : {}),
     ...(SOMETIMES.length || spec.inpaintPatch ? { optionalNodes: [...SOMETIMES, ...(spec.inpaintPatch ? INPAINT_PATCH_NODES : [])] } : {}),
     build(form, ctx) {
@@ -48,6 +50,7 @@ export function flowOutpaint(spec: FlowSpec, kit: FlowKit): Recipe<FlowOutpaint>
       const whole = { width: from.width + input.padLeft + input.padRight, height: from.height + input.padTop + input.padBottom };
       const size = sizeOf(whole);
       const source = g.out("LoadImage", { image: ctx.uploads.source });
+      if (spec.extend) return extended(g, k, input, ctx.seed, source, from, whole, size, spec.extend);
       const { padded, pixels: grey, mask } = outpaintLatent(g, source, from, input, size, k.vae);
       const c = cond(g, k, input, input.prompt);
       // a family that inpaints with the mask as it is (hardInpaint, Krea 2's) outpaints so too
@@ -70,6 +73,7 @@ export function flowOutpaint(spec: FlowSpec, kit: FlowKit): Recipe<FlowOutpaint>
       return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: passes.reduce((n, p) => n + p.steps, 0), passes, loads: [...k.loads, ...guided.loads] };
     },
     variants: [
+      ...(spec.extend ? [{ name: "to 16:9 by its edit mode, a fine-tune with a LoRA", input: { source: "p", prompt: "a", shape: "Widescreen 16:9", ...tuned } as Partial<FlowOutpaint>, slots: files, uploads: { source: "s.png" }, media: { source: photo } }] : []),
       { name: "wider on both sides", input: { source: "p", prompt: "a" } as Partial<FlowOutpaint>, slots: files, uploads: { source: "s.png" }, media: { source: { width: 896, height: 1152 } } },
       { name: "to 16:9, the picture in the middle", input: { source: "p", prompt: "a", shape: "Widescreen 16:9" } as Partial<FlowOutpaint>, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
       { name: "taller, a fine-tune with a LoRA", input: { source: "p", prompt: "a", padLeft: 0, padRight: 0, padTop: 256, padBottom: 0, ...tuned } as Partial<FlowOutpaint>, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
@@ -77,4 +81,23 @@ export function flowOutpaint(spec: FlowSpec, kit: FlowKit): Recipe<FlowOutpaint>
       ...(kit.turboFiles ? [{ name: "Turbo with its LoRA", input: { source: "p", prompt: "a", fast: true, turboSteps: 6 } as Partial<FlowOutpaint>, slots: kit.turboFiles, uploads: { source: "s.png" }, media: { source: { width: 896, height: 1152 } } }] : []),
     ],
   }), dropsFor("outpaint", spec.drops));
+
+  /**
+   * Outpaint by the family's edit mode (FlowSpec.extend): the picture padded with grey at the drawing size is the picture
+   * edited, the whole frame is drawn from the empty latent the reading gives, and the picture is put back over the result,
+   * faded in from a band inside its edge (the seam pass's paste), since the model's version of it is never quite as light.
+   */
+  function extended(g: GraphBuilder, k: ReturnType<FlowKit["load"]>, input: FlowOutpaint, seed: number, source: Ref, from: { width: number; height: number }, whole: { width: number; height: number }, size: { width: number; height: number }, extend: NonNullable<FlowSpec["extend"]>) {
+    const padded = g.add("ImagePadForOutpaint", { image: source, left: input.padLeft, top: input.padTop, right: input.padRight, bottom: input.padBottom, feathering: input.feathering });
+    const canvas = g.out("ImageScale", { image: [padded, 0], upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
+    const read = extend.read(g, k, input.prompt, input.negative, canvas);
+    g.phase("sampling");
+    const drawn = sample(g, k, input, shifted(g, k.model, input, size), read, read.latent, seed);
+    g.phase("decoding");
+    // the colours alone: Qwen Image 2.1's VAE decodes an alpha too, which the paste back has no use for
+    const rgb = g.out("SplitImageWithAlpha", { image: g.out("VAEDecode", { samples: drawn.latent, vae: k.vae }) });
+    const atWhole = g.out("ImageScale", { image: rgb, upscale_method: "lanczos", width: whole.width, height: whole.height, crop: "disabled" });
+    const out = g.add("PreviewImage", { images: pasteBack(g, atWhole, source, padded, from, input, SEAM_BAND) });
+    return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image" as const, role: "result" as const }], totalSteps: drawn.pass.steps, passes: [drawn.pass], loads: k.loads };
+  }
 }

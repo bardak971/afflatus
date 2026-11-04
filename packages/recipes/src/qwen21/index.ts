@@ -130,6 +130,14 @@ const QWEN21_DROPS = {
   ...noReferences("Qwen Image 2.1's txt2img and img2img read no reference image: its Edit takes them"),
   regions: REGIONS_WHY.qwen21,
 };
+/** Qwen Image 2.1 Turbo's file (qwen_image_2.1_turbo_*): distilled to 8 steps at CFG 1. */
+const TURBO_FILE = /qwen.?image.?2\.1.*turbo/i;
+/**
+ * What outpaint asks of the padded picture, before the user's words for the wider scene: Klein's ask (klein.change-shape),
+ * the picture named as Qwen's edits name it, said positively (Qwen reads a "do not" as the thing it names). The grey is
+ * called empty so that it is filled, not drawn as a grey wall.
+ */
+const EXTEND = "The plain grey areas at the edges of <image1> are empty. Fill them by continuing the scene naturally beyond its edges: the same place, the same light, the same style and the same camera. Everything already in <image1> stays exactly the same.";
 const files = { unet: "qwen_image_2.1_int8_convrot.safetensors", clip: "qwen3vl_8b_int8_convrot.safetensors", vae: "qwen_image_2.1_vae_bf16.safetensors" };
 
 /**
@@ -154,6 +162,16 @@ export const qwen21Spec: FlowSpec = {
       return { positive: [read, 0], negative: [read, 1] };
     },
   },
+  // outpaint as an edit of the padded picture, the user's words after the ask to fill the grey (card #286)
+  extend: {
+    nodes: ["TextEncodeQwenImage21"],
+    read: (g, k, prompt, negative, canvas) => {
+      // the canvas at its own size (resolution 0, on the grid of 32 the size is on already): the latent the encoder gives is its size
+      const read = g.add("TextEncodeQwenImage21", { clip: k.clip, prompt: [EXTEND, prompt.trim()].filter(Boolean).join(" "), negative_prompt: negative, resolution: 0, vae: k.vae, "images.image_1": canvas });
+      return { positive: [read, 0], negative: [read, 1], latent: [read, 2] };
+    },
+  },
+  distilled: TURBO_FILE,
   patch: { nodes: ["QwenImage21Cache"], put: (g, m, input) => g.out("QwenImage21Cache", { model: m, device: "auto", dtype: (input as Partial<Qwen21Base>).cacheDtype ?? "default" }) },
   // no shift row (its inputs have none): the model samples at its own, which is not known here
   shift: { node: "ModelSamplingAuraFlow", default: 0, note: "" },
@@ -186,7 +204,7 @@ export const qwen21Spec: FlowSpec = {
     {
       // the distilled file (qwen_image_2.1_turbo_*): at the full model's 40 steps its pictures came out overcooked on a pod, at 8
       // clean, in 5.5 s against 24 (card #275's render test). Its hires pass in half as many, as Z-Image Turbo's (untried)
-      match: "qwen.?image.?2\\.1.*turbo",
+      match: TURBO_FILE.source,
       values: { steps: 8, hiresSteps: 4 },
       note: "Qwen Image 2.1 Turbo: distilled, 8 steps",
     },
