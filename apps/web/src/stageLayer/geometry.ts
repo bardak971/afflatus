@@ -33,6 +33,22 @@ export function roomToPicture(at: { x: number; y: number }, shown: Shown, fit: S
   return { x: ((at.x - shown.left) / shown.scale) * k - frame.x, y: ((at.y - shown.top) / shown.scale) * k - frame.y };
 }
 
+/** The nearest multiple of `step` (none under 1: as it is). */
+export const snap = (v: number, step: number): number => (step > 1 ? Math.round(v / step) * step : v);
+
+/** The next multiple of `step` at or above `v`. */
+export const snapUp = (v: number, step: number): number => (step > 1 ? Math.ceil(v / step - 1e-9) * step : v);
+
+export const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+
+/** An aspect ratio's words ("16:9", "Widescreen 16:9") as width over height; null for none ("Free"). */
+export function ratioOf(words: string): number | null {
+  const m = /(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)/.exec(words);
+  if (!m) return null;
+  const r = Number(m[1]) / Number(m[2]);
+  return Number.isFinite(r) && r > 0 ? r : null;
+}
+
 /**
  * The box between where a drag began and where it is, either way round. `ratio` (Shift held: a square, or a shape's
  * ratio): the box holds it, as large as the drag's longer side asks, from the corner it began at.

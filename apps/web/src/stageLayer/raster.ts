@@ -196,6 +196,65 @@ export function fillPolygon(plane: Plane, points: ReadonlyArray<{ x: number; y: 
   return fillShape(plane, { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y }, feather, ink, (px, py) => insidePolygon(points, px, py));
 }
 
+/**
+ * A found mask (SAM's, a detector's: hard edged) given the brush's feather: full inside (half masked and over), fading out
+ * over `feather` past that edge, so the fade starts from full and shows no ring where a soft edge it came with met the new
+ * one. A copy; the found mask is left as it came.
+ */
+export function feathered(plane: Plane, feather: number): Plane {
+  const out: Plane = { w: plane.w, h: plane.h, data: plane.data.slice() };
+  if (feather <= 0) return out;
+  const hard = new Uint8Array(plane.w * plane.h);
+  for (let i = 0; i < hard.length; i++) hard[i] = plane.data[i]! > 127 ? 1 : 0;
+  const dist = distanceOut(hard, plane.w, plane.h);
+  for (let i = 0; i < hard.length; i++) {
+    if (hard[i]) {
+      out.data[i] = 255;
+      continue;
+    }
+    const v = Math.round(255 * falloff(dist[i]!, feather));
+    if (v > out.data[i]!) out.data[i] = v;
+  }
+  return out;
+}
+
+/**
+ * The magic wand: the pixels of a picture (RGBA, at the plane's size) close in colour to the one at (x, y), as a hard mask.
+ * Close is each channel within `tolerance` (0 to 100: from that colour alone to every colour) of the clicked pixel's.
+ * `contiguous`: only those reached from it through close neighbours (left, right, up, down), as every editor's wand;
+ * else every close pixel of the picture. A click off the picture finds nothing.
+ */
+export function wand(rgba: Uint8ClampedArray, w: number, h: number, x: number, y: number, tolerance: number, contiguous: boolean): Plane {
+  const out = newPlane(w, h);
+  const sx = Math.floor(x);
+  const sy = Math.floor(y);
+  if (sx < 0 || sy < 0 || sx >= w || sy >= h) return out;
+  const t = Math.round((Math.min(100, Math.max(0, tolerance)) / 100) * 255);
+  const o = (sy * w + sx) * 4;
+  const r = rgba[o]!, g = rgba[o + 1]!, b = rgba[o + 2]!;
+  const close = (i: number) => Math.abs(rgba[i * 4]! - r) <= t && Math.abs(rgba[i * 4 + 1]! - g) <= t && Math.abs(rgba[i * 4 + 2]! - b) <= t;
+  if (!contiguous) {
+    for (let i = 0; i < w * h; i++) if (close(i)) out.data[i] = 255;
+    return out;
+  }
+  // a stack of pixels to look at, each looked at once: no recursion, whatever the size of the part
+  const stack = new Int32Array(w * h);
+  let top = 0;
+  stack[top++] = sy * w + sx;
+  out.data[sy * w + sx] = 255;
+  while (top > 0) {
+    const i = stack[--top]!;
+    const px = i % w;
+    const next = [px > 0 ? i - 1 : -1, px < w - 1 ? i + 1 : -1, i >= w ? i - w : -1, i < w * (h - 1) ? i + w : -1];
+    for (const j of next) {
+      if (j < 0 || out.data[j] || !close(j)) continue;
+      out.data[j] = 255;
+      stack[top++] = j;
+    }
+  }
+  return out;
+}
+
 /** Masked and not swapped: the rest of the picture is redone instead. */
 export function invert(plane: Plane): Rect {
   for (let i = 0; i < plane.data.length; i++) plane.data[i] = 255 - plane.data[i]!;

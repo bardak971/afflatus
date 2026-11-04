@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  bounds, clear, clip, combine, cut, dab, distanceOut, EMPTY_BELOW, falloff, fillPolygon, fillRect, fromRgba, History, insidePolygon, invert,
-  line, newPlane, normal, paste, resample, tint, toRgba, union, workSize, WORK_EDGE, type Plane,
+  bounds, clear, clip, combine, cut, dab, distanceOut, EMPTY_BELOW, falloff, feathered, fillPolygon, fillRect, fromRgba, History, insidePolygon, invert,
+  line, newPlane, normal, paste, resample, tint, toRgba, union, wand, workSize, WORK_EDGE, type Plane,
 } from "../src/stageLayer/raster";
 
 const at = (p: Plane, x: number, y: number) => p.data[y * p.w + x]!;
@@ -203,6 +203,27 @@ describe("invert, clear, and a mask from elsewhere", () => {
     expect(() => combine(p, newPlane(2, 2), "add")).toThrow(/2×2/);
   });
 
+  it("gives a hard found mask a feather past its edge, leaving the mask it came as", () => {
+    const hard = newPlane(40, 20);
+    fillRect(hard, { x: 10, y: 5, w: 10, h: 10 }, 0, "add");
+    const soft = feathered(hard, 6);
+    expect(at(soft, 15, 10)).toBe(255);
+    expect(at(soft, 22, 10)).toBeGreaterThan(0);
+    expect(at(soft, 22, 10)).toBeLessThan(255);
+    expect(at(soft, 30, 10)).toBe(0);
+    expect(at(hard, 22, 10)).toBe(0);
+    expect(feathered(hard, 0).data).toEqual(hard.data);
+  });
+
+  it("makes a soft found mask full inside its half-way edge, so its fade has no dip", () => {
+    const soft = newPlane(30, 1);
+    soft.data.set(Array.from({ length: 30 }, (_, x) => (x < 10 ? 200 : x < 14 ? 140 : 0)));
+    const out = feathered(soft, 6);
+    expect(out.data[12]).toBe(255);
+    // past the edge it only falls, never rising again
+    for (let x = 14; x < 29; x++) expect(out.data[x + 1]!).toBeLessThanOrEqual(out.data[x]!);
+  });
+
   it("finds the masked part, the feather's last breath left out", () => {
     const p = newPlane(10, 10);
     expect(bounds(p)).toBeNull();
@@ -343,5 +364,48 @@ describe("undo by patches", () => {
     h.commit(p, invert(p));
     h.undo(p);
     expect(p.data).toEqual(before);
+  });
+});
+
+describe("the magic wand", () => {
+  /** A picture of `w` × `h` grey pixels, from rows of grey levels. */
+  const picture = (rows: number[][]) => {
+    const h = rows.length;
+    const w = rows[0]!.length;
+    const rgba = new Uint8ClampedArray(w * h * 4);
+    rows.flat().forEach((v, i) => rgba.set([v, v, v, 255], i * 4));
+    return { rgba, w, h };
+  };
+  const ones = (p: Plane) => [...p.data].map((v) => (v ? 1 : 0)).join("");
+
+  it("takes the same colour reached from the click, and not the same colour cut off from it", () => {
+    const { rgba, w, h } = picture([
+      [10, 10, 200, 10],
+      [10, 200, 200, 10],
+      [200, 200, 10, 10],
+    ]);
+    expect(ones(wand(rgba, w, h, 0, 0, 0, true))).toBe("110010000000");
+    // the whole picture: the right-hand 10s too
+    expect(ones(wand(rgba, w, h, 0, 0, 0, false))).toBe("110110010011");
+  });
+
+  it("takes colours within the tolerance, the edge itself included", () => {
+    // 51 is 20 % of 255: 100 and 151 are 51 apart
+    const { rgba, w, h } = picture([[100, 151, 152, 49]]);
+    expect(ones(wand(rgba, w, h, 0, 0, 20, true))).toBe("1100");
+    expect(ones(wand(rgba, w, h, 0, 0, 20, false))).toBe("1101");
+    expect(ones(wand(rgba, w, h, 0, 0, 0, false))).toBe("1000");
+    expect(ones(wand(rgba, w, h, 0, 0, 100, true))).toBe("1111");
+  });
+
+  it("reads each channel: a colour as light but of another hue is not close", () => {
+    const rgba = new Uint8ClampedArray([200, 0, 0, 255, 0, 200, 0, 255, 190, 10, 5, 255]);
+    expect(ones(wand(rgba, 3, 1, 0, 0, 10, false))).toBe("101");
+  });
+
+  it("finds nothing off the picture, and fills a large part without running out of stack", () => {
+    const flat = new Uint8ClampedArray(2048 * 512 * 4).fill(128);
+    expect(bounds(wand(flat, 2048, 512, -1, 5, 50, true))).toBeNull();
+    expect(bounds(wand(flat, 2048, 512, 1000, 200, 0, true))).toEqual({ x: 0, y: 0, w: 2048, h: 512 });
   });
 });

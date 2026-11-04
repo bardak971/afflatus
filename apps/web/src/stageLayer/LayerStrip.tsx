@@ -1,9 +1,14 @@
 import type { ReactNode } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, RotateCcw } from "lucide-react";
 import { cx } from "../cx";
+import { plural } from "../format";
 import { Slider } from "../Slider";
-import { Help, IconButton } from "../ui";
+import { Help, IconButton, Segmented, Toggle } from "../ui";
+import { FRAME_ASPECTS, padded } from "./frame";
+import type { ClickTool, DetectTool, FindWhat, WandTool } from "./useFindTools";
+import type { FrameTool } from "./useFrameTool";
 import { BRUSH_LIMITS, type MaskLayer } from "./useMaskLayer";
+import type { Size } from "../viewer/zoom";
 
 /**
  * The strip over the Stage while the layer is on: what it is doing (its title), then the active tool's options. The same
@@ -52,6 +57,80 @@ export function MaskOptions({ mask, grow, onGrow }: { mask: MaskLayer; grow?: nu
       <IconButton className="ml-1" label={mask.shown ? "Hide the mask" : "Show the mask"} keys="M" pressed={!mask.shown} onClick={() => mask.setShown(!mask.shown)}>
         {mask.shown ? <Eye size={15} /> : <EyeOff size={15} />}
       </IconButton>
+    </>
+  );
+}
+
+/**
+ * The outpaint frame's options: the shape it is held to (Free: each side as dragged), the size it brings the picture to,
+ * and back to the picture's own edges. `step` and `most`: the frame tool's rules, said in its ?.
+ */
+export function FrameOptions({ frame, natural, step = 64, most = 1024 }: { frame: FrameTool; natural: Size | null; step?: number; most?: number }) {
+  return (
+    <>
+      <Segmented<string> label="Shape of the frame" size="sm" oneLine value={frame.aspect} options={FRAME_ASPECTS.map((a) => ({ value: a, label: a }))} onChange={frame.setAspect} />
+      {natural && (
+        <span className="font-mono text-xs text-ink-2 tabular-nums">
+          {natural.w} × {natural.h} → <b className="text-ink">{frame.size.w} × {frame.size.h}</b>
+        </span>
+      )}
+      <Help text={`The frame's size snaps to ${step} px, the step the model draws in; Alt held while dragging: not snapped. Each side adds at most ${most} px.`} />
+      <IconButton label="Back to the picture's edges" disabled={!padded(frame.pads)} onClick={frame.reset}>
+        <RotateCcw size={15} />
+      </IconButton>
+    </>
+  );
+}
+
+/** A find's state on the strip: finding, or why it failed. */
+function Finding({ busy, error }: { busy: boolean; error: string | null }) {
+  if (error) return <span className="text-warn-ink">{error}</span>;
+  return busy ? <span className="text-ink-2" aria-live="polite">Finding…</span> : null;
+}
+
+/** Click to mask's options: how it is used, the points so far, and starting again. */
+export function ClickOptions({ click }: { click: ClickTool }) {
+  const n = click.points.length;
+  return (
+    <>
+      <span className="text-ink-2"><b className="text-ink">Click</b> adds · <b className="text-ink">Shift-click</b> takes away</span>
+      <Help text="SAM 3, run in ComfyUI: each click finds the whole thing it lands on. The mask it finds takes the brush's feather; paint, rub out or invert it as any mask." />
+      {n > 0 && <button type="button" className="text-ink-2 underline-offset-2 hover:text-ink hover:underline" onClick={click.done}>{plural(n, "point")} · start again</button>}
+      <Finding busy={click.busy} error={click.error} />
+    </>
+  );
+}
+
+const KINDS: Array<{ value: FindWhat; label: string }> = [{ value: "face", label: "Face" }, { value: "hands", label: "Hands" }, { value: "person", label: "Person" }];
+
+/** The detector's options: what it looks for, with how many it found of each. */
+export function DetectOptions({ detect }: { detect: DetectTool }) {
+  return (
+    <>
+      <Segmented<FindWhat>
+        label="What to find" size="sm" oneLine value={detect.what}
+        options={KINDS.map((k) => ({ value: k.value, label: detect.found[k.value] ? `${k.label} · ${detect.found[k.value]!.length}` : k.label }))}
+        onChange={(w) => detect.look(w)}
+      />
+      <span className="text-ink-2">Click a box to mask it, again to take it away</span>
+      <Finding busy={detect.busy} error={detect.error} />
+    </>
+  );
+}
+
+/** The wand's options: its tolerance, and whether it keeps to what touches the click. */
+export function WandOptions({ wand }: { wand: WandTool }) {
+  return (
+    <>
+      <Option name="Tolerance" help="How far a colour may be from the one clicked, on each of red, green and blue: 0 is that colour alone, 100 every colour.">
+        <Slider label="Tolerance of the wand" value={wand.tolerance} min={0} max={100} step={1} onChange={wand.setTolerance} className="w-36" />
+      </Option>
+      <span className="flex items-center gap-2 text-ink-2">
+        Contiguous
+        <Toggle bare label="Contiguous" tip="Only what touches the click; off, every close colour in the picture" on={wand.contiguous} onChange={wand.setContiguous} />
+      </span>
+      <span className="text-ink-2"><b className="text-ink">Shift</b> adds · <b className="text-ink">Alt</b> takes away</span>
+      {wand.error && <span className="text-warn-ink">{wand.error}</span>}
     </>
   );
 }
