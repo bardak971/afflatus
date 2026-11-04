@@ -214,11 +214,22 @@ describe("Krea 2's regions: every box in one pass (ComfyUI-Krea2-Regional), each
     const b = built({ regions: people }, PERSON_FILES, uploads);
     const patches = nodes(b, "Krea2EditModelPatch");
     expect(patches).toHaveLength(2);
-    const pictures = patches.map(([, n]) => b.graph[(n.inputs.source_image_b as [string, number])[0]]!.inputs.image);
+    // through Afflatus's Face Crop where the ComfyUI has it
+    const loaded = (id: string): unknown => (b.graph[id]!.class_type === "LoadImage" ? b.graph[id]!.inputs.image : loaded((b.graph[id]!.inputs.image as [string, number])[0]));
+    const pictures = patches.map(([, n]) => loaded((n.inputs.source_image_b as [string, number])[0]));
     expect(pictures).toEqual(["fabien.png", "nicolas.png"]);
     for (const [, n] of patches) expect(n.inputs).toMatchObject({ ref_position: "beside (right of target)", ref_position_a: "aligned (trained)" });
-    expect(nodes(b, "KSampler").slice(1).map(([, n]) => n.inputs.denoise)).toEqual([0.6, 0.6]);
+    expect(nodes(b, "KSampler").slice(1).map(([, n]) => n.inputs.denoise)).toEqual([0.9, 0.9]);
     expect(nodes(b, "ImageCompositeMasked")).toHaveLength(2);
+    // the box alone is pasted back, never the context around it (which held the next person on a pod)
+    const pasted = nodes(b, "ImageCompositeMasked").map(([, n]) => b.graph[(n.inputs.mask as [string, number])[0]]!);
+    for (const m of pasted) expect(m.class_type).toBe("MaskComposite");
+    // the person's picture cut to their head and shoulders where Afflatus's Face Crop is, whole (and said) where not
+    const cut = krea2.build(parseInput(krea2, { prompt: "a", regions: people }), dryContext({ slots: PERSON_FILES, uploads, has: () => true }));
+    expect(nodes(cut, "AfflatusFaceCrop")).toHaveLength(2);
+    const whole = krea2.build(parseInput(krea2, { prompt: "a", regions: people }), dryContext({ slots: PERSON_FILES, uploads, has: (n) => n !== "AfflatusFaceCrop" }));
+    expect(nodes(whole, "AfflatusFaceCrop")).toHaveLength(0);
+    expect(whole.warnings?.join(" ")).toContain("Face Crop");
     // without their picture uploaded (a person with none), the box keeps what their words drew
     expect(nodes(built({ regions: people }, PERSON_FILES), "Krea2EditModelPatch")).toHaveLength(0);
     expect(nodes(built({ regions: people, regionPersonDenoise: 0 }, PERSON_FILES, uploads), "Krea2EditModelPatch")).toHaveLength(0);

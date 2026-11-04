@@ -15,7 +15,7 @@ import { addedInputs, withRow, type AddedSpec } from "../shared/addedRows";
 import { FACE_PASS_INPUTS, FACE_PASS_NODES, FACE_PASS_OPTIONAL, FACE_PASS_SLOTS, facePass, SMALL_FACE_PX, type FacePassValues } from "../klein/facePass";
 import { adetail, ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, adetailOn, ALL_DETAIL, DETECTOR_FILES, sized, type AdetailSettings } from "../shared/adetail";
 import { facesIn, krea2Layout, krea2RegionNodes, krea2Regions, REGION_FACE_NODES, REGIONS, regionLoads, regionsInput } from "../shared/regions";
-import { pictured, PERSON_BOX_NODES, personBoxes } from "./regions";
+import { pictured, PERSON_BOX_NODES, PERSON_BOX_OPTIONAL, personBoxes } from "./regions";
 
 const files = krea2Spec.files;
 const withStyle = { ...files, styleRef: "krea2_style_reference.safetensors" };
@@ -144,8 +144,10 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
       face: "With Detail: face on, each cast person's face found in their box is redrawn by FLUX.2 Klein from their picture (faces under 150 px, as Face refine)",
     }),
     {
-      id: "regionPersonDenoise", type: "number", label: "Person pass denoise", min: 0, max: 1, step: 0.05, default: 0.6, showWhen: REGIONS, advanced: true,
-      note: "how much a cast person's box is redrawn from their picture by Identity Edit, after the picture. 0 leaves each person as the boxes drew them, from their words and LoRA",
+      // on a pod (2026-11-04, Fabien and Nicolas): 0.6 kept the faces the words drew, 0.8 took one of the two people, 0.9 and
+      // 1 took both (and the photo's own setting, until the picture was cut to the head and shoulders)
+      id: "regionPersonDenoise", type: "number", label: "Person pass denoise", min: 0, max: 1, step: 0.05, default: 0.9, showWhen: REGIONS, advanced: true,
+      note: "how much a cast person's box is redrawn from their picture by Identity Edit, after the picture. 0 leaves each person as the boxes drew them, from their words and LoRA; below 0.9 the face hardly changed in Afflatus's test",
     },
     ...adetailInputs("sentences", PERSON_FACE),
     ...DETAIL_INPUTS,
@@ -170,7 +172,7 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
     { when: { all: [{ input: "person", filled: true }, { input: "references", filled: true }] }, why: NOT_BOTH },
     { when: { all: [{ input: REGIONS, filled: true }, { any: [{ input: "person", filled: true }, { input: "references", filled: true }] }] }, why: REGIONS_ALONE },
   ],
-  optionalNodes: [...new Set([...DETAIL_OPTIONAL, ...FACE_PASS_OPTIONAL, ...ADETAIL_OPTIONAL, ...REGION_FACE_NODES])],
+  optionalNodes: [...new Set([...DETAIL_OPTIONAL, ...FACE_PASS_OPTIONAL, ...ADETAIL_OPTIONAL, ...REGION_FACE_NODES, ...PERSON_BOX_OPTIONAL])],
   layoutOf: (input) => (regionsOf(input.regions).length ? krea2Layout(input.prompt, regionsOf(input.regions)) : null),
   // a person reference asks for its LoRA (unless one is picked in its row) and, with Face refine on, Klein's files and the
   // face detector: a pod is sent them; a machine of the user's own makes the picture without the pass rather than wait.
@@ -428,9 +430,10 @@ function personBoxed(
       g.phase("detailing");
       const redrawn = personBoxes(g, people, {
         image, size: at.size, model: k.model, identity: identity.lora, clip: k.clip, vae: k.vae, refBoost: input.refBoost, denoise: input.regionPersonDenoise,
-        steps: k.steps, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed, shifted: k.shifted, uploads: ctx.uploads,
+        steps: k.steps, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed, shifted: k.shifted, uploads: ctx.uploads, has: ctx.has,
       });
       made.image = redrawn.image;
+      made.warnings.push(...redrawn.warnings);
       made.passes.push(...redrawn.passes);
       made.loads.push(`loras/${identity.lora.file}`);
     }
