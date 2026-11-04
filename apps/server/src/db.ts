@@ -77,6 +77,12 @@ export interface Tables {
      * is kept. Optional on insert, as the database fills it with null.
      */
     version_of?: string | null;
+    /**
+     * Of a cell of an X/Y/Z grid (card #21): the grid, and where the cell sits on its board ("x.y.z"). Optional on insert, as
+     * the database fills them with null.
+     */
+    grid_id?: string | null;
+    grid_cell?: string | null;
     /** Of a file of a linked folder that is in the bin: where it was on the disk, to put it back there. */
     linked_path: string | null;
     created_at: string;
@@ -243,6 +249,9 @@ export interface Tables {
     mcp_token_id?: string | null;
     /** The head of the stack its results join as versions (versions.ts), as the root when it was queued; null: new items. */
     version_of?: string | null;
+    /** A cell of an X/Y/Z grid (card #21): the grid, and where the cell sits ("x.y.z"); what it makes carries both. */
+    grid_id?: string | null;
+    grid_cell?: string | null;
     created_at: string;
     started_at: string | null;
     finished_at: string | null;
@@ -502,9 +511,16 @@ export interface Tables {
     designer?: string | null;
     /** Who is in it and how it looks (JSON): people, places, a style. */
     look: string | null;
+    /** Its X/Y/Z grid's set-up (card #21, JSON: the axes as typed), to open on it again; null: none. */
+    grid?: string | null;
     created_at: string;
     updated_at: string;
   };
+  /**
+   * An X/Y/Z grid sent (card #21): its axes as the board says them (JSON: each setting's name and its values' labels), what it
+   * was sent from, and how many cells it queued. Its cells are jobs and items tagged with its id.
+   */
+  grids: { id: string; owner_id: string; draft_id: string | null; recipe_id: string; axes: string; count: number; created_at: string };
 }
 export type Db = Kysely<Tables>;
 export type DbKind = "sqlite" | "postgres";

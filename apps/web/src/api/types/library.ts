@@ -39,6 +39,8 @@ export interface Asset {
   shownName?: string;
   /** A version not kept yet: the picture it is a version of (the root of its stack), shown under it rather than in the library. */
   versionOf?: string | null;
+  /** A cell of an X/Y/Z grid: the grid, and where it sits on its board (column, row, page); null otherwise. */
+  grid?: { id: string; x: number; y: number; z: number } | null;
   /** In listings: how many versions wait under it, to keep one or not (0 or absent: none). */
   versions?: number;
 }

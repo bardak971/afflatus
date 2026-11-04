@@ -18,7 +18,7 @@ import { draw } from "./render";
 
 const FORM = "zz-test.text";
 const draft = (id: string, forms: Draft["forms"] = { [FORM]: { prompt: "as saved", steps: 20 } }): Draft => ({
-  id, recipe: FORM, title: "", name: null, updatedAt: "", empty: false, projectId: null, forms, count: 1, look: null, chat: [], designer: null,
+  id, recipe: FORM, title: "", name: null, updatedAt: "", empty: false, projectId: null, forms, count: 1, look: null, chat: [], designer: null, grid: null,
 });
 
 const edit = (over: Partial<DraftEdit> = {}): DraftEdit => ({

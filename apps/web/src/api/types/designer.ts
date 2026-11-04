@@ -1,4 +1,5 @@
 /** The designer and the prompt kit: drafts, conversations, looks, the people, places, styles, snippets and presets. */
+import type { GridSetup } from "@afflatus/core";
 
 export interface DraftBrief {
   id: string;
@@ -36,6 +37,8 @@ export interface DraftPatch {
   name?: string;
   /** The project it moves to (null: the Inbox). */
   project?: string | null;
+  /** Its X/Y/Z grid's set-up (null: none). */
+  grid?: GridSetup | null;
 }
 export interface Draft extends DraftBrief {
   /** Recipe id → the values of its form. */
@@ -47,6 +50,8 @@ export interface Draft extends DraftBrief {
   chat: unknown[];
   /** The language model and instructions that conversation is held with; null = the usual ones. */
   designer: DesignerSession | null;
+  /** Its X/Y/Z grid's set-up, the axes as typed, to open on again; null: none. */
+  grid: GridSetup | null;
 }
 /** Which language model and which instructions a conversation with the designer is held with ("" = no instructions). */
 export interface DesignerSession {

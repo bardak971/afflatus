@@ -53,7 +53,7 @@ async function mentioned(s: Services, recipe: Recipe<any>, input: Record<string,
  * A render sent to the queue, as Render sends it (POST /api/jobs) and MCP's render (mcpRender.ts): every copy queued, or
  * none, refused as the queue refuses a job. `by`: the MCP token whose call sent it (jobs.mcp_token_id). Its job ids.
  */
-export async function queueRender(s: Services, body: z.output<typeof jobBody>, by: { mcpToken?: string } = {}): Promise<string[]> {
+export async function queueRender(s: Services, body: z.output<typeof jobBody>, by: { mcpToken?: string } = {}, cells?: ReadonlyArray<GridCellJob>): Promise<string[]> {
   const recipe = s.registry.recipe(body.recipe);
   // a job pinned to a machine there is not would wait for ever; to a pod that went, it is said so (card #150)
   if (body.machine && !(await s.machines()).some((m) => m.machine.id === body.machine)) throw isPodMachineId(body.machine) ? httpError(POD_GONE, 409) : httpError("there is no ComfyUI with that id");
@@ -73,17 +73,26 @@ export async function queueRender(s: Services, body: z.output<typeof jobBody>, b
   // "@Name" in a text casts that Prompt kit person whether or not a cast was picked: with none, the form is worked through
   // the cast its mentions make (a draft whose cast was empty sent no look, and its "@Mira" went to the model as typed)
   const look = body.look ?? (recipe ? (await mentioned(s, recipe, body.input)) : undefined);
+  // an X/Y/Z grid's cells (grids.ts): each its own form, its label and its place on the board; else the batch's copies, a
+  // typed seed that moves giving each its own, set before its texts are settled, whose picks follow it
+  const copies: ReadonlyArray<GridCellJob> = cells ?? Array.from({ length: body.count }, (_, i) => ({ input: body.seedMode && seed !== null ? { ...body.input, seed: movedSeed(seed, body.seedMode, i) } : body.input }));
   return s.queue.enqueueAll(async (ask) => {
-    for (let i = 0; i < body.count; i++) {
-      // a typed seed that moves: this copy's, set before its texts are settled, whose picks follow it
-      const seeded = body.seedMode && seed !== null ? { ...body.input, seed: movedSeed(seed, body.seedMode, i) } : body.input;
+    for (const copy of copies) {
+      const seeded = copy.input;
       // with a cast: each copy's choices ({a|b}, __colors__) settled before it is worked in, so that what was asked and what
       // renders pick the same
       const own = recipe && look ? await settleTexts(s.wildcards, recipe, seeded) : seeded;
       const each = recipe && look ? (await compose(s.db, recipe, own, look)).input : own;
-      await ask.render(body.recipe, each, { label, draft: body.draft, folder: body.folder, versionOf: body.versionOf, look, asked: each === own ? undefined : askedOf(own, each), machine: body.machine ?? null, mcpToken: by.mcpToken ?? null });
+      await ask.render(body.recipe, each, { label: copy.label ? `${label ?? recipe?.title ?? body.recipe} · ${copy.label}` : label, draft: body.draft, folder: body.folder, versionOf: body.versionOf, look, asked: each === own ? undefined : askedOf(own, each), machine: body.machine ?? null, mcpToken: by.mcpToken ?? null, ...(copy.grid ? { grid: copy.grid } : {}) });
     }
   });
+}
+
+/** One cell of an X/Y/Z grid as it is queued (grids.ts): its form, what it is said as, and its place on the board. */
+export interface GridCellJob {
+  input: Record<string, unknown>;
+  label?: string;
+  grid?: { id: string; cell: string };
 }
 
 export function registerJobs(app: FastifyInstance, s: Services): void {

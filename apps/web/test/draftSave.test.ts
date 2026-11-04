@@ -7,7 +7,7 @@ import { copyText, localId } from "../src/secureContext";
 
 const draft: Draft = {
   id: "d1", recipe: "sdxl.text", title: "", name: "Mine", updatedAt: "", empty: false, projectId: "p1",
-  forms: { "sdxl.text": { prompt: "a cat" } }, count: 2, look: null, chat: [{ role: "user", content: "hi" }], designer: null,
+  forms: { "sdxl.text": { prompt: "a cat" } }, count: 2, look: null, chat: [{ role: "user", content: "hi" }], designer: null, grid: null,
 };
 
 /** fetch, answering each call in turn, with what was asked kept. */
