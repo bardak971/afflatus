@@ -18,8 +18,8 @@
 # The build context is the repository's root (for comfy-nodes/afflatus-nodes); Dockerfile.dockerignore beside this
 # file keeps the rest out of it.
 
-ARG BASE_CU130=ghcr.io/bardak971/afflatus-pod-base:9@sha256:2dcb96f66d982dfa7e595ba4cc89fdf8d8746c68ba5f464d24f6ba2c7a4d2819
-ARG BASE_CU128=ghcr.io/bardak971/afflatus-pod-base:9-cu128@sha256:0d56d47494b6745d1c2821d3320bf184a2ab35625383313d722300852070d258
+ARG BASE_CU130=ghcr.io/bardak971/afflatus-pod-base:10@sha256:cf466e86da7c31ccb38e0b468213df6a6c0b7490d908b490a1a8a628042729dc
+ARG BASE_CU128=ghcr.io/bardak971/afflatus-pod-base:10-cu128@sha256:9abb8fa81c21de4d88c449172eb83a66961cb31d56947033ca15aeec9aac25b5
 ARG TORCH_CUDA=cu130
 # the ComfyUI the base is built on (base/Dockerfile's COMFYUI_VERSION; test_image.py holds the two together), for Manager's
 # registry list below, made outside the base (the base's AFFLATUS_COMFYUI_VERSION says the same, but only to a stage on it)
