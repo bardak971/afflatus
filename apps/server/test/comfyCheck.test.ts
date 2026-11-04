@@ -42,7 +42,7 @@ describe("the ComfyUI check", () => {
     expect(m!.update).toContain("pip install -r requirements.txt");
     // the first launch's probe says the same before it is added
     const probe = (await t.app.inject({ method: "POST", url: "/api/setup/probe", payload: { url: fake.url } })).json() as { tooOld: { needs: string } | null; pytorch: string };
-    expect(probe).toMatchObject({ pytorch: "2.4.0+cu121", tooOld: { needs: "0.37.0" } });
+    expect(probe).toMatchObject({ pytorch: "2.4.0+cu121", tooOld: { needs: "0.42.0" } });
   });
 
   it("says nothing more of a ComfyUI that runs every family", async () => {
