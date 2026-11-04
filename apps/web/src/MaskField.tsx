@@ -6,6 +6,7 @@ import { dropMask, wantsMask } from "./handoff";
 import { nameFor } from "./maskName";
 import { Button, Note, Help } from "./ui";
 import { useExplain } from "./store";
+import { findOn } from "./paintFix/findOn";
 
 // the painter is a chunk of its own: fetched the first time a mask is painted
 const Painter = lazy(() => import("./MaskPainter").then((m) => ({ default: m.MaskPainter })));
@@ -67,6 +68,7 @@ export function MaskField({ label, note, picture, value, onChange }: {
         <Suspense fallback={null}>
           <Painter
             picture={picture}
+            find={findOn(picture)}
             mask={has ? value : null}
             onClose={() => setPainting(false)}
             onDone={(id) => {

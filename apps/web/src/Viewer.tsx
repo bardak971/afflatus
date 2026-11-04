@@ -3,7 +3,7 @@ import { Check, MoreHorizontal, Plus, Star, Wand2 } from "lucide-react";
 import type { Range } from "./Trim";
 import { api, type Asset } from "./api";
 import { useAsset } from "./data";
-import { dialogOver } from "./Dialog";
+import { dialogOver, OVER } from "./Dialog";
 import { Kbd, plainKey, typing } from "./Keys";
 import { useLeave } from "./leave";
 import { Button, cx } from "./ui";
@@ -21,7 +21,7 @@ import { ViewerSidebar } from "./viewer/ViewerSidebar";
 import { useCompareResult } from "./store";
 import { useVersions } from "./paintFix/useVersions";
 import { stepVersion, VersionStrip } from "./paintFix/VersionStrip";
-import { useStageMode } from "./paintFix/useStageMode";
+import { outpaintsByFrame, useStageMode } from "./paintFix/useStageMode";
 
 // the parameters reader is a chunk of its own: fetched the first time Details opens
 const PngInfo = lazy(() => import("./PngInfo").then((m) => ({ default: m.PngInfo })));
@@ -68,11 +68,12 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
     if (next) showVersion(next);
     return Boolean(next);
   };
-  // Paint and fix (Inpaint, I): the Stage paints a mask over the picture shown, any version of its stack; the keys are the layer's
+  // Paint and fix (Inpaint I, Outpaint R): the Stage draws over the picture shown, any version of its stack; the keys are the layer's
   const stageOn = useStageMode((s) => s.on);
   const inStack = (id: string) => id === asset.id || id === base.id || versions.all.some((v) => v.id === id);
-  const paintAsked = asset.kind === "image" && !asset.inBin && stageOn?.mode === "paint" && inStack(stageOn.asset);
+  const paintAsked = asset.kind === "image" && !asset.inBin && Boolean(stageOn) && inStack(stageOn!.asset);
   const paint = () => useStageMode.getState().set(asset.id, "paint");
+  const outpaint = () => useStageMode.getState().set(asset.id, "outpaint");
   const leavePaint = () => useStageMode.getState().leave();
   // another item shown, or the viewer gone: its Paint and fix ends with it (the mode of another picture is left alone)
   const stack = useRef(inStack);
@@ -155,7 +156,7 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
       trim: () => setTrim((t) => !t),
       ...(canCompare ? { compare: toggleCompare } : {}),
       details,
-      ...(asset.kind === "image" && !asset.inBin ? { inpaint: paint } : {}),
+      ...(asset.kind === "image" && !asset.inBin ? { inpaint: paint, ...(outpaintsByFrame(acts.toolFor("r")) ? { outpaint } : {}) } : {}),
     },
   );
 
@@ -200,7 +201,8 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
     if (dialogOver(root.current)) return;
     // painting, the keys are the layer's (stageLayer's own listener) and the fix bar's: here only Esc, the versions' ← → and K
     if (painting) {
-      if (e.key === "Escape" && !document.querySelector("[role=listbox], [role=menu], [data-keys-help]")) {
+      // an Esc that closes a popover, a menu or a list over the Stage only closes it
+      if (e.key === "Escape" && !document.querySelector(`${OVER}, [data-keys-help]`)) {
         if (pinned) setPinned(null);
         else leavePaint();
         e.preventDefault();
@@ -316,7 +318,7 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
       onDetails={onDetails}
       onClose={onClose}
       onCopy={actionOfKey(list, place, "Ctrl+C")?.run}
-      paint={painting ? { stack: versions.root || asset.id, strip } : null}
+      paint={painting && stageOn ? { stack: versions.root || asset.id, mode: stageOn.mode, strip } : null}
     />
   );
   if (inline) {
@@ -358,7 +360,8 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
   }
 
   return (
-    <div ref={overlayRef} data-stage role="dialog" aria-modal="true" aria-label="Item" className="m-panel fixed inset-0 z-40 flex bg-stage/95">
+    // painting, the backdrop is whole: the Studio half seen through it read as broken under the layer's tools
+    <div ref={overlayRef} data-stage role="dialog" aria-modal="true" aria-label="Item" className={cx("m-panel fixed inset-0 z-40 flex", painting ? "bg-stage" : "bg-stage/95")}>
       {menuElement}
       {timeline.element}
       {strip && !painting ? (

@@ -8,6 +8,7 @@ import { AudioPlayer } from "../AudioPlayer";
 import { VideoPlayer } from "../VideoPlayer";
 import { ZoomPicture } from "./ZoomPicture";
 import { PaintAndFix } from "../paintFix/PaintAndFix";
+import type { StageMode } from "../paintFix/useStageMode";
 
 // Trim is a chunk of its own: fetched the first time a video is trimmed
 const Trim = lazy(() => import("../Trim").then((m) => ({ default: m.Trim })));
@@ -49,7 +50,7 @@ export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, on
    * Paint and fix (Inpaint on the Stage): the picture with the mask layer over it, and the versions strip under it.
    * `stack`: the picture's stack, whose versions share the one mask.
    */
-  paint?: { stack: string; strip: ReactNode } | null;
+  paint?: { stack: string; mode: StageMode; strip: ReactNode } | null;
 }) {
   // the keys sheet's "Here now": the viewer's keys for this kind of item, and Trim's while it is open
   useKeysHere("viewer", !paint, { kind: acts.a.kind, over: overlay });
@@ -60,7 +61,7 @@ export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, on
   if (paint && a.kind === "image") {
     return (
       <div className={overlay ? "flex min-h-0 min-w-0 grow flex-col p-6" : "flex min-h-0 grow flex-col"}>
-        <PaintAndFix key={paint.stack} acts={acts} strip={paint.strip} overlay={overlay} />
+        <PaintAndFix key={paint.stack} acts={acts} mode={paint.mode} strip={paint.strip} overlay={overlay} />
       </div>
     );
   }

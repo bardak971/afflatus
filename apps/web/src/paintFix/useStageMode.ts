@@ -31,6 +31,9 @@ export const useVersionDrafts = create<{ of: Record<string, string>; mark(draft:
   ),
 );
 
+/** An outpaint the Stage's frame can drive: one that takes the sides (shape Custom); another is left to its form. */
+export const outpaintsByFrame = (tool: { inputs: Array<{ id: string }> } | undefined): boolean => Boolean(tool?.inputs.some((i) => i.id === "padLeft"));
+
 /** How many such drafts this browser remembers. */
 const KEPT_DRAFTS = 50;
 

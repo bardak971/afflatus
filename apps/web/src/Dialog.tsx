@@ -29,7 +29,7 @@ export function dialogOver(el: Element | null | undefined): boolean {
  * Something open over the dialog that keeps its own keys: a dropdown's list, a menu, a popover, a panel that is not a
  * Dialog but sits over one (Find models, opened from the Deploy dialog).
  */
-const OVER = "[role=listbox], [role=menu], [data-floating]";
+export const OVER = "[role=listbox], [role=menu], [data-floating]";
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 

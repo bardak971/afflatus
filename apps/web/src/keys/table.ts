@@ -270,7 +270,7 @@ export const PLACES: KeyPlace[] = [
           { keys: "B", does: "Remove background", note: "queued at once" },
           { keys: "I", does: "Inpaint…", note: "Paint and fix on the Stage: the fixes come back as versions" },
           { keys: "E", does: "Edit…", note: "img2img: a new draft in the form" },
-          { keys: "R", does: "Outpaint…", note: "a new draft in the form" },
+          { keys: "R", does: "Outpaint…", note: "on the Stage: the frame dragged out, the results as versions" },
           { keys: "M", does: "Image to video (i2v)" },
           { keys: "Shift+M", does: "Motion transfer" },
           { keys: "Shift+H", does: "Mirror ↔", note: "a mirrored copy, left and right swapped" },
