@@ -5,9 +5,12 @@ import type { GuideWay } from "../shared/guide";
 /** The ControlNet a guide picture starts on: xinsir's union one, which follows edges, depth and pose alike (and tiles, for Upscale). */
 export const SDXL_UNION = "controlnet-union-sdxl-1.0-promax.safetensors";
 
+/** SDXL's ControlNets in the folder, by name: none of another family's (FLUX.1's Union Pro, Qwen's InstantX, Z-Image's Fun Union). */
+export const SDXL_NETS = ["union.*promax", "^(?!.*(flux|qwen|z.?image|instantx|union.?pro)).*union", "xinsir", "^(?!.*(flux|qwen|z.?image|instantx|union.?pro))"];
+
 /** xinsir's union on both texts, told which kind by SetUnionControlNetType; never another family's ControlNet in the folder. */
 export const SDXL_GUIDE: GuideWay = {
-  kind: "controlnet", union: true, slot: "controlnet", file: SDXL_UNION, prefer: ["union.*promax", "union", "xinsir", "^(?!.*(flux|qwen|z.?image|instantx))"],
+  kind: "controlnet", union: true, slot: "controlnet", file: SDXL_UNION, prefer: SDXL_NETS,
   missing: "A guide picture needs a ControlNet: put one in ComfyUI's models/controlnet folder (xinsir's ControlNet Union SDXL promax does edges, depth and pose; it can be downloaded from Settings).",
 };
 
@@ -43,7 +46,7 @@ export const sdxl = defineFamily({
     },
     {
       // IP-Adapter Plus for SDXL, the ViT-H one: what a reference image looks like, its subject and its style
-      id: "ipAdapter", label: "IP-Adapter Plus (reference images)", folder: "ipadapter", detect: ["ip.?adapter.?plus_sdxl_vit.?h", "ip.?adapter.*plus(?!.*face).*sdxl"], optional: true, onlyFor: IP_FORMS,
+      id: "ipAdapter", label: "IP-Adapter Plus (reference images)", folder: "ipadapter", detect: ["ip.?adapter.?plus_sdxl_vit.?h", "^(?!.*face)ip.?adapter.*plus.*sdxl"], optional: true, onlyFor: IP_FORMS,
       hint: "Optional: with ip-adapter-plus_sdxl_vit-h.safetensors in ComfyUI's models/ipadapter folder (and the ComfyUI_IPAdapter_plus pack), txt2img and img2img take reference images.",
       get: { file: "ip-adapter-plus_sdxl_vit-h.safetensors", url: `${H94}/sdxl_models/ip-adapter-plus_sdxl_vit-h.safetensors`, sha256: "3f5062b8400c94b7159665b21ba5c62acdcd7682262743d7f2aefedef00e6581" },
     },

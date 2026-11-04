@@ -284,7 +284,8 @@ export interface ChoiceInput extends Base {
   default: string;
   /**
    * For options read from ComfyUI, when the default is not among them: regex sources tried in order,
-   * the first option one matches is the starting value (else the first option there is).
+   * the first option one matches is the starting value. A list of files with none of them there keeps its default, to be
+   * fetched or said missing: end the list with "." when any file will do.
    */
   prefer?: string[];
   /**
@@ -675,8 +676,10 @@ export function pickChoice(spec: ChoiceInput, offered: string[] | undefined): st
     const hit = offered.find((o) => new RegExp(source, "i").test(o));
     if (hit) return hit;
   }
-  // a list of files is known by its files, or by the default being one (a VAE list with only "pixel_space" on it)
-  return looksLikeFiles([spec.default, ...offered]) && !spec.prefer ? spec.default : offered[0]!;
+  // a list of files is known by its files, or by the default being one (a VAE list with only "pixel_space" on it). None of
+  // the files it prefers there, it keeps its own: FLUX.1's control image took SDXL's ControlNet, the only one on the PC,
+  // and the pod was never sent FLUX.1's (card #277)
+  return looksLikeFiles([spec.default, ...offered]) ? spec.default : offered[0]!;
 }
 
 /**
