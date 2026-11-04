@@ -5,6 +5,7 @@ import { fuzzyFilter } from "@afflatus/core";
 import { Keys } from "./Keys";
 import { useLeave } from "./leave";
 import { popFrom } from "./motion";
+import { scrollAway } from "./scrollAway";
 import { cx, SearchField } from "./ui";
 
 export interface Option {
@@ -72,6 +73,8 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
   const [place, setPlace] = useState<{ left: number; width: number; top?: number; bottom?: number; height: number } | null>(null);
   const button = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
+  // the placing, for a scroll that moves the button while the list is open
+  const replace = useRef(() => {});
   // it unfolds from the field; closed, it fades as a still copy while the field has the focus back at once
   const panelRef = useLeave("m-pop-out", panel);
   const list = useRef<HTMLDivElement>(null);
@@ -119,6 +122,7 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
       }
     };
     measure();
+    replace.current = measure;
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
   }, [open]);
@@ -129,10 +133,8 @@ export function Select({ value, options, onChange, label, placeholder = "Chooseâ
       const t = e.target as Node;
       if (!panel.current?.contains(t) && !button.current?.contains(t)) close(false);
     };
-    // the page moving under an open list would leave it hanging in the wrong place
-    const scrolled = (e: Event) => {
-      if (!panel.current?.contains(e.target as Node)) close(false);
-    };
+    // a scroll begun while it is open closes it; the tail of one still going as it was clicked does not (scrollAway.ts)
+    const scrolled = scrollAway({ anchor: () => button.current, inside: (t) => Boolean(panel.current?.contains(t as Node)), follow: () => replace.current(), close: () => close(false) });
     window.addEventListener("pointerdown", outside, true);
     window.addEventListener("scroll", scrolled, true);
     return () => {

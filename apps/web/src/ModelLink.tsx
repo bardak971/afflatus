@@ -7,6 +7,7 @@ import { ExternalLink } from "lucide-react";
 import { api, type ModelPage } from "./api";
 import { useModelPages } from "./data";
 import { fileLabel } from "./format";
+import { scrollAway } from "./scrollAway";
 import { cx, Failed, fieldClass, Help } from "./ui";
 import { queryKeys } from "./queryKeys";
 
@@ -26,6 +27,8 @@ export function ModelLink({ folder, file, className }: { folder: string; file: s
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
   const [place, setPlace] = useState<{ left: number; top?: number; bottom?: number } | null>(null);
+  // counted up to place it again under its button, as a scroll still going when it opened moves that button
+  const [moved, setMoved] = useState(0);
   const [own, setOwn] = useState("");
   const button = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
@@ -55,14 +58,15 @@ export function ModelLink({ folder, file, className }: { folder: string; file: s
     if (!r) return;
     const left = Math.max(8, Math.min(r.left, window.innerWidth - 340 - 8));
     setPlace(window.innerHeight - r.bottom > 300 || r.top < 300 ? { left, top: r.bottom + 4 } : { left, bottom: window.innerHeight - r.top + 4 });
-  }, [open]);
+  }, [open, moved]);
   useEffect(() => {
     if (!open) return;
     const outside = (e: PointerEvent) => {
       const t = e.target as Node;
       if (!panel.current?.contains(t) && !button.current?.contains(t)) setOpen(false);
     };
-    const scrolled = (e: Event) => !panel.current?.contains(e.target as Node) && setOpen(false);
+    // a scroll begun while it is open closes it; the tail of one still going as it was clicked does not (scrollAway.ts)
+    const scrolled = scrollAway({ anchor: () => button.current, inside: (t) => Boolean(panel.current?.contains(t as Node)), follow: () => setMoved((n) => n + 1), close: () => setOpen(false) });
     const key = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
     window.addEventListener("pointerdown", outside, true);
     window.addEventListener("scroll", scrolled, true);

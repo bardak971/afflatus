@@ -214,6 +214,8 @@ export async function status(
       rented: l.rented,
       ...(l.files?.length ? { files: l.files } : {}),
       model: c.lastLoads === null ? null : c.lastModel,
+      /** The family id of the job that loaded it: the last job seen may be another machine's, or a tool that loads none. */
+      modelFamily: c.lastLoads === null || c.lastModel === null ? null : c.lastFamily,
       /** Its learned pace against the others (1 the common pace, 2 half as fast); null with nothing to compare yet. */
       pace: paces.get(l.machine.id) ?? null,
       running: cards[i] ?? null,
@@ -224,6 +226,8 @@ export async function status(
     paused,
     /** The model the first ComfyUI was last asked to load, by name. Null when none is, or when it is not known. */
     model: core.lastLoads === null ? null : core.lastModel,
+    /** The family id of the job that loaded it (Krea 2, SDXL), when it is known. */
+    modelFamily: core.lastLoads === null || core.lastModel === null ? null : core.lastFamily,
     online: core.offlineSince === null,
     offlineForMs: core.offlineSince ? Date.now() - core.offlineSince : 0,
     /** The first running job (the screens that show one); every machine's is in `machines`. */

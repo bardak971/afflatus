@@ -378,7 +378,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
     return comfy.client.submit(prompt.graph, asked);
   });
   // noted once ComfyUI took it: a prompt it refused loads nothing, and the next job must not think otherwise
-  if (base.length && !built.light) await core.loaded(base.join("|"), mainModel(built));
+  if (base.length && !built.light) await core.loaded(base.join("|"), mainModel(built), recipe.family);
   // the files it loads, for Settings › Model files: a warm load is a use too, it read them from the disk
   const folders = Object.fromEntries((core.registry.family(recipe.family)?.slots ?? []).map((x) => [x.id, x.folder]));
   await recordUses(db, row, graphFiles(built.graph, slotFiles, folders));

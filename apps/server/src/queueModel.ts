@@ -198,9 +198,11 @@ export interface QueueCore {
   /** The base models the last job loaded, file names joined by "|"; null when not known. The name of the model that is loaded. */
   readonly lastLoads: string | null;
   readonly lastModel: string | null;
+  /** The family id of the job that loaded it; null when not known (a tool's files, freed, a database from before the note). */
+  readonly lastFamily: string | null;
   readonly offlineSince: number | null;
   /** Note what ComfyUI was last asked to load, here and in the database. */
-  loaded(loads: string | null, model?: string | null): Promise<void>;
+  loaded(loads: string | null, model?: string | null, family?: string | null): Promise<void>;
   usual(): Promise<Usual>;
   /** A model's past renders as forecasts read them (forecast.ts statRows), kept until the record of render times changes. */
   statRows(modelFile: string): Promise<StatRows>;
@@ -248,6 +250,8 @@ export interface Lane {
   lastLoads: string | null;
   /** The name of the model that is loaded, when it is known. */
   lastModel: string | null;
+  /** The family id of the job that loaded it, when it is known. */
+  lastFamily: string | null;
   /** Paused by hand on its own (Pause all is the queue's). */
   paused: boolean;
   /** Whether its ComfyUI answered the last time it was asked; null before. */
