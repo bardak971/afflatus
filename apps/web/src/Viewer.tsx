@@ -3,7 +3,7 @@ import { Check, MoreHorizontal, Plus, Star, Wand2 } from "lucide-react";
 import type { Range } from "./Trim";
 import { api, type Asset } from "./api";
 import { useAsset } from "./data";
-import { dialogOver } from "./Dialog";
+import { dialogOver, OVER } from "./Dialog";
 import { Kbd, plainKey, typing } from "./Keys";
 import { useLeave } from "./leave";
 import { Button, cx } from "./ui";
@@ -201,7 +201,8 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
     if (dialogOver(root.current)) return;
     // painting, the keys are the layer's (stageLayer's own listener) and the fix bar's: here only Esc, the versions' ← → and K
     if (painting) {
-      if (e.key === "Escape" && !document.querySelector("[role=listbox], [role=menu], [data-keys-help]")) {
+      // an Esc that closes a popover, a menu or a list over the Stage only closes it
+      if (e.key === "Escape" && !document.querySelector(`${OVER}, [data-keys-help]`)) {
         if (pinned) setPinned(null);
         else leavePaint();
         e.preventDefault();

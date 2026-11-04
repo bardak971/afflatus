@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import { cx } from "../cx";
-import { dialogOver } from "../Dialog";
+import { dialogOver, OVER } from "../Dialog";
 import { typing } from "../Keys";
 import type { LayerPlace } from "../viewer/ZoomPicture";
 import { BrushCursor } from "./BrushCursor";
@@ -30,6 +30,17 @@ export function StageLayer({ place, tool, mask, children }: {
   // the press going on: its pointer, and the tool it began with (put down when another is picked mid-drag)
   const active = useRef<{ id: number; touch: boolean; tool: LayerTool } | null>(null);
   const penSeen = useRef(0);
+  // a press that closes what is open over the Stage (a popover, a menu, a list) only closes it (owner, card #274): whether
+  // something was open is read as the press starts, before its own outside-click shuts it. Registered when the layer
+  // mounts, so ahead of any popover opened over it since, whose capture listener then runs after this one
+  const covered = useRef(false);
+  useEffect(() => {
+    const seen = () => {
+      covered.current = Boolean(document.querySelector(OVER));
+    };
+    window.addEventListener("pointerdown", seen, true);
+    return () => window.removeEventListener("pointerdown", seen, true);
+  }, []);
   // the tool as it is now: a stroke goes on over several renders
   const now = useRef(tool);
   now.current = tool;
@@ -65,6 +76,11 @@ export function StageLayer({ place, tool, mask, children }: {
       onPointerDown={(e) => {
         if (e.pointerType === "pen") penSeen.current = Date.now();
         // the middle button and Space pan (ZoomPicture's own); a palm or a resting hand is no press
+        if (covered.current) {
+          covered.current = false;
+          e.preventDefault();
+          return;
+        }
         if (place.panning || e.button !== 0 || palm(e) || !tool?.down) return;
         if (active.current) {
           // a second finger: a pinch, not paint; the stroke the first one began is taken back

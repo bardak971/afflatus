@@ -5,6 +5,7 @@ import { findOn } from "../../src/paintFix/findOn";
 import { frameSaid } from "../../src/paintFix/PaintAndFix";
 import { fixInputs, outInputs } from "../../src/paintFix/useFixJob";
 import { useStageMode, useVersionDrafts, versionOfDraft } from "../../src/paintFix/useStageMode";
+import { TunePopoverHost } from "../../src/TunePopover";
 import { Viewer } from "../../src/Viewer";
 import { fakeApi } from "./fakeApi";
 import { draw } from "./render";
@@ -47,6 +48,33 @@ describe("the viewer in Paint and fix", () => {
     fakeApi.on("POST /assets/:id/versions/keep", { head: v1, versions: [] });
     key("k");
     await waitFor(() => expect(fakeApi.calls("POST", "/assets/zz-test-head/versions/keep")[0]?.body).toEqual({ version: "zz-test-v1" }));
+  });
+
+  it("lets a press that closes the ⚙ popover only close it: nothing painted (owner)", async () => {
+    withInpaint();
+    fakeApi.on("GET /assets/:id/versions", { head, versions: [v1] });
+    draw(<><Viewer inline asset={head} items={[head, next]} onOpen={() => {}} onClose={() => {}} /><TunePopoverHost /></>);
+    await screen.findByRole("group", { name: "Versions" });
+    act(() => useStageMode.getState().set(head.id, "paint"));
+    await screen.findByRole("group", { name: "Fix" });
+    Element.prototype.setPointerCapture ??= () => {};
+    const layer = await waitFor(() => {
+      const el = document.querySelector("[data-stage-layer]");
+      if (!el) throw new Error("no layer yet");
+      return el;
+    });
+    const chip = () => screen.getByText(/^Mask ·/).textContent;
+    fireEvent.click(screen.getByRole("button", { name: "The fix's settings" }));
+    expect(await screen.findByRole("dialog", { name: /Inpaint: its settings/ })).toBeTruthy();
+    const press = (type: string) => fireEvent(layer, new PointerEvent(type, { bubbles: true, cancelable: true, clientX: 10, clientY: 10, pointerId: 3, pointerType: "mouse", button: 0, buttons: type === "pointerup" ? 0 : 1, isPrimary: true }));
+    press("pointerdown");
+    press("pointerup");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Inpaint: its settings/ })).toBeNull());
+    expect(chip()).toBe("Mask · nothing painted");
+    // with nothing open over it, the same press paints
+    press("pointerdown");
+    press("pointerup");
+    await waitFor(() => expect(chip()).not.toBe("Mask · nothing painted"));
   });
 
   it("is left with Esc, the viewer's keys its own again", async () => {
