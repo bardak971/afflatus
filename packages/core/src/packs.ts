@@ -62,9 +62,10 @@ const NODE_PACKS: NodePack[] = [
   { name: "comfyui-krea2edit", repo: "https://github.com/lbouaraba/comfyui-krea2edit", commit: "13ef60f20828949becada815d3cbc371eb5ccaab", nodes: ["Krea2EditModelPatch", "Krea2EditGroundedEncode"] },
   // Krea 2's regions (card #271): each box's prompt and LoRA held to it in one pass, by a joint attention mask and LoRAs gated
   // per token. Read at 307081f2b954d9f5e683dadafdb53ca971ebdbfd (1.2.0, 2026-08-06): MIT, no Python requirement, no network
-  // call or subprocess, LoRAs read with safe_load. Not on the Comfy Registry: ComfyUI-Manager has it from its list, as a clone
-  // of the repository's head, until a pod base builds it in at that commit
-  { name: "ComfyUI-Krea2-Regional", repo: "https://github.com/januspluto/ComfyUI-Krea2-Regional", nodes: ["Krea2RegionalPrompt", "Krea2LoRA", "Krea2ApplyRegional", "Krea2RegionalBuilder", "Krea2RegionalDetailer", "Krea2EmptyLatentImage", "Krea2RegionsFromIdeogram"] },
+  // call or subprocess, LoRAs read with safe_load. Not on the Comfy Registry: a pod's ComfyUI-Manager refused it by name ("not
+  // a CNR node", 2026-11-04), and its only other way is a clone of the repository's head. Held at that commit as Krea2Edit is,
+  // for a pod base to build in
+  { name: "ComfyUI-Krea2-Regional", repo: "https://github.com/januspluto/ComfyUI-Krea2-Regional", commit: "307081f2b954d9f5e683dadafdb53ca971ebdbfd", nodes: ["Krea2RegionalPrompt", "Krea2LoRA", "Krea2ApplyRegional", "Krea2RegionalBuilder", "Krea2RegionalDetailer", "Krea2EmptyLatentImage", "Krea2RegionsFromIdeogram"] },
 ];
 
 /**
