@@ -93,13 +93,14 @@ export async function status(
     .orderBy("priority")
     .orderBy("created_at")
     .execute();
-  // what the page waited on itself (Recipe.quiet: the Stage's find) is not among the last finished: each would be said done
+  // what the page waited on itself (Recipe.quiet: the Stage's find) is not among the last finished once done: each would be
+  // said done. A failure stays, said as any other
   const quiet = core.registry.recipes().filter((r) => r.quiet).map((r) => r.id);
   const recent = await core.db
     .selectFrom("jobs")
     .selectAll()
     .where(statusOf(core.db), "in", FINISHED)
-    .$if(quiet.length > 0, (q) => q.where("recipe_id", "not in", quiet))
+    .$if(quiet.length > 0, (q) => q.where((eb) => eb.or([eb("recipe_id", "not in", quiet), eb("status", "!=", "done")])))
     .orderBy("finished_at", "desc")
     .limit(20)
     .execute();
