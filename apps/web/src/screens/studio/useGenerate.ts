@@ -9,6 +9,7 @@ import { useQueue } from "../../data";
 import { useDraftMachine } from "../../draftMachine";
 import { severalMachines } from "../../machines";
 import { useSayFailed } from "../../sayFailed";
+import { versionOfDraft } from "../../paintFix/useStageMode";
 
 /**
  * What Generate does: the whole form, checked, sent to the queue as many times as the batch says, filed in
@@ -43,7 +44,10 @@ export function useGenerate({ recipe, draft, defaults, folder, d, blocked }: {
       const machines = severalMachines(queue.data);
       const asked = on ?? useDraftMachine.getState().of[id];
       const machine = asked && machines.some((m) => m.id === asked) ? asked : undefined;
-      await api.enqueue(recipe.id, input, count, draft.look, { draft: id, folder, seedMode, machine });
+      // a draft opened from Paint and fix's ⚙ renders versions of its picture, as the bar's Fix does
+      const source = recipe.inputs.find((i) => i.type === "image" && i.role === "source");
+      const versionOf = source ? versionOfDraft(id, input[source.id]) : undefined;
+      await api.enqueue(recipe.id, input, count, draft.look, { draft: id, folder, seedMode, machine, ...(versionOf ? { versionOf } : {}) });
       if (seedMode) {
         const next = seedAfter(input.seed as number, mode, count);
         // The jobs are queued by now: a failure to move the seed (the draft switched meanwhile, and its save refused) is

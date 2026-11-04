@@ -167,17 +167,25 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
     const slot = tool.inputs.find((i) => i.type === "image" && i.role === "source")!;
     return { ...carried(made, madeWith, tool, withLook), [slot.id]: asset.id };
   };
-  /** A tool's form, with the picture in place and what it was made with. */
+  /**
+   * A tool's form, with the picture in place and what it was made with. `with`: values set on top (Paint and fix's
+   * Open the full form hands its mask, prompt and denoise over); `opened`: told the draft before the form shows, while the
+   * place that asked is still there (a mutate's own onSuccess never comes once the viewer has gone).
+   */
   const openTool = useMutation({
-    mutationFn: (id: string) => {
+    mutationFn: (ask: string | { id: string; with: Record<string, unknown>; opened?(draft: Awaited<ReturnType<typeof api.createDraft>>): void }) => {
+      const { id, with: over = {} } = typeof ask === "string" ? { id: ask } : ask;
       const tool = all.find((r) => r.id === id)!;
       const look = castOf(detail.data);
       aim(tool, tool.inputs.find((i) => i.type === "image" && i.role === "source")?.id);
-      return api.createDraft({ recipe: tool.id, forms: { [tool.id]: toolInput(tool, Boolean(look)) }, look });
+      return api.createDraft({ recipe: tool.id, forms: { [tool.id]: { ...toolInput(tool, Boolean(look)), ...over } }, look });
     },
-    onSuccess: (d, id) => {
-      // a tool that redoes a painted part (Inpaint) opens on its painter: painting the mask is the next step anyway
-      if (all.find((r) => r.id === id)?.inputs.some((i) => i.type === "image" && i.role === "mask")) handMask(asset.id);
+    onSuccess: (d, ask) => {
+      // a tool that redoes a painted part (Inpaint) opens on its painter: painting the mask is the next step anyway, unless one comes with it
+      const tool = all.find((r) => r.id === (typeof ask === "string" ? ask : ask.id));
+      const mask = tool?.inputs.find((i) => i.type === "image" && i.role === "mask");
+      if (mask && !(typeof ask !== "string" && ask.with[mask.id])) handMask(asset.id);
+      if (typeof ask !== "string") ask.opened?.(d);
       toForm(d);
     },
   });

@@ -21,6 +21,7 @@ import { ViewerSidebar } from "./viewer/ViewerSidebar";
 import { useCompareResult } from "./store";
 import { useVersions } from "./paintFix/useVersions";
 import { stepVersion, VersionStrip } from "./paintFix/VersionStrip";
+import { useStageMode } from "./paintFix/useStageMode";
 
 // the parameters reader is a chunk of its own: fetched the first time Details opens
 const PngInfo = lazy(() => import("./PngInfo").then((m) => ({ default: m.PngInfo })));
@@ -67,6 +68,19 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
     if (next) showVersion(next);
     return Boolean(next);
   };
+  // Paint and fix (Inpaint, I): the Stage paints a mask over the picture shown, any version of its stack; the keys are the layer's
+  const stageOn = useStageMode((s) => s.on);
+  const inStack = (id: string) => id === asset.id || id === base.id || versions.all.some((v) => v.id === id);
+  const paintAsked = asset.kind === "image" && !asset.inBin && stageOn?.mode === "paint" && inStack(stageOn.asset);
+  const paint = () => useStageMode.getState().set(asset.id, "paint");
+  const leavePaint = () => useStageMode.getState().leave();
+  // another item shown, or the viewer gone: its Paint and fix ends with it (the mode of another picture is left alone)
+  const stack = useRef(inStack);
+  stack.current = inStack;
+  useEffect(() => () => {
+    const on = useStageMode.getState().on;
+    if (on && stack.current(on.asset)) useStageMode.getState().leave();
+  }, [base.id]);
   // Compare: one item pinned, the arrow keys move the other one beside it
   const [pinned, setPinned] = useState<Asset | null>(null);
   /** The item's right-click menu (a picture, a video, a sound): its list, the open form first. */
@@ -81,6 +95,8 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
   const compareKeys = useRef<{ wipe(): void; swap(): void } | null>(null);
   const acts = useViewerActions({ asset, first, trailed: trail.length > 0, items, more, detail, into, inline, player, trim, onOpen, onClose, onOpened: (a) => setTrail((t) => [...t, a]) });
   const { a, g, leave, move, timeline } = acts;
+  // painting needs the picture's inpaint: without one (no model for it) the viewer stays as it is
+  const painting = paintAsked && Boolean(acts.toolFor("i"));
   const formTarget = useFormTarget((st) => st.target);
 
   const compareResult = useCompareResult((s) => s.on);
@@ -139,6 +155,7 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
       trim: () => setTrim((t) => !t),
       ...(canCompare ? { compare: toggleCompare } : {}),
       details,
+      ...(asset.kind === "image" && !asset.inBin ? { inpaint: paint } : {}),
     },
   );
 
@@ -181,6 +198,21 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
     if (e.defaultPrevented) return;
     // it leaves the keys to whatever is open over it (the keyboard shortcuts, a question asked)
     if (dialogOver(root.current)) return;
+    // painting, the keys are the layer's (stageLayer's own listener) and the fix bar's: here only Esc, the versions' ← → and K
+    if (painting) {
+      if (e.key === "Escape" && !document.querySelector("[role=listbox], [role=menu], [data-keys-help]")) {
+        if (pinned) setPinned(null);
+        else leavePaint();
+        e.preventDefault();
+        return;
+      }
+      if (typing(e) || !plainKey(e, { over: "[data-keys-help]" })) return;
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") stepThrough(e.key === "ArrowLeft" ? -1 : 1);
+      else if (e.key.toLowerCase() === "k" && versions.all.length > 1 && !versions.keep.isPending) versions.keep.mutate(asset.id);
+      else return;
+      e.preventDefault();
+      return;
+    }
     // while trimming, L (loop) and Esc (close Trim) are Trim's own; this listener runs first
     if (trim && (e.key === "Escape" || e.key.toLowerCase() === "l")) return;
     if (e.key === "Escape") {
@@ -284,6 +316,7 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
       onDetails={onDetails}
       onClose={onClose}
       onCopy={actionOfKey(list, place, "Ctrl+C")?.run}
+      paint={painting ? { stack: versions.root || asset.id, strip } : null}
     />
   );
   if (inline) {
@@ -308,9 +341,9 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
         {menuElement}
         {timeline.element}
         {compare ?? media(false)}
-        {strip && <div className="flex shrink-0 justify-center">{strip}</div>}
+        {strip && !painting && <div className="flex shrink-0 justify-center">{strip}</div>}
         {/* one short row: the four most used, what makes something from it (Passes), the rest of the list (···), the bin */}
-        <div className="flex shrink-0 flex-wrap items-center justify-center gap-1.5 pb-3">
+        {!painting && <div className="flex shrink-0 flex-wrap items-center justify-center gap-1.5 pb-3">
           {bar.row.map(button)}
           {bar.passes.length > 0 && (
             <Button size="sm" aria-haspopup="menu" data-tip="Make from it, the passes and the tools, with their keys" onClick={(e) => passesMenu.open(e, true)} className={cx(passesMenu.menu && "border-accent")}>
@@ -319,7 +352,7 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
           )}
           <Button size="sm" aria-haspopup="menu" aria-label="More actions" data-tip="Everything else that can be done with it" onClick={(e) => moreMenu.open(e, true)}><MoreHorizontal size={14} /></Button>
           {bar.bin && button(bar.bin)}
-        </div>
+        </div>}
       </div>
     );
   }
@@ -328,7 +361,7 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
     <div ref={overlayRef} data-stage role="dialog" aria-modal="true" aria-label="Item" className="m-panel fixed inset-0 z-40 flex bg-stage/95">
       {menuElement}
       {timeline.element}
-      {strip ? (
+      {strip && !painting ? (
         <div className="flex min-w-0 grow flex-col">
           {compare ?? media(true)}
           <div className="flex shrink-0 justify-center pb-4">{strip}</div>

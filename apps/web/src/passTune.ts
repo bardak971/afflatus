@@ -69,6 +69,11 @@ export interface TuneAsk {
   /** The job as the pass would send it: what the rows start on, and the recipe they are read from. */
   job: QueuedJob;
   queue(changed: Record<string, unknown>, count: number): void;
+  /** Rows of its own in place of the pass's (Paint and fix's ⚙), and what its button says ("Fix ×3") in place of Queue. */
+  rows?: readonly string[];
+  go?: string;
+  /** A second way out under the rows (Open the full form), handed the rows as changed. */
+  more?: { label: string; run(changed: Record<string, unknown>): void };
 }
 
 /** The one popover open (TunePopover.tsx draws it). */
