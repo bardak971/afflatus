@@ -1,7 +1,7 @@
 import { wanted, type BuildContext, type GraphBuilder, type InputSpec, type Ref } from "@afflatus/core";
 import { faceSteps } from "../sdxl/common";
 import { SMALL_FACE_PX } from "../klein/facePass";
-import { DETECTOR_SLOTS, HAND_VALUES } from "./detector";
+import { DETECTOR_SLOTS, HAND_THRESHOLD, HAND_VALUES } from "./detector";
 
 /**
  * ADetailer inside txt2img (card #272): after the picture (and its hires fix), the faces, hands or people a YOLOv8 detector
@@ -91,9 +91,10 @@ export interface AdetailSettings {
 
 /**
  * SDXL's face redrawn at 0.4 came out a smoother, younger, other person on the pod test (a 100–120 px face, card #280), where
- * Z-Image's stayed the same woman with cleaner eyes: SDXL's face pass starts lighter.
+ * Z-Image's stayed the same woman with cleaner eyes: SDXL's face pass starts lighter. At 0.3 it still narrowed and smoothed
+ * the face, and 0.25 nearly as much; 0.2 kept the draft's face shape and jaw and still evened out its eyes (card #281).
  */
-export const SDXL_FACE_DENOISE = 0.3;
+export const SDXL_FACE_DENOISE = 0.2;
 
 /**
  * The Detail rows: a switch on the Output shelf for each, its prompt (under the main one) and denoise while it is on, its size
@@ -198,7 +199,7 @@ export function adetail(g: GraphBuilder, ctx: BuildContext, input: AdetailSettin
       detectors.set(file, detector);
       made.loads.push(`ultralytics/${file}`);
     }
-    const crop = { threshold: THRESHOLD, dilation: Math.round(GROW * w.scale), crop_factor: k.crop, drop_size: 10, labels: "all" };
+    const crop = { threshold: k.key === "Hands" ? HAND_THRESHOLD : THRESHOLD, dilation: Math.round(GROW * w.scale), crop_factor: k.crop, drop_size: 10, labels: "all" };
     let segs: Ref = k.segm
       ? g.out("SegmDetectorSEGS", { segm_detector: [detector, 1], image: made.image, ...crop })
       : g.out("BboxDetectorSEGS", { bbox_detector: [detector, 0], image: made.image, ...crop });

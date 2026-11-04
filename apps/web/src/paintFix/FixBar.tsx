@@ -20,6 +20,13 @@ export const FIX_ROWS = ["feathering", "steps", "cfg", "sampler", "scheduler"] a
 export const FIX_COUNT = 3;
 
 /**
+ * The denoise a Fix starts on, whatever the family: the bar asks what the painted part becomes, and under the soft brush the
+ * Inpaint form's own start (0.75, 0.8) kept what was there. On a pod, SDXL's red umbrella stayed red up to 0.9 and turned at
+ * 0.95; Z-Image's black basket stayed at 0.8 on four seeds of four and became the wicker one asked for at 0.9 (card #281).
+ */
+export const FIX_DENOISE = 0.95;
+
+/**
  * The bar under the picture in Paint and fix: what the mask is, what the painted part becomes, the denoise, how many
  * versions, ⚙ for the rest (with the full Inpaint form one click away), and Fix. Enter in the prompt and Ctrl+Enter
  * anywhere fix; Ctrl+Enter is the bar's while it shows, not the draft's Generate.
@@ -41,13 +48,14 @@ export function FixBar({ verb, tool, job, mask, grow, busy, note, onFix, onFullF
 }) {
   const denoise = tool.inputs.find((i): i is Extract<InputSpec, { type: "number" }> => i.id === "strength" && i.type === "number");
   const [prompt, setPrompt] = useState("");
-  const [strength, setStrength] = useState(typeof denoise?.default === "number" ? denoise.default : 0.75);
+  const fixing = verb === "Fix";
+  // an Edit's img2img keeps its form's start: it redraws the whole picture
+  const [strength, setStrength] = useState(fixing ? Math.min(FIX_DENOISE, denoise?.max ?? 1) : typeof denoise?.default === "number" ? denoise.default : 0.75);
   const [count, setCount] = useState(FIX_COUNT);
   // ⚙'s rows as last set: the next Fix is sent with them too
   const [tuned, setTuned] = useState<Record<string, unknown>>({});
   const openTune = useTune((t) => t.open);
   const ask = { prompt, strength, grow, tuned };
-  const fixing = verb === "Fix";
   const editing = verb === "Edit";
   // an instruction editor has nothing to go on without one; img2img (a denoise) redraws on the picture's own prompt
   const why = editing ? (!prompt.trim() && !denoise ? "Say what to change first" : busy ? "Sending…" : null)
