@@ -8,6 +8,7 @@ import { fromName, nameOf, shownNames, soundName } from "./autoName";
 import { registerAssetSearch, withShownName } from "./assetSearch";
 import { registerAssetsBin } from "./assetsBin";
 import { registerVersions } from "./versions-api";
+import { inLibrary } from "./library";
 import { registerFindMask } from "./findMask";
 import { registerAssetsZip } from "./assetsZip";
 import { registerAssetUpload } from "./assetUpload";
@@ -123,8 +124,9 @@ export async function assetDetail(s: Services, a: Tables["assets"]) {
   const usedIn = await s.db
     .selectFrom("generation_inputs").innerJoin("assets", "assets.generation_id", "generation_inputs.generation_id").selectAll("assets")
     .where("generation_inputs.asset_id", "=", a.id).where("assets.deleted_at", "is", null)
-    // a version still pending under a picture is shown in that picture's strip, not again here (card #274)
-    .where("assets.version_of", "is", null)
+    // only what the library shows: no mask found on it or other working file, and no version still pending under a
+    // picture, which that picture's strip shows (card #274)
+    .where(inLibrary)
     .orderBy("assets.created_at", "desc").limit(24).execute();
   // which timeline clip it, and what was made from it, is a take of: the viewer leads there
   const placed = await s.timelines.clipOf([a.id, ...usedIn.map((u) => u.id)]);
