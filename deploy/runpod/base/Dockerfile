@@ -103,7 +103,9 @@ RUN grep -vE '^(nvidia-(cu|nv|nccl)|cuda-|triton==|torch==|torchvision==|torchau
 # at this commit before it was taken) and IP-Adapter Plus (SDXL's reference pictures, a look or FaceID's person: every pod
 # that ran one installed it through ComfyUI-Manager and restarted ComfyUI on billed time, and one such install failed, its
 # jobs never run, card #282; its imports are ComfyUI's own, einops and InsightFace, with no list of its own; its repository
-# has had no commit since this one, its last). Their Python packages are in the lock, from each commit's requirements; DaSiWa's
+# has had no commit since this one, its last) and Krea2-Regional (Krea 2's regions, card #271: not on the Comfy Registry, so
+# ComfyUI-Manager refuses it by name and could only clone its repository's head; read at this commit, MIT, no Python
+# package). Their Python packages are in the lock, from each commit's requirements; DaSiWa's
 # own list is not, as it asks for llama-cpp-python (a compile) for its LLM nodes, which import it only when used: what it
 # imports at load, ComfyUI brings. Its RTX node's nvidia-vfx comes in a layer of its own, below. start.sh puts them in
 # ComfyUI's custom_nodes, over an older copy a volume holds.
@@ -114,6 +116,7 @@ ARG MMH3_COMMIT=fe6658f6d144066f14150d3526247b417683ff2b
 ARG MSR_COMMIT=03061c18f8a79d26f3c63931dd8e28f5e5d872a6
 ARG KREA2EDIT_COMMIT=13ef60f20828949becada815d3cbc371eb5ccaab
 ARG IPADAPTER_COMMIT=a0f451a5113cf9becb0847b92884cb10cbdec0ef
+ARG KREA2REGIONAL_COMMIT=307081f2b954d9f5e683dadafdb53ca971ebdbfd
 RUN set -e; mkdir -p /opt/packs; cd /opt/packs; \
     pin() { git init -q "$1" && git -C "$1" remote add origin "$2" && git -C "$1" fetch -q --depth 1 origin "$3" && git -C "$1" checkout -q FETCH_HEAD && echo "$1" >> /opt/packs/BUILT_IN; }; \
     pin ComfyUI-DaSiWa-Nodes https://github.com/darksidewalker/ComfyUI-DaSiWa-Nodes "${DASIWA_COMMIT}"; \
@@ -121,7 +124,7 @@ RUN set -e; mkdir -p /opt/packs; cd /opt/packs; \
     pin ComfyUI-KJNodes https://github.com/kijai/ComfyUI-KJNodes "${KJNODES_COMMIT}"; \
     pin Comfyui-MMH3-UltimateUpscale https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale "${MMH3_COMMIT}"; \
     pin ComfyUI-LTX2.5-MSR https://github.com/liconstudio/ComfyUI-LTX2.5-MSR "${MSR_COMMIT}"; \
-    pin comfyui-krea2edit https://github.com/lbouaraba/comfyui-krea2edit "${KREA2EDIT_COMMIT}";     pin ComfyUI_IPAdapter_plus https://github.com/cubiq/ComfyUI_IPAdapter_plus "${IPADAPTER_COMMIT}"
+    pin comfyui-krea2edit https://github.com/lbouaraba/comfyui-krea2edit "${KREA2EDIT_COMMIT}";     pin ComfyUI_IPAdapter_plus https://github.com/cubiq/ComfyUI_IPAdapter_plus "${IPADAPTER_COMMIT}";     pin ComfyUI-Krea2-Regional https://github.com/januspluto/ComfyUI-Krea2-Regional "${KREA2REGIONAL_COMMIT}"
 
 # NVIDIA's Video Effects runtime (the nvvfx module), which DaSiWa's RTX Upscaler & Refiner imports when it runs: without it
 # every finish on the RTX VSR route failed on a pod with "NVIDIA RTX VFX (nvvfx) module not found" (2026-10-18). PyPI has a

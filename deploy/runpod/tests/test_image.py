@@ -199,6 +199,15 @@ class Base(unittest.TestCase):
         with open(os.path.join(POD, "..", "..", "packages", "core", "src", "packs.ts"), encoding="utf-8") as f:
             self.assertIn('name: "comfyui_ipadapter_plus"', f.read())
 
+    def test_krea2_regional_is_built_in_at_its_commit(self):
+        # Krea 2's regions (card #271): not on the Comfy Registry, a pod's ComfyUI-Manager refused it by name; its only other way
+        # is its repository's head, unchecked. packs.ts holds the same commit, so the app never asks Manager for it
+        text = read(BASE)
+        commit = re.search(r"(?m)^ARG KREA2REGIONAL_COMMIT=([0-9a-f]{40})$", text).group(1)
+        self.assertIn('pin ComfyUI-Krea2-Regional https://github.com/januspluto/ComfyUI-Krea2-Regional "${KREA2REGIONAL_COMMIT}"', text)
+        with open(os.path.join(POD, "..", "..", "packages", "core", "src", "packs.ts"), encoding="utf-8") as f:
+            self.assertIn(f'commit: "{commit}"', f.read())
+
     def test_impact_subpack_is_built_in_at_its_commit_without_its_downloads(self):
         # ComfyUI-Manager's install of it fetched the YOLO pickles from Hugging Face's main, unchecked, before Afflatus's
         # checked fetch, and pip-installed its list unhashed (card #265): built in, its list locked, its install.py never
