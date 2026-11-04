@@ -51,6 +51,12 @@ export function outInputs(tool: RecipeInfo, ask: Pick<FixAsk, "prompt" | "tuned"
   return { ...sides, ...(ask.prompt.trim() && has("prompt") ? { prompt: ask.prompt.trim() } : {}), ...ask.tuned };
 }
 
+/** An edit's inputs: the instruction when written, img2img's denoise when it takes one, the ⚙ rows. */
+export function editInputs(tool: RecipeInfo, ask: Pick<FixAsk, "prompt" | "strength" | "tuned">): Record<string, unknown> {
+  const has = (id: string) => tool.inputs.some((i) => i.id === id);
+  return { ...(ask.prompt.trim() && has("prompt") ? { prompt: ask.prompt.trim() } : {}), ...(has("strength") ? { strength: ask.strength } : {}), ...ask.tuned };
+}
+
 /**
  * Paint and fix's Fix: the mask painted on the Stage uploaded (named after its picture, kept out of the library), then the
  * picture's inpaint queued with it as versions of the picture, ×N on new seeds. "Open the full form" makes the same job a
@@ -62,6 +68,8 @@ export function useFixJob(acts: ViewerActions) {
   // the outpaint by the frame's sides: every family's takes them (shape Custom), one that does not is left to its form
   const outTool = toolFor("r");
   const out = outpaintsByFrame(outTool) ? outTool : undefined;
+  // Edit: the picture's instruction editor (Kontext, Qwen Edit, Klein) or its img2img, on the whole picture
+  const editTool = toolFor("e");
   const send = useSendJob();
   const client = useQueryClient();
   const failed = useSayFailed({ here: true });
@@ -92,6 +100,23 @@ export function useFixJob(acts: ViewerActions) {
     },
     onError: failed("The full form could not be opened"),
   });
+  /** Edit from the bar: the instruction (or img2img's prompt and denoise) on the whole picture, as versions of it. */
+  const edit = useMutation({
+    mutationFn: async (ask: FixAsk) => {
+      if (!editTool) throw new Error("No edit model is installed.");
+      await send({ recipe: editTool, stored: { ...toolInput(editTool), ...editInputs(editTool, ask) }, label: "Edit", from: a.id, versionOf: a.id, count: ask.count });
+    },
+    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.queue() }),
+    onError: failed("The edit could not be queued"),
+  });
+  const editForm = useMutation({
+    mutationFn: async (ask: Omit<FixAsk, "count">) => {
+      if (!editTool) throw new Error("No edit model is installed.");
+      const picture = a.id;
+      await openTool.mutateAsync({ id: editTool.id, with: editInputs(editTool, ask), opened: (d) => useVersionDrafts.getState().mark(d.id, picture) });
+    },
+    onError: failed("The full form could not be opened"),
+  });
   const fullForm = useMutation({
     mutationFn: async ({ png, ...ask }: Omit<FixAsk, "count"> & { png: Blob | null }) => {
       if (!tool) throw new Error("No inpaint model is installed.");
@@ -104,5 +129,5 @@ export function useFixJob(acts: ViewerActions) {
     },
     onError: failed("The full form could not be opened"),
   });
-  return { tool, fix, fullForm, out, outpaint, outForm };
+  return { tool, fix, fullForm, out, outpaint, outForm, editTool, edit, editForm };
 }

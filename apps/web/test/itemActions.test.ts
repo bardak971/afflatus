@@ -215,6 +215,9 @@ describe("every place shows the same list", () => {
   it("gives every action a place in the viewer's side, but Open", () => {
     const none = ORDER.filter((id) => sideSlot(id) === "none");
     expect(none).toEqual(["open"]);
+    // Send to is a row of the one Put it in, not a button group of its own that drew a second Put it in (owner, card #274)
+    expect(sideSlot("send")).toBe("put");
+    expect(sideGroups(itemActions(facts("image"), runs)).map((g) => g.group)).not.toContain("put");
   });
 
   it("leaves no place a list of its own: the places' files write none of the list's labels", () => {

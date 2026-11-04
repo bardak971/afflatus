@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
-import { Check, ChevronDown, Copy, Film, Music, Plus, Star, Trash2, Undo2, Wand2, type LucideIcon } from "lucide-react";
+import { Check, ChevronDown, Copy, Film, Music, Plus, Send, Star, Trash2, Undo2, Wand2, type LucideIcon } from "lucide-react";
 import { isShown, type InputSpec, type LoraValue, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import { useAddToTimeline, useLast, useOpenInComfy, useStartTimeline } from "../actions";
 import { api, thumbUrl, type Asset, type AssetDetail, type Opened, type RecipeInfo } from "../api";
@@ -305,7 +305,8 @@ function TimelinePicker({ asset }: { asset: Asset }) {
           icon={last ? undefined : <Film size={15} className="shrink-0" />}
           label="Add to timeline"
           placeholder={add.isPending ? "Adding…" : last ? "" : "Add to…"}
-          className={last ? "w-10 shrink-0 justify-center px-0" : "min-w-0 grow"}
+          // the select's own w-full comes after in the CSS: the chevron's width is forced, or it took the row past the panel
+          className={last ? "w-10! shrink-0 justify-center px-0" : "min-w-0 grow"}
           value=""
         onChange={(id) => add.mutate(id)}
         options={(timelines.data?.items ?? []).map((t) => ({ value: t.id, label: t.name, note: t.clips ? `${plural(t.clips, "clip")}` : "empty" }))}
@@ -400,6 +401,20 @@ function MorePasses({ madeWith, shown, start }: {
         return { value: r.id, label: r.title, note, detail: r.summary, group: family?.name ?? "Your workflows", search: family?.name };
       })}
     />
+  );
+}
+
+/** The file itself to the Telegram chat or the Discord channel set up (the list's Send to submenu), as a row of Put it in. */
+function SendPicker({ action }: { action: ItemAction | undefined }) {
+  const menu = useMenu<true>();
+  if (!action?.items?.length) return null;
+  return (
+    <FieldRow label="Send to">
+      <Button size="sm" className="justify-start" disabled={action.disabled} data-tip={action.disabled && action.note ? `Send to: ${action.note}` : action.tip} onClick={(e) => menu.open(e, true)}>
+        <Send size={14} /> {action.items.flatMap((x) => (x === "—" ? [] : [x.label])).join(", ")}… <ChevronDown size={13} />
+      </Button>
+      {menu.menu && <ContextMenu at={menu.menu.at} label="Send to" head={{ title: "Send to", sub: "the file itself" }} items={action.items} onClose={menu.close} />}
+    </FieldRow>
   );
 }
 
@@ -561,6 +576,7 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
             {/* one row each, the name left and one control right, as in the forms; the folder is the chip at the top */}
             {a.kind === "audio" ? <MusicPicker action={byId("timeline")} /> : <TimelinePicker asset={a} />}
             {a.kind === "image" && <ReferencePicker asset={a} onDone={leave} />}
+            <SendPicker action={byId("send")} />
           </div>
         )}
 
