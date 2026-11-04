@@ -1,4 +1,5 @@
 import { defineFamily, defineRecipe, GraphBuilder, type InputSpec, type PromptLine, QUALITY_WORDS, WEIGHT_SYNTAX, wordCount } from "@afflatus/core";
+import { pictureForm } from "../shared/pictureForm";
 import { flowKit, flowRecipes, type FlowBase, type FlowSpec } from "../flow/recipes";
 
 /**
@@ -152,7 +153,7 @@ const kontextModel: InputSpec = {
  * is brought to a size Kontext was taught on and handed to it as a reference, next to the instruction.
  * What is not asked to change stays.
  */
-export const fluxEdit = defineRecipe<FluxEdit>({
+export const fluxEdit = pictureForm("edit", defineRecipe<FluxEdit>({
   id: "flux.edit",
   family: "flux",
   version: 1,
@@ -194,4 +195,4 @@ export const fluxEdit = defineRecipe<FluxEdit>({
       slots: { ...spec.files, kontext: "flux1-dev-kontext.safetensors" }, uploads: { source: "s.png" }, media: { source: { width: 1536, height: 2048 } },
     },
   ],
-});
+}), { references: "Kontext reads one picture, the one it changes" });

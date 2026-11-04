@@ -1,4 +1,5 @@
 import { defineRecipe, GraphBuilder, type Recipe } from "@afflatus/core";
+import { pictureForm } from "../shared/pictureForm";
 import { sigmaWords } from "../shared/sigmaWords";
 import type { FlowBase, FlowKit, FlowSpec } from "./kit";
 
@@ -14,7 +15,7 @@ export function flowRedraw(spec: FlowSpec, kit: FlowKit): Recipe<FlowRedraw> {
   const strengthNote = d55 == null
     ? "0.3 keeps it close, 0.7 only keeps the layout"
     : `denoise at the model's shift: at 1 MP, 0.55 starts from ${sigmaWords(d55)} of real noise, 0.3 from ${sigmaWords(d30!)}, 0.2 from ${sigmaWords(d20!)}. A face stays the same person up to about 0.4 of real noise`;
-  return defineRecipe<FlowRedraw>({
+  return pictureForm("img2img", defineRecipe<FlowRedraw>({
     id: `${spec.family}.redraw`,
     family: spec.family,
     version: 1,
@@ -50,5 +51,5 @@ export function flowRedraw(spec: FlowSpec, kit: FlowKit): Recipe<FlowRedraw> {
       // Turbo's branch: the LoRA put on, its steps at CFG 1 (the operations' other variants have no turbo file)
       ...(kit.turboFiles ? [{ name: "Turbo with its LoRA", input: { source: "p", prompt: "a", fast: true, turboSteps: 6 } as Partial<FlowRedraw>, slots: kit.turboFiles, uploads: { source: "s.png" }, media: { source: { width: 896, height: 1152 } } }] : []),
     ],
-  });
+  }), spec.drops);
 }

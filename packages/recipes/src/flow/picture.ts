@@ -1,4 +1,5 @@
 import { defineRecipe, GraphBuilder, roundTo, type InputSpec, type Recipe, type Ref, type SizeValue } from "@afflatus/core";
+import { pictureForm } from "../shared/pictureForm";
 import { HIRES_PASS_INPUTS, hiresPass, UPSCALER_PREFER, type HiresPass } from "../sdxl/common";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { redrawInTiles, tileInputs, tileNodes, tilePass, inTiles, type TileSettings } from "../shared/tiles";
@@ -25,25 +26,27 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
   const files = spec.files;
   /** The area the model draws at, and the size a hires pass enlarges to. */
   const AREA = spec.megapixels * 1024 * 1024;
-  const largeOf = (input: FlowPicture) => ({ width: roundTo(roundTo(input.size.width, 16) * input.hiresScale, 16), height: roundTo(roundTo(input.size.height, 16) * input.hiresScale, 16) });
+  const grid = spec.grid ?? 16;
+  const largeOf = (input: FlowPicture) => ({ width: roundTo(roundTo(input.size.width, grid) * input.hiresScale, grid), height: roundTo(roundTo(input.size.height, grid) * input.hiresScale, grid) });
+  const emptyLatent = spec.latent ?? "EmptySD3LatentImage";
   // the hires pass's "?": the real noise its default starts from, on the form's first shape at its default scale (card #146)
   const shape = spec.shapes.find((s) => s.id === "tall") ?? spec.shapes[0]!;
   const hiresDefault = { scale: spec.hires?.scale ?? 1.25, denoise: spec.hires?.denoise ?? 0.4, steps: spec.hires?.steps ?? Math.max(4, Math.round(spec.sampling.steps / 2)) };
-  const hiresAt = { width: roundTo(shape.width * hiresDefault.scale, 16), height: roundTo(shape.height * hiresDefault.scale, 16) };
+  const hiresAt = { width: roundTo(shape.width * hiresDefault.scale, grid), height: roundTo(shape.height * hiresDefault.scale, grid) };
   const hiresNoise = noiseWords(hiresDefault.denoise, hiresDefault.steps, [{ size: hiresAt, where: `at ${hiresAt.width}×${hiresAt.height}` }]);
-  return defineRecipe<FlowPicture>({
+  return pictureForm("txt2img", defineRecipe<FlowPicture>({
     id: `${spec.family}.text-to-picture`,
     family: spec.family,
     version: 1,
     title: "txt2img",
-    summary: "Text to image, from a natural-language prompt, with optional hires fix.",
+    summary: spec.pictureSummary ?? "Text to image, from a natural-language prompt, with optional hires fix.",
     output: "image",
     // the look of a picture asks for Redux and its vision model, which the build refuses it without (card #226)
     ...(spec.look ? { needsWith: (input: FlowPicture) => (input.look ? ["redux", "vision"] : []) } : {}),
     inputs: [
       spec.model,
       { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: spec.placeholder },
-      { id: "size", type: "size", label: "Size", default: "tall", grid: 16, min: 256, max: 2048, shapes: spec.shapes, ...(spec.maxPixels ? { maxPixels: spec.maxPixels } : {}) },
+      { id: "size", type: "size", label: "Size", default: "tall", grid, min: 256, max: spec.maxSize ?? 2048, perModel: true, shapes: spec.shapes, ...(spec.maxPixels ? { maxPixels: spec.maxPixels } : {}) },
       ...(spec.look
         ? ([
           { id: "look", type: "image", role: "guide", label: "Redux image", optional: true, note: "its style, colours and subject are added to the prompt (Redux): the new picture is like it, not a copy" },
@@ -66,7 +69,7 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),
     nodes: (input) => [
-      ...loadNodes(input).filter((n) => n !== "KSampler"), "EmptySD3LatentImage", ...detailNodes(input),
+      ...loadNodes(input).filter((n) => n !== "KSampler"), emptyLatent, ...detailNodes(input),
       ...fullPassNodes(input, spec.turbo && input.fast ? input.turboSteps ?? input.steps : input.steps), ...(input.hires ? ["KSampler"] : []),
       ...(spec.look && input.look ? LOOK_NODES : []),
       ...(input.hires ? ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode"] : []),
@@ -76,14 +79,14 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
     build(input, ctx) {
       const g = new GraphBuilder();
       const k = load(g, input, ctx);
-      const size = { width: roundTo(input.size.width, 16), height: roundTo(input.size.height, 16) };
+      const size = { width: roundTo(input.size.width, grid), height: roundTo(input.size.height, grid) };
       let c = cond(g, k, input, input.prompt);
       if (spec.look && input.look) {
         if (!ctx.slots.redux || !ctx.slots.vision) throw new Error(LOOK_NEEDED);
         const seen = g.out("CLIPVisionEncode", { clip_vision: g.out("CLIPVisionLoader", { clip_name: ctx.slots.vision }), image: g.out("LoadImage", { image: ctx.uploads.look }), crop: "center" });
         c = { ...c, positive: g.out("StyleModelApply", { conditioning: c.positive, style_model: g.out("StyleModelLoader", { style_model_name: ctx.slots.redux }), clip_vision_output: seen, strength: input.lookStrength, strength_type: "multiply" }) };
       }
-      const empty = g.out("EmptySD3LatentImage", { width: size.width, height: size.height, batch_size: 1 });
+      const empty = g.out(emptyLatent, { width: size.width, height: size.height, batch_size: 1 });
       g.phase("sampling");
       const detail = { input, ctx };
       const first = sample(g, k, input, shifted(g, k.model, input, size), c, empty, ctx.seed, {}, detail);
@@ -137,5 +140,5 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
         ]
         : []),
     ],
-  });
+  }), spec.drops);
 }

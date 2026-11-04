@@ -48,7 +48,8 @@ describe("the families a ComfyUI is too old for", () => {
     const h3 = comfyTooOld("0.34.0", families, recipes)!.families.find((f) => f.id === "h3")!;
     expect(h3.needs).toBe("0.35.0");
     expect(h3.only).toEqual([recipes.find((r) => r.id === "h3.motion")!.title]);
-    expect(tooOldSaid(comfyTooOld("0.34.0", families, recipes)!)).toBe("Qwen Image 2.1, MiniMax H3 (Motion transfer)");
+    // Qwen Image 2.1 in part: its Upscale 2x without the light pass loads no model (as Klein's), and runs on any ComfyUI
+    expect(tooOldSaid(comfyTooOld("0.34.0", families, recipes)!)).toBe("Qwen Image 2.1 (7 of 8 forms), MiniMax H3 (Motion transfer)");
     // a family it runs a little of says how many of its forms it cannot, past two
     expect(tooOldSaid(comfyTooOld("0.3.10", families, recipes)!)).toMatch(/FLUX\.2 Klein \(\d of \d forms\)/);
   });

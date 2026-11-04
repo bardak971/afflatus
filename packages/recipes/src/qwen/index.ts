@@ -1,4 +1,5 @@
 import { defineFamily, defineRecipe, GraphBuilder, REFERENCE_ROLES, type InputSpec, type LoraValue, type Ref, type ReferenceValue } from "@afflatus/core";
+import { pictureForm } from "../shared/pictureForm";
 import { flowKit, flowRecipes, type FlowSpec } from "../flow/recipes";
 import { flowTurboRow } from "../flow/kit";
 import { addedInputs, addedRow, type AddedSpec } from "../shared/addedRows";
@@ -175,7 +176,7 @@ const editModel: InputSpec = {
  * instruction is read together with the picture (and up to two more pictures it can take things from),
  * and the result is drawn over the picture itself. What is not asked to change stays.
  */
-export const qwenEdit = defineRecipe<QwenEdit>({
+export const qwenEdit = pictureForm("edit", defineRecipe<QwenEdit>({
   // the Lightning LoRA made for Edit, when Turbo is on and the Edit model picked is not made for a few steps (build)
   needsWith: (input, slots = {}) => (input.fast && !lightning.test((input.model ?? slots.edit ?? "").split(/[\\/]/).pop() ?? "") ? ["editTurbo"] : []),
   id: "qwen.edit",
@@ -253,4 +254,4 @@ export const qwenEdit = defineRecipe<QwenEdit>({
       uploads: { source: "s.png", "references.0": "a.png", "references.1": "b.png" }, media: { source: { width: 1536, height: 2048 } },
     },
   ],
-});
+}));

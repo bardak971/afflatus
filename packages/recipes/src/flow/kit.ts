@@ -20,6 +20,20 @@ export interface FlowSpec {
   /** The text encoder(s): the loader node(s) they need, how they are loaded, and their files. */
   encoder: { nodes: string[]; load(g: GraphBuilder, slots: Record<string, string>): Ref; files(slots: Record<string, string>): string[] };
   /**
+   * The prompt and the negative read by a node of the family's own, both at once (Qwen Image 2.1's TextEncodeQwenImage21,
+   * which reads them with the VAE), where the others read each with CLIPTextEncode.
+   */
+  text?: { nodes: string[]; encode(g: GraphBuilder, k: { clip: Ref; vae: Ref }, prompt: string, negative: string): { positive: Ref; negative: Ref } };
+  /** A node the model is put through after its LoRAs (Qwen Image 2.1's cache of the prompt), with what it reads of the form. */
+  patch?: { nodes: string[]; put(g: GraphBuilder, model: Ref, input: FlowBase): Ref };
+  /** The empty latent a new picture starts from, when the family's template has another than EmptySD3LatentImage. */
+  latent?: "EmptyLatentImage";
+  /** The grid both edges of a picture are on (16 unless said: Qwen Image 2.1's is 32), and the longest edge of a new one (2048). */
+  grid?: number;
+  maxSize?: number;
+  /** txt2img's summary, when the family has more to say than the usual one. */
+  pictureSummary?: string;
+  /**
    * The node that sets the shift, when one is typed. Flux's follows the size of the picture. `own`: how the model samples
    * with none typed (Krea 2's constant mu), for the noise level a denoise starts from (card #146); Flux's is worked out by size.
    */
@@ -66,6 +80,11 @@ export interface FlowSpec {
    * are the family's slots `redux` and `vision`.
    */
   look?: boolean;
+  /**
+   * The sampling rows every picture form shares (see pictureForm) that this family's forms do not take, each with why: Krea 2's
+   * own inputs have no weight precision.
+   */
+  drops?: Record<string, string>;
   /** For the graph checker: the family's files under their usual names, and what a fine-tune could be called. */
   files: Record<string, string>;
   fineTune: string;
@@ -160,23 +179,24 @@ export function flowKit(spec: FlowSpec) {
    * decode, and what a setting brings in (the LoRAs, the emptied negative side, the shift, Flux's guidance).
    */
   const loadNodes = (input: FlowBase) => [
-    ...unetNodes(input.model), ...spec.encoder.nodes, "VAELoader", "CLIPTextEncode", "KSampler", "VAEDecode", "PreviewImage",
+    ...unetNodes(input.model), ...spec.encoder.nodes, "VAELoader", ...(spec.text?.nodes ?? ["CLIPTextEncode"]), ...(spec.patch?.nodes ?? []), "KSampler", "VAEDecode", "PreviewImage",
     ...(!spec.turbo && input.loras.some((l) => l.weight !== 0) ? ["LoraLoaderModelOnly"] : []),
-    ...(!input.negative.trim() && spec.negative.empty === "zero" ? ["ConditioningZeroOut"] : []),
-    ...(spec.shift.node === "ModelSamplingFlux" || input.shift > 0 ? [spec.shift.node] : []),
+    ...(!spec.text && !input.negative.trim() && spec.negative.empty === "zero" ? ["ConditioningZeroOut"] : []),
+    ...(spec.shift.node === "ModelSamplingFlux" || shiftOf(input) > 0 ? [spec.shift.node] : []),
     ...(spec.guidance ? ["FluxGuidance"] : []),
   ];
   /** With a turbo LoRA, whether it is put on depends on its file being there: the LoRA loader is then the build's to say. */
   const SOMETIMES = spec.turbo ? ["LoraLoaderModelOnly"] : [];
   /** Every node a second pass that is only sometimes made can use (the light pass after an upscale). */
   const SECOND_PASS = [
-    "UNETLoader", GGUF_LOADER, ...spec.encoder.nodes, "VAELoader", "CLIPTextEncode", "KSampler", "VAEDecode", "VAEEncode", "LoraLoaderModelOnly",
-    ...(spec.negative.empty === "zero" ? ["ConditioningZeroOut"] : []), spec.shift.node,
+    "UNETLoader", GGUF_LOADER, ...spec.encoder.nodes, "VAELoader", ...(spec.text?.nodes ?? ["CLIPTextEncode"]), ...(spec.patch?.nodes ?? []), "KSampler", "VAEDecode", "VAEEncode", "LoraLoaderModelOnly",
+    ...(!spec.text && spec.negative.empty === "zero" ? ["ConditioningZeroOut"] : []), spec.shift.node,
     ...(spec.guidance ? ["FluxGuidance"] : []), ...TILE_NODES,
   ];
 
-  /** Whether the form offers the weight precision (Krea 2's does not). */
+  /** Whether the form offers the weight precision (Krea 2's does not), and a shift (Qwen Image 2.1's does not: its own is kept). */
   const precise = inputs.some((i) => i.id === "precision");
+  const shiftOf = (input: FlowBase) => (inputs.some((i) => i.id === "shift") ? input.shift : 0);
 
   /** The model with its LoRAs (and the turbo LoRA when Turbo is on and the model needs it), the text encoder and the VAE. */
   function load(g: GraphBuilder, input: FlowBase, ctx: BuildContext) {
@@ -191,6 +211,7 @@ export function flowKit(spec: FlowSpec) {
     const turbo = Boolean(spec.turbo && (made || (input.fast && turboLora)));
     model = putAdded(g, model, added);
     model = applyLoras(g, model, added.loras);
+    if (spec.patch) model = spec.patch.put(g, model, input);
     return {
       model,
       clip: spec.encoder.load(g, ctx.slots),
@@ -210,8 +231,8 @@ export function flowKit(spec: FlowSpec) {
    */
   const shifted = (g: GraphBuilder, model: Ref, input: FlowBase, size: { width: number; height: number }): Ref => {
     if (spec.shift.node === "ModelSamplingFlux") return g.out("ModelSamplingFlux", { model, max_shift: input.shift > 0 ? input.shift : 1.15, base_shift: 0.5, width: size.width, height: size.height });
-    if (!(input.shift > 0)) return model;
-    return g.out("ModelSamplingAuraFlow", { model, shift: input.shift });
+    if (!(shiftOf(input) > 0)) return model;
+    return g.out("ModelSamplingAuraFlow", { model, shift: shiftOf(input) });
   };
 
   /** The two texts from what the prompt was read into: Flux's guidance on it, and the negative side (the positive one emptied, or the negative prompt, as the family's template has it). */
@@ -221,7 +242,8 @@ export function flowKit(spec: FlowSpec) {
     return { positive, negative };
   }
   /** The two texts, from the prompt. */
-  const cond = (g: GraphBuilder, k: Loaded, input: FlowBase, text: string) => condFrom(g, k, input, g.out("CLIPTextEncode", { text, clip: k.clip }));
+  const cond = (g: GraphBuilder, k: Loaded, input: FlowBase, text: string) =>
+    spec.text ? spec.text.encode(g, k, text, input.negative) : condFrom(g, k, input, g.out("CLIPTextEncode", { text, clip: k.clip }));
 
   /** One pass of sampling, with the detail boost when one is given with the context it is built in. */
   function sample(g: GraphBuilder, k: Loaded, input: FlowBase, model: Ref, c: { positive: Ref; negative: Ref }, latent: Ref, seed: number, opts: { steps?: number; denoise?: number; sampler_name?: string; scheduler?: string } = {}, detail?: { input: DetailSettings; ctx: BuildContext }) {
@@ -267,7 +289,7 @@ export function flowKit(spec: FlowSpec) {
    * simple schedule, the one it is worked out for; another scheduler starts near it. Unknown sampling: the field as it is.
    */
   const realDenoise = (input: FlowBase, size: { width: number; height: number }, steps: number, sigma: number): number => {
-    const s = samplingOf(input.shift, size);
+    const s = samplingOf(shiftOf(input), size);
     return s ? denoiseForSigma(s, steps, sigma) : sigma;
   };
 
@@ -277,11 +299,12 @@ export function flowKit(spec: FlowSpec) {
     const mp = (of.width * of.height) / (1024 * 1024);
     // large pictures are brought down to what the model draws well; small parts are brought up to where it has room to draw
     const k = mp > megapixels ? Math.sqrt(megapixels / mp) : mp < least ? Math.sqrt(least / mp) : 1;
-    return { width: roundTo(of.width * k, 16), height: roundTo(of.height * k, 16) };
+    return { width: roundTo(of.width * k, spec.grid ?? 16), height: roundTo(of.height * k, spec.grid ?? 16) };
   }
 
   /** What the checker's variants share: a fine-tune with a shift, a CFG, its steps, a negative prompt and a LoRA. */
-  const tuned = { model: spec.fineTune, shift: 4, cfg: 3, steps: 25, negative: "blurry", loras: [{ file: "l.safetensors", weight: 0.8 }] };
+  // (a shift only where the form has one: Qwen Image 2.1's has none)
+  const tuned = { model: spec.fineTune, ...(inputs.some((i) => i.id === "shift") ? { shift: 4 } : {}), cfg: 3, steps: 25, negative: "blurry", loras: [{ file: "l.safetensors", weight: 0.8 }] };
 
   /**
    * Turbo's LoRA, when Turbo is on and the model picked is not made for a few steps (load): the family's file this input

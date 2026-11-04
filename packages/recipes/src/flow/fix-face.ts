@@ -1,5 +1,6 @@
 import { defineRecipe, GraphBuilder, type Recipe } from "@afflatus/core";
-import { FACE_INPUTS, NO_FACE, type FaceSettings } from "../sdxl/common";
+import { pictureForm } from "../shared/pictureForm";
+import { FACE_INPUTS, faceSteps, NO_FACE, type FaceSettings } from "../sdxl/common";
 import { A_FACE, photo, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
 import { DETECTOR_INPUT } from "../shared/detector";
 
@@ -11,7 +12,7 @@ export function flowFixFace(spec: FlowSpec, kit: FlowKit): Recipe<FlowFixFace> {
   const files = spec.files;
   // the "?": the real noise the default starts from, the face redrawn at 1024 and its shift (card #146)
   const noise = noiseWords(0.4, spec.sampling.steps, [{ size: { width: 1024, height: 1024 }, where: "at 1 MP" }]);
-  return defineRecipe<FlowFixFace>({
+  return pictureForm("face", defineRecipe<FlowFixFace>({
     id: `${spec.family}.fix-face`,
     family: spec.family,
     version: 1,
@@ -36,17 +37,18 @@ export function flowFixFace(spec: FlowSpec, kit: FlowKit): Recipe<FlowFixFace> {
       const source = g.out("LoadImage", { image: ctx.uploads.source });
       const c = cond(g, k, input, input.prompt.trim() || A_FACE);
       const detector = g.out("UltralyticsDetectorProvider", { model_name: input.detector });
+      const steps = faceSteps(k.steps);
       g.phase("detailing");
       const fixed = g.add("FaceDetailer", {
         image: source, model: shifted(g, k.model, input, { width: 1024, height: 1024 }), clip: k.clip, vae: k.vae, positive: c.positive, negative: c.negative, bbox_detector: detector,
-        guide_size: input.faceSize, guide_size_for: false, max_size: Math.max(input.faceMax, input.faceSize), seed: ctx.seed, steps: k.steps, cfg: k.cfg,
+        guide_size: input.faceSize, guide_size_for: false, max_size: Math.max(input.faceMax, input.faceSize), seed: ctx.seed, steps, cfg: k.cfg,
         sampler_name: input.sampler, scheduler: input.scheduler, denoise: input.strength, feather: input.faceFeather, noise_mask: true, force_inpaint: true,
         bbox_threshold: input.faceThreshold, bbox_dilation: input.faceGrow, bbox_crop_factor: input.faceCrop, sam_detection_hint: "center-1", sam_dilation: 0,
         sam_threshold: 0.93, sam_bbox_expansion: 0, sam_mask_hint_threshold: 0.7, sam_mask_hint_use_negative: "False",
         drop_size: 10, wildcard: "", cycle: 1,
       });
       const out = g.add("PreviewImage", { images: [fixed, 0] });
-      return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: k.steps, passes: [{ node: fixed, steps: k.steps, unsampled: NO_FACE }], loads: k.loads };
+      return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: steps, passes: [{ node: fixed, steps, unsampled: NO_FACE }], loads: k.loads };
     },
     variants: [
       { name: "plain", input: { source: "p", detector: "bbox/face.pt" } as Partial<FlowFixFace>, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
@@ -54,5 +56,5 @@ export function flowFixFace(spec: FlowSpec, kit: FlowKit): Recipe<FlowFixFace> {
       // Turbo's branch: the LoRA put on, its steps at CFG 1 (the operations' other variants have no turbo file)
       ...(kit.turboFiles ? [{ name: "Turbo with its LoRA", input: { source: "p", detector: "bbox/face.pt", fast: true, turboSteps: 6 } as Partial<FlowFixFace>, slots: kit.turboFiles, uploads: { source: "s.png" }, media: { source: photo } }] : []),
     ],
-  });
+  }), spec.drops);
 }

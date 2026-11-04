@@ -24,6 +24,12 @@ const V_PRED = "v-prediction (zsnr)";
 export const isVPred = (input: Pick<SdxlBase, "checkpoint" | "prediction">) => input.prediction === V_PRED || (input.prediction === PREDICTION_AUTO && /v.?pred/i.test(input.checkpoint.split(/[\\/]/).pop() ?? ""));
 /** The nodes a v-prediction checkpoint is sampled through. */
 export const PREDICTION_NODES = ["ModelSamplingDiscrete", "RescaleCFG"];
+
+/** The sampling rows of the picture forms (pictureForm) that SDXL's do not take. */
+export const SDXL_DROPS = {
+  shift: "an SDXL checkpoint is not a flow model: it has no shift",
+  precision: "a checkpoint is loaded whole by CheckpointLoaderSimple, which has no weight precision",
+};
 /**
  * A v-prediction checkpoint (NoobAI v-pred and merges of it) sampled as one: ComfyUI only knows when the
  * file says so in its metadata, and many merges do not, which comes out as a grey, washed picture. The
@@ -165,6 +171,12 @@ export interface FaceSettings {
   faceMax: number;
   faceFeather: number;
 }
+/**
+ * The steps a face refine redraws each face in, on every family (card #275; SDXL's rule before): the form's, at least 8 and
+ * at most 30. A crop redrawn at a denoise of about 0.4 runs that share of them: fewer than 8 (a distilled model's 4, Turbo's)
+ * leaves it two or three steps, too few to draw a face; more than 30 (Qwen Image's 50) is time a crop does not need.
+ */
+export const faceSteps = (steps: number) => Math.min(30, Math.max(8, steps));
 /** What a face detailer's job says when it found no face: ComfyUI says nothing, and the picture comes out as it went in. */
 export const NO_FACE = "No face found: the picture is as it was (a lower Detection threshold finds more).";
 export const FACE_INPUTS: InputSpec[] = [
@@ -201,7 +213,7 @@ export function refineColourMatched(g: GraphBuilder, ctx: BuildContext, refined:
 }
 
 /** A hires second pass with the sampler and the scheduler of the first, unless others are picked. */
-const SAME_PASS = "As the first pass";
+export const SAME_PASS = "As the first pass";
 export interface HiresPass {
   hiresSampler: string;
   hiresScheduler: string;
@@ -220,19 +232,58 @@ export const MASK_NODES = ["LoadImageMask", "CropMask", "MaskToImage", "ImageToM
 
 /** How far an outpaint extends the picture on each side, and how softly the new part meets it. */
 export interface OutpaintSettings {
+  /** The aspect ratio the picture is extended to, the picture in the middle; CUSTOM: by the sides as they are set. */
+  shape?: string;
   padLeft: number;
   padTop: number;
   padRight: number;
   padBottom: number;
   feathering: number;
 }
+/** The outpaint's shape that extends the picture by the sides set, not to an aspect ratio. */
+export const CUSTOM_SHAPE = "Custom";
+/** The aspect ratios an outpaint extends a picture to (Klein's, card #275: every family's now). */
+export const OUTPAINT_SHAPES = ["Portrait 2:3", "Square 1:1", "Landscape 3:2", "Widescreen 16:9", "Portrait 9:16"];
+/**
+ * The aspect ratio row: an outpaint extends a picture by the sides (A1111's way) or to a shape (Klein's), and every family does
+ * both (card #275). Each starts on what it did before: Klein on 16:9, the others on the sides.
+ */
+export const shapeInput = (start: string): InputSpec => ({
+  id: "shape", type: "choice", label: "Aspect ratio", options: [CUSTOM_SHAPE, ...OUTPAINT_SHAPES], default: start,
+  note: "the shape the picture is extended to, the picture staying in the middle. Custom: by the sides set below",
+});
+const bySides = { input: "shape", in: [CUSTOM_SHAPE] };
 export const OUTPAINT_INPUTS: InputSpec[] = [
-  { id: "padLeft", type: "number", label: "Extend left", min: 0, max: 1024, step: 8, default: 192, unit: " px" },
-  { id: "padRight", type: "number", label: "Extend right", min: 0, max: 1024, step: 8, default: 192, unit: " px" },
-  { id: "padTop", type: "number", label: "Extend up", min: 0, max: 1024, step: 8, default: 0, unit: " px" },
-  { id: "padBottom", type: "number", label: "Extend down", min: 0, max: 1024, step: 8, default: 0, unit: " px" },
+  shapeInput(CUSTOM_SHAPE),
+  { id: "padLeft", type: "number", label: "Extend left", min: 0, max: 1024, step: 8, default: 192, unit: " px", showWhen: bySides },
+  { id: "padRight", type: "number", label: "Extend right", min: 0, max: 1024, step: 8, default: 192, unit: " px", showWhen: bySides },
+  { id: "padTop", type: "number", label: "Extend up", min: 0, max: 1024, step: 8, default: 0, unit: " px", showWhen: bySides },
+  { id: "padBottom", type: "number", label: "Extend down", min: 0, max: 1024, step: 8, default: 0, unit: " px", showWhen: bySides },
   { id: "feathering", type: "number", label: "Feathering", note: "how far into the picture the new part may blend: more hides the seam, less keeps the picture exact", min: 0, max: 256, step: 8, default: 40, unit: " px", advanced: true },
 ];
+/** The room to add around a picture to bring it to a shape ("Widescreen 16:9"), the picture staying in the middle. */
+export function padsFor(width: number, height: number, shape: string) {
+  const [a, b] = (/(\d+):(\d+)/.exec(shape)?.slice(1) ?? ["1", "1"]).map(Number) as [number, number];
+  const r = a / b;
+  if (width / height < r) {
+    const add = Math.round(height * r) - width;
+    return { left: Math.floor(add / 2), right: Math.ceil(add / 2), top: 0, bottom: 0, width: width + add, height };
+  }
+  const add = Math.round(width / r) - height;
+  return { left: 0, right: 0, top: Math.floor(add / 2), bottom: Math.ceil(add / 2), width, height: height + add };
+}
+/**
+ * An outpaint's sides as it is built: those set (Custom, or a form saved before the shape row), or those that bring the
+ * picture to the shape picked. A picture already of that shape gets none, which the build says.
+ */
+export function outpaintSides<T extends Omit<OutpaintSettings, "feathering">>(input: T, of: { width?: number; height?: number } | undefined): T {
+  if (!input.shape || input.shape === CUSTOM_SHAPE) return input;
+  const p = padsFor(of?.width || 1024, of?.height || 1024, input.shape);
+  return { ...input, padLeft: p.left, padRight: p.right, padTop: p.top, padBottom: p.bottom };
+}
+/** What an outpaint says when there is nothing to extend. */
+export const nothingToExtend = (input: Pick<OutpaintSettings, "shape">) =>
+  input.shape && input.shape !== CUSTOM_SHAPE ? `Nothing to extend: the picture is ${input.shape} already.` : "Nothing to extend: set how far the picture grows on at least one side.";
 export const OUTPAINT_NODES = ["LoadImage", "ImagePadForOutpaint", "ImageScale", "MaskToImage", "ImageToMask", "VAEEncodeForInpaint", "VAEDecode", "PreviewImage"];
 /**
  * The picture padded on the sides asked for (grey, with a soft edge into the picture), scaled to the size

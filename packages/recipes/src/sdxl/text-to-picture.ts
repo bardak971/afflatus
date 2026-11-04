@@ -1,6 +1,7 @@
 import { defineRecipe, GraphBuilder, roundTo, type LoraValue, type Ref, type SizeValue } from "@afflatus/core";
-import { HIRES_PASS_INPUTS, hiresPass, isVPred, loadSdxl, PREDICTION_INPUTS, PREDICTION_NODES, SDXL_PRESETS, UPSCALER_PREFER } from "./common";
-import { DEFAULT_NEGATIVE, SDXL_UNION } from "./family";
+import { pictureForm } from "../shared/pictureForm";
+import { HIRES_PASS_INPUTS, hiresPass, isVPred, loadSdxl, modelInputs, PREDICTION_NODES, samplingInputs, SDXL_DROPS, SDXL_PRESETS, UPSCALER_PREFER } from "./common";
+import { SDXL_UNION } from "./family";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, kSample, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { applyGuide, guideInputs, guideNodes, type GuideSettings } from "../shared/guide";
 import { redrawInTiles, tileInputs, tileNodes, TILES_ON, tilePass, inTiles, type TileSettings } from "../shared/tiles";
@@ -34,7 +35,7 @@ export interface SdxlTextToPicture extends DetailSettings, GuideSettings, TileSe
 /** The hi-res pass can enlarge in latent space (no extra model) or through an upscale model. */
 const LATENT_UPSCALE = "latent";
 
-export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
+export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToPicture>({
   id: "sdxl.text-to-picture",
   family: "sdxl",
   version: 1,
@@ -43,9 +44,6 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
   output: "image",
   inputs: [
     { id: "prompt", type: "prompt", label: "Prompt", style: "tags", placeholder: "terrace at sunset, woman holding a cup, warm light" },
-    { id: "negative", type: "prompt", label: "Negative prompt", style: "tags", optional: true, default: DEFAULT_NEGATIVE, perModel: true },
-    { id: "checkpoint", type: "model", label: "Checkpoint", folder: "checkpoints" },
-    { id: "loras", type: "loras", label: "LoRAs", max: 8 },
     {
       id: "size", type: "size", label: "Size", default: "tall", grid: 8, min: 256, max: 2048, perModel: true,
       shapes: [
@@ -58,14 +56,9 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
     },
     ...DETAIL_INPUTS,
     ...guideInputs(SDXL_UNION),
-    // checkpoints differ in the quality tags they were trained with ("masterpiece, best quality", "score_9, …")
-    { id: "quality", type: "prompt", label: "Quality tags", note: "put in front of the prompt on every render with this checkpoint", style: "tags", optional: true, default: "", advanced: true, perModel: true },
-    { id: "steps", type: "number", label: "Steps", min: 1, max: 100, step: 1, default: 28, advanced: true, perModel: true },
-    { id: "cfg", type: "number", label: "CFG scale", note: "how closely it follows the prompt", min: 1, max: 20, step: 0.5, default: 5, advanced: true, perModel: true },
-    { id: "sampler", type: "choice", label: "Sampler", options: { node: "KSampler", input: "sampler_name" }, default: "euler_ancestral", advanced: true, perModel: true },
-    { id: "scheduler", type: "choice", label: "Scheduler", options: { node: "KSampler", input: "scheduler" }, default: "normal", advanced: true, perModel: true },
-    { id: "clipSkip", type: "number", label: "Clip skip", note: "1 = SDXL's own, which is already the second-last layer: what Civitai calls \"clip skip 2\" (Pony, Illustrious). Only raise it when a checkpoint's card asks for more than that", min: 1, max: 4, step: 1, default: 1, advanced: true, perModel: true },
-    ...PREDICTION_INPUTS,
+    // the checkpoint, its LoRAs and how it samples: the rows of the SDXL tools, which the skeleton lays out (pictureForm)
+    ...modelInputs,
+    ...samplingInputs(28).filter((i) => i.id !== "seed"),
     { id: "hires", type: "toggle", label: "Hires fix", note: "upscale, then a second pass over the larger picture", default: false, advanced: true, perModel: true },
     { id: "hiresScale", type: "number", label: "Upscale by", note: "past 2×, the second pass is redrawn in tiles (see Redraw)", min: 1.1, max: 4, step: 0.05, default: 1.5, unit: "×", showWhen: "hires", advanced: true, perModel: true },
     {
@@ -198,4 +191,4 @@ export const sdxlTextToPicture = defineRecipe<SdxlTextToPicture>({
       input: { prompt: "a", checkpoint: "x.safetensors", hires: true, hiresUpscaler: "u.pth", hiresScale: 2, sampler: "dpmpp_2m", scheduler: "karras" },
     },
   ],
-});
+}), SDXL_DROPS);

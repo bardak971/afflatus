@@ -1,8 +1,10 @@
 import { beyondPack, defineRecipe, GraphBuilder, packCommit, roundTo, type ReferenceValue, type Ref, type SizeValue } from "@afflatus/core";
+import { pictureForm } from "../shared/pictureForm";
 import { HIRES_PASS_INPUTS, hiresPass, UPSCALER_PREFER, type HiresPass } from "../sdxl/common";
 import type { FlowBase } from "../flow/kit";
 import { flowFixFace } from "../flow/fix-face";
 import { flowPaintOver } from "../flow/paint-over";
+import { flowOutpaint } from "../flow/outpaint";
 import { flowRedraw } from "../flow/redraw";
 import { flowSharper } from "../flow/sharper";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
@@ -87,7 +89,7 @@ const NOT_BOTH = "Krea 2 takes a person reference or style reference images, not
  * (PERSON_ROW), and Face refine redraws their face when it is a small one. Hires fix is the usual upscale and
  * second pass, at the model's own shift (see krea2Spec).
  */
-export const krea2Picture = defineRecipe<Krea2Picture>({
+export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
   id: "krea2.text-to-picture",
   family: "krea2",
   version: 1,
@@ -110,7 +112,7 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
     },
     // (drawn as the weight of the style-reference LoRA's row in the LoRA list, card #160)
     { id: "referenceStrength", type: "number", label: "Style strength", note: "the weight of the style-reference LoRA. At 0 it is not loaded", min: 0, max: 1.5, step: 0.05, default: 1, showWhen: "references", advanced: true, inList: "loras" },
-    { id: "size", type: "size", label: "Size", default: "tall", grid: 16, min: 256, max: 2048, shapes: krea2Spec.shapes },
+    { id: "size", type: "size", label: "Size", default: "tall", grid: 16, min: 256, max: 2048, perModel: true, shapes: krea2Spec.shapes },
     ...DETAIL_INPUTS,
     ...krea2Kit.inputs.slice(0, -1),
     { id: "hires", type: "toggle", label: "Hires fix", note: "upscale, then a second pass over the larger picture", default: false, advanced: true, perModel: true },
@@ -287,11 +289,12 @@ export const krea2Picture = defineRecipe<Krea2Picture>({
       slots: withPerson, uploads: { "person.0": "p.png" },
     },
   ],
-});
+}), krea2Spec.drops);
 
-// ---------------------------------------------------------------- img2img, inpaint, upscale 2x, face detailer: the picture models' own
+// ---------------------------------------------------------------- img2img, inpaint, outpaint, upscale 2x, face detailer: the picture models' own
 
 export const krea2Redraw = flowRedraw(krea2Spec, krea2Kit);
 export const krea2PaintOver = flowPaintOver(krea2Spec, krea2Kit);
+export const krea2Outpaint = flowOutpaint(krea2Spec, krea2Kit);
 export const krea2Sharper = flowSharper(krea2Spec, krea2Kit);
 export const krea2FixFace = flowFixFace(krea2Spec, krea2Kit);

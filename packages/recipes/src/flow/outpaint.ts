@@ -1,5 +1,6 @@
 import { defineRecipe, GraphBuilder, type Recipe, type Ref } from "@afflatus/core";
-import { OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, PASTE_BACK_NODES, pasteBack, stretchedFill, type OutpaintSettings } from "../sdxl/common";
+import { pictureForm } from "../shared/pictureForm";
+import { nothingToExtend, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, outpaintSides, PASTE_BACK_NODES, pasteBack, stretchedFill, type OutpaintSettings } from "../sdxl/common";
 import { INPAINT_PATCH_NODES, inpaintPatched, inpaintPatchNeeds, photo, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
 
 export interface FlowOutpaint extends FlowBase, OutpaintSettings { source: string; prompt: string }
@@ -19,7 +20,7 @@ const SEAM_DENOISE = 0.35;
 export function flowOutpaint(spec: FlowSpec, kit: FlowKit): Recipe<FlowOutpaint> {
   const { inputs, loadNodes, SOMETIMES, load, shifted, cond, sample, sizeOf, tuned } = kit;
   const files = spec.files;
-  return defineRecipe<FlowOutpaint>({
+  return pictureForm("outpaint", defineRecipe<FlowOutpaint>({
     id: `${spec.family}.outpaint`,
     family: spec.family,
     version: 1,
@@ -34,25 +35,29 @@ export function flowOutpaint(spec: FlowSpec, kit: FlowKit): Recipe<FlowOutpaint>
       ...inputs,
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),
-    nodes: (input) => [...loadNodes(input).filter((n) => n !== "VAEDecode" && n !== "PreviewImage"), ...OUTPAINT_NODES, ...PASTE_BACK_NODES, "GrowMask", "VAEEncode", "SetLatentNoiseMask", "DifferentialDiffusion"],
+    nodes: (input) => [...loadNodes(input).filter((n) => n !== "VAEDecode" && n !== "PreviewImage"), ...OUTPAINT_NODES, ...PASTE_BACK_NODES, "GrowMask", "VAEEncode", "SetLatentNoiseMask", ...(spec.hardInpaint ? [] : ["DifferentialDiffusion"])],
     ...(spec.inpaintPatch ? { needsWith: inpaintPatchNeeds(spec) } : {}),
     ...(SOMETIMES.length || spec.inpaintPatch ? { optionalNodes: [...SOMETIMES, ...(spec.inpaintPatch ? INPAINT_PATCH_NODES : [])] } : {}),
-    build(input, ctx) {
-      if (input.padLeft + input.padRight + input.padTop + input.padBottom === 0) throw new Error("Nothing to extend: set how far the picture grows on at least one side.");
+    build(form, ctx) {
+      const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
+      // by the sides set, or those that bring it to the aspect ratio picked
+      const input = outpaintSides(form, from);
+      if (input.padLeft + input.padRight + input.padTop + input.padBottom === 0) throw new Error(nothingToExtend(input));
       const g = new GraphBuilder();
       const k = load(g, input, ctx);
-      const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
       const whole = { width: from.width + input.padLeft + input.padRight, height: from.height + input.padTop + input.padBottom };
       const size = sizeOf(whole);
       const source = g.out("LoadImage", { image: ctx.uploads.source });
       const { padded, pixels: grey, mask } = outpaintLatent(g, source, from, input, size, k.vae);
       const c = cond(g, k, input, input.prompt);
-      const model = shifted(g, g.out("DifferentialDiffusion", { model: k.model }), input, size);
+      // a family that inpaints with the mask as it is (hardInpaint, Krea 2's) outpaints so too
+      const soft = (m: Ref) => (spec.hardInpaint ? m : g.out("DifferentialDiffusion", { model: m }));
+      const model = shifted(g, soft(k.model), input, size);
       const start = g.out("SetLatentNoiseMask", { samples: g.out("VAEEncode", { pixels: stretchedFill(g, source, input, whole, size), vae: k.vae }), mask });
       g.phase("sampling");
       // the inpaint guide, when the family has one, on the first pass only: it is given the padding, which the seam pass's band is not
       const guided = inpaintPatched(g, ctx, spec, k.model, k.vae, grey, mask);
-      const first = sample(g, k, input, guided.loads.length ? shifted(g, g.out("DifferentialDiffusion", { model: guided.model }), input, size) : model, c, start, ctx.seed);
+      const first = sample(g, k, input, guided.loads.length ? shifted(g, soft(guided.model), input, size) : model, c, start, ctx.seed);
       const atSize = (image: Ref, to: { width: number; height: number }) => g.out("ImageScale", { image, upscale_method: "lanczos", width: to.width, height: to.height, crop: "disabled" });
       const drawn = pasteBack(g, atSize(g.out("VAEDecode", { samples: first.latent, vae: k.vae }), whole), source, padded, from, input);
       // the seam pass: the new part and a band into the picture, redrawn lightly
@@ -66,9 +71,10 @@ export function flowOutpaint(spec: FlowSpec, kit: FlowKit): Recipe<FlowOutpaint>
     },
     variants: [
       { name: "wider on both sides", input: { source: "p", prompt: "a" } as Partial<FlowOutpaint>, slots: files, uploads: { source: "s.png" }, media: { source: { width: 896, height: 1152 } } },
+      { name: "to 16:9, the picture in the middle", input: { source: "p", prompt: "a", shape: "Widescreen 16:9" } as Partial<FlowOutpaint>, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
       { name: "taller, a fine-tune with a LoRA", input: { source: "p", prompt: "a", padLeft: 0, padRight: 0, padTop: 256, padBottom: 0, ...tuned } as Partial<FlowOutpaint>, slots: files, uploads: { source: "s.png" }, media: { source: photo } },
       // Turbo's branch: the LoRA put on, its steps at CFG 1 (the operations' other variants have no turbo file)
       ...(kit.turboFiles ? [{ name: "Turbo with its LoRA", input: { source: "p", prompt: "a", fast: true, turboSteps: 6 } as Partial<FlowOutpaint>, slots: kit.turboFiles, uploads: { source: "s.png" }, media: { source: { width: 896, height: 1152 } } }] : []),
     ],
-  });
+  }), spec.drops);
 }
