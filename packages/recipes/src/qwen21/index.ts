@@ -5,6 +5,7 @@ import { loadUnet, unetNodes } from "../shared/unet";
 import { qwen21Lint } from "../shared/lint";
 import { FACE_AT_NODE, FACE_NODE, faceScore } from "../shared/face";
 import { detectorSlots } from "../shared/detector";
+import { REGIONS_WHY } from "../shared/regions";
 
 const HF = "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main";
 
@@ -127,6 +128,7 @@ const QWEN21_DROPS = {
   // read on Hugging Face and in ComfyUI's nodes, 2026-11-04 (card #277)
   ...noGuide("Alibaba's Fun ControlNet Union for Qwen Image 2.1 runs in VideoX-Fun only: ComfyUI has no node that loads it yet"),
   ...noReferences("Qwen Image 2.1's txt2img and img2img read no reference image: its Edit takes them"),
+  regions: REGIONS_WHY.qwen21,
 };
 const files = { unet: "qwen_image_2.1_int8_convrot.safetensors", clip: "qwen3vl_8b_int8_convrot.safetensors", vae: "qwen_image_2.1_vae_bf16.safetensors" };
 

@@ -1,4 +1,4 @@
-import { defineRecipe, GraphBuilder, roundTo, type Recipe, type Ref, type SizeValue } from "@afflatus/core";
+import { defineRecipe, GraphBuilder, regionsOf, roundTo, type Recipe, type Ref, type RegionValue, type SizeValue } from "@afflatus/core";
 import { dropsFor, pictureForm } from "../shared/pictureForm";
 import { HIRES_PASS_INPUTS, hiresPass, UPSCALER_PREFER, type HiresPass } from "../sdxl/common";
 import { asDaemon, DAEMON_DETAIL_INPUTS, DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
@@ -6,11 +6,13 @@ import { redrawInTiles, tileInputs, tileNodes, tilePass, inTiles, type TileSetti
 import { adetail, ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FILES, sized, type AdetailSettings } from "../shared/adetail";
 import { applyGuide, FOLLOW_MAP, guideInputs, guideNeeds, guideNodes, type GuideSettings } from "../shared/guide";
 import { REDUX_NODES, reduxInputs, reduxNeeds, withRedux, type ReferenceSettings } from "../shared/references";
+import { MOSS_LAYOUT_NODES, mossLayout, mossLayoutText, regionsInput, withRegionLoras } from "../shared/regions";
 import type { FlowBase, FlowKit, FlowSpec } from "./kit";
 
 export interface FlowPicture extends FlowBase, HiresPass, DetailSettings, TileSettings, AdetailSettings, GuideSettings, ReferenceSettings {
   prompt: string;
   size: SizeValue;
+  regions?: RegionValue[];
   hires: boolean;
   hiresScale: number;
   hiresUpscaler: string;
@@ -34,6 +36,11 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
   const hiresDefault = { scale: spec.hires?.scale ?? 1.25, denoise: spec.hires?.denoise ?? 0.4, steps: spec.hires?.steps ?? Math.max(4, Math.round(spec.sampling.steps / 2)) };
   const hiresAt = { width: roundTo(shape.width * hiresDefault.scale, grid), height: roundTo(shape.height * hiresDefault.scale, grid) };
   const hiresNoise = noiseWords(hiresDefault.denoise, hiresDefault.steps, [{ size: hiresAt, where: `at ${hiresAt.width}×${hiresAt.height}` }]);
+  // the regions written as one layout (MOSS-Image): every box in one text, so their LoRAs go on the whole picture
+  const layout = spec.layout;
+  const regionsIn = (input: FlowPicture) => (layout ? regionsOf(input.regions) : []);
+  const withRegions = (input: FlowPicture): FlowPicture => (layout ? { ...input, loras: withRegionLoras(input.loras, regionsIn(input)) } : input);
+  const sizeOf = (input: FlowPicture) => ({ width: roundTo(input.size.width, grid), height: roundTo(input.size.height, grid) });
   return pictureForm("txt2img", defineRecipe<FlowPicture>({
     id: `${spec.family}.text-to-picture`,
     family: spec.family,
@@ -53,6 +60,7 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       ...(spec.references ? reduxInputs({ image: "look", strength: "lookStrength" }) : []),
       ...(spec.guide ? guideInputs(spec.guide) : []),
       { id: "size", type: "size", label: "Size", default: "tall", grid, min: 256, max: spec.maxSize ?? 2048, perModel: true, shapes: spec.shapes, ...(spec.maxPixels ? { maxPixels: spec.maxPixels } : {}) },
+      ...(layout ? [regionsInput({ lora: "global", kinds: true, how: layout.how })] : []),
       ...adetailInputs("sentences"),
       ...(spec.detail === "daemon" ? DAEMON_DETAIL_INPUTS : DETAIL_INPUTS),
       ...inputs.slice(0, -1),
@@ -69,20 +77,30 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       inputs.at(-1)!,
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),
-    nodes: (input) => [
+    ...(layout ? { layoutOf: (input: FlowPicture) => (regionsIn(input).length ? mossLayout(input.prompt, regionsIn(input), sizeOf(input)) : null) } : {}),
+    nodes: (asked) => {
+      // the regions' LoRAs are on the model as the form's are (MOSS-Image's layout puts them on the whole picture)
+      const input = withRegions(asked);
+      return [
       ...loadNodes(input).filter((n) => n !== "KSampler"), emptyLatent, ...detailNodes(detailOf(input)),
       ...fullPassNodes(detailOf(input), spec.turbo && input.fast ? input.turboSteps ?? input.steps : input.steps), ...(input.hires ? ["KSampler"] : []),
       ...(spec.references && input.references.length ? REDUX_NODES : []),
       ...(spec.guide ? guideNodes(input, spec.guide) : []),
       ...(input.hires ? ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode"] : []),
       ...tileNodes(input.hires && inTiles(input, largeOf(input), AREA)),
-    ],
+      ...(regionsIn(input).length ? [...MOSS_LAYOUT_NODES, "SkipLayerGuidanceDiTSimple"] : []),
+      ];
+    },
     optionalNodes: [...SOMETIMES, ...DETAIL_OPTIONAL, ...ADETAIL_OPTIONAL],
-    build(input, ctx) {
+    build(asked, ctx) {
       const g = new GraphBuilder();
-      const k = load(g, input, ctx);
-      const size = { width: roundTo(input.size.width, grid), height: roundTo(input.size.height, grid) };
-      let c = cond(g, k, input, input.prompt);
+      const input = withRegions(asked);
+      const regions = regionsIn(input);
+      const loaded = load(g, input, ctx);
+      // with regions, the skip-layer guidance the layout template samples with (its negative side skips a layer)
+      const k = regions.length && layout ? { ...loaded, model: g.out("SkipLayerGuidanceDiTSimple", { model: loaded.model, double_layers: "", single_layers: layout.guidance.single, start_percent: 0, end_percent: layout.guidance.end }) } : loaded;
+      const size = sizeOf(input);
+      let c = cond(g, k, input, regions.length ? mossLayoutText(g, input.prompt, regions, size) : input.prompt);
       const loads = [...k.loads];
       if (spec.references) {
         const r = withRedux(g, ctx, c.positive, input);
@@ -135,6 +153,8 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       const d = adetail(g, ctx, input, drawn, {
         model: () => shifted(g, k.model, input, { width: 1024, height: 1024 }), clip: k.clip, vae: k.vae, cond: (text) => (text ? cond(g, k, input, text) : c),
         steps: k.steps, cfg: k.cfg, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed, scale: input.hires ? input.hiresScale : 1,
+        // a cast person's face redrawn from their box's words (their LoRA is on the whole picture already)
+        ...(input.detailFace ? { size: input.hires ? largeOf(input) : size, people: regions.filter((r) => r.cast && r.kind !== "text").map((r) => ({ box: r.box, positive: cond(g, k, input, r.prompt).positive })) } : {}),
       });
       const out = g.add("PreviewImage", { images: d.image });
       const all = d.passes.length ? [...sized(passes, [size.width * size.height, largeOf(input).width * largeOf(input).height]), ...d.passes] : passes;
@@ -164,6 +184,20 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       { name: spec.detail === "daemon" ? "hires fix 3× in tiles" : "detail boost, hires fix 3× in tiles", input: { prompt: "a", detail: spec.detail !== "daemon", hires: true, hiresScale: 3, hiresUpscaler: "u.pth" } as Partial<FlowPicture>, slots: files, has: withoutDaemon },
       { name: "a GGUF model, in fp8 asked for (no effect on it)", input: { prompt: "a", model: `${spec.family}-Q4_K_M.gguf`, precision: "fp8_e4m3fn" } as Partial<FlowPicture>, slots: files },
       { name: "a fine-tune with a shift, a LoRA, a negative prompt and hires fix", input: { prompt: "a", ...tuned, hires: true, hiresUpscaler: "u.pth", size: { width: 1152, height: 1536 } } as Partial<FlowPicture>, slots: files },
+      ...(spec.extras ?? []).map((e) => ({ name: `${e.toggle.label} with its LoRA, beside one of the user's`, input: { prompt: "a", [e.toggle.id]: true, loras: [{ file: "l.safetensors", weight: 0.8 }] } as Partial<FlowPicture>, slots: { ...files, [e.row.file.slot]: `${e.toggle.id}.safetensors` } })),
+      ...(layout
+        ? [
+          { name: "regions: two objects and a text", input: { prompt: "a", regions: [{ id: "a", box: { x: 0, y: 0.3, w: 0.5, h: 0.7 }, prompt: "a red fox" }, { id: "b", box: { x: 0.5, y: 0.3, w: 0.5, h: 0.7 }, prompt: "a grey owl" }, { id: "c", box: { x: 0.1, y: 0, w: 0.8, h: 0.25 }, prompt: "big cream serif capitals", kind: "text", text: "FOREST" }] } as Partial<FlowPicture>, slots: files },
+          {
+            name: "regions: a cast person with their LoRA, a region LoRA, Detail: face, hires fix",
+            input: {
+              prompt: "a", detailFace: true, hires: true, hiresUpscaler: "u.pth",
+              regions: [{ id: "a", box: { x: 0, y: 0, w: 0.5, h: 1 }, prompt: "a woman in a red coat", cast: "p1", castLora: { file: "mira.safetensors", weight: 0.8 } }, { id: "b", box: { x: 0.5, y: 0, w: 0.5, h: 1 }, prompt: "a man in a blue coat", lora: { file: "coat.safetensors", weight: 0.6 } }],
+            } as Partial<FlowPicture>,
+            slots: { ...files, ...DETECTOR_FILES },
+          },
+        ]
+        : []),
       ...(spec.turbo
         ? [
           { name: "Turbo with its LoRA", input: { prompt: "a", fast: true } as Partial<FlowPicture>, slots: { ...files, [spec.turbo.slot]: "turbo.safetensors" } },

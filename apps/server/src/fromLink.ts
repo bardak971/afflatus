@@ -37,7 +37,7 @@ export interface LinkFound {
 }
 
 /** Families whose "checkpoints" are the diffusion model alone: ComfyUI loads those from diffusion_models. */
-const ALONE = /flux|wan\b|wan ?\d|krea|minimax|(^|[^a-z0-9])h3([^a-z0-9]|$)|qwen|hunyuan|ltx|chroma|z.?image|lumina|hidream|cosmos|aura/i;
+const ALONE = /flux|wan\b|wan ?\d|krea|minimax|(^|[^a-z0-9])h3([^a-z0-9]|$)|qwen|hunyuan|ltx|chroma|z.?image|moss.?image|lumina|hidream|cosmos|aura/i;
 /**
  * ComfyUI's folder names, as they appear in the path of a file on Hugging Face: the usual ones (latent_upscale_models left
  * out, as it was before they were shared) and the older names ComfyUI still reads, unet and clip.

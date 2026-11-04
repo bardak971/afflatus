@@ -1,5 +1,5 @@
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
-import { familyOnFor, folderOfFileInput, pickedFiles, sameFile, isMissingSlotFile, isShown, neededSlots, packOfNode, SOFT_SLOTS, TOOLS_FAMILY, type Family, type GraphFile, type LoraValue, type Recipe } from "@afflatus/core";
+import { familyOnFor, folderOfFileInput, pickedFiles, regionsOf, sameFile, isMissingSlotFile, isShown, neededSlots, packOfNode, SOFT_SLOTS, TOOLS_FAMILY, type Family, type GraphFile, type LoraValue, type Recipe } from "@afflatus/core";
 import type { Loaded } from "./jobFiles";
 import type { Machine, Settings } from "./settings";
 
@@ -60,6 +60,11 @@ export function filesAsked(recipe: Pick<Recipe<any>, "inputs">, input: Record<st
     const v = input[i.id];
     if (i.type === "model") return models.filter((m) => m.input === i.id);
     if (i.type === "loras" && Array.isArray(v)) return (v as LoraValue[]).filter((l) => l?.file).map((l) => ({ input: i.id, file: l.file, folder: "loras" }));
+    // a region's LoRA and its person's (card #271): LoRA files as the form's list asks for them, looked for in the same list
+    if (i.type === "regions") {
+      const list = recipe.inputs.find((x) => x.type === "loras")?.id ?? i.id;
+      return regionsOf(v).flatMap((r) => [r.lora, r.castLora]).filter((l): l is LoraValue => Boolean(l?.file && l.weight !== 0)).map((l) => ({ input: list, file: l.file, folder: "loras" }));
+    }
     if (i.type === "choice" && !Array.isArray(i.options) && typeof v === "string" && v && !i.extra?.includes(v) && isShown(i, input, recipe.inputs)) {
       const folder = folderOfFileInput(i.options.node, i.options.input);
       if (folder) return [{ input: i.id, file: v, folder }];

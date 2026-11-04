@@ -104,6 +104,7 @@ export const FAMILY_BASES: Record<string, string[]> = {
   qwen: ["Qwen"],
   qwen21: ["Qwen 2.1"],
   zimage: ["ZImageTurbo", "ZImageBase"],
+  moss: ["MOSS Image"],
   sdxl: ["SDXL 1.0", "Illustrious", "NoobAI", "Pony"],
 };
 
@@ -111,6 +112,7 @@ export const FAMILY_BASES: Record<string, string[]> = {
 const FAMILY_HF_BASES: Record<string, string[]> = {
   wan: ["Wan-AI/Wan2.2-I2V-A14B", "Wan-AI/Wan2.2-T2V-A14B"],
   qwen: ["Qwen/Qwen-Image"],
+  moss: ["OpenMOSS-Team/MOSS-Image-SFT"],
   flux: ["black-forest-labs/FLUX.1-dev"],
   sdxl: ["stabilityai/stable-diffusion-xl-base-1.0"],
 };

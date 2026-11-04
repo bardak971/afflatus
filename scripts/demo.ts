@@ -93,7 +93,7 @@ function pretendClip(graph: Graph, seed: number): Uint8Array | undefined {
 }
 
 // the models the video workflows load are listed, so that one the demo does not have shows as missing and can be fetched
-catalog.UNETLoader!.input.required!.unet_name = [["minimax_h3_fl2va_demo.safetensors", "minimax_h3_ref2va_demo.safetensors", "SomeoneMinimaxH3_hybridTurboV3_demo.safetensors", "flux-2-klein-base-4b-demo.safetensors", "wan2.2_i2v_high_noise_14B_demo.safetensors", "wan2.2_i2v_low_noise_14B_demo.safetensors"]];
+catalog.UNETLoader!.input.required!.unet_name = [["minimax_h3_fl2va_demo.safetensors", "minimax_h3_ref2va_demo.safetensors", "SomeoneMinimaxH3_hybridTurboV3_demo.safetensors", "flux-2-klein-base-4b-demo.safetensors", "wan2.2_i2v_high_noise_14B_demo.safetensors", "wan2.2_i2v_low_noise_14B_demo.safetensors", "moss_image_sft_demo.safetensors"]];
 
 // the pretend ComfyUI's model folders on disk, in the demo's data folder: "Download" in the demo writes there, as
 // Afflatus does into a ComfyUI on the same machine (DEMO_MANAGER=1 leaves them out: the download then goes through Manager)
@@ -157,15 +157,17 @@ const pretendComfy = (lacks?: RegExp, first = false) => startFakeComfy({
     // the built-in video recipe finds its files by name: these make it ready in the demo
     diffusion_models: ["minimax_h3_fl2va_demo.safetensors", "minimax_h3_ref2va_demo.safetensors", "SomeoneMinimaxH3_hybridTurboV3_demo.safetensors", "flux-2-klein-base-4b-demo.safetensors", "wan2.2_i2v_high_noise_14B_demo.safetensors", "wan2.2_i2v_low_noise_14B_demo.safetensors",
       // Wan 2.2's 5B, a model of its own: picked in a 14B place, the form says so and Render refuses it (modelSetCheck.ts)
-      "wan2.2_ti2v_5B_demo.safetensors"],
-    text_encoders: ["qwen3vl_32b_minimax_h3_demo.safetensors", "qwen_3_4b_demo.safetensors", "umt5_xxl_demo.safetensors"],
+      "wan2.2_ti2v_5B_demo.safetensors",
+      // MOSS-Image, the regions' native model (card #271): a draft with boxes renders in the demo
+      "moss_image_sft_demo.safetensors"],
+    text_encoders: ["qwen3vl_32b_minimax_h3_demo.safetensors", "qwen_3_4b_demo.safetensors", "umt5_xxl_demo.safetensors", "qwen3.5_9b_demo.safetensors"],
     vae: ["minimax_h3_video_vae_demo.safetensors", "minimax_h3_audio_vae_demo.safetensors", "flux2-vae-demo.safetensors", "wan_2.1_vae_demo.safetensors"],
     frame_interpolation: ["rife_demo.pth"],
     // H3's Fun ControlNet: Motion transfer's windows moved by their pose
     model_patches: ["minimax_h3_fun_controlnet_union_2.0_demo.safetensors"],
   }, lacks),
   simulate: { stepMs: Number(process.env.DEMO_STEP_MS) || 220, videoStepMs: Number(process.env.DEMO_VIDEO_STEP_MS) || undefined, video: pretendClip, mask: pretendMask },
-}).then((c) => Object.assign(c, { version: "0.41.2" }));
+}).then((c) => Object.assign(c, { version: "0.44.0" }));
 const fake = await pretendComfy(undefined, true);
 // the card each pretend ComfyUI says it has (/system_stats, the live monitor), as a real one would: this computer's first
 const CARDS = [{ name: "NVIDIA GeForce RTX 4090", vramGb: 24 }, { name: "NVIDIA GeForce RTX 3090", vramGb: 24 }, { name: "NVIDIA GeForce RTX 4070 Ti SUPER", vramGb: 16 }];

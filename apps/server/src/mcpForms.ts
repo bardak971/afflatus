@@ -73,6 +73,7 @@ function valueOf(spec: InputSpec): string {
     case "references": return `[{ asset: a library item id${spec.media === "video" ? " (a video)" : " (a picture)"}, role }]`;
     case "audio": return "a library item id (a sound, or a video with sound)";
     case "cues": return "[{ asset, start, seconds, at }] in seconds";
+    case "regions": return `[{ id, box: { x, y, w, h } as shares 0–1 of the frame from its top left, prompt, cast?: a Prompt kit person's id, lora?: { file, weight }${spec.kinds ? ', kind?: "object" | "text", text?: the words a text box draws' : ""} }]`;
   }
 }
 
@@ -125,6 +126,8 @@ export function inputSaid(spec: InputSpec, options?: string[]) {
       return { ...common, role: spec.role, ...(spec.optional ? { optional: true } : {}), ...(spec.window ? { part: { start: spec.window.start, seconds: spec.window.seconds } } : {}) };
     case "cues":
       return { ...common, max: spec.max };
+    case "regions":
+      return { ...common, max: spec.max, ...(spec.kinds ? { kinds: ["object", "text"] } : {}), ...(spec.lora ? { lora: spec.lora } : {}) };
   }
 }
 

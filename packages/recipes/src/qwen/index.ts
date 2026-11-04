@@ -8,6 +8,7 @@ import { addedLora, putAdded } from "../shared/model";
 import { loadUnet, unetNodes } from "../shared/unet";
 import { qwenLint } from "../shared/lint";
 import { detectorSlots } from "../shared/detector";
+import { REGIONS_WHY } from "../shared/regions";
 
 const HF = "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files";
 const HF_EDIT = "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_files";
@@ -146,7 +147,7 @@ const spec: FlowSpec = {
   ],
   megapixels: 1.8,
   guide: QWEN_GUIDE,
-  drops: noReferences("Qwen Image reads no reference image (no Redux or IP-Adapter is made for it): Edit, with Qwen Image Edit, takes them"),
+  drops: { ...noReferences("Qwen Image reads no reference image (no Redux or IP-Adapter is made for it): Edit, with Qwen Image Edit, takes them"), regions: REGIONS_WHY.qwen },
   placeholder: "A photograph of a small bakery at dawn, a chalkboard by the door that reads \"FRESH BREAD\", warm light from the windows on wet cobblestones.",
   files: { unet: "qwen_image_2512_fp8_e4m3fn.safetensors", clip: "qwen_2.5_vl_7b_fp8_scaled.safetensors", vae: "qwen_image_vae.safetensors" },
   fineTune: "Qwen\\someone_qwen_image_v1.safetensors",

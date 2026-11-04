@@ -7,7 +7,7 @@ import { z } from "zod";
 import { ComfyClient, ComfyLocked, plannedScan } from "@afflatus/comfy";
 import { comfyTooOld, describeRecipe, listOptions, parseInput, type InputSpec, type Recipe } from "@afflatus/core";
 import { updateCommands } from "./comfyUpdate";
-import { withMentions } from "./entities";
+import { regionCast, withMentions } from "./entities";
 import { placesFrom } from "./filePlaces";
 import { mergeScans } from "./machineScans";
 import { comfyFolderOf, onThisMachine, Refused } from "./modelDownload";
@@ -337,9 +337,12 @@ export async function comfyLogs(s: Services, q: { since?: string; of?: "boot" | 
  * show there (POST /api/form/prompt, MCP's prompt_from_parts). Written by the recipe's own rules (Recipe.promptFromParts), as
  * the render will. `into`: the input it goes into; null for a form with no parts.
  */
-export async function promptOfParts(s: Services, recipeId: string, raw: Record<string, unknown>): Promise<{ into: string | null; text: string }> {
+export async function promptOfParts(s: Services, recipeId: string, raw: Record<string, unknown>): Promise<{ into: string | null; text: string; layout?: string }> {
   const recipe = s.registry.recipe(recipeId);
-  if (!recipe?.partsInto || !recipe.promptFromParts) return { into: null, text: "" };
+  if (!recipe) return { into: null, text: "" };
+  // the regions written as the model reads them (MOSS-Image's JSON layout, card #271), their people worked in as the render will
+  const layout = recipe.layoutOf ? await layoutOf(s, recipe, raw) : null;
+  if (!recipe.partsInto || !recipe.promptFromParts) return { into: null, text: "", ...(layout ? { layout } : {}) };
   const input = (() => {
     try {
       // a form without its media yet (no source picked) is read with its settings' defaults, as the render will have them
@@ -358,5 +361,16 @@ export async function promptOfParts(s: Services, recipeId: string, raw: Record<s
     const file = spec.type === "model" && spec.slot && !said[spec.id] ? slotsHere.find((x) => x.id === spec.slot)?.file : null;
     if (file) said[spec.id] = file;
   }
-  return { into: recipe.partsInto, text: recipe.promptFromParts(said) };
+  return { into: recipe.partsInto, text: recipe.promptFromParts(said), ...(layout ? { layout } : {}) };
+}
+
+/** A form's regions as its model reads them (Recipe.layoutOf), with the people of its texts and its regions worked in; null without regions. */
+async function layoutOf(s: Services, recipe: Recipe<any>, raw: Record<string, unknown>): Promise<string | null> {
+  const { input } = await regionCast(s.db, recipe, (await withMentions(s.db, recipe, raw, null)).input);
+  try {
+    return recipe.layoutOf?.(parseInput(recipe, withMedia(recipe, input))) ?? null;
+  } catch {
+    // a form that does not read yet (a setting out of range) has no layout to show until it does
+    return null;
+  }
 }

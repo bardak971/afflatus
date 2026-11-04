@@ -1,4 +1,4 @@
-import { defineRecipe, GraphBuilder, roundTo, type LoraValue, type Ref, type SizeValue } from "@afflatus/core";
+import { defineRecipe, GraphBuilder, roundTo, type LoraValue, type Ref, type RegionValue, type SizeValue } from "@afflatus/core";
 import { pictureForm } from "../shared/pictureForm";
 import { HIRES_PASS_INPUTS, hiresPass, isVPred, loadSdxl, modelInputs, PREDICTION_NODES, samplingInputs, SDXL_DROPS, SDXL_PRESETS, UPSCALER_DEFAULT, UPSCALER_PREFER } from "./common";
 import { SDXL_GUIDE } from "./family";
@@ -8,6 +8,7 @@ import { IP_ADAPTER_INPUTS, IP_FILES, IP_REFUSES, ipAdapterNeeds, ipAdapterNodes
 import { redrawInTiles, tileInputs, tileNodes, TILES_ON, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import { SDXL_AREA } from "./common";
 import { adetail, ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FILES, SDXL_FACE_DENOISE, sized, type AdetailSettings } from "../shared/adetail";
+import { regionLoads, regionsInput, sdxlRegionNodes, sdxlRegions } from "../shared/regions";
 
 export interface SdxlTextToPicture extends DetailSettings, GuideSettings, TileSettings, AdetailSettings, ReferenceSettings {
   prompt: string;
@@ -17,6 +18,7 @@ export interface SdxlTextToPicture extends DetailSettings, GuideSettings, TileSe
   checkpoint: string;
   loras: LoraValue[];
   size: SizeValue;
+  regions: RegionValue[];
   steps: number;
   cfg: number;
   sampler: string;
@@ -58,6 +60,7 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
         { id: "wide-16-9", label: "Landscape 16:9", width: 1344, height: 768 },
       ],
     },
+    regionsInput({ lora: "scoped", how: "Each box's tags are sampled inside it beside the prompt's everywhere (ComfyUI's masked conditioning); the hires fix keeps them, its tiles redraw from the prompt alone." }),
     ...adetailInputs("tags", "", SDXL_FACE_DENOISE),
     ...DETAIL_INPUTS,
     // the checkpoint, its LoRAs and how it samples: the rows of the SDXL tools, which the skeleton lays out (pictureForm)
@@ -94,6 +97,7 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
       ...detailNodes(input),
       ...guideNodes(input, SDXL_GUIDE),
       ...ipAdapterNodes(input),
+      ...sdxlRegionNodes(input.regions),
       ...tileNodes(tiled),
       "CheckpointLoaderSimple", "CLIPTextEncode", "EmptyLatentImage", "VAEDecode", "PreviewImage",
       ...fullPassNodes(input, input.steps), ...(input.hires ? ["KSampler"] : []),
@@ -118,8 +122,10 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
     const W = roundTo(input.size.width, 8, 64);
     const H = roundTo(input.size.height, 8, 64);
     const empty = g.out("EmptyLatentImage", { width: W, height: H, batch_size: 1 });
+    // each region's tags over its box (its LoRA held to it), beside the prompt's everywhere
+    const regions = sdxlRegions(g, { clip: loaded.clip, positive: loaded.positive, quality: input.quality, size: { width: W, height: H } }, input.regions);
     // a guide picture holds the shapes of the picture drawn whole; tiles are pieces, redrawn from the text alone
-    const guided = applyGuide(g, ctx, SDXL_GUIDE, { model, positive: loaded.positive, negative: loaded.negative }, vae, { width: W, height: H }, input);
+    const guided = applyGuide(g, ctx, SDXL_GUIDE, { model, positive: regions.positive, negative: loaded.negative }, vae, { width: W, height: H }, input);
 
     g.phase("sampling");
     const sampler = { model, positive: guided.positive, negative: guided.negative, seed: ctx.seed, cfg: input.cfg, sampler_name: input.sampler, scheduler: input.scheduler };
@@ -175,6 +181,11 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
       model: () => model, clip: loaded.clip, vae,
       cond: (text) => (text ? { positive: g.out("CLIPTextEncode", { text: [input.quality.trim().replace(/,\s*$/, ""), text].filter(Boolean).join(", "), clip: loaded.clip }), negative: loaded.negative } : { positive: loaded.positive, negative: loaded.negative }),
       steps: input.steps, cfg: input.cfg, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed, scale: input.hires ? input.hiresScale : 1,
+      // a cast person's face from their region's tags, their LoRA's hooks carried on the conditioning: on that face alone
+      ...(input.detailFace ? {
+        size: input.hires ? { width: W2, height: H2 } : { width: W, height: H },
+        people: regions.regions.filter((r) => r.person).map((r) => ({ box: r.box, positive: r.hooks ? g.out("ConditioningSetProperties", { cond_NEW: r.cond, strength: 1, set_cond_area: "default", hooks: r.hooks }) : r.cond })),
+      } : {}),
     });
     // PreviewImage writes to ComfyUI's temp folder, which ComfyUI clears itself: nothing piles up in output/
     const out = g.add("PreviewImage", { images: d.image });
@@ -185,13 +196,29 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
       outputs: [{ node: out, kind: "image", role: "result" }],
       totalSteps: totalSteps + d.passes.reduce((n, p) => n + p.steps, 0),
       passes: all,
-      loads: [`checkpoints/${input.checkpoint}`, ...referenced.loads, ...guided.loads, ...d.loads],
+      loads: [`checkpoints/${input.checkpoint}`, ...regionLoads(input.regions), ...referenced.loads, ...guided.loads, ...d.loads],
       ...(d.warnings.length ? { warnings: d.warnings } : {}),
     };
   },
 
   variants: [
     { name: "plain", input: { prompt: "a", checkpoint: "x.safetensors" } },
+    {
+      name: "two regions, left and right",
+      input: { prompt: "a", checkpoint: "x.safetensors", regions: [{ id: "r1", box: { x: 0, y: 0.1, w: 0.5, h: 0.9 }, prompt: "red coat" }, { id: "r2", box: { x: 0.5, y: 0.1, w: 0.5, h: 0.9 }, prompt: "blue coat" }] },
+    },
+    {
+      name: "two cast people in two regions, their LoRAs scoped, a region LoRA, Detail: face, hires fix",
+      input: {
+        prompt: "a", checkpoint: "x.safetensors", detailFace: true, hires: true, hiresUpscaler: "u.pth", loras: [{ file: "l.safetensors", weight: 0.8 }],
+        regions: [
+          { id: "r1", box: { x: 0, y: 0, w: 0.5, h: 1 }, prompt: "1girl, red coat", cast: "p1", castLora: { file: "mira.safetensors", weight: 0.8 }, lora: { file: "coat.safetensors", weight: 0.6 } },
+          { id: "r2", box: { x: 0.5, y: 0, w: 0.5, h: 1 }, prompt: "1boy, blue coat", cast: "p2", castLora: { file: "nico.safetensors", weight: 0.9 } },
+          { id: "r3", box: { x: 0.3, y: 0, w: 0.4, h: 0.3 }, prompt: "full moon" },
+        ],
+      },
+      slots: DETECTOR_FILES,
+    },
     {
       name: "LoRAs, clip skip, wide",
       input: {
