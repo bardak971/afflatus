@@ -11,6 +11,10 @@ import type { MenuItem } from "./ContextMenu";
 interface Target {
   recipe: RecipeInfo;
   values: Record<string, unknown>;
+  /** What it holds with the defaults for what was not touched: the size the Stage's empty frame is drawn at (regions). */
+  whole?: Record<string, unknown>;
+  /** The draft's forms of every model it was on: a model that takes no regions shows, greyed, the boxes another one holds. */
+  forms?: Record<string, Record<string, unknown>>;
   set(input: string, value: unknown): void;
   /** The draft it is (the command bar's commands act on the open draft). */
   draftId?: string;

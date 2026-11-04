@@ -494,7 +494,7 @@ export const api = {
   /** Whether the form's files go together: a VAE, text encoder or LoRA of another version, a pair swapped. */
   setCheck: (recipe: string, input: Record<string, unknown>, o?: Asked) => call<{ findings: SetFinding[] }>("POST", "/form/set-check", { recipe, input }, o?.signal),
   /** The prompt as sent of a form written from parts, while its prompt is left empty (Recipe.promptFromParts). */
-  formPrompt: (recipe: string, input: Record<string, unknown>, o?: Asked) => call<{ into: string | null; text: string }>("POST", "/form/prompt", { recipe, input }, o?.signal),
+  formPrompt: (recipe: string, input: Record<string, unknown>, o?: Asked) => call<{ into: string | null; text: string; /** MOSS's JSON layout of the form's regions, as its node builds it (card #271). */ layout?: string }>("POST", "/form/prompt", { recipe, input }, o?.signal),
   civitaiFind: (file: string, folder: string | null, hints: string[] = []) =>
     call<{ items: CivitaiFind[]; exact: HuggingFaceFind[]; asked: string[]; silent: string[] }>(
       "GET", `/civitai/find?${new URLSearchParams({ file, ...(folder ? { folder } : {}), ...(hints.length ? { hints: hints.join("|") } : {}) })}`,

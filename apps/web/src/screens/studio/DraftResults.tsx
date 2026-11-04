@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Square } from "lucide-react";
-import type { Asset } from "../../api";
+import { fileUrl, type Asset } from "../../api";
 import { useAssets, useFamilyName } from "../../data";
 import { clock, phaseLabel, timeLeft, when } from "../../format";
 import { Keys } from "../../Keys";
@@ -15,6 +15,8 @@ import { ThumbWidth, VersionsBadge } from "../../Thumb";
 import { LiveTile } from "./LiveTile";
 import { useVersionDrafts } from "../../paintFix/useStageMode";
 import { VersionsOfDraft } from "../../paintFix/VersionsOfDraft";
+import { RegionsStage } from "../../regions/RegionsStage";
+import { useRegionsHere, useRegionsStage } from "../../regions/useRegionsStage";
 import { useQueueOf } from "./queueOf";
 import { drawnIndices, stackBands, useHeld, useSpan } from "./virtual";
 
@@ -73,6 +75,12 @@ export function DraftResults({ draft, folder, list, title, empty }: {
   const chosen = picked && picked !== "live" ? items.find((a) => a.id === picked) : undefined;
   const live = running && (picked === "live" || !chosen);
   const shown = chosen ?? (live ? undefined : items[0]);
+  // the regions of the draft in the form (card #271): its frame before anything is made, the boxes over its picture when asked
+  const regions = useRegionsHere();
+  const mine = regions && draft && regions.draftId === draft ? regions : null;
+  const regionsOver = useRegionsStage((r) => (draft && r.over === draft ? r.over : null));
+  const leaveRegions = useRegionsStage((r) => r.leave);
+  const overPicture = mine && regionsOver && shown?.kind === "image" && shown.width && shown.height ? { src: fileUrl(shown.id), natural: { w: shown.width, h: shown.height } } : null;
 
   // the first page on its way, nothing forming to show instead: the stage and its column as placeholders, at their size
   const failed = list ? Boolean(list.failed) : own.isError;
@@ -80,6 +88,7 @@ export function DraftResults({ draft, folder, list, title, empty }: {
   if (assets.isSuccess && !items.length && !running && !waiting) {
     if (!draft && empty) return <Empty title={empty.title} help={empty.body} />;
     if (!draft) return <Empty title="Nothing here yet" help="Nothing in this view. Another scope or folder may have what you are looking for." />;
+    if (!versionsOf && mine && (mine.spec || mine.regions.length)) return <EmptyFrame here={mine} />;
     return versionsOf ? <VersionsOfDraft picture={versionsOf} /> : <NothingYet />;
   }
   return (
@@ -107,7 +116,8 @@ export function DraftResults({ draft, folder, list, title, empty }: {
         )}
         {/* a result picked while a render is under way: the way back to it, on the stage itself (and Esc) */}
         {!live && running && <BackToLive id={running} onClick={() => setPicked("live")} />}
-        {!live && shown && (
+        {!live && overPicture && <RegionsStage here={mine!} picture={overPicture} onLeave={leaveRegions} />}
+        {!live && shown && !overPicture && (
           <Viewer
             inline
             asset={shown}
@@ -324,6 +334,23 @@ const TILE_H = 170;
 function shapeOf(a: Asset): number {
   if (a.kind === "audio" || !a.width || !a.height) return a.kind === "audio" ? 2 : 3 / 4;
   return Math.max(0.5, Math.min(2, a.width / a.height));
+}
+
+/**
+ * A draft that has made nothing yet, on a model that takes regions: its frame at the form's size on the Stage, to draw them on
+ * (card #271), in place of "Nothing made in this draft yet"; the column of results beside it, empty.
+ */
+function EmptyFrame({ here }: { here: NonNullable<ReturnType<typeof useRegionsHere>> }) {
+  return (
+    <div className="flex h-full min-h-0 gap-4">
+      <div data-stage className="flex min-h-0 min-w-0 grow flex-col rounded-xl bg-stage p-[var(--stage-pad)]">
+        <RegionsStage here={here} />
+      </div>
+      <div className="flex w-[172px] shrink-0 flex-col gap-2.5 px-1 pb-4">
+        <span className="text-meta font-bold tracking-label text-ink-3 uppercase">This draft · 0</span>
+      </div>
+    </div>
+  );
 }
 
 /** The draft has made nothing yet: one line, the key that generates, and the way to the rest of the folder. */

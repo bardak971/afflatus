@@ -77,7 +77,8 @@ export function InputsPart({ frames, refs, absent = [], framesChosen, refsCount,
   const setPart = useParts((st) => st.set);
   const takes = useTakes();
   // a control image goes with the frames (a picture the result is built on), reference images with the references
-  const absentFrames = absent.filter((a) => a.id !== "references");
+  // a model that takes no regions says so under Not shown now, with the boxes it keeps (RecipeForm): not among the frames
+  const absentFrames = absent.filter((a) => a.id !== "references" && a.id !== "regions");
   const absentRefs = absent.filter((a) => a.id === "references");
   const hasFrames = frames.length > 0 || Boolean(frameExtra?.node) || (absentFrames.length > 0 && !q);
   const hasRefs = refs.length > 0 || (Boolean(look) && !lookWithFrames && (!q || Boolean(lookHit))) || (absentRefs.length > 0 && !q);

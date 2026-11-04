@@ -1,4 +1,4 @@
-import { carryOver, squash } from "@afflatus/core";
+import { carryOver, regionsFor, squash } from "@afflatus/core";
 import type { FamilyInfo, RecipeInfo } from "./api";
 
 export { carryOver };
@@ -87,6 +87,14 @@ export function carryAcross(from: RecipeInfo, to: RecipeInfo, stored: Record<str
   const a = said(from);
   const b = said(to);
   if (a?.type === "prompt" && b?.type === "prompt" && a.style === b.style && !empty(stored[a.id]) && empty(held?.[b.id])) out[b.id] = stored[a.id];
+  // the boxes drawn on the Stage (card #271), as the other model takes them: a text box only where boxes have kinds (MOSS),
+  // a LoRA only where a region takes one; never over boxes the other form holds already
+  const regionsTo = to.inputs.find((i) => i.type === "regions");
+  const regionsWere = from.inputs.find((i) => i.type === "regions");
+  if (regionsTo?.type === "regions" && regionsWere && Array.isArray(stored[regionsWere.id]) && !(held?.[regionsTo.id] as unknown[] | undefined)?.length) {
+    const carried = regionsFor(regionsTo, stored[regionsWere.id]);
+    if (carried.length) out[regionsTo.id] = carried;
+  }
   return out;
 }
 
