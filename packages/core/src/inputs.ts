@@ -449,6 +449,11 @@ interface RegionsInput extends Base {
    * picture (a model that reads every box in one text). Left out, a region takes no LoRA.
    */
   lora?: "scoped" | "global";
+  /**
+   * A region's cast person comes with their picture (their clearest face), uploaded under regionPicture's key: a model that
+   * redraws each person from their own picture (Krea 2's Identity Edit, box by box). Left out, a person brings words and a LoRA.
+   */
+  picture?: true;
 }
 /** One region: its box as shares of the frame (top-left origin), so that it holds through a change of size. */
 export interface RegionValue {
@@ -461,6 +466,8 @@ export interface RegionValue {
   lora?: LoraValue;
   /** The cast person's LoRA for this model, put in by the server as it works the person in (never by the form). */
   castLora?: LoraValue;
+  /** The cast person's picture (an asset), put in by the server where the input takes one (`picture`), never by the form. */
+  castPicture?: string;
   kind?: "object" | "text";
   /** The words a text box draws, as they are. */
   text?: string;
@@ -472,6 +479,8 @@ export const regionBox = (box: RegionValue["box"]) => {
   const x = Math.min(Math.max(box.x, 0), 1), y = Math.min(Math.max(box.y, 0), 1);
   return { x, y, w: Math.max(Math.min(box.w, 1 - x), 0.01), h: Math.max(Math.min(box.h, 1 - y), 0.01) };
 };
+/** Where a region's cast picture is uploaded for the build (ctx.uploads), keyed by the region's id: the boxes that say nothing are left out of the list the recipe reads. */
+export const regionPicture = (input: string, region: Pick<RegionValue, "id">): string => `${input}.${region.id}`;
 /**
  * Regions as another form's input takes them (a draft moved from SDXL to MOSS-Image, or back): a text box only where boxes
  * have kinds (elsewhere it is left behind, its words drawn by nobody), a LoRA only where a region takes one, at most `max`.
@@ -480,7 +489,7 @@ export function regionsFor(spec: RegionsInput, value: unknown): RegionValue[] {
   const list = Array.isArray(value) ? (value as RegionValue[]) : [];
   return list
     .filter((r) => spec.kinds || r.kind !== "text")
-    .map(({ lora, kind, text, castLora: _server, ...r }) => ({ ...r, ...(spec.lora && lora ? { lora } : {}), ...(spec.kinds && kind ? { kind } : {}), ...(spec.kinds && kind === "text" && text !== undefined ? { text } : {}) }))
+    .map(({ lora, kind, text, castLora: _server, castPicture: _picture, ...r }) => ({ ...r, ...(spec.lora && lora ? { lora } : {}), ...(spec.kinds && kind ? { kind } : {}), ...(spec.kinds && kind === "text" && text !== undefined ? { text } : {}) }))
     .slice(0, spec.max);
 }
 /** The regions a form holds that say something: a box with words, a text or a person; the others are drawn and left. */
@@ -673,7 +682,7 @@ function schemaOf(spec: InputSpec): z.ZodType {
       const lora = z.strictObject({ file: z.string().min(1), weight: z.number().min(-4).max(4) });
       return z.array(z.strictObject({
         id: z.string().min(1).max(64), box: z.strictObject({ x: share, y: share, w: share, h: share }), prompt: z.string().max(4000).default(""),
-        cast: z.string().min(1).max(64).optional(), lora: lora.optional(), castLora: lora.optional(),
+        cast: z.string().min(1).max(64).optional(), lora: lora.optional(), castLora: lora.optional(), castPicture: z.string().min(1).optional(),
         // a text box only where the model draws text by box; elsewhere every box is an object
         kind: (spec.kinds ? z.enum(["object", "text"]) : z.literal("object")).optional(), text: z.string().max(2000).optional(), mask: z.string().min(1).optional(),
       })).max(spec.max).default([]);
@@ -904,6 +913,8 @@ export type StartCondition =
   | { input: string; filled: true }
   /** A list input (reference images) with an item whose `field` is one of `among`: a person picture among the references. */
   | { input: string; field: string; among: unknown[] }
+  /** A list input with an item whose `field` is set: a region with a cast person in it. */
+  | { input: string; field: string; filled: true }
   | { name: { input?: string; slot?: string }; match: string };
 
 /** Settings that start elsewhere while a condition holds: what the render runs with the setup it finds. */
@@ -922,6 +933,7 @@ export function conditionHolds(c: StartCondition, values: Record<string, unknown
     return new RegExp(c.match, "i").test(file.split(/[\\/]/).pop() ?? "");
   }
   const v = values[c.input];
+  if ("field" in c && "filled" in c) return Array.isArray(v) && v.some((item) => item !== null && typeof item === "object" && Boolean((item as Record<string, unknown>)[c.field]));
   if ("among" in c) return Array.isArray(v) && v.some((item) => item !== null && typeof item === "object" && c.among.includes((item as Record<string, unknown>)[c.field]));
   if ("filled" in c) return Array.isArray(v) ? v.length > 0 : typeof v === "string" ? v.trim() !== "" : Boolean(v);
   return v === c.is;

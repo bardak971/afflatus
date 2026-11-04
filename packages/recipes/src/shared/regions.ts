@@ -15,7 +15,7 @@ export const REGIONS = "regions";
 const MOST = 8;
 
 /** Why each family without regions has none, for its drop (the form greys the row with it). */
-export const REGIONS_NOT_YET = "Not yet on this model: its regional nodes come from a node pack that Afflatus does not install yet (a later round). SDXL and MOSS-Image have regions now";
+export const REGIONS_NOT_YET = "Not yet on this model: its regional nodes come from a node pack that Afflatus does not install yet (a later round). SDXL, MOSS-Image and Krea 2 have regions now";
 export const REGIONS_WHY = {
   klein: "FLUX.2 Klein has no way to read regions: the only regional pack for it is non-commercial. FLUX 3 Klein's own box layout will come with that model",
   qwen: "Qwen Image reads masked conditioning too weakly for regions to hold (its one pack, mask-based, was found weak): none are offered",
@@ -24,19 +24,19 @@ export const REGIONS_WHY = {
 } as const;
 
 /** The Regions row: `lora` says what a region's LoRA does on this model, `kinds` whether a box can be a text. */
-export function regionsInput(o: { lora?: "scoped" | "global"; kinds?: true; how: string }): InputSpec {
+export function regionsInput(o: { lora?: "scoped" | "global"; kinds?: true; picture?: true; how: string; face?: string }): InputSpec {
   const lora = o.lora === "scoped"
     ? "A region's LoRA, and its cast person's, act inside its box alone."
     : o.lora === "global"
       ? "A region's LoRA, and its cast person's, are put on the whole picture: this model reads every box in one text, so a LoRA cannot be held to one."
       : "";
   return {
-    id: REGIONS, type: "regions", label: "Regions", max: MOST, ...(o.kinds ? { kinds: true } : {}), ...(o.lora ? { lora: o.lora } : {}),
+    id: REGIONS, type: "regions", label: "Regions", max: MOST, ...(o.kinds ? { kinds: true } : {}), ...(o.lora ? { lora: o.lora } : {}), ...(o.picture ? { picture: true } : {}),
     note: [
       `boxes drawn on the Stage, each with its own prompt, a cast person (their words and LoRA) and a LoRA. ${o.how}`,
       lora,
       "The result is guided, not exact: a box says where a thing should go, the model may still move it, shrink it or let it spill.",
-      "With Detail: face on, each face found in a person's box is redrawn from that person's words and LoRA",
+      o.face ?? "With Detail: face on, each face found in a person's box is redrawn from that person's words and LoRA",
     ].filter(Boolean).join(" "),
   };
 }
@@ -140,6 +140,81 @@ export function facesIn(g: GraphBuilder, segs: Ref, boxes: Array<RegionValue["bo
   const mask = boxMask(g, boxes, size);
   const away = g.out("MaskToSEGS", { mask: inside ? g.out("InvertMask", { mask }) : mask, combined: true, crop_factor: 1, bbox_fill: false, drop_size: 1, contour_fill: false });
   return g.out("ImpactSEGSIntersectionFilter", { segs1: segs, segs2: away, ioa_threshold: 0.5 });
+}
+
+// ---- Krea 2: every box read in one pass (ComfyUI-Krea2-Regional)
+
+/** Where a box lies, in the words the pack's builder puts in the base prompt (krea2_builder.py's _ZONES). */
+const ZONES = [["upper left", "top", "upper right"], ["left side", "center", "right side"], ["lower left", "bottom", "lower right"]] as const;
+
+/** A LoRA's trigger-like word ("ohwx", "m_char", "xk3wChar"), which Krea 2 draws as letters beside a place in the text (_looks_like_trigger). */
+const triggerLike = (word: string) => !word.includes(" ") && (/\d|_/.test(word) || /[A-Z]/.test(word.slice(1)));
+
+/** The few words of a box said in the base prompt: its first clause of two words or more, else one that is not a trigger (_hint_clause). */
+function hintClause(prompt: string): string {
+  const clauses = prompt.split(",").map((c) => c.trim().replace(/^"+|"+$/g, "").replace(/<[^>]*>/g, "").trim()).filter(Boolean);
+  return clauses.find((c) => c.split(/\s+/).length >= 2) ?? clauses.find((c) => !triggerLike(c)) ?? "a subject";
+}
+
+/**
+ * Where a box is and how large, as one sentence of the base prompt ("in the left side of the image, prominent: a woman in a
+ * red coat"), the way the pack's builder says it (_layout_hint): Krea 2's Qwen3-VL encoder reads such placements, which
+ * steers where each subject is drawn, while the attention masks hold what each box's tokens read. Without them the base
+ * prompt says nothing of where, and the masks fight whatever layout the model picks (the pack's README).
+ */
+function krea2Hint(r: RegionValue): string {
+  const b = regionBox(r.box);
+  const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+  const zone = ZONES[cy < 1 / 3 ? 0 : cy < 2 / 3 ? 1 : 2][cx < 1 / 3 ? 0 : cx < 2 / 3 ? 1 : 2];
+  const area = b.w * b.h;
+  const scale = area > 0.5 ? "dominating the frame" : area > 0.22 ? "prominent" : "small";
+  const clause = hintClause(r.prompt);
+  const short = clause.length > 70 ? `${clause.slice(0, 67).trimEnd()}...` : clause;
+  return `in the ${zone} of the image, ${scale}: ${short}`;
+}
+
+/** The whole picture's text as Krea 2 reads it with regions: the prompt, then where each box is (the builder's "position hints"). */
+export function krea2BaseText(prompt: string, regions: readonly RegionValue[]): string {
+  const sentences = [prompt.trim().replace(/\.+$/, ""), ...regions.map(krea2Hint)].filter(Boolean);
+  return sentences.join(". ") || "an image";
+}
+
+/** What the form shows as the prompt as sent: the base text, then each box's own, as the model is given them. */
+export const krea2Layout = (prompt: string, regions: readonly RegionValue[]): string =>
+  [krea2BaseText(prompt, regions), ...regions.map((r, i) => `Region ${i + 1}: ${r.prompt.trim()}`)].join("\n");
+
+/** The nodes Krea 2's regions bring in: a mask per box, its text, the pack's region chain, its LoRAs and its patch. */
+export function krea2RegionNodes(value: unknown): string[] {
+  const regions = regionsOf(value);
+  if (!regions.length) return [];
+  return ["SolidMask", "MaskComposite", "CLIPTextEncode", "Krea2RegionalPrompt", "Krea2ApplyRegional", ...(regions.some((r) => regionLoras(r).length) ? ["Krea2LoRA"] : [])];
+}
+
+/**
+ * The model and text of a picture with regions, in one pass (ComfyUI-Krea2-Regional's own lower-level nodes, the canvas
+ * builder's work done here): each box's words read alone and joined to the base text, a joint attention mask keeping each
+ * box's picture tokens on its own words beside the base's, and its LoRAs gated to its tokens, so that they act inside it
+ * alone while the form's LoRAs stay on the whole picture. The pack's own example's settings: masks kept to one box where two
+ * grow into each other, and "refine boxes", which snaps each mask to the subject the model draws inside its (grown) box
+ * after the first two steps, so a LoRA follows the person rather than the rectangle.
+ */
+export function krea2Regions(g: GraphBuilder, o: { model: Ref; clip: Ref; prompt: string; size: { width: number; height: number } }, value: unknown): { model: Ref; positive: Ref } {
+  const regions = regionsOf(value);
+  let chain: Ref | null = null;
+  for (const r of regions) {
+    let loras: Ref | null = null;
+    for (const l of regionLoras(r)) loras = g.out("Krea2LoRA", { lora_name: l.file, strength: l.weight, ...(loras ? { prev_loras: loras } : {}) });
+    chain = g.out("Krea2RegionalPrompt", {
+      conditioning: g.out("CLIPTextEncode", { text: r.prompt.trim(), clip: o.clip }), mask: boxMask(g, [r.box], o.size),
+      ...(loras ? { loras } : {}), ...(chain ? { prev_regions: chain } : {}),
+    });
+  }
+  const applied = g.add("Krea2ApplyRegional", {
+    model: o.model, conditioning: g.out("CLIPTextEncode", { text: krea2BaseText(o.prompt, regions), clip: o.clip }), regions: chain!,
+    restrict_img_attn: false, exclusive_masks: true, adaptive_masks: "refine boxes", adaptive_steps: 2, adaptive_threshold: 0.45,
+    base_loras_exclude_regions: false, region_lock_strength: 0, region_lock_start: 0.35, region_lock_end: 0.85, restrict_end_percent: 1, unmaskable_layers: "skip",
+  });
+  return { model: [applied, 0], positive: [applied, 1] };
 }
 
 // ---- MOSS-Image: the layout

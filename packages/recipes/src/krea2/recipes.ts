@@ -1,4 +1,4 @@
-import { beyondPack, defineRecipe, GraphBuilder, packCommit, roundTo, type ReferenceValue, type Ref, type SizeValue } from "@afflatus/core";
+import { beyondPack, type BuildContext, defineRecipe, GraphBuilder, packCommit, regionPicture, regionsOf, roundTo, type ReferenceValue, type Ref, type RegionValue, type SizeValue } from "@afflatus/core";
 import { dropsFor, noReferences, pictureForm } from "../shared/pictureForm";
 import { HIRES_PASS_INPUTS, hiresPass, UPSCALER_PREFER, type HiresPass } from "../sdxl/common";
 import type { FlowBase } from "../flow/kit";
@@ -14,6 +14,8 @@ import { addedLora, putAdded } from "../shared/model";
 import { addedInputs, withRow, type AddedSpec } from "../shared/addedRows";
 import { FACE_PASS_INPUTS, FACE_PASS_NODES, FACE_PASS_OPTIONAL, FACE_PASS_SLOTS, facePass, SMALL_FACE_PX, type FacePassValues } from "../klein/facePass";
 import { adetail, ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, adetailOn, ALL_DETAIL, DETECTOR_FILES, sized, type AdetailSettings } from "../shared/adetail";
+import { facesIn, krea2Layout, krea2RegionNodes, krea2Regions, REGION_FACE_NODES, REGIONS, regionLoads, regionsInput } from "../shared/regions";
+import { pictured, PERSON_BOX_NODES, personBoxes } from "./regions";
 
 const files = krea2Spec.files;
 const withStyle = { ...files, styleRef: "krea2_style_reference.safetensors" };
@@ -39,6 +41,10 @@ interface Krea2Picture extends FlowBase, HiresPass, DetailSettings, TileSettings
   /** The style-reference LoRA picked in its row of the LoRA list (empty: the slot's). */
   styleLora?: string;
   size: SizeValue;
+  /** Boxes on the Stage, each with its words, a cast person (their words, LoRA and picture) and a LoRA (card #271). */
+  regions: RegionValue[];
+  /** How much a pictured box's person is redrawn from their picture by Identity Edit (0: not redrawn). */
+  regionPersonDenoise: number;
   hires: boolean;
   hiresScale: number;
   hiresUpscaler: string;
@@ -72,8 +78,9 @@ const PERSON_ROW: AddedSpec = {
   note: "Krea 2's Identity Edit V2 LoRA (conradlocke's): with a person reference, it is what keeps the person of the picture. At 0 it is not loaded. Its file is the one of Settings › Models unless another is picked",
   file: { id: "identityLora", label: "Identity Edit LoRA", slot: "identityEdit", match: ["krea.?2.?identity.?edit"], note: "the Identity Edit V2 LoRA. Left as it is, the one of Settings › Models" },
   weight: { id: "identityStrength", label: "Identity strength", note: "the weight of the Identity Edit LoRA. At 0 it is not loaded", default: 1 },
-  showWhen: "person",
-  when: { input: "person", filled: true },
+  // with a person reference, or a cast person in a box redrawn from their picture (regions); its inputs are drawn in the row
+  // alone, which this says when it is
+  when: { any: [{ input: "person", filled: true }, { all: [{ input: REGIONS, field: "cast", filled: true }, { not: { input: "regionPersonDenoise", is: 0 } }] }] },
 };
 /** Where the person's picture sits for Krea2Edit (2.0 on): beside the canvas; the first of two pictures (a scene) as trained. */
 const BESIDE = "beside (right of target)";
@@ -87,6 +94,15 @@ const GROUNDING_PX = 1024;
 const PERSON_FACE = `With a person reference, the face is redrawn from their picture instead (Face refine's FLUX.2 Klein pass, faces under ${SMALL_FACE_PX} px)`;
 /** Whether the person's face is redrawn by Face refine's pass: with a person reference, Face refine or Detail: face on. */
 const personFace = (input: Pick<Krea2Picture, "person" | "faceRefine" | "detailFace">) => Boolean(input.person?.length) && (input.faceRefine || input.detailFace);
+
+/**
+ * With regions, a person is drawn in their box: from their words and LoRA in the picture's one pass, then from their picture
+ * by Identity Edit over their box (krea2/regions.ts). Neither reference of the form's own samples with the boxes: both bring
+ * pictures in as tokens of their own (Krea2Edit's patch, ComfyUI's reference latents), which the pack's masks do not cover.
+ */
+const REGIONS_ALONE = "Krea 2 takes regions without the form's person reference or style reference images (both read pictures in a way the regional pack's masks do not cover): cast each person into their box instead, or remove the boxes.";
+/** Whether a pictured box's face is redrawn from their picture: Detail: face on (Face refine's toggle is the form's person reference's). */
+const boxFace = (input: Pick<Krea2Picture, "regions" | "detailFace">) => input.detailFace && pictured(input.regions).length > 0;
 
 /** Why Krea 2 refuses a person reference with style reference images. */
 const NOT_BOTH = "Krea 2 takes a person reference or style reference images, not both (the two LoRAs and the two ways of reading pictures were not made to work together): remove one of them.";
@@ -122,6 +138,15 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
     // (drawn as the weight of the style-reference LoRA's row in the LoRA list, card #160)
     { id: "referenceStrength", type: "number", label: "Reference strength", note: "the weight of the style-reference LoRA. At 0 it is not loaded", min: 0, max: 1.5, step: 0.05, default: 1, showWhen: "references", advanced: true, inList: "loras" },
     { id: "size", type: "size", label: "Size", default: "tall", grid: 16, min: 256, max: 2048, perModel: true, shapes: krea2Spec.shapes },
+    regionsInput({
+      lora: "scoped", picture: true,
+      how: "Every box is drawn in the one pass (the ComfyUI-Krea2-Regional node pack): its words are read by its part of the picture alone, beside the prompt with where each box lies. A cast person's box is then redrawn from their picture by the Identity Edit V2 LoRA, box after box. Not with the person reference or style reference images above.",
+      face: "With Detail: face on, each cast person's face found in their box is redrawn by FLUX.2 Klein from their picture (faces under 150 px, as Face refine)",
+    }),
+    {
+      id: "regionPersonDenoise", type: "number", label: "Person pass denoise", min: 0, max: 1, step: 0.05, default: 0.6, showWhen: REGIONS, advanced: true,
+      note: "how much a cast person's box is redrawn from their picture by Identity Edit, after the picture. 0 leaves each person as the boxes drew them, from their words and LoRA",
+    },
     ...adetailInputs("sentences", PERSON_FACE),
     ...DETAIL_INPUTS,
     ...krea2Kit.inputs.slice(0, -1),
@@ -141,15 +166,23 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
   ], STYLE_ROW), PERSON_ROW),
   presets: krea2Spec.presets!,
   // refused before it is queued, and said by the form (build() still throws it for a job queued before)
-  refuses: [{ when: { all: [{ input: "person", filled: true }, { input: "references", filled: true }] }, why: NOT_BOTH }],
-  optionalNodes: [...DETAIL_OPTIONAL, ...FACE_PASS_OPTIONAL, ...ADETAIL_OPTIONAL],
+  refuses: [
+    { when: { all: [{ input: "person", filled: true }, { input: "references", filled: true }] }, why: NOT_BOTH },
+    { when: { all: [{ input: REGIONS, filled: true }, { any: [{ input: "person", filled: true }, { input: "references", filled: true }] }] }, why: REGIONS_ALONE },
+  ],
+  optionalNodes: [...new Set([...DETAIL_OPTIONAL, ...FACE_PASS_OPTIONAL, ...ADETAIL_OPTIONAL, ...REGION_FACE_NODES])],
+  layoutOf: (input) => (regionsOf(input.regions).length ? krea2Layout(input.prompt, regionsOf(input.regions)) : null),
   // a person reference asks for its LoRA (unless one is picked in its row) and, with Face refine on, Klein's files and the
   // face detector: a pod is sent them; a machine of the user's own makes the picture without the pass rather than wait.
   // Style reference images ask for theirs the same way, which the build refuses them without: a pod was never sent it, and
   // the job was refused there once its boot was paid (card #226). The Detail rows ask for their detectors
   needsWith(input, slots, where) {
     const person = Boolean(input.person?.length);
-    const detail = adetailNeeds(input, slots, where, { Face: person });
+    const detail = adetailNeeds(input, slots, where, { Face: person || boxFace(input) });
+    // a cast person's box redrawn from their picture asks for the Identity Edit LoRA, and Detail: face for Klein's files
+    const boxes = pictured(input.regions).length && input.regionPersonDenoise > 0 ? (input.identityLora ? [] : ["identityEdit"]) : [];
+    const faces = boxFace(input) ? FACE_PASS_SLOTS.filter((id) => !where?.own || slots?.[id]) : [];
+    if (boxes.length || faces.length) return [...new Set([...boxes, ...faces, ...detail])];
     if (input.references?.length && !person) return [...(input.styleLora ? [] : ["styleRef"]), ...detail];
     if (!person) return detail;
     const face = personFace(input) ? FACE_PASS_SLOTS.filter((id) => !where?.own || slots?.[id]) : [];
@@ -165,6 +198,9 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
     // a hires fix in tiles redraws them from the prompt alone (see build)
     ...(input.person.length && input.hires && inTiles(input, krea2Large(input), KREA2_AREA) ? ["CLIPTextEncode"] : []),
     ...(personFace(input) ? FACE_PASS_NODES : []),
+    ...krea2RegionNodes(input.regions),
+    ...(pictured(input.regions).length && input.regionPersonDenoise > 0 ? PERSON_BOX_NODES : []),
+    ...(boxFace(input) ? FACE_PASS_NODES : []),
     // the Detail passes read the prompt alone, which a reference's texts do not hold
     ...((input.references.length || input.person.length) && adetailOn(input, { Face: input.person.length > 0 }) ? ["CLIPTextEncode"] : []),
     ...(input.hires ? ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode"] : []),
@@ -175,6 +211,8 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
     const styled = input.references.length > 0;
     const person = input.person.length > 0;
     if (styled && person) throw new Error(NOT_BOTH);
+    const regioned = regionsOf(input.regions).length > 0;
+    if (regioned && (styled || person)) throw new Error(REGIONS_ALONE);
     // the LoRA a reference needs, as its row of the LoRA list has it: its file and weight, the same file by hand put on once,
     // after the user's (card #160)
     const added = styled ? addedLora(ctx.slots.styleRef, input.styleLora, input.referenceStrength, input.loras)
@@ -216,6 +254,11 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
         vae: k.vae, source_image: picture, target_latent: empty, ref_position: BESIDE, ref_position_a: ALIGNED,
       });
       positive = g.out("Krea2EditGroundedEncode", { clip: k.clip, prompt: input.prompt, image: picture, grounding_px: GROUNDING_PX, system_prompt: "" });
+    } else if (regioned) {
+      // every box in the one pass: the pack's patch on the model, its text the base's and each box's joined
+      const r = krea2Regions(g, { model, clip: k.clip, prompt: input.prompt, size: { width: W, height: H } }, input.regions);
+      model = r.model;
+      positive = r.positive;
     } else {
       positive = g.out("CLIPTextEncode", { text: input.prompt, clip: k.clip });
     }
@@ -226,7 +269,7 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
     const first = sample(g, k, input, styled ? styledAt(model, W, H) : shifted(g, model, input, { width: W, height: H }), cond, empty, ctx.seed, {}, detail);
     let latent = first.latent;
     const passes: Array<{ node: string; steps: number; pixels?: number }> = [first.pass];
-    const loads = [...k.loads, ...(added.put ? [`loras/${added.lora!.file}`] : [])];
+    const loads = [...k.loads, ...(added.put ? [`loras/${added.lora!.file}`] : []), ...regionLoads(input.regions)];
 
     let image: Ref | null = null;
     if (input.hires) {
@@ -240,9 +283,10 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
       const pass = { steps: input.hiresSteps, denoise: input.hiresDenoise, ...hiresPass(input) };
       if (inTiles(input, { width: W2, height: H2 }, KREA2_AREA)) {
         // the patch fits the person's picture to each tile it samples, and a tile of a wall would be pulled toward them: the
-        // tiles are redrawn by the model and the prompt alone (a light pass over a person already there)
-        const tileModel = person ? plain : model;
-        const tileCond = person ? condOf(g, k, input, input.prompt) : cond;
+        // tiles are redrawn by the model and the prompt alone (a light pass over a person already there). The regions' masks
+        // are the whole picture's, which a tile is not: the same
+        const tileModel = person || regioned ? plain : model;
+        const tileCond = person || regioned ? condOf(g, k, input, input.prompt) : cond;
         image = redrawInTiles(g, ctx, scaled, k.vae, { width: W2, height: H2 }, input, (l, _tiles, tile) => {
           const second = sample(g, k, input, shifted(g, tileModel, input, { width: tile, height: tile }), tileCond, l, ctx.seed, pass, detail);
           passes.push(tilePass(second.pass, { width: W2, height: H2 }, input));
@@ -265,19 +309,27 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
     const d = adetail(g, ctx, input, image ?? g.out("VAEDecode", { samples: latent, vae: k.vae }), {
       model: () => shifted(g, plain, input, { width: 1024, height: 1024 }), clip: k.clip, vae: k.vae,
       cond: (text) => (!text && !styled && !person ? cond : condOf(g, k, input, text ?? input.prompt)),
-      steps: k.steps, cfg: k.cfg, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed, scale, skip: { Face: person },
+      steps: k.steps, cfg: k.cfg, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed, scale, skip: { Face: person || boxFace(input) },
     });
     let result = d.image;
+    // each cast person's box redrawn from their picture by Identity Edit, then their face by Klein's pass in their box alone
+    const boxes = regioned
+      ? personBoxed(g, ctx, input, result, { size: input.hires ? krea2Large(input) : { width: W, height: H }, scale }, { model: plain, clip: k.clip, vae: k.vae, steps: k.steps, shifted: (m, size) => shifted(g, m, input, size) })
+      : null;
+    if (boxes) {
+      result = boxes.image;
+      loads.push(...boxes.loads);
+    }
     // Face refine (or Detail: face): the person's face redrawn from their picture when it is a small one, read at the size it
     // was drawn at
     const face = person ? facePass(g, ctx, { ...input, faceRefine: personFace(input) }, result, { pictures: [ctx.uploads["person.0"]!], scale }) : null;
-    const after = [...d.passes, ...(face?.pass ? [face.pass] : [])];
+    const after = [...d.passes, ...(boxes?.passes ?? []), ...(face?.pass ? [face.pass] : [])];
     if (face?.pass) {
       result = face.image;
       loads.push(...face.loads);
     }
     const all = after.length ? [...sized(passes, [W * H, krea2Large(input).width * krea2Large(input).height]), ...after] : passes;
-    const warnings = [...d.warnings, ...(face?.said ? [face.said] : [])];
+    const warnings = [...d.warnings, ...(boxes?.warnings ?? []), ...(face?.said ? [face.said] : [])];
     const out = g.add("PreviewImage", { images: result });
     return {
       graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: all.reduce((n, p) => n + p.steps, 0), passes: all, loads: [...loads, ...d.loads],
@@ -320,12 +372,84 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
       slots: { ...withFaceRefine, ...DETECTOR_FILES }, uploads: { "person.0": "p.png" },
     },
     {
+      name: "two regions, left and right",
+      input: { prompt: "a", regions: [{ id: "r1", box: { x: 0, y: 0.1, w: 0.5, h: 0.9 }, prompt: "a red armchair" }, { id: "r2", box: { x: 0.5, y: 0.1, w: 0.5, h: 0.9 }, prompt: "a tall green plant" }] },
+      slots: files,
+    },
+    {
+      name: "a region with a LoRA held to it, a LoRA on the whole picture, hires fix in tiles",
+      input: {
+        prompt: "a", loras: [{ file: "l.safetensors", weight: 0.8 }], hires: true, hiresScale: 3, hiresUpscaler: "u.pth",
+        regions: [{ id: "r1", box: { x: 0.5, y: 0, w: 0.5, h: 1 }, prompt: "a watercolour lighthouse", lora: { file: "style.safetensors", weight: 0.9 } }, { id: "r2", box: { x: 0, y: 0, w: 0.5, h: 1 }, prompt: "" }],
+      },
+      slots: files,
+    },
+    {
+      name: "two cast people in two regions with their pictures, their LoRAs held to their boxes, Detail: face, hires fix",
+      input: {
+        prompt: "a", detailFace: true, hires: true, hiresUpscaler: "u.pth",
+        regions: [
+          { id: "r1", box: { x: 0, y: 0, w: 0.5, h: 1 }, prompt: "a man in a grey coat", cast: "p1", castPicture: "a1", castLora: { file: "fabien.safetensors", weight: 0.8 } },
+          { id: "r2", box: { x: 0.5, y: 0, w: 0.5, h: 1 }, prompt: "a man in a blue jacket", cast: "p2", castPicture: "a2" },
+        ],
+      },
+      slots: { ...withFaceRefine, ...DETECTOR_FILES }, uploads: { "regions.r1": "f.png", "regions.r2": "n.png" },
+    },
+    {
+      name: "a cast person in a region, the person pass off, Detail: face off",
+      input: { prompt: "a", regionPersonDenoise: 0, regions: [{ id: "r1", box: { x: 0.25, y: 0, w: 0.5, h: 1 }, prompt: "a man", cast: "p1", castPicture: "a1" }] },
+      slots: withPerson, uploads: { "regions.r1": "f.png" },
+    },
+    {
       name: "a person reference with hires fix in tiles, a LoRA, Face refine off",
       input: { prompt: "a", person: [{ asset: "p", role: "person" }], faceRefine: false, hires: true, hiresScale: 3, hiresUpscaler: "u.pth", loras: [{ file: "l.safetensors", weight: 0.8 }] },
       slots: withPerson, uploads: { "person.0": "p.png" },
     },
   ],
 }), dropsFor("txt2img", krea2Spec.drops));
+
+/**
+ * The regions' cast people, after the picture: each pictured box redrawn from its person's picture by Identity Edit
+ * (krea2/regions.ts) unless its denoise is 0, then, with Detail: face on, the largest face in each box by Face refine's Klein
+ * pass from that person's picture, so two people keep two faces. A person with no picture keeps what their words drew.
+ */
+function personBoxed(
+  g: GraphBuilder, ctx: BuildContext, input: Krea2Picture, image: Ref, at: { size: { width: number; height: number }; scale: number },
+  k: { model: Ref; clip: Ref; vae: Ref; steps: number; shifted: (model: Ref, size: { width: number; height: number }) => Ref },
+) {
+  const people = pictured(input.regions).filter((r) => ctx.uploads[regionPicture(REGIONS, r)]);
+  const made = { image, passes: [] as Array<{ node: string; steps: number; pixels: number; unsampled?: string }>, loads: [] as string[], warnings: [] as string[] };
+  if (!people.length) return made;
+  if (input.regionPersonDenoise > 0) {
+    // its row's file and weight, as the LoRA list shows them (a hand row of the same file gives its weight)
+    const identity = addedLora(ctx.slots.identityEdit, input.identityLora, input.identityStrength, input.loras);
+    if (!identity.lora || !identity.put) made.warnings.push("The cast people's boxes were not redrawn from their pictures: that needs Krea 2's Identity Edit V2 LoRA (Settings › Models), at a weight above 0.");
+    else {
+      g.phase("detailing");
+      const redrawn = personBoxes(g, people, {
+        image, size: at.size, model: k.model, identity: identity.lora, clip: k.clip, vae: k.vae, refBoost: input.refBoost, denoise: input.regionPersonDenoise,
+        steps: k.steps, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed, shifted: k.shifted, uploads: ctx.uploads,
+      });
+      made.image = redrawn.image;
+      made.passes.push(...redrawn.passes);
+      made.loads.push(`loras/${identity.lora.file}`);
+    }
+  }
+  if (input.detailFace) {
+    for (const [i, r] of people.entries()) {
+      const face = facePass(g, ctx, { faceRefine: true, faceRefineDenoise: input.faceRefineDenoise }, made.image, {
+        pictures: [ctx.uploads[regionPicture(REGIONS, r)]!], scale: at.scale, within: (segs) => facesIn(g, segs, [r.box], at.size, true),
+        none: `Detail: face found no face under ${SMALL_FACE_PX} px tall in person ${i + 1}'s box: their face is as drawn.`,
+      });
+      if (face.said && !made.warnings.includes(face.said)) made.warnings.push(face.said);
+      if (!face.pass) continue;
+      made.image = face.image;
+      made.passes.push(face.pass);
+      for (const file of face.loads) if (!made.loads.includes(file)) made.loads.push(file);
+    }
+  }
+  return made;
+}
 
 // ---------------------------------------------------------------- img2img, inpaint, outpaint, upscale 2x, face detailer: the picture models' own
 

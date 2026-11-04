@@ -9,6 +9,8 @@ import { DETECTOR_FILES } from "../src/shared/adetail";
 const recipe = (id: string) => recipes.find((r) => r.id === id)!;
 const sdxl = recipe("sdxl.text-to-picture");
 const moss = recipe("moss.text-to-picture");
+const krea2 = recipe("krea2.text-to-picture");
+const KREA2_FILES = { unet: "krea2_turbo_fp8_scaled.safetensors", clip: "qwen3vl_4b_fp8_scaled.safetensors", vae: "qwen_image_vae.safetensors" };
 const MOSS_FILES = { unet: "moss_image_sft_int8_convrot.safetensors", clip: "qwen3.5_9b_w4a8_gptq.safetensors", vae: "flux2-vae_small.safetensors" };
 
 const build = (r: Recipe<any>, input: Record<string, unknown>, slots: Record<string, string> = {}): BuiltGraph => r.build(parseInput(r, input), dryContext({ slots }));
@@ -23,12 +25,12 @@ const twoBoxes = [
 describe("the Regions row on every txt2img", () => {
   const txt2imgs = recipes.filter((r) => PICTURE_DROPS.get(r.id)?.op === "txt2img");
 
-  it("is on SDXL and MOSS-Image, and said absent with why everywhere else", () => {
+  it("is on SDXL, MOSS-Image and Krea 2, and said absent with why everywhere else", () => {
     const has = txt2imgs.filter((r) => r.inputs.some((i) => i.id === "regions")).map((r) => r.family).sort();
-    expect(has).toEqual(["moss", "sdxl"]);
+    expect(has).toEqual(["krea2", "moss", "sdxl"]);
     const why = Object.fromEntries(txt2imgs.filter((r) => !has.includes(r.family)).map((r) => [r.family, r.absent?.find((a) => a.id === "regions")]));
     expect(why).toEqual({
-      flux: { id: "regions", label: "Regions", why: REGIONS_NOT_YET }, krea2: { id: "regions", label: "Regions", why: REGIONS_NOT_YET },
+      flux: { id: "regions", label: "Regions", why: REGIONS_NOT_YET },
       klein: { id: "regions", label: "Regions", why: REGIONS_WHY.klein }, qwen: { id: "regions", label: "Regions", why: REGIONS_WHY.qwen },
       qwen21: { id: "regions", label: "Regions", why: REGIONS_WHY.qwen21 }, zimage: { id: "regions", label: "Regions", why: REGIONS_WHY.zimage },
     });
@@ -36,7 +38,9 @@ describe("the Regions row on every txt2img", () => {
 
   it("says in its \"?\" that the result is guided, not exact, and what a region's LoRA does there", () => {
     const row = (r: Recipe<any>) => r.inputs.find((i) => i.id === "regions") as Extract<InputSpec, { type: "regions" }>;
-    for (const r of [sdxl, moss]) expect(row(r).note, r.id).toContain("guided, not exact");
+    for (const r of [sdxl, moss, krea2]) expect(row(r).note, r.id).toContain("guided, not exact");
+    expect(row(krea2)).toMatchObject({ lora: "scoped", picture: true, max: 8 });
+    expect(row(krea2).note).toContain("redrawn from their picture");
     expect(row(sdxl)).toMatchObject({ lora: "scoped", max: 8 });
     expect(row(sdxl).kinds).toBeUndefined();
     expect(row(moss)).toMatchObject({ lora: "global", kinds: true });
@@ -172,5 +176,75 @@ describe("MOSS-Image", () => {
 
   it("is txt2img alone: no template does the other operations yet", () => {
     expect(recipes.filter((r) => r.family === "moss").map((r) => r.id)).toEqual(["moss.text-to-picture"]);
+  });
+});
+
+describe("Krea 2's regions: every box in one pass (ComfyUI-Krea2-Regional), each cast person redrawn from their picture", () => {
+  const people = [
+    { id: "l", box: { x: 0, y: 0, w: 0.5, h: 1 }, prompt: "a man in a grey coat", cast: "p1", castPicture: "a1", castLora: { file: "fabien.safetensors", weight: 0.8 } },
+    { id: "r", box: { x: 0.5, y: 0, w: 0.5, h: 1 }, prompt: "a man in a blue jacket", cast: "p2", castPicture: "a2" },
+  ];
+  const PERSON_FILES = { ...KREA2_FILES, identityEdit: "krea2_identity_edit_v2_r128.safetensors" };
+  const FACE_FILES = { ...PERSON_FILES, kleinUnet: "flux-2-klein-base-4b.safetensors", kleinClip: "qwen_3_4b.safetensors", kleinVae: "flux2-vae.safetensors", ...DETECTOR_FILES };
+  const uploads = { "regions.l": "fabien.png", "regions.r": "nicolas.png" };
+  const built = (input: Record<string, unknown>, slots: Record<string, string> = KREA2_FILES, up: Record<string, string> = {}) =>
+    krea2.build(parseInput(krea2, { prompt: "two friends in a park", ...input }), dryContext({ slots, uploads: up }));
+
+  it("reads each box's words alone, masked to its box, beside a base text that says where each box lies", () => {
+    const b = built({ regions: twoBoxes });
+    expect(nodes(b, "Krea2RegionalPrompt")).toHaveLength(2);
+    const applied = one(b, "Krea2ApplyRegional");
+    expect(applied.inputs).toMatchObject({ exclusive_masks: true, adaptive_masks: "refine boxes", restrict_img_attn: false });
+    const base = b.graph[(applied.inputs.conditioning as [string, number])[0]]!;
+    expect(base.inputs.text).toBe("two friends in a park. in the left side of the image, prominent: red coat. in the right side of the image, prominent: blue coat");
+    // the sampler samples the pack's patched model and its joined text
+    const sampler = one(b, "KSampler");
+    expect((sampler.inputs.positive as [string, number])).toEqual([nodes(b, "Krea2ApplyRegional")[0]![0], 1]);
+    expect(krea2.layoutOf!(parseInput(krea2, { prompt: "two friends in a park", regions: twoBoxes }) as never)).toContain("Region 2: blue coat");
+  });
+
+  it("holds a region's LoRA and its person's to its box with the pack's LoRA nodes, never on the whole model", () => {
+    const b = built({ regions: [{ ...twoBoxes[0], lora: { file: "style.safetensors", weight: 0.9 }, castLora: { file: "fabien.safetensors", weight: 0.8 } }, twoBoxes[1]] });
+    expect(nodes(b, "Krea2LoRA").map(([, n]) => n.inputs.lora_name)).toEqual(["style.safetensors", "fabien.safetensors"]);
+    expect(nodes(b, "LoraLoaderModelOnly")).toHaveLength(0);
+    expect(b.loads).toEqual(expect.arrayContaining(["loras/style.safetensors", "loras/fabien.safetensors"]));
+  });
+
+  it("redraws each cast person's box from their own picture by Identity Edit, the scene pinned and the person beside", () => {
+    const b = built({ regions: people }, PERSON_FILES, uploads);
+    const patches = nodes(b, "Krea2EditModelPatch");
+    expect(patches).toHaveLength(2);
+    const pictures = patches.map(([, n]) => b.graph[(n.inputs.source_image_b as [string, number])[0]]!.inputs.image);
+    expect(pictures).toEqual(["fabien.png", "nicolas.png"]);
+    for (const [, n] of patches) expect(n.inputs).toMatchObject({ ref_position: "beside (right of target)", ref_position_a: "aligned (trained)" });
+    expect(nodes(b, "KSampler").slice(1).map(([, n]) => n.inputs.denoise)).toEqual([0.6, 0.6]);
+    expect(nodes(b, "ImageCompositeMasked")).toHaveLength(2);
+    // without their picture uploaded (a person with none), the box keeps what their words drew
+    expect(nodes(built({ regions: people }, PERSON_FILES), "Krea2EditModelPatch")).toHaveLength(0);
+    expect(nodes(built({ regions: people, regionPersonDenoise: 0 }, PERSON_FILES, uploads), "Krea2EditModelPatch")).toHaveLength(0);
+  });
+
+  it("with Detail: face on, redraws each person's face from their picture by Klein, in their box alone", () => {
+    const b = built({ regions: people, detailFace: true }, FACE_FILES, uploads);
+    const detailers = nodes(b, "DetailerForEach");
+    expect(detailers).toHaveLength(2);
+    expect(nodes(b, "ImpactSEGSIntersectionFilter")).toHaveLength(2);
+    // Krea 2's own Detail: face is left out: the faces are the cast's
+    expect(nodes(b, "FaceDetailer")).toHaveLength(0);
+    expect(krea2.needsWith!(parseInput(krea2, { prompt: "a", regions: people, detailFace: true }) as never)).toEqual(expect.arrayContaining(["identityEdit", "kleinUnet", "faceDetector"]));
+  });
+
+  it("refuses regions with the form's person reference or style images, whose pictures the pack's masks do not cover", () => {
+    const values = { prompt: "a", regions: twoBoxes, person: [{ asset: "p", role: "person" }] };
+    expect(() => built(values, PERSON_FILES, { "person.0": "p.png" })).toThrow(/regions without/);
+    expect(krea2.refuses!.some((r) => r.why.includes("regions without"))).toBe(true);
+  });
+
+  it("redraws hires tiles from the prompt alone: the regions' masks are the whole picture's", () => {
+    const b = built({ regions: twoBoxes, hires: true, hiresScale: 3, hiresUpscaler: "u.pth" });
+    const regional = nodes(b, "Krea2ApplyRegional")[0]![0];
+    const tiles = nodes(b, "KSampler").slice(1);
+    expect(tiles.length).toBeGreaterThan(0);
+    for (const [, n] of tiles) expect(JSON.stringify(n.inputs.model)).not.toContain(`"${regional}"`);
   });
 });
