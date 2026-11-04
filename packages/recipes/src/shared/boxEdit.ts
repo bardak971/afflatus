@@ -239,10 +239,11 @@ function boxesOf(boxes: RegionValue[]): RegionValue[] {
 
 /**
  * The Edit in box of an instruction editor: its rows (the model, references, sampling) as they are, its one instruction
- * replaced by each box's own, built as said above. `working`: the size the editor reads a picture at, for its input.
+ * replaced by each box's own, built as said above. `working`: the size the editor reads a picture at, for its input;
+ * `starts`: rows that start on another value for a box than in the editor's own form.
  * Hidden: it is the Stage's, sent from its bar, never a form of its own.
  */
-export function inBox<In extends { source: string; prompt: string }>(edit: Recipe<In>, working: (input: In) => WorkingSize): Recipe<Omit<In, "prompt"> & InBox> {
+export function inBox<In extends { source: string; prompt: string }>(edit: Recipe<In>, working: (input: In) => WorkingSize, starts: Partial<Record<keyof In, unknown>> = {}): Recipe<Omit<In, "prompt"> & InBox> {
   type Boxed = Omit<In, "prompt"> & InBox;
   const boxes: InputSpec = { id: "boxes", type: "regions", label: "Boxes", max: MAX_BOXES, note: "each box's instruction, done there one box after another" };
   const withPrompt = (input: Boxed, prompt: string) => ({ ...input, prompt }) as unknown as In;
@@ -255,7 +256,8 @@ export function inBox<In extends { source: string; prompt: string }>(edit: Recip
     title: "Edit in box",
     summary: `Each box drawn on the picture edited from its own instruction by ${edit.title.toLowerCase()}, one after another; the rest of the picture is kept.`,
     output: "image",
-    inputs: [...edit.inputs.filter((i) => i.id !== "prompt"), boxes],
+    // the editor's rows, some starting elsewhere for a box (`starts`: Qwen Image Edit's Turbo, card #284's pod A/B)
+    inputs: [...edit.inputs.filter((i) => i.id !== "prompt").map((i) => (i.id in starts ? { ...i, default: starts[i.id as keyof In] } as InputSpec : i)), boxes],
     ...(edit.needs ? { needs: edit.needs } : {}),
     ...(edit.needsWith ? { needsWith: (input: Boxed, slots?: Record<string, string>, where?: { own?: boolean }) => edit.needsWith!(withPrompt(input, ""), slots, where) } : {}),
     ...(edit.presets ? { presets: edit.presets } : {}),

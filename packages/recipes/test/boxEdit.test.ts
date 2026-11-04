@@ -122,6 +122,12 @@ describe("an Edit in box of every instruction editor", () => {
     expect(kontextSize(Number(scale.inputs.width) / Number(scale.inputs.height))).toEqual({ w: scale.inputs.width, h: scale.inputs.height });
   });
 
+  it("starts Qwen Image Edit's box edit on Turbo (its Lightning LoRA), the editor's own form left as it was", () => {
+    const fast = (id: string) => (recipe(id).inputs.find((i) => i.id === "fast") as { default?: unknown } | undefined)?.default;
+    expect(fast("qwen.edit-in-box")).toBe(true);
+    expect(fast("qwen.edit")).toBe(false);
+  });
+
   it("refuses no box, and a box that says nothing to do", () => {
     const r = recipe("flux.edit-in-box");
     const ctx = dryContext({ slots: { kontext: "k" }, uploads: { source: "s.png" }, media: { source: { width: 800, height: 600 } } });
