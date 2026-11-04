@@ -60,7 +60,9 @@ describe("Krea 2's regions with cast people", () => {
     const graph = [...fake.prompts.values()][0]!;
     const patches = Object.values(graph).filter((n) => n.class_type === "Krea2EditModelPatch");
     expect(patches).toHaveLength(2);
-    const loaded = patches.map((p) => graph[(p.inputs.source_image_b as [string, number])[0]]!.inputs.image);
+    // through Afflatus's Face Crop where the ComfyUI has it
+    const sentAs = (id: string): unknown => (graph[id]!.class_type === "LoadImage" ? graph[id]!.inputs.image : sentAs((graph[id]!.inputs.image as [string, number])[0]));
+    const loaded = patches.map((p) => sentAs((p.inputs.source_image_b as [string, number])[0]));
     expect(new Set(loaded).size).toBe(2);
     // (sent to ComfyUI's temp folder: its LoadImage reads the name with " [temp]")
     for (const name of loaded) expect(fake.uploads).toContain(String(name).replace(/ \[temp\]$/, ""));
