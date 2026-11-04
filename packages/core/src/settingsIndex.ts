@@ -58,7 +58,7 @@ export const SETTING_INDEX: SettingSpot[] = [
   { tab: "prompts", label: "Max output tokens", key: "designer.tokens", near: "designer.llms", words: "designer llm thinking answer length" },
   { tab: "prompts", label: "Clear every conversation", key: "designer.forget", words: "designer forget every conversation chat history" },
   { tab: "prompts", label: "Danbooru tag check", key: "server.tagCheck", words: "typo tags" },
-  { tab: "prompts", label: "Wildcards and weights", key: "prompts.wildcards", words: "wildcard {a|b} weight ctrl up down emphasis random choice" },
+  { tab: "prompts", label: "Wildcards and weights", key: "prompts.wildcards", words: "wildcard {a|b} __name__ wildcard files txt impact dynamic prompts weight ctrl up down emphasis random choice" },
   { tab: "interface", label: "Dark theme · Light theme", key: "interface.theme", also: ["theme.mode", "theme.night", "theme.day"], words: "theme appearance dark light system accent catppuccin mocha macchiato frappe latte rose pine moon dawn studio neutral grey tokyo night day kanagawa wave lotus" },
   { tab: "interface", label: "Accent", key: "interface.accent", words: "accent colour color appearance theme" },
   { tab: "interface", label: "Progress", key: "interface.progress", also: ["progress.style"], words: "progress bar style same look glide steps ticks alive sweep ring motion animation" },

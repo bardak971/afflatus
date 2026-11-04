@@ -1,4 +1,4 @@
-import { BATCH, expandWildcards, movedSeed, typedSeed, type InputSpec, type Recipe } from "@afflatus/core";
+import { BATCH, movedSeed, typedSeed, type InputSpec, type Recipe } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { compose, lookSchema, withMentions, type Look } from "./entities";
@@ -9,6 +9,7 @@ import type { Services } from "./services";
 import { draftLabel, promptOf } from "./autoName";
 import { findDraft, writeDraft } from "./drafts";
 import { paged } from "./queueView";
+import { settleTexts } from "./wildcardFiles";
 
 /** The queue: jobs sent to it, models loaded ahead, and the queue's own controls (pause, order, retry, cancel, previews). */
 
@@ -31,13 +32,6 @@ export const jobBody = z.strictObject({
 /** A form as it stands, to load its models ahead or to ask whether they are loaded. */
 /** A form whose models are loaded ahead: on the machine named (a Machine's id), else where its render would run. */
 const warmBody = z.strictObject({ recipe: z.string().min(1), input: z.record(z.string(), z.unknown()), look: lookSchema.optional(), machine: z.string().min(1).max(40).optional() });
-
-/** A form's texts with their {a|b|c} choices settled. */
-function settledTexts(recipe: Recipe<any>, input: Record<string, unknown>): Record<string, unknown> {
-  const out = { ...input };
-  for (const spec of recipe.inputs as InputSpec[]) if (spec.type === "prompt" && typeof out[spec.id] === "string") out[spec.id] = expandWildcards(out[spec.id] as string);
-  return out;
-}
 
 /** What the cast changed in a form, as it was before (undefined: it was not there): the job keeps the person's own form with it. */
 export function askedOf(own: Record<string, unknown>, composed: Record<string, unknown>): Record<string, unknown> {
@@ -79,11 +73,13 @@ export async function queueRender(s: Services, body: z.output<typeof jobBody>, b
   const look = body.look ?? (recipe ? (await mentioned(s, recipe, body.input)) : undefined);
   return s.queue.enqueueAll(async (ask) => {
     for (let i = 0; i < body.count; i++) {
-      // with a cast: each copy's {a|b} choices settled before it is worked in, so that what was asked and what renders pick the same
-      const own = recipe && look ? settledTexts(recipe, body.input) : body.input;
-      const input = recipe && look ? (await compose(s.db, recipe, own, look)).input : own;
-      const each = body.seedMode && seed !== null ? { ...input, seed: movedSeed(seed, body.seedMode, i) } : input;
-      await ask.render(body.recipe, each, { label, draft: body.draft, folder: body.folder, look, asked: input === own ? undefined : askedOf(own, input), machine: body.machine ?? null, mcpToken: by.mcpToken ?? null });
+      // a typed seed that moves: this copy's, set before its texts are settled, whose picks follow it
+      const seeded = body.seedMode && seed !== null ? { ...body.input, seed: movedSeed(seed, body.seedMode, i) } : body.input;
+      // with a cast: each copy's choices ({a|b}, __colors__) settled before it is worked in, so that what was asked and what
+      // renders pick the same
+      const own = recipe && look ? await settleTexts(s.wildcards, recipe, seeded) : seeded;
+      const each = recipe && look ? (await compose(s.db, recipe, own, look)).input : own;
+      await ask.render(body.recipe, each, { label, draft: body.draft, folder: body.folder, look, asked: each === own ? undefined : askedOf(own, each), machine: body.machine ?? null, mcpToken: by.mcpToken ?? null });
     }
   });
 }

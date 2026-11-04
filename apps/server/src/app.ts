@@ -49,6 +49,7 @@ import { registerSetup } from "./setup-api";
 import { registerLock } from "./lock-api";
 import { registerRented } from "./rented-api";
 import { registerTags } from "./tags";
+import { registerPromptTokens } from "./promptTokens";
 import { registerTimelines } from "./timelines-api";
 import { isUpload, uploadBody } from "./uploadBody";
 import { registerUpdates } from "./updates-api";
@@ -192,6 +193,7 @@ export function buildApp(s: Services, opts: { webDir?: string; /** Where the dat
   registerEntities(app, s);
   registerDesigner(app, s);
   registerTags(app);
+  registerPromptTokens(app, s);
   registerEvents(app, s, VERSION);
   registerLookup(app, s);
   registerJobs(app, s);

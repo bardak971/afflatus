@@ -52,7 +52,7 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, missing, wa
       {recipe && recipe.inputs.some((i) => i.type === "prompt" && hasWildcards(String(whole[i.id] ?? ""))) && (
         <span className="flex items-center gap-1.5 text-xs text-ink-2">
           Wildcards: one pick per {noun}
-          <Help text={`{a|b|c} in the prompt: one option is picked for each ${noun}.${count === 1 ? " Render several to see them vary." : ""}`} />
+          <Help text={`{a|b|c} or __name__ (a wildcard file) in the prompt: one option is picked for each ${noun}, the same for the same typed seed.${count === 1 ? " Render several to see them vary." : ""}`} />
         </span>
       )}
       {recipe && draft && !blocked && <FormModel recipe={recipe} input={whole} look={draft.look} />}

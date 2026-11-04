@@ -113,6 +113,13 @@ function LoraWords({ file, info, more, main }: { file: string; info: ModelInfo |
   );
 }
 
+/** A LoRA row's cover from its Civitai page: gone when the address does not answer, the row as it was without one. */
+function LoraCover({ src }: { src: string }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) return null;
+  return <img src={src} alt="" loading="lazy" decoding="async" onError={() => setBroken(true)} className="h-8 w-8 shrink-0 rounded-md bg-stage object-cover" />;
+}
+
 /** Files whose words were asked of Civitai while this page is open: each is asked once. */
 const askedWords = new Set<string>();
 
@@ -278,6 +285,8 @@ export function Loras({ spec, value, options, family, model, onChange, main, add
       ...fileOption(m.file, m.about),
       ...(places.said(m.file) ? { note: [fileOption(m.file, m.about).note, places.said(m.file)].filter(Boolean).join(" · ") } : {}),
       detail: wordsOf(m.about, more[nameKey(m.file)]).words || undefined,
+      // the cover of its Civitai page, when its hash matched one (Settings › Models): nothing is asked for the list
+      ...(m.about?.picture ? { image: m.about.picture } : {}),
       ...(more[nameKey(m.file)] ? { search: [fileOption(m.file, m.about).search, more[nameKey(m.file)]!.own, more[nameKey(m.file)]!.found].filter(Boolean).join(" ") } : {}),
       ...(sorted ? { group: titles[rank(m)] } : {}),
     }));
@@ -296,6 +305,7 @@ export function Loras({ spec, value, options, family, model, onChange, main, add
       {value.map((l, i) => folded.has(i) ? null : (
         <div key={l.file} className="flex flex-col gap-1 rounded-lg border border-line bg-raised py-1.5 pr-1 pl-3">
           <div className="flex items-center gap-2">
+            {info[l.file]?.picture && <LoraCover src={info[l.file]!.picture!} />}
             <ModelLink folder="loras" file={l.file} className="min-w-0 grow font-semibold" />
             {/* the slider covers −1 to 2; the typed box beside it goes further */}
             <Slider label={`Strength of ${fileLabel(l.file)}`} min={-1} max={2} step={0.05} zero={0} box={false} value={Math.max(-1, Math.min(2, l.weight))} onChange={(v) => set(i, v)} className="w-24 shrink-0" />

@@ -195,6 +195,8 @@ export const queryKeys = {
     items: (q: string) => ["command-index", "items", q] as const,
   },
   barEstimate: <E>(of: E) => ["bar-estimate", of] as const,
+  /** The CLIP token count of a prompt's text (TokenCount). */
+  promptTokens: (text: string) => ["prompt-tokens", text] as const,
   promptHistory: {
     all: () => ["prompt-history"] as const,
     search: (q: string) => ["prompt-history", q] as const,

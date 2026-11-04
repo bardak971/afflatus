@@ -9,6 +9,7 @@ import { filesOn } from "./filePlaces";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
 import { withSite } from "./modelSetCheck";
+import { thumbOf } from "./browse";
 
 /**
  * What model files say about themselves (see ModelInfo), so that a search for a LoRA can find it by
@@ -116,6 +117,17 @@ export function registerModelInfo(app: FastifyInstance, s: Services): void {
         const base = byPath.get(pathKey(file));
         const merged = base ? withSite(items[file], base) : undefined;
         if (merged) items[file] = merged;
+      }
+    }
+    // the cover of the Civitai version a file's hash matched, kept by the Models pass (modelLibrary.ts fillCivitai): the LoRA
+    // list and rows show it, and nothing is asked of Civitai for them
+    const covers = await s.db.selectFrom("model_hashes").innerJoin("model_civitai", "model_civitai.version_id", "model_hashes.civitai_version")
+      .select(["model_hashes.file", "model_civitai.picture"]).where("model_hashes.folder", "=", folder).where("model_civitai.picture", "is not", null).execute();
+    if (covers.length) {
+      const byPath = new Map(covers.map((r) => [pathKey(r.file), thumbOf({ url: r.picture! }, 160)!]));
+      for (const file of new Set([...Object.keys(items), ...(files ?? [])])) {
+        const picture = byPath.get(pathKey(file));
+        if (picture) items[file] = { ...items[file], picture };
       }
     }
     return { items, pending };

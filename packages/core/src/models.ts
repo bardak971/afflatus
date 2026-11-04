@@ -29,6 +29,11 @@ export interface ModelInfo {
    * Settings › Models: not from the file, and finer than `base` (which says "LTX" for every LTX).
    */
   civitaiBase?: string;
+  /**
+   * The cover picture of the Civitai version its hash matched (a small one, Civitai's address), as Settings › Models shows
+   * it: read once with the rest of that version, never for the list that shows it.
+   */
+  picture?: string;
 }
 
 /** The reading of a file's header that is current: raised when more is read from it, so that what was read before is read again. */

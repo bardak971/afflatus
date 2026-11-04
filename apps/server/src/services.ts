@@ -18,6 +18,7 @@ import { ShippedPresets, shippedPresetsDir } from "./presetFiles";
 import { DEFAULT_QUEUE_OPTIONS, Queue, type QueueOptions } from "./queue";
 import { podFetchOf } from "./queuePlan";
 import { Registry } from "./registry";
+import type { WildcardPlaces } from "./wildcardFiles";
 import { folderLeftEmpty, readSettings, writeSettings, type Machine, type Settings } from "./settings";
 import { comfyFolderOf } from "./modelDownload";
 import { installNodePack } from "./nodePack";
@@ -94,6 +95,8 @@ export interface Services {
   hashes: ModelHashes;
   /** The faces of the kit's people's pictures read in the background, for the clearest to be sent first (faceFacts.ts). */
   faces: FaceReader | null;
+  /** Where the wildcard files of `__name__` are read from (wildcardFiles.ts). */
+  wildcards: WildcardPlaces;
   /** The first sweep done, which runs in the background from the start (the tests wait for it, so that it does not sweep what they set up). */
   started: Promise<void>;
   /** What the timeline editor reads of its clips, measured in the background once stored (null: off, as in most tests). */
@@ -219,6 +222,8 @@ export async function createServices(
     },
   });
   const UNDER_WAY = new Set(["starting", "downloading", "saving"]);
+  // the wildcard files: the data folder's own, and the packs' of ComfyUI's folder as the settings say it now
+  const wildcards: WildcardPlaces = { dataDir: dirs.dataDir ?? null, comfyDir: async () => (await readSettings(db)).comfyDir };
   const queue = new Queue(db, storage, machines, registry, queueOptions, {
     money: {
       unavailable: (id) => rented.unavailable(id),
@@ -272,6 +277,7 @@ export async function createServices(
     get clips() {
       return timelines;
     },
+    wildcards,
   });
   rented.attach(queue);
   queue.events.on("models", () => {
@@ -374,7 +380,7 @@ export async function createServices(
   // RunPod read from now, once the pods' files Rented answers through are made
   rented.run();
   const services: Services = {
-    db, dbKind, storage, linked, registry, comfy, machines, comfyOf, comfyFolder: () => comfyFolder(), queue, timelines, rented, notify, access, mcp: { tokens: new McpTokens(db), where: new WhereNow(db) }, podFiles, podOutside, downloads,
+    db, dbKind, storage, linked, registry, comfy, machines, comfyOf, comfyFolder: () => comfyFolder(), queue, timelines, wildcards, rented, notify, access, mcp: { tokens: new McpTokens(db), where: new WhereNow(db) }, podFiles, podOutside, downloads,
     shippedPresets,
     officialSizes: new OfficialSizes(db, () => registry.families(), async () => (await readSettings(db)).civitaiLookups),
     updates: null as unknown as Updates,

@@ -1,10 +1,14 @@
 import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { soundPart } from "../src/cut";
 import { now } from "../src/db";
+import { writeSettings } from "../src/settings";
 import { checkPrompt, cleanTags } from "../src/tags";
 import { CHECKPOINT, complete, get, makeApp, post, referenceCatalog, until, type TestApp } from "./helpers";
 
@@ -37,6 +41,37 @@ describe("choices written in a prompt", () => {
     // the model is sent what was picked
     await until(() => fake.prompts.size === 1);
     expect(textOf([...fake.prompts.values()][0]!).some((x) => prompts.includes(x))).toBe(true);
+  });
+
+  it("reads __name__ from the wildcard packs' folders of ComfyUI, the same picks for the same seed", async () => {
+    const comfyDir = mkdtempSync(join(tmpdir(), "afflatus-wild-"));
+    try {
+      const impact = join(comfyDir, "custom_nodes", "ComfyUI-Impact-Pack", "wildcards");
+      mkdirSync(join(impact, "clothes"), { recursive: true });
+      writeFileSync(join(impact, "Colors.txt"), "# the packs allow comments\nred\r\n\r\ngreen\nblue\nyellow\nwhite\nblack\n");
+      writeFileSync(join(impact, "clothes", "hats.txt"), "a __colors__ beret\n");
+      await writeSettings(t.db, { comfyDir });
+      const send = async (seed: number, count: number) => {
+        const res = await post(t.app, "/api/jobs", { recipe: "sdxl.text-to-picture", input: { prompt: "1girl, __colors__ dress, __hats__", checkpoint: CHECKPOINT, quality: "", seed }, count });
+        expect(res.statusCode, res.body).toBe(200);
+        const ids = res.json().ids as string[];
+        const rows = await t.db.selectFrom("jobs").select(["id", "inputs"]).where("id", "in", ids).execute();
+        return rows.map((r) => (JSON.parse(r.inputs) as { prompt: string }).prompt);
+      };
+      // a typed seed: every copy the same picks, and the same seed sent again too
+      const same = await send(42, 3);
+      expect(same[0]).toMatch(/^1girl, (red|green|blue|yellow|white|black) dress, a (red|green|blue|yellow|white|black) beret$/);
+      expect(new Set(same).size).toBe(1);
+      expect(await send(42, 1)).toEqual([same[0]]);
+      // a random seed: picked afresh for each
+      expect(new Set(await send(-1, 8)).size).toBeGreaterThan(1);
+      // a name with no file is refused, saying where it was looked for
+      const missing = await post(t.app, "/api/jobs", { recipe: "sdxl.text-to-picture", input: { prompt: "__nowhere__", checkpoint: CHECKPOINT, quality: "" } });
+      expect(missing.statusCode).toBe(400);
+      expect(missing.json().error).toMatch(/no wildcard file "nowhere\.txt".*custom_wildcards|no wildcard file "nowhere\.txt".*wildcards/);
+    } finally {
+      rmSync(comfyDir, { recursive: true, force: true });
+    }
   });
 });
 
