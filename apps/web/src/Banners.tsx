@@ -28,6 +28,8 @@ interface Fold {
   labels: Set<string>;
   exports: number;
   last: string | null;
+  /** The picture every job of the fold made versions of; null once one made anything else (undefined: none yet). */
+  of?: string | null;
 }
 const noFold = (): Fold => ({ count: 0, labels: new Set(), exports: 0, last: null });
 /** "Portrait done", "8 done", "8 done · Portrait" (one name for the whole batch). */
@@ -125,6 +127,7 @@ export function Banners() {
         f.labels.add(j.label);
         f.last = j.label;
         if (j.kind === "export") f.exports++;
+        f.of = f.of === undefined || f.of === (j.versionOf ?? null) ? (j.versionOf ?? null) : null;
       };
       for (const j of over) {
         if (seenJobs.current.has(j.id)) continue;
@@ -155,8 +158,9 @@ export function Banners() {
             if (path !== "/" && path !== "/create") go("/");
           } } } : {};
           // a version is under its picture, not in the library: Open shows the picture, its versions in the strip under it
-          const version = f.count === 1 && j.versionOf ? { text: VERSION_DONE, action: { label: "Open", run: () => {
-            useHandover.getState().set({ show: j.versionOf! });
+          const of = f.of;
+          const version = of ? { text: f.count === 1 ? VERSION_DONE : `${plural(f.count, "version")} under its picture: Open shows them, K keeps one.`, action: { label: "Open", run: () => {
+            useHandover.getState().set({ show: of });
             if (path !== "/" && path !== "/create") go("/");
           } } } : {};
           push({ id: "jobs:done", tone: "good", title: foldTitle(f, "done"), text: foldText(f), ...compare, ...version, ...(there || compare.action || version.action ? {} : allExports ? { href: "/timelines", go: "Open the Timelines" } : { href: "/", go: "Open the library" }) });
