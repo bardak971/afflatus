@@ -9,7 +9,7 @@ import { fakeRoutes } from "./fake/routes";
 import { fakeSimulate } from "./fake/simulate";
 import { fakeSockets } from "./fake/sockets";
 
-export { makePng } from "./fake/png";
+export { makeMaskPng, makePng } from "./fake/png";
 export { FAKE_GPUS, FAKE_LAYERS, NO_CAPACITY, startFakeRunpod, type FakeGpu, type FakePod, type FakeRunpod, type FakeVolume } from "./fake/runpod";
 export { startFakeS3, type FakeS3, type FakeS3File } from "./fake/s3";
 
@@ -196,6 +196,11 @@ export interface FakeInit extends Partial<Pick<FakeComfy, "catalog" | "models" |
     videoStepMs?: number;
     /** What a video workflow "renders": an MP4, or a function that makes one for the graph it was sent. Without it, video prompts fail. */
     video?: Uint8Array | ((graph: Graph, seed: number) => Uint8Array | undefined);
+    /**
+     * What a mask workflow (one that ends in MaskToImage: the Stage's find) "finds", given the graph and the size of the
+     * picture it was sent (read off its upload): the masks' PNGs. Without it, such a prompt answers a picture as any other.
+     */
+    mask?: (graph: Graph, size: { width: number; height: number }) => Uint8Array[];
   };
 }
 

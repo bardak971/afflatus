@@ -102,10 +102,17 @@ export async function picturePixels(bytes: Uint8Array): Promise<{ width: number;
 }
 
 /**
+ * Above this, a pixel of a mask is painted. Low, so that a mask that is all soft edge (the Stage's feathered brush, card
+ * #274) still has a box: its faint rim is redrawn too, faded by Differential Diffusion.
+ */
+const PAINTED = 8;
+
+/**
  * Of a painted mask (white = the part to redo): its size, and the part that was painted with room
  * around it, because what is drawn there has to fit what is next to it. `box` is null when nothing is painted.
+ * `room: false`: the painted part alone (a found mask's box, which the Stage frames).
  */
-export async function maskBox(bytes: Uint8Array): Promise<{ width: number; height: number; box: { x: number; y: number; width: number; height: number } | null } | null> {
+export async function maskBox(bytes: Uint8Array, opts: { room?: boolean } = {}): Promise<{ width: number; height: number; box: { x: number; y: number; width: number; height: number } | null } | null> {
   const lib = await sharp();
   if (!lib) return null;
   try {
@@ -115,7 +122,7 @@ export async function maskBox(bytes: Uint8Array): Promise<{ width: number; heigh
     for (let y = 0; y < height; y++) {
       const row = y * width;
       for (let x = 0; x < width; x++) {
-        if (data[row + x]! <= 127) continue;
+        if (data[row + x]! <= PAINTED) continue;
         if (x < x0) x0 = x;
         if (x > x1) x1 = x;
         if (y < y0) y0 = y;
@@ -123,6 +130,7 @@ export async function maskBox(bytes: Uint8Array): Promise<{ width: number; heigh
       }
     }
     if (x1 < 0) return { width, height, box: null };
+    if (opts.room === false) return { width, height, box: { x: x0, y: y0, width: x1 - x0 + 1, height: y1 - y0 + 1 } };
     const room = Math.max(48, Math.round(Math.max(x1 - x0 + 1, y1 - y0 + 1) * 0.35));
     const x = Math.max(0, x0 - room);
     const y = Math.max(0, y0 - room);

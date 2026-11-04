@@ -121,11 +121,16 @@ export interface CutExtra {
   mcpToken?: string | null;
 }
 
+/** The priority of a job sent ahead of the line: before any the user ordered by hand too (order() numbers those from -100000). */
+const FRONT = -1_000_000;
+
 /** What a render's job is queued with (Queue.enqueue). */
 export interface EnqueueOptions {
   label?: string; dependsOn?: string; clip?: { id: string; fit: boolean; mirror?: readonly string[] }; draft?: string | null; folder?: string | null;
   /** The picture its results come back under as versions (versions.ts), any one of its stack: written as the stack's root. */
   versionOf?: string | null;
+  /** Ahead of every job waiting (a mask the Stage finds: the user waits for it with the brush in hand). */
+  front?: boolean;
   warm?: boolean; look?: unknown; finishedFrom?: string | null; asked?: Record<string, unknown>; machine?: string | null;
   /** What the job is to the person when its files are refused ("Clip 3" of a timeline's Render): the refusal starts with it. */
   who?: string;
@@ -664,7 +669,7 @@ export class Queue {
     const at = now();
     return {
       id, owner_id: OWNER, recipe_id: recipe.id, label: opts.label?.trim() || recipe.title, inputs: JSON.stringify(input), asked,
-      status: "queued", warm: opts.warm ? 1 : 0, look: opts.look ? JSON.stringify(opts.look) : null, priority: recipe.output === "image" ? 0 : 10, depends_on: opts.dependsOn ?? null,
+      status: "queued", warm: opts.warm ? 1 : 0, look: opts.look ? JSON.stringify(opts.look) : null, priority: opts.front ? FRONT : recipe.output === "image" ? 0 : 10, depends_on: opts.dependsOn ?? null,
       attempts: 0, resume: null, error: null, generation_id: null, clip_id: opts.clip?.id ?? null, clip_fit: opts.clip?.fit ? 1 : 0, clip_mirror: opts.clip?.mirror?.length ? JSON.stringify(opts.clip.mirror) : null,
       draft_id: opts.draft ?? null, folder_id: opts.folder ?? null, finished_from: opts.finishedFrom ?? null, pin_machine: pin,
       mcp_token_id: opts.mcpToken ?? null, version_of: opts.versionOf ? await stackRoot(this.db, opts.versionOf) : null,

@@ -4,6 +4,7 @@ import { SEEDVR_SLOTS } from "../video/upscale";
 import { RIFE_GET } from "../shared/finish";
 import { ADETAILER, FACE_DETECTOR_SLOT } from "../shared/detector";
 import { H3_GUIDE, H3_LIPSYNC_GUIDE, H3_OVER_GUIDE } from "./guide";
+import { SAM_FILE, samSlot } from "../shared/sam";
 
 /** Where ComfyUI's own templates fetch MiniMax H3's files from. */
 const HF = "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main";
@@ -81,11 +82,10 @@ export const h3 = defineFamily({
       hint: "For Swap character: akatz-ai's Character-Swap LoRA for the reference model (V1.5), in ComfyUI's models/loras folder.",
       get: { file: "h3_character_swap_v1.5.safetensors", url: "https://huggingface.co/akatz-ai/MiniMax-H3-Character-Swap-LoRA/resolve/main/h3_character_swap_v1.5.safetensors" },
     },
-    {
-      id: "swapSam", label: "SAM 3 for Swap (finds the person)", folder: "checkpoints", detect: ["sam3"], byName: true, optional: true, onlyFor: ["h3.swap"],
-      hint: "For Swap character: SAM 3.1 tracks the person to replace, so that only they are redrawn and the rest of the video is kept. Put sam3.1_multiplex_fp16.safetensors in ComfyUI's models/checkpoints folder.",
-      get: { file: "sam3.1_multiplex_fp16.safetensors", url: "https://huggingface.co/Comfy-Org/sam3.1/resolve/main/checkpoints/sam3.1_multiplex_fp16.safetensors" },
-    },
+    samSlot({
+      id: "swapSam", label: "SAM 3 for Swap (finds the person)", optional: true, onlyFor: ["h3.swap"],
+      hint: `For Swap character: SAM 3.1 tracks the person to replace, so that only they are redrawn and the rest of the video is kept. Put ${SAM_FILE} in ComfyUI's models/checkpoints folder.`,
+    }),
     {
       // models/veda is the Veda node pack's own folder: ComfyUI knows it once the pack is loaded
       id: "veda", label: "Veda predictor (reference model)", folder: "veda", detect: ["r2va.*veda", "veda.*r2va"], optional: true, onlyFor: ["h3.video", "h3.lipsync", "h3.swap", "h3.motion"],

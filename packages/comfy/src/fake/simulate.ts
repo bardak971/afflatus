@@ -124,6 +124,19 @@ export function fakeSimulate(fake: FakeState, opts: NonNullable<FakeInit["simula
       }
       fake.files[`${id}.mp4`] = clip;
       fake.history[id] = { status: { status_str: "success", completed: true }, outputs: { [videoOut]: { gifs: [{ filename: `${id}.mp4`, subfolder: "", type: "temp" }] } } };
+    } else if (opts.mask && nodes.some(([, node]) => node.class_type === "MaskToImage")) {
+      // a find: masks at the size of the picture sent, as the real nodes answer them
+      const out = nodes.find(([, node]) => node.class_type === "PreviewImage")?.[0] ?? "0";
+      const load = nodes.find(([, node]) => node.class_type === "LoadImage")?.[1].inputs.image;
+      // a loader names an upload as "<subfolder>/<name> [temp]"; the fake keeps it by its bare name
+      const sent = typeof load === "string" ? fake.uploaded[load.replace(/ \[\w+\]$/, "").replace(/^.*\//, "")] : undefined;
+      const size = sent && sent.length >= 24 ? { width: Buffer.from(sent).readUInt32BE(16), height: Buffer.from(sent).readUInt32BE(20) } : { width, height };
+      const images = opts.mask(graph, size).map((png, i) => {
+        const filename = `${id}-${i}.png`;
+        fake.files[filename] = png;
+        return { filename, subfolder: "", type: "temp" };
+      });
+      fake.history[id] = { status: { status_str: "success", completed: true }, outputs: { [out]: { images } } };
     } else {
       const out = nodes.find(([, node]) => node.class_type === "PreviewImage" || node.class_type === "SaveImage")?.[0] ?? "0";
       const filename = `${id}.png`;

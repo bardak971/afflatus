@@ -11,6 +11,7 @@ import { saveVideo } from "../shared/out";
 import { partBounds } from "../motion/driving";
 import { H3_LANDINGS } from "./join";
 import { FACE_REFINE_SLOTS, faceRefineNeeds } from "./faceRefine";
+import { SAM_FILE, samModel } from "../shared/sam";
 
 /**
  * MiniMax H3 · Swap character: a person in a video replaced by someone of the cast, the rest of the video kept. The
@@ -412,7 +413,7 @@ function masked(file: string, sam: string, m: MaskSettings, has: (cls: string) =
       image: g.out("ImageFromBatch", { image: [g.add("GetVideoComponents", { video: g.out("LoadVideo", { file }) }), 0], batch_index: 0, length: at.frames }),
       upscale_method: "lanczos", width: at.width, height: at.height, crop: "disabled",
     });
-    const model = g.add("CheckpointLoaderSimple", { ckpt_name: sam });
+    const model = samModel(g, sam);
     // SAM's own words missed the man in a crowd test; "man" with 8 tracks found him, the largest (§9.9)
     const people = g.out("CLIPTextEncode", { clip: [model, 1], text: m.track.trim() || "person" });
     const track = g.out("SAM3_VideoTrack", { images: part, model: [model, 0], detection_threshold: m.detectionThreshold, max_objects: m.maxObjects, detect_interval: m.detectInterval, conditioning: people });
@@ -495,6 +496,8 @@ export const h3Swap = h3Form<H3Swap>({
   // Show the mask and a take's Face refine alone sample nothing: neither the LoRA nor the model is loaded (card #226: Show
   // the mask waited for some 20 GB on a pod, its RIFE too)
   unneeded: (input) => (input.maskPreview || refinesOnly(input) ? ["swapLora", "swapUnet"] : []),
+  // Show the mask's video is a look at the masks, kept out of the library (a working file, gone after a day)
+  scratch: (input) => input.maskPreview === true,
   asClip: asRead,
   // as every other file and node: SAM 3 with the Mask on (off, nothing tracks the person), Veda's predictor when it is on, and a turbo LoRA when Turbo is on a model that is not
   // distilled (the reference one asked for, either taken). Show the mask runs SAM 3 and the masks alone
@@ -599,7 +602,7 @@ export const h3Swap = h3Form<H3Swap>({
     const all = {
       unet: "minimax_h3_fl2va.safetensors", clip: "qwen3vl_minimax_h3.safetensors", videoVae: "minimax_h3_video_vae.safetensors", audioVae: "minimax_h3_audio_vae.safetensors",
       turbo: "minimax_h3_turbo.safetensors", rife: "rife49.pth", refUnet: "minimax_h3_ref2va.safetensors", refTurbo: "minimax_h3_ref2v_turbo.safetensors",
-      swapLora: "h3_character_swap_pro4500_1000.safetensors", swapUnet: "minimax_h3_ref2va_pruned.safetensors", swapSam: "sam3.1_multiplex_fp16.safetensors",
+      swapLora: "h3_character_swap_pro4500_1000.safetensors", swapUnet: "minimax_h3_ref2va_pruned.safetensors", swapSam: SAM_FILE,
     };
     const part = { width: 864, height: 480, frames: 141, fps: H3_FPS, hasSound: true };
     return [

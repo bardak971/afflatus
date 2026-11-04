@@ -13,7 +13,7 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { FAKE_GPUS, startFakeComfy, startFakeRunpod, startFakeS3 } from "@afflatus/comfy/testing";
+import { FAKE_GPUS, makeMaskPng, startFakeComfy, startFakeRunpod, startFakeS3 } from "@afflatus/comfy/testing";
 import { comfyOlderThan, comfySince, nodesOfPack, type Graph, type NodeCatalog } from "@afflatus/core";
 import { buildApp } from "../apps/server/src/app";
 import { migrate, openSqlite, takeOver } from "../apps/server/src/db";
@@ -29,13 +29,33 @@ import { mkdirSync } from "node:fs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const catalog = JSON.parse(readFileSync(join(root, "reference/comfy-object-info.json"), "utf-8")) as NodeCatalog;
-const checkpoints = ["demo-illustrious.safetensors", "demo-pony.safetensors"];
+// and SAM 3.1, which ComfyUI keeps among the checkpoints: the Stage's click to mask finds it there
+const checkpoints = ["demo-illustrious.safetensors", "demo-pony.safetensors", "sam3.1_multiplex_demo.safetensors"];
 const upscalers = ["demo-upscaler-4x.pth"];
 catalog.CheckpointLoaderSimple!.input.required!.ckpt_name = [checkpoints];
 catalog.UpscaleModelLoader!.input.required!.model_name = ["COMBO", { options: upscalers }];
 // what the picture tools pick from: a face finder and a model that finds the background
 catalog.UltralyticsDetectorProvider!.input.required!.model_name = [["bbox/face_yolov8m.pt", "bbox/hand_yolov8s.pt"]];
 catalog.LoadBackgroundRemovalModel!.input.required!.bg_removal_name = ["COMBO", { options: ["demo-birefnet.safetensors"] }];
+
+/**
+ * What the pretend SAM finds (the Stage's click to mask and find, card #274): an ellipse around the first point clicked, a
+ * fifth of the picture across; a find, one in the upper middle (where a face would be), or two for hands.
+ */
+function pretendMask(graph: Graph, size: { width: number; height: number }): Uint8Array[] {
+  const { width, height } = size;
+  const nodes = Object.values(graph);
+  const sam = nodes.find((n) => n.class_type === "SAM3_Detect");
+  const rx = Math.max(8, Math.round(width / 10));
+  const ry = Math.max(8, Math.round(height / 8));
+  if (sam) {
+    const first = (JSON.parse(String(sam.inputs.positive_coords ?? "[]")) as Array<{ x: number; y: number }>)[0] ?? { x: width / 2, y: height / 2 };
+    return [makeMaskPng(width, height, first.x, first.y, rx, ry)];
+  }
+  const hands = nodes.some((n) => n.class_type === "UltralyticsDetectorProvider" && /hand/.test(String(n.inputs.model_name)));
+  if (hands) return [makeMaskPng(width, height, width * 0.3, height * 0.65, rx / 2, ry / 2), makeMaskPng(width, height, width * 0.7, height * 0.65, rx / 2, ry / 2)];
+  return [makeMaskPng(width, height, width / 2, height * 0.3, rx, ry)];
+}
 
 /**
  * What a video prompt "renders": a test pattern of the size, the length and the speed that were asked
@@ -131,6 +151,8 @@ const pretendComfy = (lacks?: RegExp, first = false) => startFakeComfy({
   folderPaths,
   models: lacking({
     checkpoints, upscale_models: upscalers,
+    // the face and hand detectors the catalog lists: Face and Hand refine, and the Stage's find, have their files
+    ultralytics: ["bbox/face_yolov8m.pt", "bbox/hand_yolov8s.pt"],
     loras: ["demo-watercolour.safetensors", "demo-film-grain.safetensors", "demo-detail.safetensors", "minimax_h3_turbo_demo.safetensors", "minimax_h3_ref2v_turbo_demo.safetensors", "h3_character_swap_demo.safetensors"],
     // the built-in video recipe finds its files by name: these make it ready in the demo
     diffusion_models: ["minimax_h3_fl2va_demo.safetensors", "minimax_h3_ref2va_demo.safetensors", "SomeoneMinimaxH3_hybridTurboV3_demo.safetensors", "flux-2-klein-base-4b-demo.safetensors", "wan2.2_i2v_high_noise_14B_demo.safetensors", "wan2.2_i2v_low_noise_14B_demo.safetensors",
@@ -142,7 +164,7 @@ const pretendComfy = (lacks?: RegExp, first = false) => startFakeComfy({
     // H3's Fun ControlNet: Motion transfer's windows moved by their pose
     model_patches: ["minimax_h3_fun_controlnet_union_2.0_demo.safetensors"],
   }, lacks),
-  simulate: { stepMs: Number(process.env.DEMO_STEP_MS) || 220, videoStepMs: Number(process.env.DEMO_VIDEO_STEP_MS) || undefined, video: pretendClip },
+  simulate: { stepMs: Number(process.env.DEMO_STEP_MS) || 220, videoStepMs: Number(process.env.DEMO_VIDEO_STEP_MS) || undefined, video: pretendClip, mask: pretendMask },
 }).then((c) => Object.assign(c, { version: "0.41.2" }));
 const fake = await pretendComfy(undefined, true);
 // the card each pretend ComfyUI says it has (/system_stats, the live monitor), as a real one would: this computer's first
