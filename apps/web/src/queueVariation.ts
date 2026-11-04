@@ -16,20 +16,12 @@ import { failedBanner } from "./sayFailed";
  * what the recipe takes; a recipe that cannot run here is refused with the reason.
  */
 export function useQueueVariation(into?: { draft?: string; folder?: string }) {
-  const setup = useSetup();
-  const modelSettings = useModelSettings();
+  const send = useSendJob(into);
   const client = useQueryClient();
   const say = useBanners((b) => b.push);
   return useMutation({
-    mutationFn: async (job: { recipe: RecipeInfo; stored: Record<string, unknown>; label: string; /** A pass of this item: its banner offers Compare when done. */ from?: string }) => {
-      const status = setup.data?.recipes.find((x) => x.id === job.recipe.id);
-      const why = setup.isSuccess ? notReady(status, setup.data.comfy.online) : null;
-      if (why) throw new Error(why);
-      const input = wholeForm(job.recipe, status, modelSettings.data?.items ?? [], job.stored);
-      const has = new Set(job.recipe.inputs.map((i) => i.id));
-      for (const id of Object.keys(input)) if (input[id] === undefined || !has.has(id)) delete input[id];
-      const queued = await api.enqueue(job.recipe.id, input, 1, null, into);
-      if (job.from) for (const id of queued.ids) passFrom.set(id, job.from);
+    mutationFn: async (job: QueuedJob) => {
+      await send(job);
       return job.label;
     },
     onSuccess: (label) => {
@@ -38,4 +30,32 @@ export function useQueueVariation(into?: { draft?: string; folder?: string }) {
     },
     onError: (err, job) => say(failedBanner({ id: "queued", href: "/settings", go: "Open Settings" }, `${job.label} could not be queued`, err)),
   });
+}
+
+/** A job queued from an item: its recipe, what it is handed, its name in the banner. */
+export interface QueuedJob {
+  recipe: RecipeInfo;
+  stored: Record<string, unknown>;
+  label: string;
+  /** A pass of this item: its banner offers Compare when done. */
+  from?: string;
+}
+
+/**
+ * The one way a job queued from an item is sent, alone (useQueueVariation) or one per item of a selection (selectionPasses.ts):
+ * the recipe's defaults under what is given, trimmed to what it takes; one that cannot run here is refused with the reason.
+ */
+export function useSendJob(into?: { draft?: string; folder?: string }) {
+  const setup = useSetup();
+  const modelSettings = useModelSettings();
+  return async (job: QueuedJob) => {
+    const status = setup.data?.recipes.find((x) => x.id === job.recipe.id);
+    const why = setup.isSuccess ? notReady(status, setup.data.comfy.online) : null;
+    if (why) throw new Error(why);
+    const input = wholeForm(job.recipe, status, modelSettings.data?.items ?? [], job.stored);
+    const has = new Set(job.recipe.inputs.map((i) => i.id));
+    for (const id of Object.keys(input)) if (input[id] === undefined || !has.has(id)) delete input[id];
+    const queued = await api.enqueue(job.recipe.id, input, 1, null, into);
+    if (job.from) for (const id of queued.ids) passFrom.set(id, job.from);
+  };
 }

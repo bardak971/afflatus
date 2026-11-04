@@ -9,6 +9,7 @@ import { useKeysHere } from "../keys/here";
 import { displayOf, useBanners, useHandover, useOpenDraft, usePanelWidth, useStudio, type Scope } from "../store";
 import { cx, Empty, Failed } from "../ui";
 import { Viewer } from "../viewer/LazyViewer";
+import { askViewer } from "../viewer/ask";
 import { useTileMenu } from "../TileMenu";
 import { FolderPanel, Tile } from "./Library";
 import { LoadMore } from "../LoadMore";
@@ -243,7 +244,7 @@ export function Studio({ open: forced, timelines: onTimelines }: { open?: boolea
     <div className="flex min-h-0 min-w-0 grow">
       {view.form ? <Suspense fallback={<PanelShape />}><CreatePanel folder={panelFolder} onClose={closePanel} /></Suspense> : <FormRail onOpen={() => view.set({ form: true })} />}
       <div className="flex min-w-0 grow flex-col">
-        <LibraryHeader place={place} folderButton={folderButton} foldersOpen={foldersOpen} onFolders={setFoldersOpen} view={view} draftId={draftId} draftOnly={stageOfDraft} count={visible.length} onSelectAll={selectAll} filters={filters} selection={selection} />
+        <LibraryHeader place={place} folderButton={folderButton} foldersOpen={foldersOpen} onFolders={setFoldersOpen} view={view} draftId={draftId} draftOnly={stageOfDraft} count={visible.length} onSelectAll={selectAll} filters={filters} selection={selection} onCompare={(pin, other) => { askViewer(other.id, "compare", pin); setOpen(other); }} />
 
         {/* no scroll anchoring of the browser's own: the grid's rows are placed absolutely, and only those in view are
             drawn (MediaGrid), so there is nothing above the view for it to follow */}

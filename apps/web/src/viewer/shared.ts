@@ -42,6 +42,20 @@ export function handsOf(r: RecipeInfo): { input: ChoiceInput; match: string; val
   return input && when ? { input, match: when.match, values: when.values } : undefined;
 }
 
+/** What a refusal to queue Hand refine says when ComfyUI has no hand detector. */
+export const NO_HAND_DETECTOR = "The hand detector is not installed: Settings → Models → Image tools has it (one click).";
+
+/**
+ * What Hand refine adds to the face detailer's form: the values it starts on with a hand detector, and the detector's file
+ * among those ComfyUI offers (`options`, the setup's lists for the recipe's inputs). `missing`: ComfyUI answers and has none (offline nothing is listed, and the queue says why).
+ */
+export function handsInput(tool: RecipeInfo, options: Record<string, string[]> | undefined, online: boolean): { values: Record<string, unknown>; missing: boolean } | undefined {
+  const way = handsOf(tool);
+  if (!way) return undefined;
+  const file = (options?.[way.input.id] ?? []).find((o) => new RegExp(way.match, "i").test(o));
+  return { values: { ...way.values, ...(file ? { [way.input.id]: file } : {}) }, missing: !file && online };
+}
+
 /** The render a pass on an item carries: its own, else the one it was taken from (a mirrored copy, a frame, a cut). */
 export const renderOf = (d: Pick<AssetDetail, "generation" | "ancestor"> | undefined): AssetDetail["generation"] => d?.generation ?? d?.ancestor ?? null;
 

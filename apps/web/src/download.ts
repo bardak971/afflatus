@@ -1,4 +1,4 @@
-import { failure, fileUrl, raw, type Asset } from "./api";
+import { api, failure, fileUrl, raw, type Asset } from "./api";
 
 /** A file into the browser's downloads: one helper for a file of the server, an item of the library, or a file made here. */
 
@@ -28,6 +28,16 @@ function saveAs(href: string, name: string): void {
 
 /** An item of the library, saved: a render comes marked as made by a model (the server's aiMark.ts). */
 export const saveAsset = (asset: Pick<Asset, "id" | "name" | "mime">) => saveAs(`${fileUrl(asset.id)}?download=1`, downloadName(asset));
+
+/**
+ * Several items of the library as one zip, renders marked as one by one: the server is handed the ids and gives an address
+ * the browser follows as a link, so the zip is written to the disk as it comes, never held in the page.
+ */
+export async function saveZip(ids: string[]): Promise<void> {
+  const { href } = await api.zipAssets(ids);
+  // no name of the page's own: the server's (how many items, when) is the one the file is saved under
+  saveAs(href, "");
+}
 
 /** Something made in the page (a JSON file), saved. Its address is let go a moment later: at once, some browsers save nothing. */
 function saveBlob(blob: Blob, name: string): void {

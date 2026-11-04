@@ -85,16 +85,19 @@ describe("the viewer over the screen", () => {
     <ViewerMedia acts={acts} player={{ current: null }} trim={false} onTrim={() => {}} trimRange={null} onTrimRange={() => {}} onMenu={() => {}} overlay {...more} />
   );
 
-  it("copies the picture on a click on it, and closes on a click beside it", () => {
+  it("copies the picture on a click on it, and closes on a click beside it", async () => {
     const onCopy = vi.fn();
     const onClose = vi.fn();
     draw(media({ onCopy, onClose }));
-    const img = screen.getByRole("img");
+    const img = screen.getByRole("button", { name: "Copy the picture" });
     expect(img.getAttribute("data-tip")).toBe("Click to copy the picture (Ctrl+C)");
-    fireEvent.click(img);
-    expect(onCopy).toHaveBeenCalledTimes(1);
+    fireEvent.click(img, { detail: 1 });
+    // a moment later: a double-click there zooms (fit / 1:1) instead of copying twice
+    expect(onCopy).not.toHaveBeenCalled();
+    await waitFor(() => expect(onCopy).toHaveBeenCalledTimes(1));
     expect(onClose).not.toHaveBeenCalled();
-    fireEvent.click(img.parentElement!);
+    // beside it: the room the picture is drawn in, around it
+    fireEvent.click(img.closest("[data-zoom-room]")!);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 

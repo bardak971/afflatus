@@ -296,7 +296,9 @@ export const PLACES: KeyPlace[] = [
       {
         name: "With the mouse",
         rows: [
-          { keys: "drag", does: "The item out: onto a folder, a form, a timeline", mouse: true },
+          { keys: "drag", does: "The item out: onto a folder, a form, a timeline", note: "a picture zoomed in: pans it", mouse: true },
+          { keys: "wheel", does: "Zoom a picture around the pointer", note: "comparing: both, in step", mouse: true },
+          { keys: "double-click", does: "A picture: fit / 1:1", mouse: true },
           { keys: "right-click", does: "The item's menu", mouse: true },
         ],
       },

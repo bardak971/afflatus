@@ -1,12 +1,17 @@
 import { useMemo, useRef, useState, type RefObject } from "react";
-import { Clock, Film, Search, SlidersHorizontal, Star, Trash2, Undo2 } from "lucide-react";
+import { Clock, Columns2, Download, Film, Search, SlidersHorizontal, Star, Trash2, Undo2, Wand2 } from "lucide-react";
 import { Popover } from "../../Popover";
 import { useFit } from "../../useFit";
 import { useLocation } from "wouter";
 import { useMakeTimelineOf } from "../../actions";
+import { ContextMenu, useMenu } from "../../ContextMenu";
+import { saveZip } from "../../download";
+import { selectionActions, toMenu } from "../../itemActions";
+import { useSayFailed } from "../../sayFailed";
+import { useSelectionPasses } from "../../selectionPasses";
 import type { Asset } from "../../api";
 import { useAssetFamilies, useAssetModels, useFolders, useRecipes, useProjects } from "../../data";
-import { fileLabel } from "../../format";
+import { fileLabel, plural } from "../../format";
 import { Select } from "../../Select";
 import { Button, Checkbox, Chip, CloseButton, cx, Help, IconButton, SearchField, SectionTitle, Segmented } from "../../ui";
 import type { Place } from "../Library";
@@ -33,7 +38,7 @@ const GROUP_HINT = {
  * The library's top row: the place (a breadcrumb inside the project worked in), what the grid shows beside an open form, the
  * kinds, the search, and either the filters or, with items ticked, what is done with them together.
  */
-export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: setFoldersOpen, view, draftId, draftOnly, count, onSelectAll, filters, selection }: {
+export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: setFoldersOpen, view, draftId, draftOnly, count, onSelectAll, filters, selection, onCompare }: {
   place: Place;
   /** The breadcrumb: the project's tree opens under it. */
   folderButton: RefObject<HTMLDivElement | null>;
@@ -49,6 +54,8 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
   onSelectAll(): void;
   filters: LibraryFilters;
   selection: Selection;
+  /** The two ticked, compared: the viewer opened on `other` with `pin` beside it. */
+  onCompare(pin: Asset, other: Asset): void;
 }) {
   const { kind, setKind, typed, setTyped, made, lora, kept, reach, showTimelines } = filters;
   const [path] = useLocation();
@@ -58,12 +65,13 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
   // one line, always: what does not fit folds, step by step (useFit): 1 the kinds into a menu, 2 the search into an icon,
   // 3 the breadcrumb narrower (its middle folds to "…"), 4 the display into a menu, 5 Media/Timelines into a menu, 6 the
   // results shown into a menu. With items ticked the selection bar comes in, the kinds and the search staying: 7 its
-  // buttons to icons, 8 the display and the results shown out of the header, 9 Media/Timelines out too (each is
-  // back once nothing is ticked). With the form open the header is 760–920 px wide and the breadcrumb alone took a third.
+  // buttons to icons, 8 the display and the results shown out of the header, 9 Media/Timelines out too, 10 the kinds
+  // out too (each is back once nothing is ticked; the selection's zip, passes and compare need the room). With the form
+  // open the header is 760–920 px wide and the breadcrumb alone took a third.
   const bar = useRef<HTMLElement>(null);
   const ticking = !draftOnly && picked.length > 0;
   // the selection coming or going changes what the row holds: it folds again from nothing
-  const fold = useFit(bar, 9, ticking ? "ticking" : "");
+  const fold = useFit(bar, 10, ticking ? "ticking" : "");
   const roomy = !ticking || fold < 8;
   const [searching, setSearching] = useState(false);
   // model, LoRA, Kept only and the grouping: set now and then, so in a panel; the button says how many are on
@@ -119,7 +127,7 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
           onChange={(d) => view.set({ displays: { ...view.displays, [scopeNow]: d }, ...(d === "Stage" ? {} : { size: d }) })}
         />
       )}
-      {!showTimelines && !draftOnly && (fold >= 1 ? (
+      {!showTimelines && !draftOnly && (!ticking || fold < 10) && (fold >= 1 ? (
         <div className="w-28 shrink-0">
           <Select size="sm" className={cx("h-9", kind !== "all" && "border-accent")} label="Kind" value={kind} onChange={(k) => setKind(k as typeof kind)} options={MEDIA_KINDS.map((k) => ({ value: k.id, label: k.label }))} />
         </div>
@@ -169,7 +177,7 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
             />
           )}
           {/* ticked items: what is done with them takes the filters' place, after the kinds and the search */}
-          {ticking && <SelectionBar place={place} count={count} onSelectAll={onSelectAll} selection={selection} compact={fold >= 7} />}
+          {ticking && <SelectionBar place={place} count={count} onSelectAll={onSelectAll} selection={selection} compact={fold >= 7} onCompare={onCompare} />}
           {!showTimelines && !ticking && <button
             ref={filtersButton}
             type="button"
@@ -190,10 +198,11 @@ export function LibraryHeader({ place, folderButton, foldersOpen, onFolders: set
 }
 
 /**
- * With items ticked: how many, and what is done with them together (a timeline of them, a folder, keep, the bin).
+ * With items ticked: how many, and what is done with them together (one zip of them, a pass on each picture, the two
+ * compared, a timeline of them, a folder, keep, the bin).
  * `compact`: the header is short of room, the buttons are their icons (named by their tips).
  */
-function SelectionBar({ place, count, onSelectAll, selection, compact }: { place: Place; count: number; onSelectAll(): void; selection: Selection; compact?: boolean }) {
+function SelectionBar({ place, count, onSelectAll, selection, compact, onCompare }: { place: Place; count: number; onSelectAll(): void; selection: Selection; compact?: boolean; onCompare(pin: Asset, other: Asset): void }) {
   const { picked, setPicked, bulk, moveTo, chosen, binChosen, eraseChosen } = selection;
   const folders = useFolders();
   const projects = useProjects();
@@ -223,10 +232,33 @@ function SelectionBar({ place, count, onSelectAll, selection, compact }: { place
     out.push({ value: "__none__", label: "Inbox", note: "out of every folder and project", group: "Inbox" });
     return out;
   }, [folders.data, projects.data]);
+  // together: one zip of them, a pass on each picture, the two compared (itemActions' selectionActions)
+  const passes = useSelectionPasses();
+  const passesMenu = useMenu<true>();
+  const sayFailed = useSayFailed({ id: "zip", here: true });
+  const together = selectionActions(
+    { count: picked.length, pictures: chosen.filter((a) => a.kind === "image").length, seen: chosen.filter((a) => a.kind !== "audio").length, inBin: place.type === "bin", passes: passes.passes },
+    {
+      zip: () => void saveZip(picked).catch(sayFailed("The zip could not be made")),
+      ...(passes.run.isPending ? {} : { pass: (id) => passes.run.mutate({ pass: id, items: chosen }) }),
+      // in the order they were ticked: the first pinned, the second the one the arrows then move through
+      compare: () => {
+        const [pin, other] = ordered;
+        if (pin && other) onCompare(pin, other);
+      },
+    },
+  );
+  const zip = together.find((x) => x.id === "download")!;
+  const passList = together.filter((x) => x.group === "passes");
+  const compare = together.find((x) => x.id === "compare");
   return (
     <div className="flex shrink-0 items-center gap-2 rounded-lg border border-accent bg-panel py-1 pr-1 pl-3">
+      {passesMenu.menu && <ContextMenu at={passesMenu.menu.at} label="Passes on the ticked pictures" head={{ title: `${plural(chosen.filter((a) => a.kind === "image").length, "picture")} ticked`, sub: "a pass on each" }} items={toMenu(passList, "grid", false)} onClose={passesMenu.close} />}
       <span className="font-semibold whitespace-nowrap">{picked.length} selected</span>
       {picked.length < count && <button type="button" data-tip={compact ? `Select all ${count}` : undefined} onClick={onSelectAll} className="text-xs whitespace-nowrap text-ink-2 underline hover:text-ink">{compact ? "all" : `select all ${count}`}</button>}
+      <Button size="sm" aria-label={compact ? zip.label : undefined} data-tip={zip.tip} disabled={zip.disabled} onClick={zip.run}><Download size={13} />{!compact && ` ${zip.label}`}</Button>
+      {passList.length > 0 && <Button size="sm" aria-haspopup="menu" aria-label={compact ? "Passes" : undefined} disabled={passes.run.isPending} data-tip="A pass on each ticked picture, one job each, with each one's own generation parameters" onClick={(e) => passesMenu.open(e, true)}><Wand2 size={13} />{!compact && (passes.run.isPending ? " Queuing…" : " Passes ▾")}</Button>}
+      {compare && <Button size="sm" aria-label={compact ? compare.label : undefined} data-tip={compare.tip} onClick={compare.run}><Columns2 size={13} />{!compact && ` ${compare.label}`}</Button>}
       {place.type === "bin" ? (
         <>
           <Button size="sm" onClick={() => bulk("restore")}><Undo2 size={13} /> Put back</Button>

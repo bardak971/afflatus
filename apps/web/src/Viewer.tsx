@@ -130,8 +130,11 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
   const [detailsAsked, setDetailsAsked] = useState(false);
   const [compareAsked, setCompareAsked] = useState(false);
   useEffect(() => {
-    const what = takeViewerAsk(first.id);
+    const asked = takeViewerAsk(first.id);
+    const what = asked?.what;
     if (what === "trim" && (first.kind === "video" || first.kind === "audio") && !first.inBin) setTrim(true);
+    // the two of a library selection: the one asked for pinned beside this one, whatever Compare would have picked
+    else if (what === "compare" && asked?.pin && asked.pin.id !== first.id) setPinned(asked.pin);
     else if (what === "compare") setCompareAsked(true);
     else if (what === "details") setDetailsAsked(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per item: the ask is taken, not watched
