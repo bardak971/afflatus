@@ -10,7 +10,7 @@ import { Button, Chip, cx, fieldClass, IconButton, NumberBox } from "../ui";
 import type { FixAsk } from "./useFixJob";
 
 /** The fix's settings in ⚙: the recipe's rarer rows (the mask's blur, the sampling); the prompt, denoise and grow are on the bar and strip. */
-export const FIX_ROWS = ["maskBlur", "negative", "steps", "cfg", "sampler", "scheduler"] as const;
+export const FIX_ROWS = ["maskBlur", "feathering", "negative", "steps", "cfg", "sampler", "scheduler"] as const;
 
 /** How many versions a Fix makes when nothing else was asked (the mock's ×3). */
 export const FIX_COUNT = 3;
@@ -20,11 +20,13 @@ export const FIX_COUNT = 3;
  * versions, ⚙ for the rest (with the full Inpaint form one click away), and Fix. Enter in the prompt and Ctrl+Enter
  * anywhere fix; Ctrl+Enter is the bar's while it shows, not the draft's Generate.
  */
-export function FixBar({ tool, job, mask, grow, busy, onFix, onFullForm }: {
+export function FixBar({ verb, tool, job, mask, grow, busy, onFix, onFullForm }: {
+  /** A fix of the painted part, or an outpaint of the frame dragged out: the bar's words, its job the same way. */
+  verb: "Fix" | "Outpaint";
   tool: RecipeInfo;
   /** The job as Fix would queue it, for ⚙'s rows to start on. */
   job: QueuedJob;
-  /** What the mask holds ("1 area, soft"); null: nothing painted yet. */
+  /** What the mask holds ("316×278, soft"), or what the frame adds; null: nothing yet. */
   mask: string | null;
   grow: number;
   busy: boolean;
@@ -39,17 +41,18 @@ export function FixBar({ tool, job, mask, grow, busy, onFix, onFullForm }: {
   const [tuned, setTuned] = useState<Record<string, unknown>>({});
   const openTune = useTune((t) => t.open);
   const ask = { prompt, strength, grow, tuned };
-  const why = !mask ? "Paint the part to redo first" : busy ? "Sending…" : null;
+  const fixing = verb === "Fix";
+  const why = !mask ? (fixing ? "Paint the part to redo first" : "Drag the frame's edges out first") : busy ? "Sending…" : null;
   const fix = (more: Record<string, unknown> = {}) => {
     if (!why) onFix({ ...ask, tuned: { ...tuned, ...more }, count });
   };
   const tune = (gear: Element) =>
     openTune(tuneAt(gear), {
-      action: "inpaint",
-      title: "Inpaint",
+      action: fixing ? "inpaint" : "outpaint",
+      title: fixing ? "Inpaint" : "Outpaint",
       sub: plural(count, "version"),
       rows: FIX_ROWS,
-      go: `Fix ×${count}`,
+      go: `${verb} ×${count}`,
       job: { ...job, stored: { ...job.stored, ...tuned } },
       queue: (changed) => {
         setTuned((t) => ({ ...t, ...changed }));
@@ -74,11 +77,15 @@ export function FixBar({ tool, job, mask, grow, busy, onFix, onFullForm }: {
     <div className="flex w-full max-w-[880px] shrink-0 flex-col items-center gap-1.5">
       {/* on a narrow stage the prompt keeps a row of its own, the numbers and Fix wrapping under it */}
       <div role="group" aria-label="Fix" className="flex w-full flex-wrap items-center justify-end gap-2">
-        <Chip tone={mask ? "accent" : "neutral"} tip={mask ? "What the fix redoes: the painted part, its soft edge included" : "Paint over the part to redo: P the brush, B a box, L a lasso"}>Mask · {mask ?? "nothing painted"}</Chip>
+        {fixing ? (
+          <Chip tone={mask ? "accent" : "neutral"} tip={mask ? "What the fix redoes: the painted part, its soft edge included" : "Paint over the part to redo: P the brush, B a box, L a lasso"}>Mask · {mask ?? "nothing painted"}</Chip>
+        ) : (
+          <Chip tone={mask ? "accent" : "neutral"} tip="What the outpaint adds round the picture: the frame's edges dragged out (R)">Frame · {mask ?? "the picture's own edges"}</Chip>
+        )}
         <input
-          aria-label="What the painted part becomes"
+          aria-label={fixing ? "What the painted part becomes" : "What the added parts show"}
           value={prompt}
-          placeholder="What the painted part becomes · empty: the picture's own prompt"
+          placeholder={fixing ? "What the painted part becomes · empty: the picture's own prompt" : "What the added parts show · empty: the picture's own prompt"}
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={(e) => {
             // the layer's keys (P, E, [ ]…) are not the prompt's: it keeps every key typed in it
@@ -91,7 +98,7 @@ export function FixBar({ tool, job, mask, grow, busy, onFix, onFullForm }: {
           }}
           className={cx(fieldClass, "h-9 min-w-60 grow basis-60")}
         />
-        {denoise && (
+        {denoise && fixing && (
           <span className="flex items-center gap-1.5 text-xs text-ink-2">
             Denoise <NumberBox label="Denoise" value={strength} min={denoise.min ?? 0.05} max={denoise.max ?? 1} step={denoise.step ?? 0.05} onCommit={setStrength} className="w-16" />
           </span>
@@ -103,10 +110,10 @@ export function FixBar({ tool, job, mask, grow, busy, onFix, onFullForm }: {
           <Settings2 size={15} />
         </IconButton>
         <Button tone="primary" disabled={Boolean(why)} data-tip={why ?? `${plural(count, "version")} of the picture, each on a new seed`} onClick={() => fix()} className="h-9 shrink-0">
-          <Wand2 size={14} /> Fix · {plural(count, "version")} <Kbd>Ctrl+Enter</Kbd>
+          <Wand2 size={14} /> {verb} · {plural(count, "version")} <Kbd>Ctrl+Enter</Kbd>
         </Button>
       </div>
-      <span className="text-xs text-ink-3"><Kbd>Esc</Kbd> leaves Paint and fix · an unkept version expires like any render</span>
+      <span className="text-xs text-ink-3"><Kbd>Esc</Kbd> leaves {fixing ? "Paint and fix" : "Outpaint"} · an unkept version expires like any render</span>
     </div>
   );
 }

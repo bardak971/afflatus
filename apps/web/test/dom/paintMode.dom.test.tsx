@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import type { Asset, RecipeInfo } from "../../src/api";
-import { fixInputs } from "../../src/paintFix/useFixJob";
+import { findOn } from "../../src/paintFix/findOn";
+import { frameSaid } from "../../src/paintFix/PaintAndFix";
+import { fixInputs, outInputs } from "../../src/paintFix/useFixJob";
 import { useStageMode, useVersionDrafts, versionOfDraft } from "../../src/paintFix/useStageMode";
 import { Viewer } from "../../src/Viewer";
 import { fakeApi } from "./fakeApi";
@@ -90,5 +92,38 @@ describe("what a fix sends", () => {
     expect(versionOfDraft("zz-test-draft", head.id)).toBe(head.id);
     expect(versionOfDraft("zz-test-draft", "zz-test-other")).toBeUndefined();
     expect(versionOfDraft("zz-test-elsewhere", head.id)).toBeUndefined();
+  });
+});
+
+describe("what an outpaint sends", () => {
+  const sides = { shape: "Custom" as const, padLeft: 192, padTop: 128, padRight: 0, padBottom: 0 };
+  it("is the frame's sides as the Custom shape, the prompt only when written", () => {
+    const tool = { id: "zz-test.outpaint", inputs: [{ id: "prompt", type: "prompt" }, { id: "padLeft", type: "number" }] } as unknown as RecipeInfo;
+    expect(outInputs(tool, { prompt: "", tuned: {} }, sides)).toEqual(sides);
+    expect(outInputs(tool, { prompt: " more tables ", tuned: { feathering: 40 } }, sides)).toEqual({ ...sides, prompt: "more tables", feathering: 40 });
+  });
+
+  it("is said on the chip side by side, nothing when the frame is the picture's own", () => {
+    expect(frameSaid(sides)).toBe("+192 left · +128 top");
+    expect(frameSaid({ ...sides, padLeft: 0, padTop: 0 })).toBeNull();
+  });
+});
+
+describe("a mask found on the Stage", () => {
+  it("queues the find, asks until it is done, and hands the masks over in the layer's shape", async () => {
+    fakeApi.on("POST /assets/:id/find-mask", { job: "zz-test-find" });
+    let asked = 0;
+    fakeApi.on("GET /assets/:id/find-mask/:job", () => (++asked < 2
+      ? { status: "running", error: null, masks: [] }
+      : { status: "done", error: null, masks: [{ asset: { id: "zz-test-found" }, box: { x: 10, y: 20, width: 30, height: 40 } }] }));
+    const found = await findOn(head.id)({ way: "points", add: [{ x: 5, y: 6 }], remove: [] });
+    expect(found).toEqual([{ asset: "zz-test-found", box: { x: 10, y: 20, w: 30, h: 40 } }]);
+    expect(fakeApi.calls("POST", "/assets/zz-test-head/find-mask")[0]!.body).toEqual({ way: "points", add: [{ x: 5, y: 6 }], remove: [] });
+  });
+
+  it("throws the job's own reason when it failed, for the layer's strip to say", async () => {
+    fakeApi.on("POST /assets/:id/find-mask", { job: "zz-test-find" });
+    fakeApi.on("GET /assets/:id/find-mask/:job", { status: "failed", error: "zz-test: SAM 3 is not installed", masks: [] });
+    await expect(findOn(head.id)({ way: "detect", what: "face" })).rejects.toThrow("zz-test: SAM 3 is not installed");
   });
 });

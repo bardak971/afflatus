@@ -47,6 +47,14 @@ export interface AssetVersions {
   head: Asset;
   versions: Asset[];
 }
+/** What a find-mask job looks for on a picture: the thing under points clicked (SAM), or what a detector finds. */
+export type FindAsk = { way: "points"; add: Array<{ x: number; y: number }>; remove: Array<{ x: number; y: number }> } | { way: "detect"; what: "face" | "hands" | "person" };
+/** Where a find-mask job stands; once done, each mask found (a working picture) and its box in the picture's pixels. */
+export interface FoundMasks {
+  status: "queued" | "running" | "done" | "failed" | "cancelled";
+  error: string | null;
+  masks: Array<{ asset: Asset; box: { x: number; y: number; width: number; height: number } }>;
+}
 /** A library video's place on a timeline. */
 export interface ClipOf {
   timeline: string;

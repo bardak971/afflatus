@@ -21,7 +21,7 @@ import { ViewerSidebar } from "./viewer/ViewerSidebar";
 import { useCompareResult } from "./store";
 import { useVersions } from "./paintFix/useVersions";
 import { stepVersion, VersionStrip } from "./paintFix/VersionStrip";
-import { useStageMode } from "./paintFix/useStageMode";
+import { outpaintsByFrame, useStageMode } from "./paintFix/useStageMode";
 
 // the parameters reader is a chunk of its own: fetched the first time Details opens
 const PngInfo = lazy(() => import("./PngInfo").then((m) => ({ default: m.PngInfo })));
@@ -68,11 +68,12 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
     if (next) showVersion(next);
     return Boolean(next);
   };
-  // Paint and fix (Inpaint, I): the Stage paints a mask over the picture shown, any version of its stack; the keys are the layer's
+  // Paint and fix (Inpaint I, Outpaint R): the Stage draws over the picture shown, any version of its stack; the keys are the layer's
   const stageOn = useStageMode((s) => s.on);
   const inStack = (id: string) => id === asset.id || id === base.id || versions.all.some((v) => v.id === id);
-  const paintAsked = asset.kind === "image" && !asset.inBin && stageOn?.mode === "paint" && inStack(stageOn.asset);
+  const paintAsked = asset.kind === "image" && !asset.inBin && Boolean(stageOn) && inStack(stageOn!.asset);
   const paint = () => useStageMode.getState().set(asset.id, "paint");
+  const outpaint = () => useStageMode.getState().set(asset.id, "outpaint");
   const leavePaint = () => useStageMode.getState().leave();
   // another item shown, or the viewer gone: its Paint and fix ends with it (the mode of another picture is left alone)
   const stack = useRef(inStack);
@@ -155,7 +156,7 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
       trim: () => setTrim((t) => !t),
       ...(canCompare ? { compare: toggleCompare } : {}),
       details,
-      ...(asset.kind === "image" && !asset.inBin ? { inpaint: paint } : {}),
+      ...(asset.kind === "image" && !asset.inBin ? { inpaint: paint, ...(outpaintsByFrame(acts.toolFor("r")) ? { outpaint } : {}) } : {}),
     },
   );
 
@@ -316,7 +317,7 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
       onDetails={onDetails}
       onClose={onClose}
       onCopy={actionOfKey(list, place, "Ctrl+C")?.run}
-      paint={painting ? { stack: versions.root || asset.id, strip } : null}
+      paint={painting && stageOn ? { stack: versions.root || asset.id, mode: stageOn.mode, strip } : null}
     />
   );
   if (inline) {

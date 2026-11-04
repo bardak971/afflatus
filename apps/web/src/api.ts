@@ -4,7 +4,7 @@ import { size } from "./format";
 import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 export type { ModelInfo };
 import type { Advice, DeployOverhead, FillPlan, FormPacks, SetFinding, GpuOffer, HuntAsk, HuntView, HistoryPage, NetworkVolume, VolumeFilesView, VolumePlan, Job, QueueAnswer, QueuePart, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RedeployOffer, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
-import type { Asset, AssetDetail, AssetVersions, Folder, Project, ProjectsTree, Storage } from "./api/types/library";
+import type { Asset, AssetDetail, AssetVersions, FindAsk, Folder, FoundMasks, Project, ProjectsTree, Storage } from "./api/types/library";
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch, FaceRoute, TakeMade } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView, type PresetFile } from "./api/types/designer";
 import type { DeployAsk, FfmpegGetView, Health, FinishRedo, FinishSettings, MachineProbe, McpActivity, McpScope, McpStart, McpToken, SessionState, Settings, SettingsPatch, SignedDevices } from "./api/types/settings";
@@ -612,6 +612,9 @@ export const api = {
   keepVersion: (id: string, version: string) => call<AssetVersions>("POST", `/assets/${id}/versions/keep`, { version }),
   /** Every version kept as a picture of its own, beside the original. */
   keepAllVersions: (id: string) => call<AssetVersions>("POST", `/assets/${id}/versions/keep-all`, {}),
+  /** A mask found on a picture (click to mask, the detectors): its job, queued ahead of the renders; then where it stands and what it found. */
+  findMask: (id: string, ask: FindAsk) => call<{ job: string }>("POST", `/assets/${id}/find-mask`, ask),
+  foundMasks: (id: string, job: string, o?: Asked) => call<FoundMasks>("GET", `/assets/${id}/find-mask/${job}`, undefined, o?.signal),
   /** Several items at once: kept or not, to the bin, or back from it. */
   /** `inUse`: how many were left as they were because something still uses them (a timeline, the kit, a draft, a job to run). */
   bulkAssets: (ids: string[], action: "keep" | "unkeep" | "bin" | "restore") => call<{ changed: number; inUse?: number }>("POST", "/assets/bulk", { ids, action }),
