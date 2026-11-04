@@ -1,4 +1,4 @@
-import { type BuildContext, type GraphBuilder, type InputSpec, type Ref, type ReferenceRole, type ReferenceValue } from "@afflatus/core";
+import { type BuildContext, type FormRefusal, type GraphBuilder, type InputSpec, type Ref, type ReferenceRole, type ReferenceValue } from "@afflatus/core";
 
 /**
  * Reference images on a picture form: pictures the new one takes something from without being drawn from them. The same two
@@ -69,12 +69,27 @@ export const IP_FILES = {
 /** Whether a reference is read for the face in it (FaceID), or for what it looks like (Plus). */
 const isPerson = (r: ReferenceValue) => r.role === "person";
 
+/** What SDXL's reference images can show. */
+const ROLES: ReferenceRole[] = ["person", "style", "object", "place", "clothing"];
+
 /** SDXL's rows: a person by their face (FaceID), anything else by its look (Plus); a style picture by its style alone. */
 export const IP_ADAPTER_INPUTS = referenceInputs({
-  max: 3, roles: ["person", "style", "object", "place", "clothing"], strength: 0.7, noCast: true,
-  note: "IP-Adapter: a person keeps their face (FaceID Plus V2), a style picture gives its style alone, anything else its look and subject",
+  max: 3, roles: ROLES, strength: 0.7, noCast: true,
+  note: "IP-Adapter: a person keeps their face (FaceID Plus V2), a style picture gives its style alone, anything else its look and subject. A person's picture is not taken with others yet: together, the other was copied and no person drawn",
   strengthNote: "IP-Adapter's weight: 0.5 leaves the prompt in charge, 1 follows the pictures closely",
 });
+
+/**
+ * A person's picture (FaceID) with any other (Plus) is refused until the two are tuned to work together: on the pod test of
+ * 2026-11-04 (card #280) a place picture at Plus's "linear" 0.7 beside a FaceID person copied the place and drew no person
+ * at all, where each alone came out well. Refused before the job is queued (Recipe.refuses), and by the build for a job
+ * queued before.
+ */
+export const IP_NOT_BOTH = "SDXL takes a person's reference image (FaceID) or other reference images (IP-Adapter Plus), not both yet: together, the other picture was copied and no person drawn. Remove one of them.";
+export const IP_REFUSES: FormRefusal[] = [{
+  when: { all: [{ input: "references", field: "role", among: ["person"] }, { input: "references", field: "role", among: ROLES.filter((r) => r !== "person") }] },
+  why: IP_NOT_BOTH,
+}];
 
 /** The nodes IP-Adapter brings in for these pictures. */
 export const ipAdapterNodes = (input: Partial<ReferenceSettings>): string[] => {
@@ -97,6 +112,7 @@ export function withIpAdapter(g: GraphBuilder, ctx: BuildContext, model: Ref, in
   if (!input.references.length) return { model, loads: [] };
   const people = input.references.some(isPerson);
   const looks = input.references.some((r) => !isPerson(r));
+  if (people && looks) throw new Error(IP_NOT_BOTH);
   if (!ctx.slots.ipVision || (looks && !ctx.slots.ipAdapter) || !ctx.has("IPAdapterAdvanced")) throw new Error(IPA_NEEDED);
   if (people && (!ctx.slots.faceId || !ctx.slots.faceIdLora || !ctx.has("IPAdapterFaceID"))) throw new Error(FACEID_NEEDED);
   const vision = g.out("CLIPVisionLoader", { clip_name: ctx.slots.ipVision });

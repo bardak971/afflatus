@@ -618,8 +618,10 @@ describe("things done to a picture", () => {
     expect(pickChoice(upscaler, ["a.pth", "4x-UltraSharp.pth"])).toBe("4x-UltraSharp.pth");
     expect(pickChoice(upscaler, ["RealESRGAN_x4plus_anime_6B.pth", "RealESRGAN_x4plus.pth"])).toBe("RealESRGAN_x4plus.pth");
     expect(pickChoice(upscaler, ["anime_only.pth"])).toBe("anime_only.pth");
+    // a user's own Nomos8kSC under its older name is taken over the default's file
+    expect(pickChoice(upscaler, ["4x-UltraSharp.pth", "4xNomos8kSC.pth"])).toBe("4xNomos8kSC.pth");
     // nothing offered (ComfyUI not asked yet): the default stands
-    expect(pickChoice(upscaler, [])).toBe("4x-UltraSharp.pth");
+    expect(pickChoice(upscaler, [])).toBe("4xNomos8kSC.safetensors");
     const finder = recipeById("klein.fix-face")!.inputs.find((i) => i.id === "detector") as ChoiceInput;
     expect(pickChoice(finder, ["bbox/hand_yolov8s.pt", "bbox/face_yolov8n.pt"])).toBe("bbox/face_yolov8n.pt");
   });

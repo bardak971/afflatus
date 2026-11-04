@@ -26,6 +26,8 @@ interface Kind {
   denoise: number;
   /** The tallest one redrawn, in pixels of the picture as drawn (before a hires fix); 0, any size. */
   under: number;
+  /** Only this many are redrawn, the largest first; 0, all of them. */
+  most: number;
   prompt: string;
   /** Why the size gate is where it is, for the "?". */
   gate: string;
@@ -38,18 +40,19 @@ interface Kind {
 const KINDS: Kind[] = [
   {
     // a person whose crop is redrawn at the guide size only gains where they are small: past half a 1024 picture's height
-    // the crop is redrawn at its own size or smaller, which only softens it
-    key: "Person", word: "person", one: "person", slot: "personDetector", segm: true, crop: 1.2, denoise: 0.35, under: 512, prompt: "",
+    // the crop is redrawn at its own size or smaller, which only softens it. The two largest only: on a street, every
+    // passer-by was redrawn at 1024, 139 s against 7 s for almost nothing seen (the pod test, card #280)
+    key: "Person", word: "person", one: "person", slot: "personDetector", segm: true, crop: 1.2, denoise: 0.35, under: 512, most: 2, prompt: "",
     gate: "a person taller than that is redrawn at about their own size, which adds no detail",
   },
   {
     // the owner's hand test (HAND_VALUES): a lighter denoise, a tighter crop, words about hands. Broken fingers are not a
-    // matter of size, so hands of any size are gone over
-    key: "Hands", word: "hands", one: "hand", slot: "handDetector", segm: false, crop: HAND_VALUES.faceCrop, denoise: HAND_VALUES.strength, under: 0, prompt: HAND_VALUES.prompt,
+    // matter of size, so hands of any size are gone over; the four largest only, two people's, not a crowd's
+    key: "Hands", word: "hands", one: "hand", slot: "handDetector", segm: false, crop: HAND_VALUES.faceCrop, denoise: HAND_VALUES.strength, under: 0, most: 4, prompt: HAND_VALUES.prompt,
     gate: "0 goes over hands of any size: broken fingers are not a matter of size",
   },
   {
-    key: "Face", word: "face", one: "face", slot: "faceDetector", segm: false, crop: 3, denoise: 0.4, under: SMALL_FACE_PX, prompt: "",
+    key: "Face", word: "face", one: "face", slot: "faceDetector", segm: false, crop: 3, denoise: 0.4, under: SMALL_FACE_PX, most: 0, prompt: "",
     gate: `Krea 2's pod test (card #217): faces of 120–130 px gained, those of 200–300 px stayed where they were, close-ups came out worse`,
   },
 ];
@@ -87,25 +90,32 @@ export interface AdetailSettings {
 }
 
 /**
+ * SDXL's face redrawn at 0.4 came out a smoother, younger, other person on the pod test (a 100–120 px face, card #280), where
+ * Z-Image's stayed the same woman with cleaner eyes: SDXL's face pass starts lighter.
+ */
+export const SDXL_FACE_DENOISE = 0.3;
+
+/**
  * The Detail rows: a switch on the Output shelf for each, its prompt (under the main one) and denoise while it is on, its size
  * gate under All settings. `style`: how the family reads text. `faceNote`: what the family's face pass does beside it (a
- * person reference's face redrawn from their picture).
+ * person reference's face redrawn from their picture). `faceDenoise`: the family's own start for the face's denoise.
  */
-export function adetailInputs(style: "tags" | "sentences", faceNote = ""): InputSpec[] {
+export function adetailInputs(style: "tags" | "sentences", faceNote = "", faceDenoise?: number): InputSpec[] {
   return KINDS.slice().reverse().flatMap((k): InputSpec[] => {
     const id = `detail${k.key}`;
     const Word = capital(k.word);
     const gate = k.under ? `only ${k.word === "hands" ? "hands" : `a ${k.word}`} under ${k.under} px tall at the drawn size` : `${k.word} of any size`;
+    const most = k.most ? `, and only the ${k.most} largest (a crowd's others are left as drawn)` : "";
     return [
       {
         id, type: "toggle", label: `Detail: ${k.word}`, default: false, section: "out",
-        note: `ADetailer inside the render: after the picture and its hires fix, each ${k.one} the YOLOv8 ${k.one} detector finds is cropped, redrawn larger by this model and pasted back with a soft edge, in the same job; ${gate} (the size gate under All settings). Needs the Impact Pack and its Subpack, and ${fileOf(k)} in models/ultralytics (Settings › Models): without them the picture is made without the pass, and its job says so${k.key === "Face" && faceNote ? `. ${faceNote}` : ""}`,
+        note: `ADetailer inside the render: after the picture and its hires fix, each ${k.one} the YOLOv8 ${k.one} detector finds is cropped, redrawn larger by this model and pasted back with a soft edge, in the same job; ${gate} (the size gate under All settings)${most}. Needs the Impact Pack and its Subpack, and ${fileOf(k)} in models/ultralytics (Settings › Models): without them the picture is made without the pass, and its job says so${k.key === "Face" && faceNote ? `. ${faceNote}` : ""}`,
       },
       {
         id: `${id}Prompt`, type: "prompt", label: `${Word} detail prompt`, style, optional: true, default: k.prompt, showWhen: id,
         note: `what the ${k.word} is redrawn from. Empty: the picture's own prompt, as ADetailer does`,
       },
-      { id: `${id}Denoise`, type: "number", label: `${Word} detail denoise`, note: `how much of the ${k.word} is redrawn: 0.3 cleans it, 0.6 can make another one`, min: 0.1, max: 0.8, step: 0.05, default: k.denoise, showWhen: id, section: "out" },
+      { id: `${id}Denoise`, type: "number", label: `${Word} detail denoise`, note: `how much of the ${k.word} is redrawn: 0.3 cleans it, 0.6 can make another one`, min: 0.1, max: 0.8, step: 0.05, default: (k.key === "Face" && faceDenoise) || k.denoise, showWhen: id, section: "out" },
       {
         id: `${id}Under`, type: "number", label: `${Word} detail: only under`, min: 0, max: 2048, step: 16, default: k.under, unit: " px", showWhen: id, advanced: true, section: "out",
         note: `the tallest ${k.word} redrawn, at the size the picture is drawn at (before the hires fix); 0, any size. ${capital(k.gate)}`,
@@ -130,7 +140,7 @@ export function adetailNeeds(input: Partial<AdetailSettings>, slots?: Record<str
 }
 
 /** The Impact Pack's nodes (and its Subpack's detector): optional, a pass done without when they are missing, the job saying so. */
-export const ADETAIL_OPTIONAL = ["UltralyticsDetectorProvider", "BboxDetectorSEGS", "SegmDetectorSEGS", "ImpactSEGSRangeFilter", "DetailerForEach"];
+export const ADETAIL_OPTIONAL = ["UltralyticsDetectorProvider", "BboxDetectorSEGS", "SegmDetectorSEGS", "ImpactSEGSRangeFilter", "ImpactSEGSOrderedFilter", "DetailerForEach"];
 
 /** What the render redraws with: its model and how it samples, and its texts (null: the render's own prompt). */
 export interface DetailWith {
@@ -195,6 +205,8 @@ export function adetail(g: GraphBuilder, ctx: BuildContext, input: AdetailSettin
     const under = Number(values[`${id}Under`] ?? 0);
     // Impact's range filter reads the crop, which is the area's height times the crop factor
     if (under > 0) segs = g.out("ImpactSEGSRangeFilter", { segs, target: "height", mode: true, min_value: 0, max_value: Math.round(under * w.scale * k.crop) });
+    // the largest of those left, by their crop's area: each one found is a crop redrawn at the guide size
+    if (k.most) segs = g.out("ImpactSEGSOrderedFilter", { segs, target: "area(=w*h)", order: true, take_start: 0, take_count: k.most });
     const text = String(values[`${id}Prompt`] ?? "").trim();
     const c = w.cond(text || null, k.key);
     const steps = faceSteps(w.steps);

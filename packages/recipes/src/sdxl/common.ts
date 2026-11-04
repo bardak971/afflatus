@@ -351,8 +351,31 @@ export function repaintGuided(g: GraphBuilder, m: { positive: Ref; negative: Ref
   return { positive: [applied, 0] as Ref, negative: [applied, 1] as Ref };
 }
 
-/** The upscale models that suit most pictures, best first. */
-/** Which upscale model a picture recipe starts on when its default is not there: UltraSharp, else Nomos8kSC (photos), else a general one, an anime one last. */
+/**
+ * The upscale model Upscale and SDXL's hires fix start on: Phips's 4xNomos8kSC (photos, CC BY 4.0), as a safetensors (not a
+ * pickle) at the commit its hash was read from (2026-11-04). 4x-UltraSharp.pth, the start before, has a dozen copies under
+ * its name on Hugging Face and none Afflatus can tell is the one: a fresh pod could not fetch it (the pod test, card #280).
+ */
+export const UPSCALER_DEFAULT = "4xNomos8kSC.safetensors";
+
+/**
+ * The two upscale models the picture forms start on, as downloads (Settings › Models) and as the sources a pod fetches them
+ * from: 4xNomos8kSC, and RealESRGAN x4plus, where the flow families' hires fix starts (pinned as podSources' USUAL_COPIES is).
+ */
+export const UPSCALER_SLOTS = [
+  {
+    id: "upscaler", label: "Upscaler (Upscale, SDXL hires fix)", folder: "upscale_models", detect: ["nomos8ksc"], optional: true,
+    hint: `Optional, 33 MB: the upscale model Upscale and SDXL's hires fix start on, in ComfyUI's models/upscale_models folder. Any other there can be picked in the form.`,
+    get: { file: UPSCALER_DEFAULT, url: `https://huggingface.co/Phips/4xNomos8kSC/resolve/623bdf3d1ec5bccb02548a79eec1b62d32ff86fd/${UPSCALER_DEFAULT}`, sha256: "9e158a603ceb1a21de7159cbdf32c402d1d68d03397f3d6d473d0152fc12122c" },
+  },
+  {
+    id: "upscalerGeneral", label: "Upscaler (hires fix)", folder: "upscale_models", detect: ["realesrgan_x4plus(?!.*anime)"], optional: true,
+    hint: "Optional, 64 MB: RealESRGAN x4plus, the upscale model the hires fix of FLUX.1, Klein, Krea 2, Qwen and Z-Image starts on, in ComfyUI's models/upscale_models folder.",
+    get: { file: "RealESRGAN_x4plus.pth", url: "https://huggingface.co/lllyasviel/Annotators/resolve/982e7edaec38759d914a963c48c4726685de7d96/RealESRGAN_x4plus.pth", sha256: "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1" },
+  },
+];
+
+/** Which upscale model a picture recipe starts on when its default is not there: Nomos8kSC (photos), else a general one, an anime one last. */
 export const UPSCALER_PREFER = ["nomos8ksc", "clearreality", "ultrasharp", "x4plus(?!.*anime)", "nomosuni", "remacri|nmkd|siax|foolhardy", "^(?!.*anime)", "."];
 
 /**

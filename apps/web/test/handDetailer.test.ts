@@ -24,8 +24,9 @@ describe("the face detailer's form on a hand detector", () => {
 
   it("keeps what was changed on purpose, and brings the face values back with a face detector", () => {
     expect(start({ detector: HAND, strength: 0.5, prompt: "gloves" })).toMatchObject({ strength: 0.5, faceCrop: 2, prompt: "gloves" });
-    expect(start({ detector: FACE })).toMatchObject({ strength: 0.4, faceCrop: 3, prompt: "" });
-    expect(start({})).toMatchObject({ detector: FACE, strength: 0.4, faceCrop: 3 });
+    // SDXL's face starts at 0.3 (card #280: at 0.4 it made another person)
+    expect(start({ detector: FACE })).toMatchObject({ strength: 0.3, faceCrop: 3, prompt: "" });
+    expect(start({})).toMatchObject({ detector: FACE, strength: 0.3, faceCrop: 3 });
   });
 });
 

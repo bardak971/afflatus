@@ -838,6 +838,8 @@ export type StartCondition =
   | { not: StartCondition }
   | { input: string; is: unknown }
   | { input: string; filled: true }
+  /** A list input (reference images) with an item whose `field` is one of `among`: a person picture among the references. */
+  | { input: string; field: string; among: unknown[] }
   | { name: { input?: string; slot?: string }; match: string };
 
 /** Settings that start elsewhere while a condition holds: what the render runs with the setup it finds. */
@@ -856,6 +858,7 @@ export function conditionHolds(c: StartCondition, values: Record<string, unknown
     return new RegExp(c.match, "i").test(file.split(/[\\/]/).pop() ?? "");
   }
   const v = values[c.input];
+  if ("among" in c) return Array.isArray(v) && v.some((item) => item !== null && typeof item === "object" && c.among.includes((item as Record<string, unknown>)[c.field]));
   if ("filled" in c) return Array.isArray(v) ? v.length > 0 : typeof v === "string" ? v.trim() !== "" : Boolean(v);
   return v === c.is;
 }
