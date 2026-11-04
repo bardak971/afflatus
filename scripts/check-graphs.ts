@@ -15,6 +15,12 @@ const raw = /^https?:/.test(arg)
   ? await (await fetch(`${arg.replace(/\/+$/, "")}/object_info`)).text()
   : readFileSync(arg, "utf-8");
 const catalog = JSON.parse(raw) as NodeCatalog;
+// the inputs each node takes, as the server tells a build of the ComfyUI it runs on (jobPacks.ts inputsIn): a recipe that
+// names an input only where the node has it (IP-Adapter's InsightFace model, card #282) is checked as it is built there
+const inputsOf = (node: string): string[] | null => {
+  const def = catalog[node];
+  return def ? [...Object.keys(def.input.required ?? {}), ...Object.keys(def.input.optional ?? {})] : null;
+};
 
 /**
  * LTX guides of several frames (a clip's, from LoadVideo) put anywhere but frame 0 off ComfyUI's grid: LTXVAddGuide moves one
@@ -41,7 +47,7 @@ for (const recipe of recipes) {
     const label = `${recipe.id} · ${v.name}`;
     try {
       const input = parseInput(recipe, v.input);
-      const ctx = (slots: Record<string, string>) => dryContext({ slots, uploads: v.uploads ?? {}, media: v.media ?? {}, canvas: v.canvas, ...(v.has ? { has: v.has } : {}) });
+      const ctx = (slots: Record<string, string>) => dryContext({ slots, uploads: v.uploads ?? {}, media: v.media ?? {}, canvas: v.canvas, inputs: inputsOf, ...(v.has ? { has: v.has } : {}) });
       const built = recipe.build(input, ctx(v.slots ?? {}));
       const problems = checkGraph(built, catalog);
       problems.push(...fileGaps(recipe, v, input as Record<string, unknown>, ctx));

@@ -183,6 +183,14 @@ describe("reference images on SDXL (IP-Adapter)", () => {
     // every pass samples the referenced model
     for (const [, k] of of(p, "KSampler")) expect(from(p, k.inputs.model).class_type).toBe("IPAdapterFaceID");
   });
+  // the pack's last commit, built into the pod base, requires the InsightFace model's name; the Registry's 2.0.0 has no such
+  // input and refuses one it does not know (card #282: every FaceID graph refused on a pod of image 0.1.55)
+  it("names buffalo_l to the InsightFace loader where it asks which, and only there", () => {
+    const loader = (inputs?: string[]) => of(r.build(parseInput(r, faceId.input), dryContext({ slots: faceId.slots ?? {}, uploads: faceId.uploads ?? {}, ...(inputs ? { inputs: (n: string) => (n === "IPAdapterInsightFaceLoader" ? inputs : null) } : {}) })), "IPAdapterInsightFaceLoader").map(([, n]) => n.inputs);
+    expect(loader(["provider", "model_name"])).toEqual([{ provider: "CPU", model_name: "buffalo_l" }]);
+    expect(loader(["provider"])).toEqual([{ provider: "CPU" }]);
+    expect(loader()).toEqual([{ provider: "CPU" }]);
+  });
   // on the pod test a place picture beside a FaceID person was copied and no person drawn (card #280)
   it.each(["sdxl.text-to-picture", "sdxl.redraw"])("%s refuses a person's picture with any other, before it is queued and in its build", (id) => {
     const recipe = recipeById(id)!;
