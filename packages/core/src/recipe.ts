@@ -514,7 +514,12 @@ export const MAX_BOXES = 8;
  */
 export const BOX_EDIT_FAMILIES = ["qwen21", "qwen", "klein", "flux"] as const;
 export type BoxEditFamily = (typeof BOX_EDIT_FAMILIES)[number];
-export const BOX_EDIT_DEFAULT: BoxEditFamily = "qwen21";
+/**
+ * The pod A/B of card #284 (2026-11-04, an A40: a deer, a bicycle, a lamp removed, three boxes in one go): Qwen Image Edit
+ * with its Lightning LoRA put each thing in its box in the scene's light, removed the lamp, and took 14 to 25 s a box; Qwen
+ * Image 2.1 left the lamp where it was, Klein's deer looked cut out, Qwen Image Edit's full 40 steps took about 170 s.
+ */
+export const BOX_EDIT_DEFAULT: BoxEditFamily = "qwen";
 /** Each one's editor as the bar and Settings say it: the editor's own name, where the family's ("FLUX.1") says another model. */
 export const BOX_EDITOR_NAMES: Record<BoxEditFamily, string> = { qwen21: "Qwen Image 2.1", qwen: "Qwen Image Edit", klein: "FLUX.2 Klein", flux: "FLUX.1 Kontext" };
 

@@ -34,7 +34,9 @@ import { areaSize, inBox, kontextSize } from "./shared/boxEdit";
  * Klein, the Working size on a grid of 32 for Qwen Image 2.1 (a megapixel at its 0, "as it is", which a small crop is not).
  */
 export const editsInBox = [
-  inBox(qwenEdit, () => kontextSize),
+  // Turbo on: on a pod (card #284), the Lightning LoRA put each thing in its box as well as the full 40 steps did, in 14 to
+  // 25 s a box against about 170
+  inBox(qwenEdit, () => kontextSize, { fast: true }),
   inBox(qwen21Edit, (input) => areaSize((input.resolution > 0 ? input.resolution : 1024) ** 2, 32)),
   inBox(kleinEdit, () => areaSize(1024 * 1024, 16)),
   inBox(fluxEdit, () => kontextSize),
