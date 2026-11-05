@@ -1,4 +1,5 @@
-import { dryContext, formModelInput, isModelFile, modelStem, parseInput, type InputSpec, type Recipe, type RegionValue } from "@afflatus/core";
+import { dryContext, isModelFile, modelStem, parseInput, type InputSpec, type Recipe, type RegionValue } from "@afflatus/core";
+import { a1111Slots, bare, MEDIA_TYPES, SAMPLER_NAMES, SCHEDULE_NAMES } from "./a1111";
 import { markPng, withoutTexts } from "./aiMark";
 import { VERSION } from "./config";
 import type { Tables } from "./db";
@@ -35,17 +36,6 @@ export interface InfoFields {
   hires?: { scale?: number; steps?: number; upscaler?: string; denoise?: number };
   version?: string;
 }
-
-/** ComfyUI's sampler names → A1111's, the reverse of embedded.ts's SAMPLERS. One A1111 has no name for keeps ComfyUI's, which A1111's own readers pass on and embedded.ts takes back. */
-const SAMPLER_NAMES: Record<string, string> = {
-  euler: "Euler", euler_ancestral: "Euler a", euler_cfg_pp: "Euler CFG++", euler_ancestral_cfg_pp: "Euler a CFG++", lms: "LMS", heun: "Heun",
-  dpm_2: "DPM2", dpm_2_ancestral: "DPM2 a", dpmpp_2s_ancestral: "DPM++ 2S a", dpmpp_2m: "DPM++ 2M", dpmpp_sde: "DPM++ SDE", dpmpp_2m_sde: "DPM++ 2M SDE",
-  dpmpp_3m_sde: "DPM++ 3M SDE", dpm_fast: "DPM fast", dpm_adaptive: "DPM adaptive", ddim: "DDIM", uni_pc: "UniPC", lcm: "LCM", restart: "Restart", ddpm: "DDPM",
-};
-/** ComfyUI's schedulers → A1111's "Schedule type" (A1111 1.9 and later, Forge). */
-const SCHEDULE_NAMES: Record<string, string> = {
-  normal: "Normal", karras: "Karras", exponential: "Exponential", sgm_uniform: "SGM Uniform", simple: "Simple", ddim_uniform: "DDIM", beta: "Beta", kl_optimal: "KL Optimal",
-};
 
 const a1111Sampler = (sampler: string | undefined) => (sampler ? SAMPLER_NAMES[sampler] ?? sampler : undefined);
 const a1111Schedule = (scheduler: string | undefined) => (scheduler ? SCHEDULE_NAMES[scheduler] ?? scheduler : undefined);
@@ -117,13 +107,8 @@ export function samplingOf(graph: Graph): Pick<InfoFields, "steps" | "cfg" | "sa
   return out;
 }
 
-const named = (i: InputSpec, id: string, label: RegExp) => i.id === id || label.test(i.label);
-/** The inputs that hold a picture, a sound or a clip of the library: their values are its ids, never written out. */
-const MEDIA_TYPES = new Set(["image", "audio", "clip", "references", "cues", "video"]);
 /** A value that names a place on this computer (C:\…, \\server\…, /home/…): never written, whatever input holds it. */
 const isPath = (v: string) => /^([a-zA-Z]:[\\/]|\\\\|\/)/.test(v);
-/** A file a form names (a model, an upscaler) without the folders it sits in under ComfyUI's models. */
-const bare = (v: string) => v.replace(/^.*[\\/]/, "");
 
 /**
  * A region as it goes out: its box and words, its own LoRA by its file name. The cast person (a kit id), their LoRA (put in
@@ -156,6 +141,14 @@ function ownForm(recipe: Recipe<any>, input: Record<string, unknown>): Record<st
 const ownText = (recipe: Recipe<any>, input: Record<string, unknown>, seed: number | undefined) =>
   JSON.stringify({ afflatus: 1, recipe: recipe.id, version: recipe.version, input: { ...ownForm(recipe, input), ...(seed !== undefined ? { [(recipe.inputs as InputSpec[]).find((i) => i.type === "seed")?.id ?? "seed"]: seed } : {}) } });
 
+/**
+ * What the texts of several pictures going out at once read alike (a selection's zip of 2000 renders): the hashes table,
+ * read once for all of them rather than once a picture. Left empty, each read is made for that one picture.
+ */
+export interface OutgoingReads {
+  hashes?: Promise<Array<Pick<Tables["model_hashes"], "folder" | "file" | "sha256" | "civitai_version">>>;
+}
+
 /** A model file's short hash (AutoV2) and Civitai version, from what Afflatus has hashed. */
 type Known = { hash?: string; civitai?: number };
 const shortHash = (sha256: string | null | undefined) => (sha256 ? sha256.slice(0, 10).toLowerCase() : undefined);
@@ -164,7 +157,7 @@ const shortHash = (sha256: string | null | undefined) => (sha256 ? sha256.slice(
  * The texts a render's picture goes out with, by keyword; empty when it is not a render of a form still here, or the
  * switch is off. `a` is the item downloaded: only its own render is said (a cut or a mirrored copy is another picture).
  */
-async function infoTexts(s: Pick<Services, "db" | "registry">, a: Pick<Tables["assets"], "generation_id" | "width" | "height">): Promise<Record<string, string>> {
+async function infoTexts(s: Pick<Services, "db" | "registry">, a: Pick<Tables["assets"], "generation_id" | "width" | "height">, reads: OutgoingReads): Promise<Record<string, string>> {
   if (!a.generation_id || !(await readSettings(s.db)).pngInfo) return {};
   const g = await s.db.selectFrom("generations").select(["id", "recipe_id", "inputs", "resolved"]).where("id", "=", a.generation_id).executeTakeFirst();
   const recipe = g ? s.registry.recipe(g.recipe_id) : undefined;
@@ -182,7 +175,8 @@ async function infoTexts(s: Pick<Services, "db" | "registry">, a: Pick<Tables["a
 
   // what the graph loaded, with the hashes it ran on (modelUses.ts); what was hashed since, by name
   const used = await s.db.selectFrom("model_uses").select(["folder", "file", "sha256"]).where("generation_id", "=", g.id).execute();
-  const hashes = await s.db.selectFrom("model_hashes").select(["folder", "file", "sha256", "civitai_version"]).execute();
+  reads.hashes ??= s.db.selectFrom("model_hashes").select(["folder", "file", "sha256", "civitai_version"]).execute();
+  const hashes = await reads.hashes;
   const known = (folder: string | null, file: string): Known => {
     const inFolder = (x: { folder: string }) => !folder || x.folder === folder;
     // ComfyUI on Windows names a sub-folder's file with a backslash; the hashes keep forward slashes (modelHashes.ts)
@@ -194,34 +188,25 @@ async function infoTexts(s: Pick<Services, "db" | "registry">, a: Pick<Tables["a
     return { hash: shortHash(sha), ...(Number(civitai) > 0 ? { civitai: Number(civitai) } : {}) };
   };
 
-  const prompts = specs.filter((i): i is Extract<InputSpec, { type: "prompt" }> => i.type === "prompt");
-  const text = (id: string | undefined) => (id && typeof input[id] === "string" ? (input[id] as string).trim() : "");
-  const main = prompts.find((i) => i.id === "prompt") ?? prompts.find((i) => !i.optional) ?? prompts[0];
-  const negative = prompts.find((i) => i !== main && named(i, "negative", /negative/i));
+  const slot = a1111Slots(recipe);
+  const text = (i: InputSpec | undefined) => (i && typeof input[i.id] === "string" ? (input[i.id] as string).trim() : "");
   // the quality tags go in front of the prompt, as the SDXL forms send them
-  const prompt = [text("quality").replace(/,\s*$/, ""), text(main?.id)].filter(Boolean).join(", ");
+  const prompt = [text(slot.quality).replace(/,\s*$/, ""), text(slot.prompt)].filter(Boolean).join(", ");
 
-  const modelInput = formModelInput(recipe);
+  const modelInput = slot.model;
   const picked = modelInput && typeof input[modelInput.id] === "string" ? (input[modelInput.id] as string) : undefined;
   const loaded = used.find((u) => u.folder === "checkpoints" || u.folder === "diffusion_models");
   const ownFile = (recipe.files ?? []).find((f) => /ckpt_name|unet_name/.test(f.input))?.file;
   const modelFile = picked ?? loaded?.file ?? ownFile;
-  const model = modelFile ? { name: modelStem(bare(modelFile)), ...known(picked ? modelInput!.folder : loaded?.folder ?? null, modelFile) } : undefined;
+  // modelStem strips the folders as well
+  const model = modelFile ? { name: modelStem(modelFile), ...known(picked ? modelInput!.folder : loaded?.folder ?? null, modelFile) } : undefined;
 
-  const lorasInput = specs.find((i) => i.type === "loras");
-  const loras = (lorasInput && Array.isArray(input[lorasInput.id]) ? (input[lorasInput.id] as Array<{ file: string; weight: number }>) : [])
-    .map((l) => ({ name: modelStem(bare(l.file)), weight: l.weight, ...known("loras", l.file) }));
+  const loras = (slot.loras && Array.isArray(input[slot.loras.id]) ? (input[slot.loras.id] as Array<{ file: string; weight: number }>) : [])
+    .map((l) => ({ name: modelStem(l.file), weight: l.weight, ...known("loras", l.file) }));
 
-  const numbers = specs.filter((i): i is Extract<InputSpec, { type: "number" }> => i.type === "number");
-  const choices = specs.filter((i): i is Extract<InputSpec, { type: "choice" }> => i.type === "choice");
   const num = (i: InputSpec | undefined) => (i && typeof input[i.id] === "number" ? (input[i.id] as number) : undefined);
   const str = (i: InputSpec | undefined) => (i && typeof input[i.id] === "string" ? (input[i.id] as string) : undefined);
-  const form = {
-    steps: num(numbers.find((i) => named(i, "steps", /^steps( · first pass)?$/i))),
-    cfg: num(numbers.find((i) => named(i, "cfg", /^cfg( scale)?( · first pass)?$/i))),
-    sampler: str(choices.find((i) => named(i, "sampler", /^sampler( name)?( · first pass)?$/i))),
-    scheduler: str(choices.find((i) => named(i, "scheduler", /^scheduler( · first pass)?$/i))),
-  };
+  const form = { steps: num(slot.steps), cfg: num(slot.cfg), sampler: str(slot.sampler), scheduler: str(slot.scheduler) };
   // what the form does not set, its build does: read off the graph it makes, built dry (no ComfyUI asked, nothing sent)
   let graph: Pick<InfoFields, "steps" | "cfg" | "sampler" | "scheduler"> = {};
   if (Object.values(form).some((v) => v === undefined)) {
@@ -238,23 +223,19 @@ async function infoTexts(s: Pick<Services, "db" | "registry">, a: Pick<Tables["a
     }
   }
 
-  const size = specs.find((i) => i.type === "size");
-  const asked = size ? (input[size.id] as { width?: number; height?: number } | undefined) : undefined;
-  const hiresOn = specs.some((i) => i.id === "hires" && i.type === "toggle") && input.hires === true;
-  // an img2img's strength, in a form that starts from a picture: the txt2img's hires denoise has the same label
-  const fromPicture = specs.some((i) => i.type === "image" && i.role === "source" && !i.optional);
-  const strength = fromPicture ? numbers.find((i) => !i.id.startsWith("hires") && named(i, "strength", /^denois(e|ing strength)$/i)) : undefined;
-  const clipSkip = num(numbers.find((i) => i.id === "clipSkip"));
+  const asked = slot.size ? (input[slot.size.id] as { width?: number; height?: number } | undefined) : undefined;
+  const hires = slot.hires && input.hires === true ? slot.hires : undefined;
+  const clipSkip = num(slot.clipSkip);
   const fields: InfoFields = {
-    prompt, negative: text(negative?.id),
+    prompt, negative: text(slot.negative),
     steps: form.steps ?? graph.steps, cfg: form.cfg ?? graph.cfg, sampler: form.sampler ?? graph.sampler, scheduler: form.scheduler ?? graph.scheduler,
     seed: seedOf,
     // the first pass's size, as A1111 writes it beside its hires fix; else the picture's own
     width: asked?.width ?? a.width ?? undefined, height: asked?.height ?? a.height ?? undefined,
     model, loras,
-    ...(strength && !hiresOn ? { denoise: num(strength) } : {}),
+    ...(slot.strength && !hires ? { denoise: num(slot.strength) } : {}),
     ...(clipSkip ? { clipSkip } : {}),
-    ...(hiresOn ? { hires: { scale: num(numbers.find((i) => i.id === "hiresScale")), steps: num(numbers.find((i) => i.id === "hiresSteps")), denoise: num(numbers.find((i) => i.id === "hiresDenoise")), upscaler: typeof input.hiresUpscaler === "string" ? (input.hiresUpscaler === "latent" ? "Latent" : modelStem(bare(input.hiresUpscaler))) : undefined } } : {}),
+    ...(hires ? { hires: { scale: num(hires.scale), steps: num(hires.steps), denoise: num(hires.denoise), upscaler: typeof input.hiresUpscaler === "string" ? (input.hiresUpscaler === "latent" ? "Latent" : modelStem(input.hiresUpscaler)) : undefined } } : {}),
     version: `Afflatus ${VERSION}`,
   };
   const parameters = infotext(fields);
@@ -268,8 +249,8 @@ async function infoTexts(s: Pick<Services, "db" | "registry">, a: Pick<Tables["a
  * leave; the "parameters" and "afflatus" written here say the same settings without them (review 2026-11-05 S1).
  * What cannot be read for it (a generation gone) leaves it with the mark alone: a download never fails for its text.
  */
-export async function outgoingPng(s: Pick<Services, "db" | "registry">, a: Pick<Tables["assets"], "generation_id" | "width" | "height">, bytes: Uint8Array): Promise<Uint8Array> {
-  const texts = await infoTexts(s, a).catch(() => ({}));
+export async function outgoingPng(s: Pick<Services, "db" | "registry">, a: Pick<Tables["assets"], "generation_id" | "width" | "height">, bytes: Uint8Array, reads: OutgoingReads = {}): Promise<Uint8Array> {
+  const texts = await infoTexts(s, a, reads).catch(() => ({}));
   return markPng(withoutTexts(bytes), texts);
 }
 

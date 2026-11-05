@@ -28,6 +28,7 @@ export * from "./settingsHelp";
 export * from "./settingsIndex";
 export * from "./assetRefs";
 export * from "./text";
+export * from "./downloadName";
 export * from "./volumePrice";
 export * from "./money";
 export * from "./gpuRank";

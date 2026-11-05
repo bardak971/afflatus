@@ -1,21 +1,18 @@
-import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { CUT_WINDOW_MOST, RANDOM_SEED, TRANSITION_KINDS, TRANSITION_MS, movedSeed, typedSeed } from "@afflatus/core";
-import { fromRender } from "./aiMark";
 import { nameOf } from "./autoName";
 import { VERSION } from "./config";
-import { CutError, markedVideoFile } from "./cut";
+import { CutError } from "./cut";
 import { musicTrack } from "./exportJoin";
-import { outgoingOwnPng, outgoingPng } from "./pngInfo";
+import { outgoingFile } from "./outgoing";
 import { now } from "./db";
 import { httpError } from "./errors";
 import { compose, lookSchema, withMood } from "./entities";
 import { spreadSaid } from "./timelineFace";
 import { askedOf } from "./jobs-api";
-import { assetView, extOf } from "./media";
-import { sourceOf } from "./storage";
+import { assetView } from "./media";
 import { rifeModelIn } from "./queue";
 import { rootFolderOf } from "./projects";
 import { inUse } from "./sweep";
@@ -471,36 +468,22 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
           files.set(i.file, i.key);
           if (i.soundFile) files.set(i.soundFile.file, i.soundFile.key);
         }
-        // a render (or a frame, cut or edit of one) goes in marked as made by a model, its frames as they are (aiMark.ts),
-        // a rendered picture with how it was made (pngInfo.ts)
+        // a render (or a frame, cut or edit of one) goes in marked as made by a model, a PNG as a Download gives it (outgoing.ts)
         const rows = await s.db.selectFrom("assets").select(["file_key", "kind", "mime", "origin", "source_id", "generation_id", "width", "height"]).where("file_key", "in", [...files.values()]).execute();
         const byKey = new Map(rows.map((r) => [r.file_key, r]));
+        // the model hashes read once for the whole zip, not once a picture
+        const reads = {};
         for (const [path, key] of files) {
           if (req.raw.destroyed) break;
           const a = byKey.get(key);
-          if (a && (a.kind === "video" || a.mime === "image/png") && (await fromRender(s.db, a))) {
-            if (a.kind === "video") {
-              // read from the marked copy on the disk as it goes into the zip, then removed: one file in memory at a time held 800 MB
-              const marked = await markedVideoFile(await sourceOf(s.storage, key), extOf(a.mime));
-              try {
-                await zip.add(path, createReadStream(marked.file), new Date(), marked.size);
-              } finally {
-                await marked.done();
-              }
-              continue;
-            }
-            const marked = await outgoingPng(s, a, await s.storage.get(key));
-            await zip.add(path, Readable.from([Buffer.from(marked.buffer, marked.byteOffset, marked.byteLength)]), new Date(), marked.length);
-            continue;
+          const out = a ? await outgoingFile(s, a, reads) : null;
+          const f = out ?? { ...(await s.storage.open(key)), done: async () => {} };
+          try {
+            await zip.add(path, f.stream, new Date(), f.size);
+          } finally {
+            // a video's marked copy, read as it goes in, then removed: one file in memory at a time held 800 MB
+            await f.done();
           }
-          // a PNG brought in: without its texts when Settings says a download carries none (pngInfo.ts)
-          if (a?.mime === "image/png") {
-            const own = await outgoingOwnPng(s, await s.storage.get(key));
-            await zip.add(path, Readable.from([Buffer.from(own.buffer, own.byteOffset, own.byteLength)]), new Date(), own.length);
-            continue;
-          }
-          const f = await s.storage.open(key);
-          await zip.add(path, f.stream, new Date(), f.size);
         }
         if (music) await zip.add("media/music.wav", Readable.from([Buffer.from(music)]), new Date(), music.length);
         await zip.finish();

@@ -2,6 +2,8 @@ import { open as openFile, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { inflateSync } from "node:zlib";
 import { modelStem } from "@afflatus/core";
+import { SAMPLERS, SCHEDULES } from "./a1111";
+import { isPng, pngChunks } from "./aiMark";
 import { PICTURE_MOST, pictureTooLarge } from "./media";
 import { ffRun, inTemp, readAs, tools } from "./ff";
 
@@ -68,7 +70,7 @@ const TEXT_TOTAL_MAX = 4 << 20;
 /** PNG tEXt / zTXt / iTXt chunks, by keyword. */
 function pngText(buf: Buffer): Record<string, string> {
   const out: Record<string, string> = {};
-  if (buf.length < 8 || buf.readUInt32BE(0) !== 0x89504e47) return out;
+  if (!isPng(buf)) return out;
   let left = TEXT_TOTAL_MAX;
   const inflate = (raw: Buffer): Buffer => {
     // past the limit inflateSync throws, and the chunk is skipped like a broken one
@@ -76,12 +78,7 @@ function pngText(buf: Buffer): Record<string, string> {
     left -= text.length;
     return text;
   };
-  let pos = 8;
-  while (pos + 12 <= buf.length) {
-    const len = buf.readUInt32BE(pos);
-    const type = buf.toString("latin1", pos + 4, pos + 8);
-    const data = buf.subarray(pos + 8, pos + 8 + len);
-    pos += 12 + len;
+  for (const { type, data } of pngChunks(buf)) {
     if (type === "IEND") break;
     const nul = data.indexOf(0);
     if (nul < 0) continue;
@@ -194,15 +191,12 @@ async function mediaTags(bytes: Uint8Array): Promise<Record<string, string>> {
 
 // ---------------------------------------------------------------- A1111 text
 
-/** Only real model extensions: "Slider_v1.0" keeps its ".0". */
-export const stemOf = modelStem;
-
 /** `<lora:name:w>` tags, taken out of the text into a list. */
 function splitLoras(prompt: string): { text: string; loras: Array<{ name: string; weight: number }> } {
   const loras: Array<{ name: string; weight: number }> = [];
   const text = prompt
     .replace(/<(?:lora|lyco):([^:>]+)(?::(-?[\d.]+))?(?::[^>]*)?>/gi, (_m, name: string, w?: string) => {
-      loras.push({ name: stemOf(name.trim()), weight: w !== undefined && Number.isFinite(Number(w)) ? Number(w) : 1 });
+      loras.push({ name: modelStem(name.trim()), weight: w !== undefined && Number.isFinite(Number(w)) ? Number(w) : 1 });
       return "";
     })
     .replace(/\s*,\s*(,\s*)+/g, ", ")
@@ -239,17 +233,7 @@ function takeJson(line: string, key: string): { value: unknown; rest: string } |
   return null;
 }
 
-/** A1111's sampler names → ComfyUI's. A name that ends in a schedule ("DPM++ 2M Karras") carries it. */
-const SAMPLERS: Record<string, string> = {
-  "euler a": "euler_ancestral", euler: "euler", "euler cfg++": "euler_cfg_pp", "euler a cfg++": "euler_ancestral_cfg_pp", lms: "lms", heun: "heun",
-  dpm2: "dpm_2", "dpm2 a": "dpm_2_ancestral", "dpm++ 2s a": "dpmpp_2s_ancestral", "dpm++ 2m": "dpmpp_2m", "dpm++ sde": "dpmpp_sde",
-  "dpm++ 2m sde": "dpmpp_2m_sde", "dpm++ 2m sde heun": "dpmpp_2m_sde", "dpm++ 3m sde": "dpmpp_3m_sde", "dpm fast": "dpm_fast", "dpm adaptive": "dpm_adaptive",
-  ddim: "ddim", "ddim cfg++": "ddim", plms: "euler", unipc: "uni_pc", lcm: "lcm", restart: "restart", "ddpm": "ddpm",
-};
-const SCHEDULES: Record<string, string> = {
-  karras: "karras", exponential: "exponential", "sgm uniform": "sgm_uniform", simple: "simple", normal: "normal", uniform: "normal", ddim: "ddim_uniform", beta: "beta",
-  "kl optimal": "kl_optimal", "align your steps": "normal", automatic: "normal", polyexponential: "exponential",
-};
+/** A1111's sampler names (a1111.ts SAMPLERS) → ComfyUI's. A name that ends in a schedule ("DPM++ 2M Karras") carries it. */
 function samplerOf(name: string | undefined, schedule: string | undefined): { sampler?: string; scheduler?: string } {
   if (!name) return {};
   let s = name.trim().toLowerCase();
@@ -334,7 +318,7 @@ export function parseA1111(infotext: string): FoundSettings {
   }
   return {
     source: "a1111", prompt: pos.text, negative: neg.text,
-    checkpoint: kv.Model ? stemOf(kv.Model) : checkpointName, checkpointCivitai,
+    checkpoint: kv.Model ? modelStem(kv.Model) : checkpointName, checkpointCivitai,
     loras, steps: num("Steps"), cfg: num("CFG scale"), seed: num("Seed"),
     ...samplerOf(kv.Sampler, kv["Schedule type"]),
     clipSkip: (num("Clip skip") ?? 1) > 1 ? num("Clip skip") : undefined,
@@ -424,10 +408,10 @@ function settingsOfGraph(graph: Graph): FoundSettings | null {
   if (!pos.text) notes.push("The text it was made from could not be found in its workflow.");
   const loaded = Object.values(graph)
     .filter((n) => /LoraLoader/.test(n.class_type) && typeof n.inputs.lora_name === "string")
-    .map((n) => ({ name: stemOf(n.inputs.lora_name as string), weight: Number(n.inputs.strength_model ?? 1) }));
+    .map((n) => ({ name: modelStem(n.inputs.lora_name as string), weight: Number(n.inputs.strength_model ?? 1) }));
   const seed = i.seed ?? i.noise_seed;
   return {
-    source: "comfyui", prompt: pos.text, negative: neg.text, checkpoint: stemOf(ckpt.inputs.ckpt_name as string),
+    source: "comfyui", prompt: pos.text, negative: neg.text, checkpoint: modelStem(ckpt.inputs.ckpt_name as string),
     loras: [...loaded, ...pos.loras],
     steps: Number(i.steps) || undefined, cfg: Number(i.cfg) || undefined,
     sampler: typeof i.sampler_name === "string" ? i.sampler_name : undefined, scheduler: typeof i.scheduler === "string" ? i.scheduler : undefined,

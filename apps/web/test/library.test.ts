@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Entity, Folder } from "../src/api";
 import { menuAt } from "../src/ContextMenu";
-import { downloadName } from "../src/download";
+import { downloadName } from "@afflatus/core";
 import { fileKind, kindOfType, zonesFor } from "../src/dropZones";
 import { folderMaker, pathOf } from "../src/folderImport";
 import { presetOfFile, presetToFile, slug } from "../src/presetFile";

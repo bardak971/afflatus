@@ -1,4 +1,4 @@
-import { nameKey } from "@afflatus/core";
+import { MEDIA_EXT, nameKey } from "@afflatus/core";
 import { sql, type Insertable } from "kysely";
 import { now, OWNER, type Db, type Tables } from "./db";
 import { httpError } from "./errors";
@@ -96,10 +96,7 @@ export function looksLikePicture(head: Uint8Array): boolean {
   return png || jpeg || webp;
 }
 
-const EXT: Record<string, string> = {
-  "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "video/mp4": "mp4", "video/webm": "webm",
-  "audio/wav": "wav", "audio/mpeg": "mp3", "audio/flac": "flac", "audio/mp4": "m4a", "audio/ogg": "ogg",
-};
+const EXT = MEDIA_EXT;
 export const extOf = (mime: string) => EXT[mime] ?? "bin";
 
 const MIME_BY_EXT: Record<string, string> = Object.fromEntries(Object.entries(EXT).map(([m, e]) => [e, m]));

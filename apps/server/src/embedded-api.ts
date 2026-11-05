@@ -2,7 +2,8 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { readEmbedded, readEmbeddedFile, type Embedded } from "./embedded";
 import { httpError, notFound } from "./errors";
-import { fill, takesPicture, targetsFor } from "./fromPicture";
+import { takesPicture } from "./a1111";
+import { fill, targetsFor } from "./fromPicture";
 import type { Services } from "./services";
 import { isUpload } from "./uploadBody";
 
