@@ -7,6 +7,7 @@ import { handleOn, percentOf, perScreen, type Handle } from "../stageLayer/geome
 import type { LayerPointer, LayerTool } from "../stageLayer/tools";
 import type { Size } from "../viewer/zoom";
 import type { LayerPlace } from "../viewer/ZoomPicture";
+import { EditBoxes } from "./editBoxLook";
 import { drawnBox, fullSaid, isBox, movedBox, newRegion, pixelBox, regionAt, regionColour, resizedBox, unitPoint } from "./geometry";
 import { type RegionKind, type RegionsSpec, type RegionValue, type UnitBox } from "./types";
 
@@ -50,7 +51,7 @@ interface RegionTools {
  * is written to the form when the drag ends, and shown as it goes meanwhile. `off`: the family cannot use regions, the boxes
  * shown greyed and nothing drawn.
  */
-export function useRegionTool({ spec, regions, natural, selected, onSelect, onChange, nameOf, off, noun }: {
+export function useRegionTool({ spec, regions, natural, selected, onSelect, onChange, nameOf, off, noun, look, ignored = false }: {
   spec: Pick<RegionsSpec, "max" | "kinds">;
   regions: RegionValue[];
   /** The frame's size in its pixels: the empty frame's, or the picture's the boxes lie over. */
@@ -63,6 +64,10 @@ export function useRegionTool({ spec, regions, natural, selected, onSelect, onCh
   off?: string;
   /** What the boxes are called when there is no room for one more: a form's regions, or Edit in box's boxes. */
   noun?: "region" | "box";
+  /** "edit": Edit in box's own look (editBoxLook.tsx: the picture blue, ✦ and the instruction on each label) rather than a form's regions. */
+  look?: "edit";
+  /** Edit in box's boxes while a mask is painted: Fix takes the mask alone, so they are drawn grey, dashed and still. */
+  ignored?: boolean;
 }): RegionTools {
   const drag = useRef<Drag | null>(null);
   // the box as it is dragged, shown at once; the form gets it when the drag ends
@@ -176,6 +181,7 @@ export function useRegionTool({ spec, regions, natural, selected, onSelect, onCh
     if (!natural) return null;
     const line = 1 / at.shown.scale;
     const shown = live && live.id !== "new" ? regions.map((r) => (r.id === live.id ? { ...r, box: live.box } : r)) : regions;
+    if (look === "edit") return <EditBoxes at={at} natural={natural} regions={shown} selected={selected} live={live} ignored={ignored} />;
     return (
       <div data-regions className="pointer-events-none absolute inset-0">
         {shown.map((r, i) => {

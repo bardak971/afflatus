@@ -5,9 +5,9 @@ import { Kbd } from "../Keys";
 import type { QueuedJob } from "../queueVariation";
 import { Select } from "../Select";
 import { plural } from "../format";
-import { Button, Chip, Failed, Help, IconButton } from "../ui";
+import { Button, Failed, Help, IconButton } from "../ui";
 import type { BoxEditor } from "./boxEditors";
-import { BarInput, FIX_ROWS, MASK_OR_BOX, useTunedBar, type BarFailure } from "./FixBar";
+import { BAR_CAPSULE, BarInput, BarWhat, FIX_ROWS, GoKeys, MASK_OR_BOX, useTunedBar, type BarFailure } from "./FixBar";
 
 /** The box whose instruction the bar's field holds: the one picked, else the first that says nothing yet, else the last drawn. */
 export function boxInHand(boxes: readonly RegionValue[], selected: string | null): RegionValue | undefined {
@@ -67,16 +67,14 @@ export function BoxBar({ boxes, selected, onSelect, onPrompt, editors, editor, o
     drawn.current = boxes.length;
   }, [boxes.length]);
   return (
-    <div ref={bar.root} className="flex w-full max-w-[1040px] shrink-0 flex-col items-center gap-1.5">
+    <div ref={bar.root} className="flex w-full max-w-[940px] shrink-0 flex-col items-center gap-1.5">
       {/* on a narrow stage the instruction keeps a row of its own, the model and the button wrapping under it */}
-      <div role="group" aria-label="Edit in box" className="flex w-full flex-wrap items-center justify-end gap-2">
-        <Chip
-          tone="accent"
-          tip={boxes.length > 1 ? "The box the instruction is for: click for the next one (or pick a box on the picture)" : "The box the instruction is for"}
-          onClick={boxes.length > 1 && box ? () => onSelect(boxes[n % boxes.length]!.id) : undefined}
-        >
-          Box {n} of {boxes.length}
-        </Chip>
+      <div role="group" aria-label="Edit in box" className={BAR_CAPSULE}>
+        <BarWhat tone="box" tip={boxes.length > 1 ? "The box the instruction is for: ‹ › for the one before or after (or pick a box on the picture)" : "The box the instruction is for"}>
+          {boxes.length > 1 && box && <button type="button" data-soft-focus aria-label="The box before" className="px-0.5 font-semibold text-ink-3 hover:text-ink" onClick={() => onSelect(boxes[(n - 2 + boxes.length) % boxes.length]!.id)}>‹</button>}
+          <span>✦ Box {n} of {boxes.length}</span>
+          {boxes.length > 1 && box && <button type="button" data-soft-focus aria-label="The box after" className="px-0.5 font-semibold text-ink-3 hover:text-ink" onClick={() => onSelect(boxes[n % boxes.length]!.id)}>›</button>}
+        </BarWhat>
         <BarInput
           ref={field}
           aria-label={`What to do in box ${n}`}
@@ -100,11 +98,11 @@ export function BoxBar({ boxes, selected, onSelect, onPrompt, editors, editor, o
           // Select is full width by its own class: the width wins only with !
           className="w-44! shrink-0"
         />
-        <IconButton label="The edit's settings" tip="Steps, CFG, sampler, scheduler" tone="outline" size={32} onClick={(e) => tune(e.currentTarget)}>
+        <IconButton label="The edit's settings" tip="Steps, CFG, sampler, scheduler" size={32} data-soft-focus onClick={(e) => tune(e.currentTarget)}>
           <Settings2 size={15} />
         </IconButton>
-        <Button tone="primary" disabled={Boolean(why)} data-tip={why ?? "Each box edited from its own instruction, one after another, into one version of the picture"} onClick={() => go()} className="h-9 shrink-0">
-          <Wand2 size={14} /> {words} <Kbd>Ctrl+Enter</Kbd>
+        <Button tone="primary" disabled={Boolean(why)} data-tip={why ?? "Each box edited from its own instruction, one after another, into one version of the picture"} data-tip-keys="Ctrl+Enter" onClick={() => go()} data-soft-focus className="h-8 shrink-0 bg-picture! text-ground! hover:brightness-110">
+          <Wand2 size={14} /> {words} <GoKeys />
         </Button>
       </div>
       {failure && <Failed inline what={failure.what} error={failure.error} />}

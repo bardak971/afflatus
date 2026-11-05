@@ -6,7 +6,7 @@ import { FIT, fitted, held, mostZoom, panBy, placed, placedStyle, shownPercent, 
 
 /** How far the pointer goes before a press on a zoomed picture is a drag rather than a click. */
 const DRAG_PX = 3;
-/** How long a click waits for a second one: a double-click toggles the zoom, and must not also copy or open. */
+/** How long a click waits for a second one: a double-click toggles the zoom, and must not also open the details. */
 const DOUBLE_MS = 250;
 
 /** The room's size, measured, and measured again as it changes (a window made smaller, the side folded). */
@@ -59,7 +59,7 @@ export function useZoomGestures({ room, view, onView, fit, size, natural, pans, 
     return () => el.removeEventListener("wheel", onWheel);
   }, [room]);
   const drag = useRef<{ x: number; y: number; id: number; moved: boolean } | null>(null);
-  // a drag that moved: the click its release makes is not a click on the picture (copy, open) nor beside it (close)
+  // a drag that moved: the click its release makes is not a click on the picture (open) nor beside it (close)
   const dragged = useRef(false);
   const [dragging, setDragging] = useState(false);
   const zoomed = view.zoom > 1;
@@ -195,7 +195,7 @@ function useSpaceHeld(on: boolean): boolean {
 /**
  * A picture shown large that can be looked at closely: wheel zoom around the pointer, drag to pan once zoomed in, a
  * double-click between fitted and 1:1, the zoom in a corner. Fitted, it is the picture as before: dragged out like a tile,
- * a click its own (`onPick`: copy it, open it), waiting a moment for a double-click. `view` and `onView`: given, the view
+ * a click its own (`onPick`: the details), waiting a moment for a double-click. `view` and `onView`: given, the view
  * is the caller's (Compare's two sides in step); else its own, fitted again for each picture.
  *
  * A drawing layer (the Stage's: a mask, an outpaint frame, regions) is `overlay`, drawn over the picture inside the zoomed
@@ -297,7 +297,7 @@ export function ZoomPicture({ src, natural: known, view: given, onView: setGiven
             }}
             // past 1:1 the pixels are seen as pixels, not smoothed over: what judging an upscale or a face pass needs
             style={{ imageRendering: percent > 100 ? "pixelated" : undefined, ...(inFrame ? { position: "absolute", ...inFrame } : {}) }}
-            // its own cursor (copy, open) only fitted: zoomed in, the room's grab hand says a press pans
+            // its own cursor (open) only fitted: zoomed in, the room's grab hand says a press pans
             className={cx("block rounded-lg object-contain", !inFrame && "h-full w-full", !zoomed && !layer && imgProps?.className)}
           />
         )}

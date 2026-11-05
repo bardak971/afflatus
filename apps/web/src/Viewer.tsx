@@ -355,7 +355,6 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
       overlay={overlay}
       onDetails={onDetails}
       onClose={onClose}
-      onCopy={actionOfKey(list, place, "Ctrl+C")?.run}
       paint={painting && stageOn ? { stack: sameStack ? paintKey : rootNow, mode: stageOn.mode, strip } : null}
     />
   );

@@ -5,7 +5,7 @@ import { useKeysHere } from "../keys/here";
 import { LayerStrip } from "../stageLayer/LayerStrip";
 import { LayerToolbar } from "../stageLayer/LayerToolbar";
 import { StageLayer, useLayerKeys } from "../stageLayer/StageLayer";
-import { HAND_TOOL, type LayerTool, type ToolbarItem } from "../stageLayer/tools";
+import { HAND_TOOL, isTool, type LayerTool, type ToolbarItem } from "../stageLayer/tools";
 import { useBoxKeys } from "../stageLayer/useBoxKeys";
 import { useKeepBannersAside } from "../store";
 import { Button, Help } from "../ui";
@@ -50,7 +50,7 @@ export function RegionsStage({ here, picture, onLeave }: {
     act: () => setCastShown((v) => !v),
   };
   const items: ToolbarItem[] = [tools.select, tools.box, ...(tools.text ? [tools.text] : []), "rule", cast, HAND_TOOL];
-  const tool = items.find((t): t is LayerTool => t !== "rule" && t.id === toolId && !t.disabled) ?? null;
+  const tool = items.find((t): t is LayerTool => isTool(t) && t.id === toolId && !t.disabled) ?? null;
   const room = useRef<HTMLDivElement>(null);
   useLayerKeys({ items, onPick: setTool, root: room });
 

@@ -58,14 +58,25 @@ export interface LayerShape<P> {
   payload: P;
 }
 
-/** The toolbar's list: tools, and a rule between groups of them. */
-export type ToolbarItem = LayerTool | "rule";
+/**
+ * A group's caption on the toolbar (Mask, Box, Frame, View), over the tools that follow it. `tone` "box": they are drawn in
+ * the edit box's blue when in hand, as the boxes they draw.
+ */
+export interface ToolGroup {
+  group: string;
+  tone?: "box";
+}
+
+/** The toolbar's list: tools, a rule between groups of them, or a group's caption. */
+export type ToolbarItem = LayerTool | "rule" | ToolGroup;
+
+export const isTool = (t: ToolbarItem): t is LayerTool => t !== "rule" && !("group" in t);
 
 /** The tool a key picks, among those shown (a letter, either case; Ctrl, Alt and Meta are other keys' own). */
 export function toolForKey(items: readonly ToolbarItem[], e: { key: string; ctrlKey?: boolean; metaKey?: boolean; altKey?: boolean }): LayerTool | undefined {
   if (e.ctrlKey || e.metaKey || e.altKey || e.key.length !== 1) return undefined;
   const k = e.key.toLowerCase();
-  return items.find((t): t is LayerTool => t !== "rule" && !t.disabled && t.key.toLowerCase() === k);
+  return items.find((t): t is LayerTool => isTool(t) && !t.disabled && t.key.toLowerCase() === k);
 }
 
 /**

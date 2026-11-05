@@ -76,7 +76,7 @@ export const ACTIONS: Record<ActionId, Spec> = {
   voice: { group: "tools", sub: "tools", label: "Use as voice sample", kinds: ["video", "audio"], icon: Mic, tip: "A new draft on a model that speaks with this voice sample." },
   compare: { group: "look", sub: "info", label: "Compare", key: "X", kinds: SEEN, icon: Columns2, tip: "Pin this one and move to another with the arrow keys: side by side, videos in step, two pictures also with a wipe." },
   details: { group: "look", sub: "info", label: "Details", key: "P", kinds: ALL, icon: Info, tip: "The generation parameters: those it was made with, or for a file made elsewhere the ones written in it (PNG info)." },
-  "copy-image": { group: "look", sub: "info", label: "Copy the picture", key: "Ctrl+C", kinds: ["image"], icon: Picture, tip: "The picture itself on the clipboard, as a PNG, to paste into another app. Opened large, a click on the picture copies it too." },
+  "copy-image": { group: "look", sub: "info", label: "Copy the picture", key: "Ctrl+C", kinds: ["image"], icon: Picture, tip: "The picture itself on the clipboard, as a PNG, to paste into another app." },
   "copy-seed": { group: "look", sub: "info", label: "Copy the seed", kinds: ALL, icon: Copy, tip: "The seed it was rendered with, on the clipboard." },
   "copy-prompt": { group: "look", sub: "info", label: "Copy the prompt", key: "Shift+C", kinds: ALL, icon: ClipboardCopy, tip: "The prompt it was rendered with, as sent, on the clipboard; a form written in parts (H3) gives each part under its name." },
   comfy: { group: "look", sub: "info", label: "Open in ComfyUI", kinds: ALL, icon: ExternalLink, tip: "Its graph, built again from these parameters, in ComfyUI's editor." },

@@ -7,6 +7,7 @@ import { Help, IconButton, Segmented, Toggle } from "../ui";
 import { FRAME_ASPECTS, FRAME_RULES, padded } from "./frame";
 import type { ClickTool, DetectTool, FindWhat, WandTool } from "./useFindTools";
 import type { FrameTool } from "./useFrameTool";
+import { MASK_VIEW_NAMES, nextView, type MaskView } from "./maskView";
 import { BRUSH_LIMITS, type MaskLayer } from "./useMaskLayer";
 import type { Size } from "../viewer/zoom";
 
@@ -14,13 +15,23 @@ import type { Size } from "../viewer/zoom";
  * The strip over the Stage while the layer is on: what it is doing (its title), then the active tool's options. The same
  * strip for every use of the layer; the options are the job's (the mask's brush, the outpaint frame's shapes).
  */
-export function LayerStrip({ title, children, end, className }: { title: ReactNode; children?: ReactNode; end?: ReactNode; className?: string }) {
+export function LayerStrip({ title, tone, children, end, className }: {
+  title: ReactNode;
+  /** "box": Edit in box's boxes are what the bar works on, in their own blue with their ✦. */
+  tone?: "box";
+  children?: ReactNode;
+  end?: ReactNode;
+  className?: string;
+}) {
   return (
     <div className={cx("flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 px-1", className)}>
-      <span className="rounded-md bg-accent-wash px-2 py-0.5 text-xs font-semibold text-accent">{title}</span>
+      <span className={cx("inline-flex h-[26px] shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-bold transition-colors", tone === "box" ? "bg-picture/12 text-picture" : "bg-accent-wash text-accent")}>
+        {tone === "box" && <span aria-hidden>✦</span>}
+        {title}
+      </span>
       {children}
-      <span className="grow" />
-      {end}
+      {/* the end pushed right by its own margin, so an option that asks for the end (the eye's ml-auto) gets it too */}
+      {end && <span className="ml-auto flex items-center gap-2">{end}</span>}
     </div>
   );
 }
@@ -42,9 +53,41 @@ function Option({ name, help, children }: { name: string; help?: string; childre
   );
 }
 
+/** Each view's swatch on the eye: the tint, the picture darkened round the mask, black and white, nothing. */
+const SWATCH: Record<MaskView, string> = {
+  tint: "color-mix(in srgb, var(--color-accent) 55%, transparent)",
+  spot: "linear-gradient(90deg, #000 50%, color-mix(in srgb, var(--color-accent) 40%, white) 50%)",
+  bw: "linear-gradient(90deg, #000 50%, #fff 50%)",
+  off: "transparent",
+};
+
+/**
+ * The eye: how the mask is shown, its view named beside it; a click (or M) shows the next one. Pushed to the strip's end,
+ * where it stays whatever the tool's options before it.
+ */
+export function MaskEye({ mask }: { mask: MaskLayer }) {
+  const off = mask.view === "off";
+  return (
+    <button
+      type="button"
+      data-mask-eye
+      data-soft-focus
+      aria-label={`Show the mask: ${MASK_VIEW_NAMES[mask.view]}`}
+      data-tip="Show the mask: Tint, Spotlight (the rest darkened), B&W (the mask as sent), Off. A click for the next"
+      data-tip-keys="M"
+      onClick={() => mask.setView(nextView)}
+      className="ml-auto inline-flex h-7 shrink-0 items-center gap-1.5 rounded-control border border-line bg-panel px-2 text-xs font-semibold text-ink-2 transition-colors hover:text-ink"
+    >
+      {off ? <EyeOff size={14} /> : <Eye size={14} />}
+      <span aria-hidden className={cx("size-2.5 shrink-0 rounded-xs", off && "border border-line-strong")} style={{ background: SWATCH[mask.view] }} />
+      <span className="w-16 text-left">{MASK_VIEW_NAMES[mask.view]}</span>
+    </button>
+  );
+}
+
 /**
  * The mask's options: the brush's size and feather (in the picture's pixels, as the brush paints them), the grow the fix
- * applies (the job's, not the mask's own: `grow` is its value), and the mask shown or hidden (M).
+ * applies (the job's, not the mask's own: `grow` is its value), and the eye (M).
  */
 export function MaskOptions({ mask, grow, onGrow }: { mask: MaskLayer; grow?: number; onGrow?(px: number): void }) {
   return (
@@ -60,9 +103,7 @@ export function MaskOptions({ mask, grow, onGrow }: { mask: MaskLayer; grow?: nu
           <Slider label="Grow the mask" value={grow} min={0} max={128} step={1} unit=" px" onChange={onGrow} className={SLIDER} />
         </Option>
       )}
-      <IconButton className="ml-1" label={mask.shown ? "Hide the mask" : "Show the mask"} keys="M" pressed={!mask.shown} onClick={() => mask.setShown(!mask.shown)}>
-        {mask.shown ? <Eye size={15} /> : <EyeOff size={15} />}
-      </IconButton>
+      <MaskEye mask={mask} />
     </>
   );
 }

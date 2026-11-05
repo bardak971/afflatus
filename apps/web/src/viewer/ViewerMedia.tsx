@@ -26,10 +26,11 @@ const dragOf = (a: Asset) => (e: React.DragEvent) => {
 
 /**
  * The item itself, large: a picture, a video with Trim under it, or a sound (in Trim: over its waveform). In place, the picture is a
- * button that opens the details; over the screen, a click on the picture copies it and a click beside the item closes the viewer.
+ * button that opens the details; over the screen, a click on the picture does nothing (Ctrl+C copies it: a click that copied
+ * was a surprise, owner 2026-11-05) and a click beside the item closes the viewer.
  * A picture zooms and pans in both (ZoomPicture).
  */
-export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, onTrimRange: setTrimRange, onMenu, overlay, onDetails, onClose, onCopy, paint }: {
+export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, onTrimRange: setTrimRange, onMenu, overlay, onDetails, onClose, paint }: {
   acts: ViewerActions;
   player: RefObject<HTMLVideoElement | null>;
   trim: boolean;
@@ -44,8 +45,6 @@ export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, on
   onDetails?(): void;
   /** Over the screen: a click beside the item. */
   onClose?(): void;
-  /** Over the screen: a click on the picture, which copies it (none: the page cannot copy a picture). */
-  onCopy?(): void;
   /**
    * Paint and fix (Inpaint on the Stage): the picture with the mask layer over it, and the versions strip under it.
    * `stack`: the picture's stack, whose versions share the one mask.
@@ -73,12 +72,13 @@ export function ViewerMedia({ acts, player, trim, onTrim: setTrim, trimRange, on
           key={a.id}
           src={fileUrl(a.id)}
           natural={a.width && a.height ? { w: a.width, h: a.height } : null}
-          onPick={overlay ? onCopy : onDetails}
-          pickLabel={overlay ? "Copy the picture" : "Details: generation parameters, lineage and every action"}
+          // over the screen a click on the picture is nothing, so a double-click zooms at once, with no wait for a pick
+          onPick={overlay ? undefined : onDetails}
+          pickLabel="Details: generation parameters, lineage and every action"
           imgProps={{
             alt: prompt || "Image", draggable: true, onDragStart: dragOf(a), onContextMenu: onMenu,
-            "data-tip": overlay ? (onCopy ? "Click to copy the picture (Ctrl+C)" : undefined) : "Details: generation parameters, lineage and every action",
-            className: overlay && onCopy ? "cursor-copy" : !overlay ? "cursor-pointer" : undefined,
+            "data-tip": overlay ? undefined : "Details: generation parameters, lineage and every action",
+            className: overlay ? undefined : "cursor-pointer",
           } as React.ImgHTMLAttributes<HTMLImageElement>}
           className="min-h-0 flex-1"
         />

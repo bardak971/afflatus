@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Brush as BrushIcon, Contrast, Eraser, Lasso, SquareDashed } from "lucide-react";
 import { fileUrl } from "../api";
-import { cx } from "../cx";
 import { useLiveValue } from "../hooks";
+import { motionAllowed } from "../useFlip";
 import type { Size } from "../viewer/zoom";
 import type { LayerPlace } from "../viewer/ZoomPicture";
 import { boxFrom, percentOf } from "./geometry";
 import { planeFrom, pngOf } from "./maskImage";
+import { FADE_MS, MaskFilters, viewFilter, type MaskView } from "./maskView";
 import {
-  bounds, clear as clearPlane, combine, dab, EMPTY_BELOW, feathered, fillPolygon, fillRect, History, invert, line, newPlane, resample, tint, union, workSize,
+  bounds, chase, clear as clearPlane, clip, combine, dab, EMPTY_BELOW, feathered, fillPolygon, fillRect, History, invert, line, newPlane, resample, tint, union, workSize,
   type Ink, type Plane, type Rect,
 } from "./raster";
 import type { LayerPointer, LayerTool } from "./tools";
@@ -21,8 +22,8 @@ export interface Brush {
 
 export const BRUSH_LIMITS = { size: { min: 2, max: 600 }, feather: { min: 0, max: 200 } };
 
-/** What the mask looks like over the picture: only where it is counts, not its colour. */
-const PAINT: readonly [number, number, number] = [255, 77, 61];
+/** What the canvas holds: white, as strong as the mask; each view's filter (maskView.tsx) colours it. */
+const LEVELS: readonly [number, number, number] = [255, 255, 255];
 
 /** Past this much, a mask's grey levels are not all 0 and 255: it has a soft edge ("1 area, soft"). */
 const isSoft = (plane: Plane) => plane.data.some((v) => v > EMPTY_BELOW && v < 255 - EMPTY_BELOW);
@@ -35,9 +36,12 @@ export interface MaskLayer {
   tools: { brush: LayerTool; eraser: LayerTool; box: LayerTool; lasso: LayerTool; invert: LayerTool };
   brush: Brush;
   setBrush(change: Partial<Brush>): void;
-  /** Whether the mask is drawn over the picture (M). */
-  shown: boolean;
-  setShown(shown: boolean): void;
+  /**
+   * How the mask is drawn over the picture: the eye's view. `setView(nextView)` steps from the view as it is then, so
+   * presses quicker than a render (M held, its repeats) each step one further.
+   */
+  view: MaskView;
+  setView(view: MaskView | ((now: MaskView) => MaskView)): void;
   /** Undo steps there are, and redo steps. */
   steps: number;
   redos: number;
@@ -62,7 +66,7 @@ export interface MaskLayer {
    */
   apply(found: Plane, ink: Ink): number | null;
   /** The mask drawn over the picture, for StageLayer. */
-  view(place: LayerPlace): ReactNode;
+  draw(place: LayerPlace): ReactNode;
 }
 
 /**
@@ -75,7 +79,9 @@ export function useMaskLayer({ natural, from = null, start = { size: 64, feather
   const history = useRef(new History());
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const [brush, setBrushState] = useState<Brush>(start);
-  const [shown, setShown] = useState(true);
+  const [view, setViewState] = useState<MaskView>("tint");
+  // the views' filters are this layer's own: two layers on a page (the form's painter over the Stage) never share one
+  const filterId = `mask${useId().replace(/[^\w-]/g, "")}`;
   const [version, setVersion] = useState(0);
   // the version as it is this instant (the state is a render late): what apply returns
   const versionNow = useRef(0);
@@ -86,10 +92,18 @@ export function useMaskLayer({ natural, from = null, start = { size: 64, feather
   /** How many plane pixels one picture pixel is. */
   const k = () => (plane.current && natural ? plane.current.w / natural.w : 1);
 
-  const paint = useCallback((r: Rect | null) => {
+  // the mask as shown: the plane's levels, reached a little later where they just changed (a fresh stroke fades in)
+  const display = useRef<Uint8ClampedArray | null>(null);
+  const fading = useRef<Rect[]>([]);
+  const frame = useRef(0);
+  useEffect(() => () => cancelAnimationFrame(frame.current), []);
+
+  /** The shown levels of `r` put on the canvas. */
+  const draw = useCallback((r: Rect) => {
     const p = plane.current;
     const c = canvas.current;
-    if (!p || !c || !r) return;
+    const d = display.current;
+    if (!p || !c || !d) return;
     if (c.width !== p.w || c.height !== p.h) {
       c.width = p.w;
       c.height = p.h;
@@ -98,14 +112,53 @@ export function useMaskLayer({ natural, from = null, start = { size: 64, feather
     // no 2D context (a page that draws nothing, as the tests'): the mask is kept all the same, only not shown
     const ctx = c.getContext("2d");
     if (!ctx) return;
-    const { data, rect } = tint(p, PAINT, 1, r);
+    const { data, rect } = tint({ w: p.w, h: p.h, data: d }, LEVELS, 1, r);
     ctx.putImageData(new ImageData(data as Uint8ClampedArray<ArrayBuffer>, rect.w, rect.h), rect.x, rect.y);
   }, []);
+
+  /**
+   * A part of the plane changed: shown as it is now, faded to over FADE_MS (at `once`, or with motion reduced, at once).
+   * Each frame moves the parts still fading a step nearer the plane; a part that arrived is dropped.
+   */
+  const paint = useCallback((r: Rect | null, once = false) => {
+    const p = plane.current;
+    const part = p && r && clip(r, p);
+    if (!p || !part) return;
+    if (display.current?.length !== p.data.length) {
+      display.current = p.data.slice();
+      fading.current = [];
+      return draw({ x: 0, y: 0, w: p.w, h: p.h });
+    }
+    if (once || !motionAllowed()) {
+      for (let y = part.y; y < part.y + part.h; y++) display.current.set(p.data.subarray(y * p.w + part.x, y * p.w + part.x + part.w), y * p.w + part.x);
+      return draw(part);
+    }
+    fading.current.push(part);
+    if (frame.current) return;
+    let last = performance.now();
+    const tick = (t: number) => {
+      const d = display.current;
+      const q = plane.current;
+      if (!d || !q || d.length !== q.data.length) {
+        frame.current = 0;
+        return;
+      }
+      const step = Math.max(1, Math.round((255 * (t - last)) / FADE_MS));
+      last = t;
+      fading.current = fading.current.filter((f) => {
+        const arrived = chase(d, q, f, step);
+        draw(f);
+        return !arrived;
+      });
+      frame.current = fading.current.length ? requestAnimationFrame(tick) : 0;
+    };
+    frame.current = requestAnimationFrame(tick);
+  }, [draw]);
 
   // one ref for the canvas's whole life: a new one at each render would draw the whole plane again at every pointer move
   const canvasRef = useCallback((c: HTMLCanvasElement | null) => {
     canvas.current = c;
-    if (c && plane.current) paint({ x: 0, y: 0, w: plane.current.w, h: plane.current.h });
+    if (c && plane.current) paint({ x: 0, y: 0, w: plane.current.w, h: plane.current.h }, true);
   }, [paint]);
 
   // read through a ref: a caller handing a new {w, h} at each render must not make the plane again (only its size does)
@@ -141,7 +194,8 @@ export function useMaskLayer({ natural, from = null, start = { size: 64, feather
           plane.current = read;
         }
         setReady(true);
-        paint({ x: 0, y: 0, w: size.w, h: size.h });
+        display.current = null;
+        paint({ x: 0, y: 0, w: size.w, h: size.h }, true);
         changed();
       } catch (err) {
         if (!gone) setFailed((err as Error).message);
@@ -278,8 +332,12 @@ export function useMaskLayer({ natural, from = null, start = { size: 64, feather
       size: Math.round(Math.min(BRUSH_LIMITS.size.max, Math.max(BRUSH_LIMITS.size.min, change.size ?? b.size))),
       feather: Math.round(Math.min(BRUSH_LIMITS.feather.max, Math.max(BRUSH_LIMITS.feather.min, change.feather ?? b.feather))),
     })),
-    shown,
-    setShown,
+    view,
+    setView: (next) => {
+      setViewState(next);
+      // the views cross-fade, but never under reduced motion (Off is the canvas hidden: nothing to fade in)
+      if (motionAllowed()) canvas.current?.animate?.([{ opacity: 0 }, { opacity: 1 }], { duration: FADE_MS * 0.8, easing: "ease-out" });
+    },
     steps: history.current.steps,
     redos: history.current.redos,
     undo: () => {
@@ -311,13 +369,17 @@ export function useMaskLayer({ natural, from = null, start = { size: 64, feather
       const fitted = found.w === p.w && found.h === p.h ? found : resample(found, p.w, p.h);
       return step((q) => combine(q, feathered(fitted, brush.feather * (p.w / natural.w)), ink)) ? versionNow.current : null;
     },
-    view: (place) => (
-      <canvas
-        ref={canvasRef}
-        aria-hidden
-        className={cx("pointer-events-none absolute rounded-lg transition-opacity", shown ? "opacity-55" : "opacity-0")}
-        style={percentOf({ x: 0, y: 0, w: place.natural.w, h: place.natural.h }, place.frame)}
-      />
+    draw: (place) => (
+      <>
+        <MaskFilters id={filterId} scale={place.shown.scale} />
+        <canvas
+          ref={canvasRef}
+          aria-hidden
+          data-mask-view={view}
+          className="pointer-events-none absolute rounded-lg"
+          style={{ ...percentOf({ x: 0, y: 0, w: place.natural.w, h: place.natural.h }, place.frame), filter: viewFilter(filterId, view), opacity: view === "off" ? 0 : 1 }}
+        />
+      </>
     ),
   };
 }

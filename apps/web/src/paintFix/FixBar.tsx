@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type InputHTMLAttributes, type Ref, type RefObject } from "react";
+import { useEffect, useRef, useState, type InputHTMLAttributes, type ReactNode, type Ref, type RefObject } from "react";
 import { Settings2, Wand2 } from "lucide-react";
 import type { InputSpec } from "@afflatus/core";
 import type { RecipeInfo } from "../api";
@@ -7,7 +7,7 @@ import { dialogOver, OVER } from "../Dialog";
 import { Kbd } from "../Keys";
 import { MAX_COUNT, tuneAt, useTune, type TuneAsk } from "../passTune";
 import type { QueuedJob } from "../queueVariation";
-import { Button, Chip, cx, Failed, fieldClass, Help, IconButton, NumberBox } from "../ui";
+import { Button, cx, Failed, Help, IconButton, NumberBox } from "../ui";
 import type { FixAsk } from "./useFixJob";
 
 /**
@@ -89,10 +89,47 @@ export function BarInput({ onEnter, ref, ...props }: Omit<InputHTMLAttributes<HT
         }
         if (e.key === "Escape") (e.target as HTMLInputElement).blur();
       }}
-      className={cx(fieldClass, "h-9 min-w-60 grow basis-60")}
+      className="h-8 min-w-32 grow basis-32 rounded-control border border-transparent bg-shade/25 px-3 text-body text-ink outline-none transition-colors placeholder:text-ink-3 hover:border-line-strong focus:border-line-strong"
     />
   );
 }
+
+/**
+ * Both bars' capsule (owner's pick on mock-0.10-paint-look): one floating row under the picture, translucent over the Stage.
+ * On a narrow Stage it wraps, the field keeping a row of its own.
+ */
+export const BAR_CAPSULE = "@container flex w-full flex-wrap items-center justify-end gap-1.5 rounded-card border border-line bg-panel/85 p-1.5 shadow-pop backdrop-blur-xl";
+
+/** What a bar works on, first in its capsule: the mask (accent, a soft swatch) or an edit box (the box's blue, ✦). */
+export function BarWhat({ tone, tip, children }: { tone: "mask" | "box" | "none"; tip: string; children: ReactNode }) {
+  return (
+    <span
+      data-tip={tip}
+      className={cx(
+        "inline-flex h-8 shrink-0 items-center gap-2 rounded-control px-2.5 text-xs font-bold whitespace-nowrap",
+        tone === "mask" ? "bg-accent-wash text-accent" : tone === "box" ? "bg-picture/12 text-picture" : "bg-hover text-ink-2",
+      )}
+    >
+      {tone === "mask" && <span aria-hidden className="size-3.5 shrink-0 rounded-key bg-[radial-gradient(circle,var(--color-accent)_35%,transparent_72%)] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-accent)_35%,transparent)]" />}
+      {children}
+    </span>
+  );
+}
+
+/**
+ * The button's Ctrl+Enter keycaps, shown while the capsule has the room (from 864 px): at 1280 wide with the side panel open
+ * they would take the field's room and cut its placeholder. The key is still in the button's tip and on the keys sheet.
+ */
+export function GoKeys() {
+  return (
+    <span className="hidden @[54rem]:contents">
+      <Kbd>Ctrl+Enter</Kbd>
+    </span>
+  );
+}
+
+/** A number of the bar (denoise, how many), its name before it, quiet. */
+const BAR_FIELD = "flex h-8 shrink-0 items-center gap-1.5 px-1 text-xs text-ink-3";
 
 /** Why a bar's last try failed, as useFixJob says it. */
 export type BarFailure = { what: string; error: Error };
@@ -156,15 +193,15 @@ export function FixBar({ verb, tool, job, mask, grow, busy, failure, note, boxes
       more: { label: "Open the full form", run: (changed) => onFullForm({ prompt, strength, grow, tuned: { ...bar.tuned, ...changed } }) },
     });
   return (
-    <div ref={bar.root} className="flex w-full max-w-[1040px] shrink-0 flex-col items-center gap-1.5">
+    <div ref={bar.root} className="flex w-full max-w-[940px] shrink-0 flex-col items-center gap-1.5">
       {/* on a narrow stage the prompt keeps a row of its own, the numbers and Fix wrapping under it */}
-      <div role="group" aria-label="Fix" className="flex w-full flex-wrap items-center justify-end gap-2">
+      <div role="group" aria-label="Fix" className={BAR_CAPSULE}>
         {editing ? (
-          <Chip tone="accent" tip="An edit works on the whole picture: paint a part (P, B, L, C, D) to fix only that">Whole picture</Chip>
+          <BarWhat tone="mask" tip="An edit works on the whole picture: paint a part (P, B, L, C, D) to fix only that"><span>Whole picture</span></BarWhat>
         ) : fixing ? (
-          <Chip tone={mask ? "accent" : "neutral"} tip={mask ? "What the fix redoes: the painted part, its soft edge included" : "Paint over the part to redo: P the brush, B a box, L a lasso"}>Mask · {mask ?? "nothing painted"}</Chip>
+          <BarWhat tone={mask ? "mask" : "none"} tip={mask ? "What the fix redoes: the painted part, its soft edge included" : "Paint over the part to redo: P the brush, B a box, L a lasso"}><span>Mask · {mask ?? "nothing painted"}</span></BarWhat>
         ) : (
-          <Chip tone={mask ? "accent" : "neutral"} tip="What the outpaint adds round the picture: the frame's edges dragged out (R)">Frame · {mask ?? "the picture's own edges"}</Chip>
+          <BarWhat tone={mask ? "mask" : "none"} tip="What the outpaint adds round the picture: the frame's edges dragged out (R)"><span>Frame · {mask ?? "the picture's own edges"}</span></BarWhat>
         )}
         <BarInput
           aria-label={editing ? "What to change" : fixing ? "What the painted part becomes" : "What the added parts show"}
@@ -175,25 +212,27 @@ export function FixBar({ verb, tool, job, mask, grow, busy, failure, note, boxes
           onEnter={fix}
         />
         {denoise && verb !== "Outpaint" && (
-          <span className="flex items-center gap-1.5 text-xs text-ink-2">
-            Denoise <NumberBox label="Denoise" value={strength} min={denoise.min ?? 0.05} max={denoise.max ?? 1} step={denoise.step ?? 0.05} onCommit={setStrength} />
+          <span className={BAR_FIELD}>
+            Denoise <NumberBox narrow label="Denoise" value={strength} min={denoise.min ?? 0.05} max={denoise.max ?? 1} step={denoise.step ?? 0.05} onCommit={setStrength} />
           </span>
         )}
-        <span className="flex items-center gap-1.5 text-xs text-ink-2" data-tip="How many versions one Fix makes, each on a new seed">
-          × <NumberBox label="Versions" value={count} min={1} max={MAX_COUNT} onCommit={(n) => setCount(Math.round(n))} />
+        <span className={BAR_FIELD} data-tip="How many versions one Fix makes, each on a new seed">
+          × <NumberBox narrow label="Versions" value={count} min={1} max={MAX_COUNT} onCommit={(n) => setCount(Math.round(n))} />
         </span>
         {/* its own box at the number boxes' height, the bar's gap on each side */}
-        <IconButton label="The fix's settings" tip="Steps, sampler… and the full form" tone="outline" size={32} onClick={(e) => tune(e.currentTarget)}>
+        <IconButton label="The fix's settings" tip="Steps, sampler… and the full form" size={32} data-soft-focus onClick={(e) => tune(e.currentTarget)}>
           <Settings2 size={15} />
         </IconButton>
-        <Button tone="primary" disabled={Boolean(why)} data-tip={why ?? `${plural(count, "version")} of the picture, each on a new seed`} onClick={() => fix()} className="h-9 shrink-0">
-          <Wand2 size={14} /> {verb} · {plural(count, "version")} <Kbd>Ctrl+Enter</Kbd>
+        <Button tone="primary" disabled={Boolean(why)} data-tip={why ?? `${plural(count, "version")} of the picture, each on a new seed`} data-tip-keys="Ctrl+Enter" onClick={() => fix()} className="h-8 shrink-0" data-soft-focus>
+          <Wand2 size={14} /> {verb} · {plural(count, "version")} <GoKeys />
         </Button>
       </div>
       {failure && <Failed inline what={failure.what} error={failure.error} />}
       {note && <span className="text-xs font-semibold text-attention-ink">{note}</span>}
       {fixing && mask && boxes && boxes.count > 0 && (
-        <span role="status" className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs font-semibold text-attention-ink">
+        <span role="status" className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-xs text-ink-2">
+          {/* the boxes' own look while ignored: grey, dashed, still (useRegionTool's "ignored") */}
+          <span aria-hidden className="h-[13px] w-[18px] shrink-0 rounded-xs border-[1.5px] border-dashed border-ink-3" />
           {boxesIgnored(boxes.count)}
           <Button size="sm" onClick={boxes.onClearMask} data-tip="Clears the painted mask (Ctrl+Z brings it back): the bar edits in the boxes">
             Clear mask

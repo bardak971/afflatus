@@ -129,13 +129,27 @@ describe("Edit in box on Paint and fix", () => {
     key("b");
     drag(layer, [10, 10], [40, 30]);
     await screen.findByRole("group", { name: "Edit in box" });
+    // the box in its own look: the picture blue, ✦ and its number on its label, picked (handles), never the mask's accent
+    const box = () => document.querySelector<HTMLElement>("[data-edit-boxes] [data-region]")!;
+    expect(box().hasAttribute("data-ignored")).toBe(false);
+    expect(box().querySelector("[data-region-chip]")!.textContent).toBe("✦ 1no instruction yet");
+    expect(box().querySelector("svg rect:last-child")!.getAttribute("stroke")).toBe("var(--color-picture)");
+    expect(box().querySelectorAll("[data-handle]")).toHaveLength(8);
     (document.activeElement as HTMLElement | null)?.blur();
     key("p");
     drag(layer, [20, 20], [24, 22]);
     await screen.findByRole("group", { name: "Fix" });
     expect(screen.getByRole("status").textContent).toContain("Fix uses the mask · the 1 box is ignored");
+    // ignored: grey, dashed, still (no moving dash, no handles), as the notice draws it
+    expect(box().hasAttribute("data-ignored")).toBe(true);
+    const line = box().querySelector("svg rect:last-child")!;
+    expect(line.getAttribute("stroke")).toBe("var(--color-ink-3)");
+    expect(line.getAttribute("stroke-dasharray")).toBeTruthy();
+    expect(line.classList.contains("m-box-dash")).toBe(false);
+    expect(box().querySelectorAll("[data-handle]")).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Clear mask" }));
     await screen.findByRole("group", { name: "Edit in box" });
+    expect(box().hasAttribute("data-ignored")).toBe(false);
     expect(screen.getByRole("button", { name: /^Edit in box · 1 box/ })).toBeTruthy();
     // the clear is one step: Ctrl+Z brings the mask back, and the bar fixes again
     (document.activeElement as HTMLElement | null)?.blur();
