@@ -223,6 +223,20 @@ describe("Keep", () => {
     expect((await listed()).map((i) => i.id).sort()).toEqual([head.id, a.id, b.id].sort());
   });
 
+  it("a version kept by itself is said to the other tabs as a move into its folder, as the lists show it now (#325)", async () => {
+    const folder = (await post(t.app, "/api/folders", { name: "zz-test shots" })).json().id as string;
+    const head = await upload("zz-test terrace", folder);
+    const a = await make(head.id);
+    const heard: unknown[] = [];
+    t.services.queue.events.on("library", (c: unknown) => heard.push(c));
+    await post(t.app, `/api/assets/${a.id}/keep`, { kept: true });
+    expect(heard).toContainEqual({ change: "moved", items: [a.id], folders: [folder] });
+    // a picture that was no version: the keep alone, written in place
+    heard.length = 0;
+    await post(t.app, `/api/assets/${head.id}/keep`, { kept: true });
+    expect(heard).toEqual([{ change: "kept", items: [head.id], kept: true }]);
+  });
+
   it("leaves an old head something uses kept, as an unkeep of it would be refused", async () => {
     const head = await upload("zz-test terrace");
     await post(t.app, `/api/assets/${head.id}/keep`, { kept: true });

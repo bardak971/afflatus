@@ -102,12 +102,15 @@ describe("a folder linked to a directory of the disk", () => {
     expect(whyNotLinkable(dir, { HOST: "localhost" })).toBeNull();
   });
 
-  it("never reads or removes a linked: key outside the linked directories, nor stores under one", async () => {
+  it("never reads a linked: key outside the linked directories, never removes one, nor stores under one", async () => {
     await link();
     const storage = t.services.storage;
     await expect(storage.get(`linked:${join(dir, "one.png")}`)).resolves.toBeInstanceOf(Uint8Array);
     await expect(storage.get(`linked:${join(dir, "..", "elsewhere.png")}`)).rejects.toThrow(/not linked any more/);
-    await expect(storage.delete(`linked:${join(tmpdir(), "x.png")}`)).rejects.toThrow(/not linked any more/);
+    await expect(storage.delete(`linked:${join(tmpdir(), "x.png")}`)).rejects.toThrow(/never deleted from the disk/);
+    // inside one neither: the user's own file stays where it is
+    await expect(storage.delete(`linked:${join(dir, "one.png")}`)).rejects.toThrow(/never deleted from the disk/);
+    expect(existsSync(join(dir, "one.png"))).toBe(true);
     await expect(storage.put(`linked:${join(dir, "new.png")}`, new Uint8Array(1))).rejects.toThrow(/by name/);
   });
 

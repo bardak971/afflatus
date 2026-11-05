@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import type { Asset, RecipeInfo } from "../../src/api";
 import { useSendJob } from "../../src/queueVariation";
 import { Viewer } from "../../src/Viewer";
@@ -55,6 +55,30 @@ describe("the versions strip under a picture", () => {
     expect(fakeApi.calls("POST", "/assets/zz-test-head/versions/keep")[0]!.body).toEqual({ version: "zz-test-v2" });
     fireEvent.click(screen.getByRole("button", { name: "Keep all as pictures" }));
     await waitFor(() => expect(fakeApi.calls("POST", "/assets/zz-test-head/versions/keep-all")).toHaveLength(1));
+  });
+
+  it("reads its stack again after S or Del on a version, which leaves it: K finds no stale version (#325)", async () => {
+    for (const [press, route] of [["s", "POST /assets/:id/keep"], ["Delete", "DELETE /assets/:id"]] as const) {
+      fakeApi.reset();
+      let left = false;
+      await drawn();
+      // the stack as the server says it once the version left it (a picture of its own, or in the bin)
+      fakeApi.on("GET /assets/:id/versions", () => (left ? { head, versions: [v1] } : stack));
+      fakeApi.on(route, () => {
+        left = true;
+        return route.startsWith("POST") ? { ...v2, kept: true } : { ok: true };
+      });
+      fakeApi.on("POST /drafts/using", { drafts: [] });
+      key("ArrowRight");
+      key("ArrowRight");
+      expect(pressed()).toBe("Version 2");
+      const reads = fakeApi.calls("GET", "/assets/").filter((c) => c.path.endsWith("/versions")).length;
+      key(press);
+      await waitFor(() => expect(fakeApi.calls("GET", "/assets/").filter((c) => c.path.endsWith("/versions")).length).toBeGreaterThan(reads));
+      await waitFor(() => expect(screen.queryByRole("button", { name: "Version 2" })).toBeNull());
+      expect(screen.getByRole("button", { name: "Version 1" })).toBeTruthy();
+      cleanup();
+    }
   });
 
   it("puts two of them side by side in Compare on a Ctrl+click", async () => {

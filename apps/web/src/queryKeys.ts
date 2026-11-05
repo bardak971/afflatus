@@ -312,6 +312,9 @@ function touches(c: LibraryChange | null | undefined, key: QueryKey): boolean {
   const tree = assets && part === "tree" && inFolders(key[2]);
   const one = assets && part === "one" && (!c.items || c.items.includes(key[2] as string));
   const unkept = assets && part === "unkept";
+  // a stack's versions (the Stage's strip, by its head's id): the items' head is not said, so any stack. A version kept
+  // by itself or binned leaves its stack, one moved may be its head
+  const versions = assets && part === "versions";
   // the folders' counts are of what is in a folder: a change to items in none leaves them
   const counts = root === "folders" && (!c.folders || c.folders.some((f) => f !== null));
   const storage = root === "storage";
@@ -323,12 +326,12 @@ function touches(c: LibraryChange | null | undefined, key: QueryKey): boolean {
       return libraryInPlace(c) ? (list && Boolean(filter.q)) || (tree && key[5] === "name") : list || tree || one;
     case "kept":
       // written in place: what comes into or leaves a list of the kept or the unkept, the expiring count, the disk use's split
-      return (libraryInPlace(c) ? list && Boolean(filter.kept || filter.unkept) : list || tree || one) || unkept || storage;
+      return (libraryInPlace(c) ? list && Boolean(filter.kept || filter.unkept) : list || tree || one) || unkept || storage || versions;
     case "places": return root === "folders" || projects;
     case "added": return list || tree || unkept || counts || storage || projects || facets;
     // a move changes no size; filing in a folder keeps what was not (`kept` left out: it may have)
-    case "moved": return list || tree || one || unkept || counts || projects || (c.kept !== false && storage);
-    case "binned": return list || tree || one || unkept || counts || storage || projects || facets;
+    case "moved": return list || tree || one || unkept || counts || projects || versions || (c.kept !== false && storage);
+    case "binned": return list || tree || one || unkept || counts || storage || projects || facets || versions;
     // out of the bin for good: it was in no count but the bin's and the disk use
     case "erased": return (list && Boolean(filter.bin)) || one || storage;
   }
