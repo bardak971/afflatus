@@ -1,8 +1,8 @@
 import { defineFamily, defineRecipe, GraphBuilder, type InputSpec, type PromptLine, QUALITY_WORDS, WEIGHT_SYNTAX, wordCount } from "@afflatus/core";
-import { pictureForm } from "../shared/pictureForm";
+import { pictureForm, SOURCE_INPUT } from "../shared/pictureForm";
 import { REDUX_NODES, reduxInputs, reduxNeeds, withRedux, type ReferenceSettings } from "../shared/references";
 import type { GuideWay } from "../shared/guide";
-import { flowKit, flowRecipes, type FlowBase, type FlowSpec } from "../flow/recipes";
+import { flowKit, flowRecipes, FLOW_SHAPES, type FlowBase, type FlowSpec } from "../flow/recipes";
 import { detectorSlots } from "../shared/detector";
 import { REGIONS_NOT_YET } from "../shared/regions";
 
@@ -138,13 +138,7 @@ const spec: FlowSpec = {
   guidance: { default: 3.5, note: "how closely the prompt is followed: 3.5 is the usual one, 4.5 for Krea dev (its authors' setting), 2 to 2.5 looks more like a photograph. Schnell ignores it" },
   negative: { default: "", note: "only acts with a CFG scale above 1, which FLUX.1 is not made for", empty: "zero" },
   sampling: { steps: 20, stepsNote: "20 for dev and Krea dev, 4 for schnell", cfg: 1, cfgNote: "1 is what FLUX.1 is made for: its Guidance does that job. Above 1 the negative prompt acts and every step takes twice as long", sampler: "euler", scheduler: "simple" },
-  shapes: [
-    { id: "tall", label: "Portrait", width: 896, height: 1152 },
-    { id: "square", label: "Square", width: 1024, height: 1024 },
-    { id: "wide", label: "Landscape", width: 1152, height: 896 },
-    { id: "tall-9-16", label: "Portrait 9:16", width: 768, height: 1360 },
-    { id: "wide-16-9", label: "Landscape 16:9", width: 1360, height: 768 },
-  ],
+  shapes: FLOW_SHAPES,
   megapixels: 1.6,
   // FLUX.1 draws from 0.1 to 2 megapixels
   maxPixels: 2.1e6,
@@ -194,7 +188,7 @@ export const fluxEdit = pictureForm("edit", defineRecipe<FluxEdit>({
   needs: ["kontext"],
   inputs: [
     kontextModel,
-    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+    SOURCE_INPUT,
     { id: "prompt", type: "prompt", label: "Instruction", style: "sentences", placeholder: "Change the car to red, keep everything else the same." },
     ...reduxInputs(),
     ...kit.inputs.map((i) => (i.id === "guidance" ? { ...i, default: 2.5, note: "2.5 is Kontext's usual one" } : i) as InputSpec),

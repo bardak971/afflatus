@@ -26,6 +26,21 @@ const FACE = ["detector", "faceThreshold", "faceCrop", "faceGrow", "faceSize", "
 export const REFERENCES = ["references", "referenceStrength"];
 export const GUIDE = ["guide", "guideFollows", "guideStrength", "guideStart", "guideEnd", "guideLow", "guideHigh", "guideModel"];
 
+/** The picture a tool works on, the same row on every form that takes one. */
+export const SOURCE_INPUT: InputSpec = { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" };
+
+/**
+ * The Denoising strength row of a pass over a picture: its default, range and "?" are each form's own (a face pass redraws
+ * less than a redraw). `refine`: Upscale 2x's light pass after the upscale, shown under its switch, finer and lower.
+ */
+export function strengthInput(o: { default: number; note?: string | null; min?: number; max?: number; refine?: true }): InputSpec {
+  return {
+    id: "strength", type: "number", label: "Denoising strength", ...(o.note ? { note: o.note } : {}),
+    min: o.min ?? 0.05, max: o.max ?? (o.refine ? 0.6 : 1), step: o.refine ? 0.01 : 0.05, default: o.default,
+    ...(o.refine ? { showWhen: "refine", advanced: true, section: "out" } : {}),
+  };
+}
+
 /**
  * The shared rows of each operation, in the order every form of it shows them (the model first, the seed last). The web
  * draws a form's rows by what they are (texts, pictures, sampling, output), each group in this order.

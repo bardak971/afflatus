@@ -1,5 +1,5 @@
 import { defineFamily, defineRecipe, GraphBuilder, REFERENCE_ROLES, type InputSpec, type LoraValue, type Ref, type ReferenceValue } from "@afflatus/core";
-import { noReferences, pictureForm } from "../shared/pictureForm";
+import { noReferences, pictureForm, SOURCE_INPUT } from "../shared/pictureForm";
 import type { GuideWay } from "../shared/guide";
 import { flowKit, flowRecipes, type FlowSpec } from "../flow/recipes";
 import { flowTurboRow } from "../flow/kit";
@@ -214,7 +214,7 @@ export const qwenEdit = pictureForm("edit", defineRecipe<QwenEdit>({
   needs: ["edit"],
   inputs: [
     editModel,
-    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+    SOURCE_INPUT,
     { id: "prompt", type: "prompt", label: "Instruction", style: "sentences", placeholder: "Change the sofa's leather to the fur of image 2, keep everything else the same." },
     {
       id: "references", type: "references", label: "Reference images", max: EDIT_IMAGES - 1, roles: [...REFERENCE_ROLES],

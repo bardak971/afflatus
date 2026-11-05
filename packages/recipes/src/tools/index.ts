@@ -1,5 +1,6 @@
 import { defineFamily, defineRecipe, GraphBuilder, REMOVE_BACKGROUND, TOOLS_FAMILY } from "@afflatus/core";
 import { DETECTOR_SLOTS } from "../shared/detector";
+import { SOURCE_INPUT } from "../shared/pictureForm";
 import { SAM_FILE, samSlot } from "../shared/sam";
 import { UPSCALER_SLOTS } from "../sdxl/common";
 import { SEEDVR_COLOURS, SEEDVR_NODES, SEEDVR_SLOTS, seedvrUpscale } from "../video/upscale";
@@ -48,7 +49,7 @@ export const seedvrPicture = defineRecipe<SeedvrPicture>({
   output: "image",
   needs: ["seedvr", "seedvrVae"],
   inputs: [
-    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+    SOURCE_INPUT,
     { id: "upscaleBy", type: "number", label: "Upscale by", min: 1, max: 4, step: 0.25, default: 2, unit: "×", note: "1 restores without enlarging", section: "out" },
     { id: "upscaleColour", type: "choice", label: "Colour match", options: SEEDVR_COLOURS, default: "lab", advanced: true, note: "the result matched in colour to the original: lab (the most faithful), wavelet (keeps the new fine detail), adain (a global tint), none" },
   ],
@@ -80,7 +81,7 @@ export const removeBackground = defineRecipe<RemoveBackground>({
   summary: "Keeps the foreground and makes the rest transparent. The output is a PNG.",
   output: "image",
   inputs: [
-    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+    SOURCE_INPUT,
     {
       id: "model", type: "choice", label: "Background removal model", note: "from ComfyUI's models/background_removal folder. ComfyUI's node loads BiRefNet-type files: birefnet (general), lucida (a BiRefNet tuned for fine edges: hair, glass, text)",
       options: { node: "LoadBackgroundRemovalModel", input: "bg_removal_name" }, default: "birefnet.safetensors", prefer: ["lucida", "birefnet", "rmbg", "."],

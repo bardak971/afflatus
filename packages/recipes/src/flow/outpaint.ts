@@ -1,6 +1,6 @@
 import { defineRecipe, GraphBuilder, type Recipe, type Ref } from "@afflatus/core";
-import { dropsFor, pictureForm } from "../shared/pictureForm";
-import { nothingToExtend, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, outpaintSides, PASTE_BACK_NODES, pasteBack, stretchedFill, type OutpaintSettings } from "../sdxl/common";
+import { dropsFor, pictureForm, SOURCE_INPUT } from "../shared/pictureForm";
+import { OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintPad, outpaintPlan, PASTE_BACK_NODES, pasteBack, stretchedFill, type OutpaintSettings } from "../sdxl/common";
 import { INPAINT_PATCH_NODES, inpaintPatched, inpaintPatchNeeds, photo, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
 
 export interface FlowOutpaint extends FlowBase, OutpaintSettings { source: string; prompt: string }
@@ -29,7 +29,7 @@ export function flowOutpaint(spec: FlowSpec, kit: FlowKit): Recipe<FlowOutpaint>
     output: "image",
     inputs: [
       spec.model,
-      { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+      SOURCE_INPUT,
       { id: "prompt", type: "prompt", label: "Prompt", note: "the whole scene, as it should look once wider", style: "sentences", placeholder: "A wide shot of the terrace at sunset, the sea behind the railing, warm light." },
       ...OUTPAINT_INPUTS,
       ...inputs,
@@ -41,17 +41,13 @@ export function flowOutpaint(spec: FlowSpec, kit: FlowKit): Recipe<FlowOutpaint>
     ...(spec.inpaintPatch ? { needsWith: inpaintPatchNeeds(spec) } : {}),
     ...(SOMETIMES.length || spec.inpaintPatch ? { optionalNodes: [...SOMETIMES, ...(spec.inpaintPatch ? INPAINT_PATCH_NODES : [])] } : {}),
     build(form, ctx) {
-      const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
-      // by the sides set, or those that bring it to the aspect ratio picked
-      const input = outpaintSides(form, from);
-      if (input.padLeft + input.padRight + input.padTop + input.padBottom === 0) throw new Error(nothingToExtend(input));
+      const { input, from, whole } = outpaintPlan(form, ctx.media.source);
       const g = new GraphBuilder();
       const k = load(g, input, ctx);
-      const whole = { width: from.width + input.padLeft + input.padRight, height: from.height + input.padTop + input.padBottom };
       const size = sizeOf(whole);
       const source = g.out("LoadImage", { image: ctx.uploads.source });
       if (spec.extend) return extended(g, k, input, ctx.seed, source, from, whole, size, spec.extend);
-      const { padded, pixels: grey, mask } = outpaintLatent(g, source, from, input, size, k.vae);
+      const { padded, pixels: grey, mask } = outpaintPad(g, source, input, size);
       const c = cond(g, k, input, input.prompt);
       // a family that inpaints with the mask as it is (hardInpaint, Krea 2's) outpaints so too
       const soft = (m: Ref) => (spec.hardInpaint ? m : g.out("DifferentialDiffusion", { model: m }));

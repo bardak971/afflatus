@@ -472,6 +472,12 @@ export const regionBox = (box: RegionValue["box"]) => {
   const x = Math.min(Math.max(box.x, 0), 1), y = Math.min(Math.max(box.y, 0), 1);
   return { x, y, w: Math.max(Math.min(box.w, 1 - x), 0.01), h: Math.max(Math.min(box.h, 1 - y), 0.01) };
 };
+/** A box in a picture's pixels as a node takes it: whole pixels, at least one each way, starting and ending within the picture. */
+export function clampBox(box: { x: number; y: number; width: number; height: number }, size: { width: number; height: number }) {
+  const x = Math.max(0, Math.min(size.width - 1, Math.round(box.x)));
+  const y = Math.max(0, Math.min(size.height - 1, Math.round(box.y)));
+  return { x, y, width: Math.max(1, Math.min(size.width - x, Math.round(box.width))), height: Math.max(1, Math.min(size.height - y, Math.round(box.height))) };
+}
 /**
  * Regions as another form's input takes them (a draft moved from SDXL to MOSS-Image, or back): a text box only where boxes
  * have kinds (elsewhere it is left behind, its words drawn by nobody), a LoRA only where a region takes one, at most `max`.

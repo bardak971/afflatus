@@ -1,5 +1,5 @@
 import { defineRecipe, GraphBuilder, roundTo, type Recipe, type Ref } from "@afflatus/core";
-import { dropsFor, pictureForm } from "../shared/pictureForm";
+import { dropsFor, pictureForm, SOURCE_INPUT, strengthInput } from "../shared/pictureForm";
 import { FACTOR_INPUT, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_DEFAULT, UPSCALER_PREFER, type RefineColourMatch, type UpscaleSettings } from "../sdxl/common";
 import { redrawInTiles, tileInputs, tilePass, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
 import { rowsWhile } from "../shared/addedRows";
@@ -39,12 +39,12 @@ export function flowSharper(spec: FlowSpec, kit: FlowKit): Recipe<FlowSharper> {
     output: "image",
     inputs: [
       spec.model,
-      { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+      SOURCE_INPUT,
       { id: "prompt", type: "prompt", label: "Prompt", note: "what is in the picture: it helps the img2img pass", style: "sentences", optional: true, default: "" },
       { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: UPSCALER_DEFAULT, prefer: UPSCALER_PREFER, section: "out" },
       FACTOR_INPUT,
       { id: "refine", type: "toggle", label: "img2img pass after upscale", note: "a light pass with the model; past about 3 megapixels it is made in tiles", default: true, section: "out" },
-      { id: "strength", type: "number", label: "Denoising strength", ...(strengthNoise ? { note: strengthNoise } : {}), min: 0.05, max: 0.6, step: 0.01, default: 0.25, showWhen: "refine", advanced: true, section: "out" },
+      strengthInput({ default: 0.25, note: strengthNoise, refine: true }),
       REFINE_COLOUR_MATCH_INPUT,
       ...tileInputs("refine"),
       // (Turbo's LoRA is put on only with the img2img pass: without it no model is loaded)

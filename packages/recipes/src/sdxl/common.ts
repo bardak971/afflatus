@@ -1,5 +1,6 @@
-import { roundTo, withQuality, type BuildContext, type GraphBuilder, type InputSpec, type LoraValue, type MediaFacts, type Ref } from "@afflatus/core";
+import { clampBox, roundTo, withQuality, type BuildContext, type GraphBuilder, type InputSpec, type LoraValue, type MediaFacts, type Ref } from "@afflatus/core";
 import { DEFAULT_NEGATIVE, SDXL_NETS, SDXL_UNION } from "./family";
+import { tileInputs } from "../shared/tiles";
 
 /** What every SDXL recipe that works on a picture asks for besides its own inputs. */
 export interface SdxlBase {
@@ -124,9 +125,7 @@ export function boxOf(picture: MediaFacts | undefined, mask: MediaFacts | undefi
   const height = picture?.height || mask?.height || 1024;
   const b = mask?.box;
   if (!b) return { x: 0, y: 0, width, height };
-  const x = Math.max(0, Math.min(width - 1, Math.round(b.x)));
-  const y = Math.max(0, Math.min(height - 1, Math.round(b.y)));
-  return { x, y, width: Math.max(1, Math.min(width - x, Math.round(b.width))), height: Math.max(1, Math.min(height - y, Math.round(b.height))) };
+  return clampBox(b, { width, height });
 }
 
 /**
@@ -228,6 +227,28 @@ export const HIRES_PASS_INPUTS: InputSpec[] = [
   { id: "hiresSampler", type: "choice", label: "Hires sampler", options: { node: "KSampler", input: "sampler_name" }, extra: [SAME_PASS], default: SAME_PASS, showWhen: "hires", advanced: true, perModel: true },
   { id: "hiresScheduler", type: "choice", label: "Hires scheduler", options: { node: "KSampler", input: "scheduler" }, extra: [SAME_PASS], default: SAME_PASS, showWhen: "hires", advanced: true, perModel: true },
 ];
+/**
+ * txt2img's hires fix rows, in the order every picture form has them: the switch, how much it enlarges, the upscaler, how much
+ * and in how many steps the second pass redraws, its sampler and scheduler (`pass`: a family whose sampler is another node's
+ * gives its own), and its tiles. What a family says otherwise is its defaults and its notes.
+ */
+export function hiresInputs(o: {
+  scale: number; scaleNote?: string; denoise: number; denoiseNote: string; steps: number; stepsNote?: string;
+  upscaler?: { default: string; extra?: string[] }; pass?: InputSpec[];
+}): InputSpec[] {
+  return [
+    { id: "hires", type: "toggle", label: "Hires fix", note: "upscale, then a second pass over the larger picture", default: false, advanced: true, perModel: true },
+    { id: "hiresScale", type: "number", label: "Upscale by", note: o.scaleNote ?? "past 2×, the second pass is redrawn in tiles (see Redraw)", min: 1.1, max: 4, step: 0.05, default: o.scale, unit: "×", showWhen: "hires", advanced: true, perModel: true },
+    {
+      id: "hiresUpscaler", type: "choice", label: "Upscaler", note: "from your upscale models", showWhen: "hires", advanced: true, perModel: true,
+      options: { node: "UpscaleModelLoader", input: "model_name" }, ...(o.upscaler?.extra ? { extra: o.upscaler.extra } : {}), default: o.upscaler?.default ?? "RealESRGAN_x4plus.pth", prefer: UPSCALER_PREFER,
+    },
+    { id: "hiresDenoise", type: "number", label: "Denoising strength", note: o.denoiseNote, min: 0.05, max: 0.9, step: 0.05, default: o.denoise, showWhen: "hires", advanced: true, perModel: true },
+    { id: "hiresSteps", type: "number", label: "Hires steps", ...(o.stepsNote ? { note: o.stepsNote } : {}), min: 1, max: 60, step: 1, default: o.steps, showWhen: "hires", advanced: true, perModel: true },
+    ...(o.pass ?? HIRES_PASS_INPUTS),
+    ...tileInputs("hires"),
+  ];
+}
 /** What the second pass samples with, over what the first pass used. */
 export const hiresPass = (input: HiresPass) => ({
   ...(input.hiresSampler !== SAME_PASS ? { sampler_name: input.hiresSampler } : {}),
@@ -290,19 +311,28 @@ export function outpaintSides<T extends Omit<OutpaintSettings, "feathering">>(in
 /** What an outpaint says when there is nothing to extend. */
 export const nothingToExtend = (input: Pick<OutpaintSettings, "shape">) =>
   input.shape && input.shape !== CUSTOM_SHAPE ? `Nothing to extend: the picture is ${input.shape} already.` : "Nothing to extend: set how far the picture grows on at least one side.";
-export const OUTPAINT_NODES = ["LoadImage", "ImagePadForOutpaint", "ImageScale", "MaskToImage", "ImageToMask", "VAEEncodeForInpaint", "VAEDecode", "PreviewImage"];
 /**
- * The picture padded on the sides asked for (grey, with a soft edge into the picture), scaled to the size
- * the model draws at, and encoded with the padding as the part to paint: what ComfyUI's own outpaint
- * example does. Returns the latent to sample at denoise 1, the size to bring the result back to, and the
- * padding node, and the padded picture and its mask at the drawing size, for a recipe that encodes its own.
+ * How every outpaint starts: its sides (outpaintSides), the picture's size (1024 square when it is not known) and the whole
+ * canvas's once grown; nothing to extend is said as the build's error.
  */
-export function outpaintLatent(g: GraphBuilder, source: Ref, from: { width: number; height: number }, input: OutpaintSettings, size: { width: number; height: number }, vae: Ref) {
+export function outpaintPlan<T extends Omit<OutpaintSettings, "feathering">>(form: T, source: MediaFacts | undefined): { input: T; from: { width: number; height: number }; whole: { width: number; height: number } } {
+  const from = source?.width ? source : { width: 1024, height: 1024 };
+  const input = outpaintSides(form, from);
+  if (input.padLeft + input.padRight + input.padTop + input.padBottom === 0) throw new Error(nothingToExtend(input));
+  return { input, from, whole: { width: from.width + input.padLeft + input.padRight, height: from.height + input.padTop + input.padBottom } };
+}
+export const OUTPAINT_NODES = ["LoadImage", "ImagePadForOutpaint", "ImageScale", "MaskToImage", "ImageToMask", "VAEDecode", "PreviewImage"];
+/**
+ * The picture padded on the sides asked for (grey, with a soft edge into the picture) and scaled to the size the model draws
+ * at, as ComfyUI's own outpaint example pads it: the padding node, and the padded picture and its mask at the drawing size,
+ * which each family encodes or reads its own way. (Its VAEEncodeForInpaint went: no family sampled it, every one starting from
+ * the stretched picture or an edit, and the graph carried it unread.)
+ */
+export function outpaintPad(g: GraphBuilder, source: Ref, input: OutpaintSettings, size: { width: number; height: number }) {
   const padded = g.add("ImagePadForOutpaint", { image: source, left: input.padLeft, top: input.padTop, right: input.padRight, bottom: input.padBottom, feathering: input.feathering });
-  const whole = { width: from.width + input.padLeft + input.padRight, height: from.height + input.padTop + input.padBottom };
   const pixels = g.out("ImageScale", { image: [padded, 0], upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
   const mask = g.out("ImageToMask", { image: g.out("ImageScale", { image: g.out("MaskToImage", { mask: [padded, 1] }), upscale_method: "bilinear", width: size.width, height: size.height, crop: "disabled" }), channel: "red" });
-  return { latent: g.out("VAEEncodeForInpaint", { pixels, vae, mask, grow_mask_by: 16 }), whole, padded, pixels, mask };
+  return { padded, pixels, mask };
 }
 /** The nodes `pasteBack` and `stretchedFill` bring in (GrowMask besides, for a paste with an inset). */
 export const PASTE_BACK_NODES = ["ImageCompositeMasked", "InvertMask", "CropMask", "ImageBlur"];

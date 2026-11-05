@@ -1,11 +1,11 @@
 import { defineRecipe, GraphBuilder, roundTo, withQuality, type LoraValue, type Ref, type RegionValue, type SizeValue } from "@afflatus/core";
 import { pictureForm } from "../shared/pictureForm";
-import { HIRES_PASS_INPUTS, hiresPass, isVPred, loadSdxl, modelInputs, PREDICTION_NODES, samplingInputs, SDXL_DROPS, SDXL_PRESETS, UPSCALER_DEFAULT, UPSCALER_PREFER } from "./common";
+import { hiresInputs, hiresPass, isVPred, loadSdxl, modelInputs, PREDICTION_NODES, samplingInputs, SDXL_DROPS, SDXL_PRESETS, UPSCALER_DEFAULT } from "./common";
 import { SDXL_GUIDE } from "./family";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, kSample, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { applyGuide, FOLLOW_MAP, guideInputs, guideNeeds, guideNodes, type GuideSettings } from "../shared/guide";
 import { IP_ADAPTER_INPUTS, IP_FILES, IP_REFUSES, ipAdapterNeeds, ipAdapterNodes, withIpAdapter, type ReferenceSettings } from "../shared/references";
-import { redrawInTiles, tileInputs, tileNodes, TILES_ON, tilePass, inTiles, type TileSettings } from "../shared/tiles";
+import { redrawInTiles, tileNodes, TILES_ON, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import { SDXL_AREA } from "./common";
 import { adetail, ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FILES, SDXL_FACE_DENOISE, sized, type AdetailSettings } from "../shared/adetail";
 import { regionLoads, regionsInput, sdxlRegionNodes, sdxlRegions } from "../shared/regions";
@@ -65,22 +65,14 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
     ...DETAIL_INPUTS,
     // the checkpoint, its LoRAs and how it samples: the rows of the SDXL tools, which the skeleton lays out (pictureForm)
     ...modelInputs,
-    ...samplingInputs(28).filter((i) => i.id !== "seed"),
-    { id: "hires", type: "toggle", label: "Hires fix", note: "upscale, then a second pass over the larger picture", default: false, advanced: true, perModel: true },
-    { id: "hiresScale", type: "number", label: "Upscale by", note: "past 2×, the second pass is redrawn in tiles (see Redraw)", min: 1.1, max: 4, step: 0.05, default: 1.5, unit: "×", showWhen: "hires", advanced: true, perModel: true },
-    {
-      id: "hiresUpscaler", type: "choice", label: "Upscaler", note: "from your upscale models", showWhen: "hires", advanced: true, perModel: true,
+    // the seed among them, which pictureForm puts last
+    ...samplingInputs(28),
+    ...hiresInputs({
+      scale: 1.5, denoise: 0.45, steps: 15,
+      denoiseNote: "how much the second pass may redraw. With an upscale model 0.3 to 0.45 keeps the picture and sharpens it; enlarging in latent space needs 0.5 or more, or it stays soft",
       // an upscale model when there is one: the enlarged latent is noisy and asks for a denoise that redraws the picture
-      options: { node: "UpscaleModelLoader", input: "model_name" }, extra: [LATENT_UPSCALE], default: UPSCALER_DEFAULT, prefer: UPSCALER_PREFER,
-    },
-    {
-      id: "hiresDenoise", type: "number", label: "Denoising strength", min: 0.05, max: 0.9, step: 0.05, default: 0.45, showWhen: "hires", advanced: true, perModel: true,
-      note: "how much the second pass may redraw. With an upscale model 0.3 to 0.45 keeps the picture and sharpens it; enlarging in latent space needs 0.5 or more, or it stays soft",
-    },
-    { id: "hiresSteps", type: "number", label: "Hires steps", min: 1, max: 60, step: 1, default: 15, showWhen: "hires", advanced: true, perModel: true },
-    ...HIRES_PASS_INPUTS,
-    ...tileInputs("hires"),
-    { id: "seed", type: "seed", label: "Seed" },
+      upscaler: { default: UPSCALER_DEFAULT, extra: [LATENT_UPSCALE] },
+    }),
   ],
   presets: SDXL_PRESETS,
   // a person's reference image with another is refused before it is queued, and said by the form (card #280)

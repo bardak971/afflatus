@@ -1,8 +1,8 @@
 import { defineRecipe, GraphBuilder, roundTo, type BuildContext, type Ref } from "@afflatus/core";
-import { pictureForm } from "../shared/pictureForm";
+import { pictureForm, SOURCE_INPUT, strengthInput } from "../shared/pictureForm";
 import { redrawInTiles, tileInputs, TILE_NODES, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import {
-  boxOf, FACE_INPUTS, faceSteps, SDXL_DROPS, nothingToExtend, outpaintSides, FACTOR_INPUT, loadSdxl, NO_FACE, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintLatent, PASTE_BACK_NODES, pasteBack, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, REPAINT_NODES, repaintGuided, repaintInputs, repaints, samplerOf, stretchedFill, samplingInputs, SDXL_PRESETS, UPSCALER_DEFAULT, UPSCALER_PREFER, workSize,
+  boxOf, FACE_INPUTS, faceSteps, SDXL_DROPS, FACTOR_INPUT, loadSdxl, NO_FACE, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintPad, outpaintPlan, PASTE_BACK_NODES, pasteBack, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, REPAINT_NODES, repaintGuided, repaintInputs, repaints, samplerOf, stretchedFill, samplingInputs, SDXL_PRESETS, UPSCALER_DEFAULT, UPSCALER_PREFER, workSize,
   type FaceSettings, type MaskSettings, type OutpaintSettings, type RefineColourMatch, type RepaintSettings, type UpscaleSettings,
   type SdxlBase,
 } from "./common";
@@ -31,9 +31,9 @@ export const sdxlRedraw = pictureForm("img2img", defineRecipe<SdxlRedraw>({
   summary: "Image to image: an image redrawn from a prompt. The denoising strength says how far it may go from the original.",
   output: "image",
   inputs: [
-    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+    SOURCE_INPUT,
     { id: "prompt", type: "prompt", label: "Prompt", style: "tags", placeholder: "what the picture shows, as it should come out" },
-    { id: "strength", type: "number", label: "Denoising strength", note: "0.3 keeps it close, 0.7 only keeps the layout", min: 0.05, max: 1, step: 0.05, default: 0.55 },
+    strengthInput({ default: 0.55, note: "0.3 keeps it close, 0.7 only keeps the layout" }),
     ...IP_ADAPTER_INPUTS,
     ...guideInputs(SDXL_GUIDE),
     ...modelInputs,
@@ -106,10 +106,10 @@ export const sdxlPaintOver = pictureForm("inpaint", defineRecipe<SdxlPaintOver>(
   summary: "Paint a mask over a part of an image and prompt what goes there. Only the masked part is redrawn, faded in by a soft edge (Differential Diffusion).",
   output: "image",
   inputs: [
-    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+    SOURCE_INPUT,
     { id: "mask", type: "image", role: "mask", of: "source", label: "Inpaint mask", note: "the part to redo, painted over the picture" },
     { id: "prompt", type: "prompt", label: "Prompt", style: "tags", placeholder: "what the painted part should show" },
-    { id: "strength", type: "number", label: "Denoising strength", note: "1 ignores what was there", min: 0.05, max: 1, step: 0.05, default: 0.75 },
+    strengthInput({ default: 0.75, note: "1 ignores what was there" }),
     ...MASK_INPUTS,
     ...repaintInputs("a union ControlNet (xinsir's ProMax) in repaint mode guides the masked part to fit the picture around it, which a plain checkpoint struggles with at a high denoise. Used when that ControlNet is there, with comfyui_controlnet_aux"),
     ...modelInputs,
@@ -187,7 +187,7 @@ export const sdxlOutpaint = pictureForm("outpaint", defineRecipe<SdxlOutpaint>({
   summary: "Extends an image beyond its edges: the sides you choose are painted in from the prompt, the picture itself stays.",
   output: "image",
   inputs: [
-    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+    SOURCE_INPUT,
     { id: "prompt", type: "prompt", label: "Prompt", note: "the whole scene, as it should look once wider", style: "tags", placeholder: "terrace at sunset, wide shot, sea in the background" },
     ...OUTPAINT_INPUTS,
     ...repaintInputs("a union ControlNet (xinsir's ProMax) in repaint mode guides the new part to continue the picture, without a seam. Used when that ControlNet is there, with comfyui_controlnet_aux"),
@@ -199,16 +199,13 @@ export const sdxlOutpaint = pictureForm("outpaint", defineRecipe<SdxlOutpaint>({
   optionalNodes: REPAINT_NODES,
   build(form, ctx) {
     // by the sides set, or those that bring it to the aspect ratio picked
-    const input = outpaintSides(form, ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 });
-    if (input.padLeft + input.padRight + input.padTop + input.padBottom === 0) throw new Error(nothingToExtend(input));
+    const { input, from, whole } = outpaintPlan(form, ctx.media.source);
     const g = new GraphBuilder();
     const m = loadSdxl(g, input, input.prompt);
-    const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
-    const whole = { width: from.width + input.padLeft + input.padRight, height: from.height + input.padTop + input.padBottom };
     const size = workSize(whole);
     const source = g.out("LoadImage", { image: ctx.uploads.source });
     const repaint = repaints(input, ctx);
-    const { padded, pixels: grey, mask } = outpaintLatent(g, source, from, input, size, m.vae);
+    const { padded, pixels: grey, mask } = outpaintPad(g, source, input, size);
     const cond = repaint ? repaintGuided(g, m, input, grey, mask) : { positive: m.positive, negative: m.negative };
     // the new part starts from the stretched picture through the soft mask, with or without the ControlNet: from grey padding
     // the checkpoint alone drew a wall or a post at the old edge, which is how every pod ran it (no InpaintPreprocessor there);
@@ -272,12 +269,12 @@ export const sdxlSharper = pictureForm("upscale", defineRecipe<SdxlSharper>({
   summary: "Upscales an image to twice its size with an upscale model, then a low-denoise img2img pass so it does not look smeared.",
   output: "image",
   inputs: [
-    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+    SOURCE_INPUT,
     { id: "prompt", type: "prompt", label: "Prompt", note: "what is in the picture: it helps the img2img pass", style: "tags", optional: true, default: "" },
     { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: UPSCALER_DEFAULT, prefer: UPSCALER_PREFER, section: "out" },
     FACTOR_INPUT,
     { id: "refine", type: "toggle", label: "img2img pass after upscale", note: "a light pass with the checkpoint; past about 4 megapixels it is made in tiles", default: true, section: "out" },
-    { id: "strength", type: "number", label: "Denoising strength", min: 0.05, max: 0.6, step: 0.01, default: 0.28, showWhen: "refine", advanced: true, section: "out" },
+    strengthInput({ default: 0.28, refine: true }),
     {
       id: "tileGuide", type: "toggle", label: "ControlNet tile", default: false, showWhen: "refine", advanced: true, section: "out",
       note: "the pass held to the enlarged picture by xinsir's ControlNet Union in tile mode, as with Ultimate SD Upscale: a denoise of 0.4 to 0.5 then adds detail without new things",
@@ -364,10 +361,10 @@ export const sdxlFixFace = pictureForm("face", defineRecipe<SdxlFixFace>({
   summary: "Like ADetailer: detects every face and inpaints it with more detail. Needs the Impact Pack nodes in ComfyUI.",
   output: "image",
   inputs: [
-    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+    SOURCE_INPUT,
     { id: "prompt", type: "prompt", label: "Prompt", note: "the face and who it is: eye colour, hair, expression", style: "tags", optional: true, default: "" },
     // the Detail face pass's start (card #280): the same FaceDetailer on the same crop, which made another person at 0.4
-    { id: "strength", type: "number", label: "Denoising strength", note: "0.2 cleans the face, 0.4 can make another person", min: 0.1, max: 0.8, step: 0.05, default: SDXL_FACE_DENOISE },
+    strengthInput({ default: SDXL_FACE_DENOISE, note: "0.2 cleans the face, 0.4 can make another person", min: 0.1, max: 0.8 }),
     DETECTOR_INPUT,
     ...FACE_INPUTS,
     ...modelInputs,

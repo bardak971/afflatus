@@ -1,5 +1,5 @@
 import type { InputSpec } from "@afflatus/core";
-import { flowKit, type FlowSpec } from "../flow/kit";
+import { flowKit, FLOW_SHAPES, type FlowSpec } from "../flow/kit";
 import { noGuide } from "../shared/pictureForm";
 
 /** Which Krea 2 model: Turbo, or a fine-tune of it. The form starts on the one found by name. */
@@ -7,18 +7,6 @@ const krea2Model: InputSpec = {
   id: "model", type: "model", label: "Model", folder: "diffusion_models", slot: "unet", match: ["krea.?2", "(^|[^a-z0-9])k2([^a-z0-9]|$)"],
   note: "Krea 2 Turbo, or a fine-tune of it",
 };
-
-/** How it samples: the values of ComfyUI's own Krea 2 Turbo template to begin with, each kept per model once saved. */
-const krea2Inputs: InputSpec[] = [
-  { id: "loras", type: "loras", label: "LoRAs", max: 6 },
-  { id: "negative", type: "prompt", label: "Negative prompt", note: "only acts with a CFG scale above 1", style: "sentences", optional: true, default: "", advanced: true, perModel: true },
-  { id: "steps", type: "number", label: "Steps", note: "8 for Turbo and its fine-tunes", min: 1, max: 60, step: 1, default: 8, advanced: true, perModel: true },
-  { id: "cfg", type: "number", label: "CFG scale", note: "1 for Turbo. Above 1 the negative prompt acts and every step takes twice as long", min: 1, max: 10, step: 0.5, default: 1, advanced: true, perModel: true },
-  { id: "sampler", type: "choice", label: "Sampler", options: { node: "KSampler", input: "sampler_name" }, default: "euler", advanced: true, perModel: true },
-  { id: "scheduler", type: "choice", label: "Scheduler", options: { node: "KSampler", input: "scheduler" }, default: "simple", advanced: true, perModel: true },
-  { id: "shift", type: "number", label: "Shift", note: "0 leaves the model's own. Some fine-tunes ask for another (4, for example)", min: 0, max: 12, step: 0.05, default: 0, advanced: true, perModel: true },
-  { id: "seed", type: "seed", label: "Seed" },
-];
 
 /**
  * Krea 2, said the way the other picture models are (see FlowSpec): built as ComfyUI's own Krea 2 Turbo template
@@ -37,23 +25,18 @@ export const krea2Spec: FlowSpec = {
   },
   shift: { node: "ModelSamplingAuraFlow", default: 0, note: "0 leaves the model's own. Some fine-tunes ask for another (4, for example)", own: { mu: 1.15 } },
   negative: { default: "", note: "only acts with a CFG scale above 1", empty: "zero" },
-  sampling: { steps: 8, stepsNote: "8 for Turbo and its fine-tunes", cfg: 1, cfgNote: "1 for Turbo", sampler: "euler", scheduler: "simple" },
+  sampling: { steps: 8, stepsNote: "8 for Turbo and its fine-tunes", cfg: 1, cfgNote: "1 for Turbo. Above 1 the negative prompt acts and every step takes twice as long", sampler: "euler", scheduler: "simple" },
   // a 1.5× pass that redraws little in Turbo's own few steps: more redraw than 0.35 starts to change the picture
   hires: { scale: 1.5, denoise: 0.35, steps: 4 },
-  inputs: krea2Inputs,
+  // its own inputs: no weight precision (drops says why), and the lower maxima of its template
+  rows: { omit: ["precision"], max: { steps: 60, cfg: 10 } },
   hardInpaint: true,
   drops: {
     precision: "Krea 2 Turbo comes as an fp8_scaled file, which UNETLoader reads as it is: its own inputs leave the weight precision out",
     // read on Hugging Face, 2026-11-04 (card #277)
     ...noGuide("no union ControlNet ComfyUI's own nodes load is made for Krea 2: the ones on Hugging Face are single-kind community files (pose, depth)"),
   },
-  shapes: [
-    { id: "tall", label: "Portrait", width: 896, height: 1152 },
-    { id: "square", label: "Square", width: 1024, height: 1024 },
-    { id: "wide", label: "Landscape", width: 1152, height: 896 },
-    { id: "tall-9-16", label: "Portrait 9:16", width: 768, height: 1360 },
-    { id: "wide-16-9", label: "Landscape 16:9", width: 1360, height: 768 },
-  ],
+  shapes: FLOW_SHAPES,
   megapixels: 1.6,
   presets: [
     {

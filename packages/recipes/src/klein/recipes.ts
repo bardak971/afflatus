@@ -1,7 +1,7 @@
 import { defineRecipe, GraphBuilder, roundTo, type InputSpec, type ReferenceValue, type Ref, type SizeValue } from "@afflatus/core";
-import { noGuide, noReferences, pictureForm } from "../shared/pictureForm";
+import { noGuide, noReferences, pictureForm, SOURCE_INPUT, strengthInput } from "../shared/pictureForm";
 import {
-  boxOf, FACE_INPUTS, faceSteps, FACTOR_INPUT, HIRES_PASS_INPUTS, nothingToExtend, OUTPAINT_INPUTS, outpaintSides, SAME_PASS, shapeInput, MASK_INPUTS, NO_FACE, MASK_NODES, maskParts, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_DEFAULT, UPSCALER_PREFER,
+  boxOf, FACE_INPUTS, faceSteps, FACTOR_INPUT, HIRES_PASS_INPUTS, hiresInputs, OUTPAINT_INPUTS, outpaintPad, outpaintPlan, SAME_PASS, shapeInput, MASK_INPUTS, NO_FACE, MASK_NODES, maskParts, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_DEFAULT, UPSCALER_PREFER,
   type FaceSettings, type MaskSettings, type OutpaintSettings, type RefineColourMatch, type UpscaleSettings,
 } from "../sdxl/common";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
@@ -78,21 +78,14 @@ export const kleinPicture = pictureForm("txt2img", defineRecipe<KleinPicture>({
     },
     ...adetailInputs("sentences", "With reference images of a person, the face (and a person found) is redrawn from them, so that it stays them", KLEIN_FACE_DENOISE),
     ...DETAIL_INPUTS,
-    { id: "hires", type: "toggle", label: "Hires fix", note: "upscale, then a second pass over the larger picture", default: false, advanced: true, perModel: true },
-    { id: "hiresScale", type: "number", label: "Upscale by", note: "past about 2.5 megapixels, the second pass is redrawn in tiles (see Redraw)", min: 1.1, max: 4, step: 0.05, default: 1.5, unit: "×", showWhen: "hires", advanced: true, perModel: true },
-    {
-      id: "hiresUpscaler", type: "choice", label: "Upscaler", note: "from your upscale models", showWhen: "hires", advanced: true, perModel: true,
-      options: { node: "UpscaleModelLoader", input: "model_name" }, default: "RealESRGAN_x4plus.pth", prefer: UPSCALER_PREFER,
-    },
-    {
-      id: "hiresDenoise", type: "number", label: "Denoising strength", min: 0.05, max: 0.9, step: 0.05, default: 0.35, showWhen: "hires", advanced: true, perModel: true,
+    ...hiresInputs({
+      scale: 1.5, scaleNote: "past about 2.5 megapixels, the second pass is redrawn in tiles (see Redraw)",
       // the real noise the default starts from on the base model's 8 steps, the default shape enlarged 1.5× (card #146)
-      note: `how much the second pass may redraw; denoise at Klein's schedule: ${kleinNoise.split(0.35, Math.round(8 / 0.35), [{ size: { width: 1248, height: 1824 }, where: "at 1248×1824" }])}`,
-    },
-    { id: "hiresSteps", type: "number", label: "Hires steps", note: "the steps the second pass runs: 2 or 3 for a distilled model", min: 1, max: 60, step: 1, default: 8, showWhen: "hires", advanced: true, perModel: true },
-    // Klein's sampler is KSamplerSelect's, which lists the same samplers as KSampler's
-    { ...HIRES_PASS_INPUTS[0]!, options: { node: "KSamplerSelect", input: "sampler_name" } } as InputSpec,
-    ...tileInputs("hires"),
+      denoise: 0.35, denoiseNote: `how much the second pass may redraw; denoise at Klein's schedule: ${kleinNoise.split(0.35, Math.round(8 / 0.35), [{ size: { width: 1248, height: 1824 }, where: "at 1248×1824" }])}`,
+      steps: 8, stepsNote: "the steps the second pass runs: 2 or 3 for a distilled model",
+      // Klein's sampler is KSamplerSelect's, which lists the same samplers as KSampler's
+      pass: [{ ...HIRES_PASS_INPUTS[0]!, options: { node: "KSamplerSelect", input: "sampler_name" } } as InputSpec],
+    }),
     ...kleinInputs,
   ],
   nodes: (input) => [
@@ -203,7 +196,7 @@ export const kleinEdit = pictureForm("edit", defineRecipe<KleinEdit>({
   presets: KLEIN_PRESETS,
   inputs: [
     kleinModel,
-    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+    SOURCE_INPUT,
     { id: "prompt", type: "prompt", label: "Prompt", note: "an instruction: what to change, and what stays", style: "sentences", placeholder: "Change her dress to a red silk one. Keep her face, her hair, the pose and the room exactly the same." },
     {
       // 4 pictures in all, the one being changed included
@@ -259,9 +252,9 @@ export const kleinRedraw = pictureForm("img2img", defineRecipe<KleinRedraw>({
   presets: KLEIN_PRESETS,
   inputs: [
     kleinModel,
-    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+    SOURCE_INPUT,
     { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: "what the picture shows, as it should come out" },
-    { id: "strength", type: "number", label: "Denoising strength", note: `0.3 keeps it close, 0.7 only keeps the layout; denoise at Klein's schedule: ${kleinNoise.split(0.55, 20, [{ size: { width: 1024, height: 1024 }, where: "at 1 MP" }])}`, min: 0.05, max: 1, step: 0.05, default: 0.55 },
+    strengthInput({ default: 0.55, note: `0.3 keeps it close, 0.7 only keeps the layout; denoise at Klein's schedule: ${kleinNoise.split(0.55, 20, [{ size: { width: 1024, height: 1024 }, where: "at 1 MP" }])}` }),
     ...kleinInputs,
   ],
   nodes: (input) => [...LOAD_NODES(input), ...SAMPLE_NODES, "LoadImage", "ImageScale", "VAEEncode", "PreviewImage", ...(input.strength < 1 ? ["SplitSigmasDenoise"] : [])],
@@ -316,10 +309,10 @@ export const kleinPaintOver = pictureForm("inpaint", defineRecipe<KleinPaintOver
   presets: KLEIN_PRESETS,
   inputs: [
     kleinModel,
-    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+    SOURCE_INPUT,
     { id: "mask", type: "image", role: "mask", of: "source", label: "Inpaint mask", note: "the part to redo, painted over the picture" },
     { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: "Replace the cup with a glass of orange juice. Keep everything else the same." },
-    { id: "strength", type: "number", label: "Denoising strength", note: `1 redoes the masked part from the prompt; lower only touches it up. Below 0.9, denoise at Klein's schedule: ${kleinNoise.split(0.5, 20, [{ size: { width: 1024, height: 1024 }, where: "at 1 MP" }])}`, min: 0.1, max: 1, step: 0.05, default: 1 },
+    strengthInput({ default: 1, note: `1 redoes the masked part from the prompt; lower only touches it up. Below 0.9, denoise at Klein's schedule: ${kleinNoise.split(0.5, 20, [{ size: { width: 1024, height: 1024 }, where: "at 1 MP" }])}`, min: 0.1 }),
     { id: "references", type: "references", label: "Reference images", max: 3, roles: [...ALL_ROLES], note: "optional: the person whose face it is, the thing to put there", advanced: true },
     ...MASK_INPUTS,
     ...kleinInputs,
@@ -393,7 +386,7 @@ export const kleinReshape = pictureForm("outpaint", defineRecipe<KleinReshape>({
   presets: KLEIN_PRESETS,
   inputs: [
     kleinModel,
-    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+    SOURCE_INPUT,
     { id: "prompt", type: "prompt", label: "Prompt", note: "optional: what is around it. Left empty, the surroundings simply continue", style: "sentences", optional: true, default: "" },
     // to an aspect ratio, as it always did, or by the sides as the other families' outpaint (card #275); its soft edge is its own
     shapeInput("Widescreen 16:9"),
@@ -405,20 +398,14 @@ export const kleinReshape = pictureForm("outpaint", defineRecipe<KleinReshape>({
     "InvertMask", "ImageCompositeMasked", "PreviewImage",
   ],
   build(form, ctx) {
-    const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
-    const input = outpaintSides(form, from);
-    if (input.padLeft + input.padRight + input.padTop + input.padBottom === 0) throw new Error(nothingToExtend(input));
-    const p = { left: input.padLeft, right: input.padRight, top: input.padTop, bottom: input.padBottom, width: from.width + input.padLeft + input.padRight, height: from.height + input.padTop + input.padBottom };
+    const { input, from, whole: canvas } = outpaintPlan(form, ctx.media.source);
     const g = new GraphBuilder();
     const k = loadKlein(g, input, ctx);
-    const size = kleinSize(p);
+    const size = kleinSize(canvas);
     const source = g.out("LoadImage", { image: ctx.uploads.source });
     // a wide soft edge: the model's version of the picture is never exactly as light as the picture, and a narrow edge shows it
     const feathering = Math.max(40, Math.min(240, Math.round(Math.min(from.width, from.height) * 0.14)));
-    const padded = g.add("ImagePadForOutpaint", { image: source, left: p.left, top: p.top, right: p.right, bottom: p.bottom, feathering });
-    const image = g.out("ImageScale", { image: [padded, 0], upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
-    const maskPicture = g.out("ImageScale", { image: g.out("MaskToImage", { mask: [padded, 1] }), upscale_method: "bilinear", width: size.width, height: size.height, crop: "disabled" });
-    const mask = g.out("ImageToMask", { image: maskPicture, channel: "red" });
+    const { pixels: image, mask } = outpaintPad(g, source, { ...input, feathering }, size);
     const cond = kleinCond(g, k, withIntro(EXTEND, input.prompt), [image]);
     const drawn = kleinSample(g, k, cond, g.out("EmptyFlux2LatentImage", { width: size.width, height: size.height, batch_size: 1 }), size, ctx.seed);
     // what was there is put back exactly: only the new room comes from the model
@@ -460,19 +447,19 @@ export const kleinSharper = pictureForm("upscale", defineRecipe<KleinSharper>({
   presets: KLEIN_PRESETS,
   inputs: [
     kleinModel,
-    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+    SOURCE_INPUT,
     { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: UPSCALER_DEFAULT, prefer: UPSCALER_PREFER, section: "out" },
     FACTOR_INPUT,
     {
       id: "refine", type: "toggle", label: "img2img pass after upscale", default: true, section: "out",
       note: "a light pass with the model, from the real noise its denoising strength says; past about 2.5 megapixels it is made in tiles",
     },
-    {
+    strengthInput({
+      default: 0.25, refine: true,
       // the real σ the pass starts from (kleinRealPass), as FLUX.1's Upscale 2x reads its own (card #146); what Klein's schedule
       // cut at 0.25 would start from, on the base model's 20 steps, said beside it
-      id: "strength", type: "number", label: "Denoising strength", min: 0.05, max: 0.6, step: 0.01, default: 0.25, showWhen: "refine", advanced: true, section: "out",
       note: `the real noise level (σ) the img2img pass starts from, at every size. Not ComfyUI's denoise: Klein's schedule cut at ${kleinNoise.split(0.25, 20, [{ size: { width: 1376, height: 1824 }, where: "on a 1376×1824 gone over whole" }, { size: { width: 1024, height: 1024 }, where: "in tiles" }])}`,
-    },
+    }),
     REFINE_COLOUR_MATCH_INPUT,
     ...tileInputs("refine"),
     ...kleinInputs,
@@ -567,7 +554,7 @@ export const kleinFixFace = pictureForm("face", defineRecipe<KleinFixFace>({
   presets: KLEIN_PRESETS,
   inputs: [
     kleinModel,
-    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+    SOURCE_INPUT,
     {
       id: "references", type: "references", label: "Reference images of the person", max: 4, roles: ["person"],
       note: "clear pictures of their face. Without any, the face is redrawn from the picture itself. With two people, this is the one on the LEFT.",
@@ -576,7 +563,7 @@ export const kleinFixFace = pictureForm("face", defineRecipe<KleinFixFace>({
       id: "second", type: "references", label: "Reference images of the second person", max: 4, roles: ["person"],
       note: "only with two people in the picture: the one on the RIGHT. Each face is then redrawn from its own person's pictures.",
     },
-    { id: "strength", type: "number", label: "Denoising strength", note: `${KLEIN_FACE_DENOISE} pulls the face back to the reference images; ${kleinNoise.detailer(KLEIN_FACE_DENOISE, 20)}`, min: 0.1, max: 0.8, step: 0.05, default: KLEIN_FACE_DENOISE },
+    strengthInput({ default: KLEIN_FACE_DENOISE, note: `${KLEIN_FACE_DENOISE} pulls the face back to the reference images; ${kleinNoise.detailer(KLEIN_FACE_DENOISE, 20)}`, min: 0.1, max: 0.8 }),
     // its strength pulls a face to a person's pictures, which the hand values were not measured for: they stay the classic detailers'
     { ...DETECTOR_INPUT, whenChosen: undefined },
     ...FACE_INPUTS,
@@ -664,7 +651,7 @@ export const kleinVariation = pictureForm("own", defineRecipe<KleinVariation>({
   presets: KLEIN_PRESETS,
   inputs: [
     kleinModel,
-    { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+    SOURCE_INPUT,
     { id: "prompt", type: "prompt", label: "Prompt", note: `optional: left empty, ${DIFFERS}`, style: "sentences", optional: true, default: "", placeholder: "she looks over her shoulder and laughs" },
     { id: "photo", type: "toggle", label: "Photo", note: "off for a drawing or a painting: its style is kept instead", default: true },
     { id: "references", type: "references", label: "Reference images of the person", max: 4, roles: ["person"], note: "optional: more pictures of who is in it help the face stay the same", advanced: true },
