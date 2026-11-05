@@ -4,7 +4,6 @@ import { recipes } from "../src";
 import { PICTURE_DROPS } from "../src/shared/pictureForm";
 import { REGIONS_NOT_YET, REGIONS_WHY } from "../src/shared/regions";
 import { DETECTOR_FILES } from "../src/shared/adetail";
-import { passStart } from "../src/krea2/regions";
 
 // Regions on the Stage (card #271): one input on every txt2img that can read it, the reason greyed on those that cannot
 const recipe = (id: string) => recipes.find((r) => r.id === id)!;
@@ -40,8 +39,9 @@ describe("the Regions row on every txt2img", () => {
   it("says in its \"?\" that the result is guided, not exact, and what a region's LoRA does there", () => {
     const row = (r: Recipe<any>) => r.inputs.find((i) => i.id === "regions") as Extract<InputSpec, { type: "regions" }>;
     for (const r of [sdxl, moss, krea2]) expect(row(r).note, r.id).toContain("guided, not exact");
-    expect(row(krea2)).toMatchObject({ lora: "scoped", picture: true, max: 8 });
-    expect(row(krea2).note).toContain("redrawn from their picture");
+    expect(row(krea2)).toMatchObject({ lora: "scoped", max: 8 });
+    // nothing promises a face from the person's picture, nor a face redrawn from a box's words: neither is done
+    for (const r of [sdxl, moss, krea2]) expect(row(r).note, r.id).not.toMatch(/picture by|from their picture|face found in a person's box/);
     expect(row(sdxl)).toMatchObject({ lora: "scoped", max: 8 });
     expect(row(sdxl).kinds).toBeUndefined();
     expect(row(moss)).toMatchObject({ lora: "global", kinds: true });
@@ -90,19 +90,13 @@ describe("SDXL's regions: each box's tags masked to it", () => {
     expect(b.loads).toEqual(expect.arrayContaining(["loras/coat.safetensors", "loras/mira.safetensors"]));
   });
 
-  it("redraws each cast person's face from their own region, and the other faces from the prompt", () => {
+  it("with Detail: face, redraws every face from the prompt in one pass, whoever's box it is in", () => {
     const people = [{ ...twoBoxes[0], cast: "p1", castLora: { file: "mira.safetensors", weight: 0.8 } }, { ...twoBoxes[1], cast: "p2" }];
     const b = build(sdxl, { prompt: "a", checkpoint: "x.safetensors", detailFace: true, regions: people }, DETECTOR_FILES);
     const detailers = nodes(b, "DetailerForEach");
-    expect(detailers).toHaveLength(3);
-    const positives = detailers.map(([, n]) => b.graph[(n.inputs.positive as [string, number])[0]]!);
-    // the hooked person's face carries their LoRA's hooks; the plain one's is their text; the rest the picture's prompt
-    expect(positives[0]!.class_type).toBe("ConditioningSetProperties");
-    expect(positives[1]!.inputs.text).toBe("blue coat");
-    expect(positives[2]!.inputs.text).toBe("a");
-    expect(nodes(b, "ImpactSEGSIntersectionFilter")).toHaveLength(3);
-    // without Detail: face, no face pass by region
-    expect(nodes(build(sdxl, { prompt: "a", checkpoint: "x.safetensors", regions: people }, DETECTOR_FILES), "DetailerForEach")).toHaveLength(0);
+    expect(detailers).toHaveLength(1);
+    expect(b.graph[(detailers[0]![1].inputs.positive as [string, number])[0]]!.inputs.text).toBe("a");
+    expect(nodes(b, "ImpactSEGSIntersectionFilter")).toHaveLength(0);
   });
 });
 
@@ -180,14 +174,12 @@ describe("MOSS-Image", () => {
   });
 });
 
-describe("Krea 2's regions: every box in one pass (ComfyUI-Krea2-Regional), each cast person redrawn from their picture", () => {
+describe("Krea 2's regions: every box in one pass (ComfyUI-Krea2-Regional), each cast person from their words and LoRA", () => {
   const people = [
-    { id: "l", box: { x: 0, y: 0, w: 0.5, h: 1 }, prompt: "a man in a grey coat", cast: "p1", castPicture: "a1", castLora: { file: "fabien.safetensors", weight: 0.8 } },
-    { id: "r", box: { x: 0.5, y: 0, w: 0.5, h: 1 }, prompt: "a man in a blue jacket", cast: "p2", castPicture: "a2" },
+    { id: "l", box: { x: 0, y: 0, w: 0.5, h: 1 }, prompt: "a man in a grey coat", cast: "p1", castLora: { file: "fabien.safetensors", weight: 0.8 } },
+    { id: "r", box: { x: 0.5, y: 0, w: 0.5, h: 1 }, prompt: "a man in a blue jacket", cast: "p2" },
   ];
   const PERSON_FILES = { ...KREA2_FILES, identityEdit: "krea2_identity_edit_v2_r128.safetensors" };
-  const FACE_FILES = { ...PERSON_FILES, kleinUnet: "flux-2-klein-base-4b.safetensors", kleinClip: "qwen_3_4b.safetensors", kleinVae: "flux2-vae.safetensors", ...DETECTOR_FILES };
-  const uploads = { "regions.l": "fabien.png", "regions.r": "nicolas.png" };
   const built = (input: Record<string, unknown>, slots: Record<string, string> = KREA2_FILES, up: Record<string, string> = {}) =>
     krea2.build(parseInput(krea2, { prompt: "two friends in a park", ...input }), dryContext({ slots, uploads: up }));
 
@@ -214,66 +206,21 @@ describe("Krea 2's regions: every box in one pass (ComfyUI-Krea2-Regional), each
     expect(b.loads).toEqual(expect.arrayContaining(["loras/style.safetensors", "loras/fabien.safetensors"]));
   });
 
-  it("redraws each cast person's head from their own picture by Identity Edit, the scene pinned and the person beside", () => {
-    const b = built({ regions: people }, PERSON_FILES, uploads);
-    const patches = nodes(b, "Krea2EditModelPatch");
-    expect(patches).toHaveLength(2);
-    // their picture cut to their face and greyed around their head and shoulders (Afflatus's Face Crop and Face Backdrop)
-    const loaded = (id: string): unknown => (b.graph[id]!.class_type === "LoadImage" ? b.graph[id]!.inputs.image : loaded((b.graph[id]!.inputs.image as [string, number])[0]));
-    const pictures = patches.map(([, n]) => loaded((n.inputs.source_image_b as [string, number])[0]));
-    expect(pictures).toEqual(["fabien.png", "nicolas.png"]);
-    expect(nodes(b, "AfflatusFaceCrop").map(([, n]) => n.inputs.factor)).toEqual([2, 2]);
-    expect(nodes(b, "AfflatusFaceBackdrop").map(([, n]) => n.inputs.backdrop)).toEqual(["grey", "grey"]);
-    for (const [, n] of patches) expect(n.inputs).toMatchObject({ ref_position: "beside (right of target)", ref_position_a: "aligned (trained)" });
-    // 0.9 skips the first step of 9: KSampler's own int(8 / 0.9) gave a pass from pure noise, which copied the picture whole
-    expect(nodes(b, "KSamplerAdvanced").map(([, n]) => [n.inputs.steps, n.inputs.start_at_step, n.inputs.add_noise])).toEqual([[9, 1, "enable"], [9, 1, "enable"]]);
-    // the square around the face in each box is the scene (at any shot's scale), and its head and shoulders alone go back
-    const areas = nodes(b, "AfflatusFaceArea");
-    expect(areas.map(([, n]) => [n.inputs.x, n.inputs.width, n.inputs.factor, n.inputs.size])).toEqual([[0, 448, 3, 1024], [448, 448, 3, 1024]]);
-    for (const [, n] of patches) expect(areas.map(([id]) => id)).toContain((n.inputs.source_image as [string, number])[0]);
-    const pasted = nodes(b, "ImageCompositeMasked");
-    expect(pasted).toHaveLength(2);
-    for (const [i, [, n]] of pasted.entries()) {
-      const area = areas[i]![0];
-      expect(n.inputs).toMatchObject({ x: [area, 2], y: [area, 3] });
-      // the shoulders run past the square's bottom edge: faded there, never a hard line
-      const fade = b.graph[(n.inputs.mask as [string, number])[0]]!;
-      expect(fade).toMatchObject({ class_type: "FeatherMask", inputs: { mask: [area, 1], bottom: 128, top: 0 } });
-      expect(b.graph[(n.inputs.source as [string, number])[0]]!.inputs).toMatchObject({ width: [area, 4], height: [area, 4] });
-    }
-    // the second person is redrawn on the picture the first was pasted into
-    expect(areas[1]![1].inputs.image).toEqual([pasted[0]![0], 0]);
-    expect(b.warnings ?? []).toEqual([]);
-    // a node pack before 0.49.8: the whole box redrawn and pasted back alone (never the context, which held the next person on
-    // a pod), and said; without InsightFace, the picture whole too
-    const older = krea2.build(parseInput(krea2, { prompt: "a", regions: people }), dryContext({ slots: PERSON_FILES, uploads, has: (n) => n !== "AfflatusFaceArea" }));
-    expect(nodes(older, "AfflatusFaceArea")).toHaveLength(0);
-    for (const [, n] of nodes(older, "ImageCompositeMasked")) expect(older.graph[(n.inputs.mask as [string, number])[0]]!.class_type).toBe("MaskComposite");
-    expect(older.warnings?.join(" ")).toContain("older than 0.49.8");
-    const whole = krea2.build(parseInput(krea2, { prompt: "a", regions: people }), dryContext({ slots: PERSON_FILES, uploads, has: (n) => !n.startsWith("AfflatusFace") }));
-    expect(nodes(whole, "AfflatusFaceCrop")).toHaveLength(0);
-    expect(whole.warnings?.join(" ")).toContain("whole pictures");
-    // without their picture uploaded (a person with none), the box keeps what their words drew
-    expect(nodes(built({ regions: people }, PERSON_FILES), "Krea2EditModelPatch")).toHaveLength(0);
-    expect(nodes(built({ regions: people, regionPersonDenoise: 0 }, PERSON_FILES, uploads), "Krea2EditModelPatch")).toHaveLength(0);
-  });
-
-  it("starts a person pass where its denoise says, rounded to the nearest step", () => {
-    expect([1, 0.95, 0.9, 0.85, 0.8, 0.5].map((d) => passStart(8, d))).toEqual([
-      { total: 8, start: 0 }, { total: 8, start: 0 }, { total: 9, start: 1 }, { total: 9, start: 1 }, { total: 10, start: 2 }, { total: 16, start: 8 },
-    ]);
-    expect(passStart(25, 0.6)).toEqual({ total: 42, start: 17 });
-  });
-
-  it("with Detail: face on, leaves the cast's faces to the person pass: no Klein pass, no face redrawn from the prompt", () => {
-    const b = built({ regions: people, detailFace: true }, FACE_FILES, uploads);
-    // Klein's face pass changed a full-body face a little on a pod, never into the person's: gone, its files not asked
-    expect(nodes(b, "DetailerForEach")).toHaveLength(0);
-    expect(nodes(b, "FaceDetailer")).toHaveLength(0);
-    expect(nodes(b, "AfflatusFaceArea")).toHaveLength(2);
+  it("draws a cast box from the person's words and LoRA alone, held to the box: no pass from their picture after", () => {
+    const b = built({ regions: people, detailFace: true }, { ...PERSON_FILES, ...DETECTOR_FILES });
+    // their words are the box's own (the server worked them in), their LoRA gated to the box's tokens
+    const texts = nodes(b, "Krea2RegionalPrompt").map(([, n]) => b.graph[(n.inputs.conditioning as [string, number])[0]]!.inputs.text);
+    expect(texts).toEqual(["a man in a grey coat", "a man in a blue jacket"]);
+    const [left, right] = nodes(b, "Krea2RegionalPrompt").map(([, n]) => n.inputs.loras as [string, number] | undefined);
+    expect(b.graph[left![0]]!.inputs).toMatchObject({ lora_name: "fabien.safetensors", strength: 0.8 });
+    expect(right).toBeUndefined();
+    expect(nodes(b, "LoraLoaderModelOnly")).toHaveLength(0);
+    // no Identity Edit, no person's picture, nothing cut around a face; the Detail face pass redraws from the prompt
+    for (const type of ["Krea2EditModelPatch", "Krea2EditGroundedEncode", "LoadImage", "KSamplerAdvanced", "AfflatusFaceCrop", "AfflatusFaceBackdrop"]) expect(nodes(b, type), type).toHaveLength(0);
+    expect(nodes(b, "DetailerForEach")).toHaveLength(1);
     const needs = krea2.needsWith!(parseInput(krea2, { prompt: "a", regions: people, detailFace: true }) as never);
-    expect(needs).toContain("identityEdit");
-    expect(needs).not.toContain("kleinUnet");
+    expect(needs).not.toContain("identityEdit");
+    expect(krea2.inputs.find((i) => i.id === "regionPersonDenoise")).toBeUndefined();
   });
 
   it("refuses regions with the form's person reference or style images, whose pictures the pack's masks do not cover", () => {

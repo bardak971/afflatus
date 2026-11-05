@@ -105,7 +105,7 @@ from .continuation_nodes import (  # noqa: E402
 )
 from .latent_io import AfflatusH3LatentHeadGuide, AfflatusH3LatentLanding, AfflatusH3RunAnchor, AfflatusH3RunUpMatch, AfflatusH3SeamLatent, AfflatusLoadH3Latent, AfflatusNormalizeH3Latent, AfflatusSaveH3Latent, AfflatusTrimH3Latent  # noqa: E402
 from .latent_ltx import AfflatusLoadLTXLatent, AfflatusLTXContinuation, AfflatusLTXSeamLatent, AfflatusSaveLTXLatent, AfflatusTrimLTXLatent  # noqa: E402
-from .face_match import AfflatusFaceArea, AfflatusFaceAt, AfflatusFaceBackdrop, AfflatusFaceCrop, AfflatusFaceFrame, AfflatusFaceMatch, available as face_available  # noqa: E402
+from .face_match import AfflatusFaceAt, AfflatusFaceBackdrop, AfflatusFaceCrop, AfflatusFaceFrame, AfflatusFaceMatch, available as face_available  # noqa: E402
 from .swap_mask import AfflatusSwapMask, AfflatusSwapMaskPreview, AfflatusSwapMatch, AfflatusSwapPaste  # noqa: E402
 from .face_refine import AfflatusH3AudioLock  # noqa: E402
 from .colour_follow import AfflatusColorFollow  # noqa: E402
@@ -170,9 +170,8 @@ class AfflatusExtension(ComfyExtension):
             AfflatusFaceDetailKeep,
             AfflatusH3InjectRegion,
             # a face's likeness to some photos, for the pictures a Motion transfer is made from, and a person's picture cut to
-            # their face (LTX 2.5's references), and the head in a box of a picture redrawn from it (Krea 2's regions, pack
-            # 0.49.8, card #271): only with insightface installed
-            *([AfflatusFaceMatch, AfflatusFaceAt, AfflatusFaceCrop, AfflatusFaceFrame, AfflatusFaceBackdrop, AfflatusFaceArea] if face_available() else []),
+            # their face (LTX 2.5's references): only with insightface installed
+            *([AfflatusFaceMatch, AfflatusFaceAt, AfflatusFaceCrop, AfflatusFaceFrame, AfflatusFaceBackdrop] if face_available() else []),
         ]
 
 

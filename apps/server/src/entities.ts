@@ -91,8 +91,6 @@ export async function regionCast(db: Db, recipe: Recipe<any>, input: Record<stri
   const words: Composed["added"]["words"] = [];
   const loras: Composed["added"]["loras"] = [];
   const skipped: string[] = [];
-  // a model that redraws each person from their picture (spec.picture) is given their clearest face, as compose orders a cast
-  const known = spec.picture ? await factsOf(db, people.flatMap((p) => (defs.person.parse(JSON.parse(p.def)) as PersonDef).pictures)) : new Map();
   const out = regions.map((r) => {
     let row = r.cast ? byId.get(r.cast) : undefined;
     // "@Name" in the region's own words: that person, said by how they look rather than by the name
@@ -103,7 +101,7 @@ export async function regionCast(db: Db, recipe: Recipe<any>, input: Record<stri
       return named === row ? "" : all;
     }).replace(/\s{2,}/g, " ").replace(/^[,\s]+|[,\s]+$/g, "");
     if (!row) {
-      const { castLora: _old, castPicture: _was, ...rest } = r;
+      const { castLora: _old, ...rest } = r;
       return { ...rest, prompt };
     }
     const p = defs.person.parse(JSON.parse(row.def)) as PersonDef;
@@ -114,12 +112,8 @@ export async function regionCast(db: Db, recipe: Recipe<any>, input: Record<stri
     const castLora = m?.lora ? { file: m.lora, weight: m.weight } : undefined;
     if (castLora && !spec.lora) skipped.push(`${row.name}'s LoRA is not used: a region takes no LoRA on this model`);
     else if (castLora) loras.push({ from: row.name, file: castLora.file });
-    const castPicture = spec.picture ? facesOf(p.pictures, known).order[0] : undefined;
-    const { castLora: _old, castPicture: _was, ...rest } = r;
-    return {
-      ...rest, cast: row.id, prompt: withWords(prompt, said ? [said] : [], [], tags),
-      ...(castLora && spec.lora ? { castLora } : {}), ...(castPicture ? { castPicture } : {}),
-    };
+    const { castLora: _old, ...rest } = r;
+    return { ...rest, cast: row.id, prompt: withWords(prompt, said ? [said] : [], [], tags), ...(castLora && spec.lora ? { castLora } : {}) };
   });
   return { input: { ...input, [spec.id]: out }, words, loras, skipped };
 }

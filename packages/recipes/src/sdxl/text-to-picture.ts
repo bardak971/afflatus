@@ -123,9 +123,9 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
     const H = roundTo(input.size.height, 8, 64);
     const empty = g.out("EmptyLatentImage", { width: W, height: H, batch_size: 1 });
     // each region's tags over its box (its LoRA held to it), beside the prompt's everywhere
-    const regions = sdxlRegions(g, { clip: loaded.clip, positive: loaded.positive, quality: input.quality, size: { width: W, height: H } }, input.regions);
+    const positive = sdxlRegions(g, { clip: loaded.clip, positive: loaded.positive, quality: input.quality, size: { width: W, height: H } }, input.regions);
     // a guide picture holds the shapes of the picture drawn whole; tiles are pieces, redrawn from the text alone
-    const guided = applyGuide(g, ctx, SDXL_GUIDE, { model, positive: regions.positive, negative: loaded.negative }, vae, { width: W, height: H }, input);
+    const guided = applyGuide(g, ctx, SDXL_GUIDE, { model, positive, negative: loaded.negative }, vae, { width: W, height: H }, input);
 
     g.phase("sampling");
     const sampler = { model, positive: guided.positive, negative: guided.negative, seed: ctx.seed, cfg: input.cfg, sampler_name: input.sampler, scheduler: input.scheduler };
@@ -181,11 +181,6 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
       model: () => model, clip: loaded.clip, vae,
       cond: (text) => (text ? { positive: g.out("CLIPTextEncode", { text: [input.quality.trim().replace(/,\s*$/, ""), text].filter(Boolean).join(", "), clip: loaded.clip }), negative: loaded.negative } : { positive: loaded.positive, negative: loaded.negative }),
       steps: input.steps, cfg: input.cfg, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed, scale: input.hires ? input.hiresScale : 1,
-      // a cast person's face from their region's tags, their LoRA's hooks carried on the conditioning: on that face alone
-      ...(input.detailFace ? {
-        size: input.hires ? { width: W2, height: H2 } : { width: W, height: H },
-        people: regions.regions.filter((r) => r.person).map((r) => ({ box: r.box, positive: r.hooks ? g.out("ConditioningSetProperties", { cond_NEW: r.cond, strength: 1, set_cond_area: "default", hooks: r.hooks }) : r.cond })),
-      } : {}),
     });
     // PreviewImage writes to ComfyUI's temp folder, which ComfyUI clears itself: nothing piles up in output/
     const out = g.add("PreviewImage", { images: d.image });
