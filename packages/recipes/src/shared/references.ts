@@ -56,7 +56,14 @@ export function withRedux(g: GraphBuilder, ctx: BuildContext, positive: Ref, inp
 
 /** cubiq's ComfyUI_IPAdapter_plus: its loaders and apply nodes (ComfyUI-Manager installs it, packs.ts). */
 const IPA_NODES = ["LoadImage", "CLIPVisionLoader", "IPAdapterModelLoader", "IPAdapterAdvanced"];
-const FACEID_NODES = ["LoadImage", "CLIPVisionLoader", "IPAdapterModelLoader", "IPAdapterInsightFaceLoader", "IPAdapterFaceID", "LoraLoaderModelOnly"];
+const FACEID_NODES = ["LoadImage", "CLIPVisionLoader", "IPAdapterModelLoader", "IPAdapterFaceID", "LoraLoaderModelOnly"];
+/** The Afflatus pack's InsightFace loader for FaceID: buffalo_l whole and hashed before it is built (face_models.ready). */
+export const CHECKED_INSIGHTFACE = "AfflatusInsightFaceLoader";
+/**
+ * FaceID's InsightFace, by one loader or the other (withIpAdapter): the Afflatus pack's where the machine has it, else
+ * IP-Adapter's own, which comes with IPAdapterFaceID (FACEID_NODES says that pack).
+ */
+export const IP_OPTIONAL = ["IPAdapterInsightFaceLoader", CHECKED_INSIGHTFACE];
 const IPA_NEEDED = "Reference images on SDXL need the ComfyUI_IPAdapter_plus pack (ComfyUI-Manager installs it) and IP-Adapter's files: ip-adapter-plus_sdxl_vit-h.safetensors in ComfyUI's models/ipadapter folder and CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors in models/clip_vision (both are listed in Settings).";
 const FACEID_NEEDED = "A person's reference image on SDXL is read by IP-Adapter FaceID Plus V2: ip-adapter-faceid-plusv2_sdxl.bin in ComfyUI's models/ipadapter folder, its LoRA ip-adapter-faceid-plusv2_sdxl_lora.safetensors in models/loras (both are listed in Settings), and InsightFace's buffalo_l in models/insightface/models with the insightface package in ComfyUI's Python (Afflatus's pod image has both).";
 
@@ -130,13 +137,17 @@ export function withIpAdapter(g: GraphBuilder, ctx: BuildContext, model: Ref, in
   if (people) {
     model = g.out("LoraLoaderModelOnly", { model, lora_name: ctx.slots.faceIdLora, strength_model: 0.6 });
     const adapter = g.out("IPAdapterModelLoader", { ipadapter_file: ctx.slots.faceId });
-    // buffalo_l, named unless the loader is known to take no name: the pack's last commit (a0f451a5, built into the pod base
-    // since base 10) requires model_name, and refused a graph without it (card #282); the Registry's 2.0.0, which
-    // ComfyUI-Manager installs, has no such input and loads buffalo_l, refusing one it does not know. Its inputs not known
-    // (a build with no node list), it is named, as the pack the pods run asks
+    // InsightFace by the Afflatus pack's loader where the machine has it (0.50.0): it waits for buffalo_l fetched whole and
+    // checked against its hashes, or fails the render saying why, where IP-Adapter's own loader has InsightFace fetch the
+    // zip unhashed when the folder is not there yet (a pod's first minutes, while its start fetches it) and takes any folder
+    // of that name as complete (the 2026-11-05 review, S5). Without it (an older pack, a ComfyUI without the Afflatus pack),
+    // IP-Adapter's own, with buffalo_l named unless the loader is known to take no name: the pack's last commit (a0f451a5,
+    // built into the pod base since base 10) requires model_name, and refused a graph without it (card #282); the
+    // Registry's 2.0.0, which ComfyUI-Manager installs, has no such input and loads buffalo_l, refusing one it does not
+    // know. Its inputs not known (a build with no node list), it is named, as the pack the pods run asks
     const takes = ctx.inputs?.("IPAdapterInsightFaceLoader");
     const named = takes ? takes.includes("model_name") : true;
-    const faces = g.out("IPAdapterInsightFaceLoader", { provider: "CPU", ...(named ? { model_name: "buffalo_l" } : {}) });
+    const faces = ctx.has(CHECKED_INSIGHTFACE) ? g.out(CHECKED_INSIGHTFACE, { provider: "CPU" }) : g.out("IPAdapterInsightFaceLoader", { provider: "CPU", ...(named ? { model_name: "buffalo_l" } : {}) });
     loads.push(`ipadapter/${ctx.slots.faceId}`, `loras/${ctx.slots.faceIdLora}`);
     input.references.forEach((r, i) => {
       if (!isPerson(r)) return;

@@ -1,5 +1,12 @@
 /** What is done to the text of a prompt as it is written: weights, and one tag swapped for another. */
 
+import { WEIGHT_NUMBER } from "@afflatus/core";
+
+/** A part with its weight, "(red dress:1.2)"; the weight that closes a part selected inside one; a tag's weight at its end. */
+const OWN_WEIGHT = new RegExp(String.raw`^\((.+):(${WEIGHT_NUMBER})\)$`, "s");
+const WEIGHT_AFTER = new RegExp(String.raw`^:(${WEIGHT_NUMBER})\)`);
+const WEIGHT_END = new RegExp(String.raw`:\s*${WEIGHT_NUMBER}$`);
+
 /**
  * The weight of a part of a prompt, one step up or down, the way A1111 and ComfyUI write it:
  * `(red dress:1.1)`. The part is what is selected; with nothing selected (`wholeTag`), the tag the
@@ -20,13 +27,13 @@ export function nudgeWeight(text: string, start: number, end: number, delta: num
   if (s >= e) return null;
   let body = text.slice(s, e);
   let weight = 1;
-  const own = /^\((.+):(-?\d+(?:\.\d+)?)\)$/s.exec(body);
+  const own = OWN_WEIGHT.exec(body);
   if (own) {
     body = own[1]!;
     weight = Number(own[2]);
   } else {
     // the part sits inside a weight already: "(red dress:1.2)" with only "red dress" selected
-    const after = /^:(-?\d+(?:\.\d+)?)\)/.exec(text.slice(e));
+    const after = WEIGHT_AFTER.exec(text.slice(e));
     if (text[s - 1] === "(" && after) {
       s -= 1;
       e += after[0].length;
@@ -48,7 +55,7 @@ function inner(raw: string): string {
     if (i < 0 || s[s.length - 1] !== CLOSE[i]) break;
     s = s.slice(1, -1).trim();
   }
-  return s.replace(/:\s*-?\d+(?:\.\d+)?$/, "").trim();
+  return s.replace(WEIGHT_END, "").trim();
 }
 
 /** One tag of a prompt swapped for another, wherever it stands (between commas, or as a choice in braces): its weight and the layout stay. */

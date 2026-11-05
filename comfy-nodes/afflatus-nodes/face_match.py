@@ -539,3 +539,34 @@ class AfflatusFaceBackdrop(io.ComfyNode):
         except Exception as err:  # noqa: BLE001 — any error of InsightFace or of a picture it cannot read
             print(f"[afflatus-nodes] Face Backdrop: the picture is taken as it is ({str(err)[:200]})")
             return io.NodeOutput(image)
+
+
+class AfflatusInsightFaceLoader(io.ComfyNode):
+    """
+    InsightFace for IP-Adapter's FaceID, as the pack's own IPAdapterInsightFaceLoader makes it (FaceAnalysis on the whole of
+    buffalo_l, prepared at 640 px), once its files are whole and hashed (face_models.ready). IP-Adapter's loader goes through
+    InsightFace's own fetch, which downloads the zip unhashed when the folder is not there yet (a pod's first minutes, while
+    start.sh fetches it) and takes any folder of that name as complete (the 2026-11-05 review, S5): this one waits for the
+    checked fetch, or fails the render saying why.
+    """
+
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="AfflatusInsightFaceLoader",
+            display_name="Afflatus: InsightFace Loader",
+            category="Afflatus",
+            description="InsightFace's buffalo_l for IP-Adapter FaceID, fetched whole and checked against its release's SHA-256 before it is loaded (the IPAdapter InsightFace Loader fetches it unchecked).",
+            inputs=[io.Combo.Input("provider", options=["CPU", "CUDA", "ROCM"], default="CPU", tooltip="Where InsightFace runs.")],
+            outputs=[io.Custom("INSIGHTFACE").Output("INSIGHTFACE")],
+        )
+
+    @classmethod
+    def execute(cls, provider: str = "CPU") -> io.NodeOutput:
+        from insightface.app import FaceAnalysis
+
+        root = os.path.join(folder_paths.models_dir, "insightface")
+        face_models.ready(root)
+        app = FaceAnalysis(name=face_models.NAME, root=root, providers=[f"{provider}ExecutionProvider"])
+        app.prepare(ctx_id=0, det_size=(PHOTO_DET, PHOTO_DET))
+        return io.NodeOutput(app)

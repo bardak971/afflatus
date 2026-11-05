@@ -50,6 +50,19 @@ describe("what a picture says about how it was made", () => {
     expect(s.loras).toEqual([{ name: "soft_light-v2", weight: 0.8 }, { name: "not_here", weight: 1, civitai: 42 }]);
   });
 
+  // card #311: the weight read as a prompt's is (ComfyUI's float()), what it was read as before kept
+  it("reads a LoRA tag's weight as any number A1111 reads, else 1", () => {
+    const loras = (tags: string) => parseA1111(`a cat, ${tags}
+Steps: 20`).loras;
+    expect(loras("<lora:a:0.8>, <lora:b:.5>, <lora:c:-0.3>, <lyco:d:+1e-1>, <LORA:e:1.>")).toEqual([
+      { name: "a", weight: 0.8 }, { name: "b", weight: 0.5 }, { name: "c", weight: -0.3 }, { name: "d", weight: 0.1 }, { name: "e", weight: 1 },
+    ]);
+    // no weight, one that is not a number, and A1111's text-encoder weight after the model's
+    expect(loras("<lora:f>, <lora:g:1.2.3>, <lora:h:.>, <lora:i:0.7:0.4>")).toEqual([
+      { name: "f", weight: 1 }, { name: "g", weight: 1 }, { name: "h", weight: 1 }, { name: "i", weight: 0.7 },
+    ]);
+  });
+
   it("reads A1111's text from a JPEG's UNICODE UserComment, even one of an odd count of bytes", async () => {
     // EXIF as A1111 writes it for a JPEG: IFD0 pointing at the Exif IFD, whose UserComment (0x9286) is "UNICODE\0" and UTF-16
     const jpegWith = (body: Buffer) => {

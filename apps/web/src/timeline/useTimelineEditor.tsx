@@ -195,7 +195,7 @@ export function useTimelineEditor(id: string) {
   }, [clips, toRender, readAt, render, ready, setNote, setSourceOpen, select]);
   const trimmed = (clips: string[]) => void (clips.length && setToRender({ ids: clips, render: false }));
   // the source on the track and its runs (useEditorSource.ts): one piece the editor's parts read
-  const sourceLane = useEditorSource({ t, slots, videoRecipes, selection, m, save, typeSource, sourceTyped, oneTrim, toRender, setToRender, trimmed });
+  const sourceLane = useEditorSource({ t, slots, videoRecipes, selection, m, save, oneTrim, toRender, setToRender, trimmed });
   const { place, removeSource, stretch } = sourceLane;
   // the voice recordings: the one open on the stage and their runs (useEditorRecording.ts), one piece as well
   const recordings = useEditorRecording({ t, clips, slots, videoRecipes, selection, recordingOpenNow, m, save, turn, oneTrim, setToRender, trimmed });
@@ -357,7 +357,7 @@ export function useTimelineEditor(id: string) {
     sourceLane, recordings, openRecordingAt, pps, setPps, trackView,
     preview, setPreview, opened, setOpened, picking, setPicking, casting, setCasting, mood, setMood, setDesigning, designed,
     talks, setTalks, sessions, setSessions, note, setNote, setHeld, errorShown, writing, player,
-    liveShown, saveFailed, save, inputsOf, editInputs, formOf, ready, keptToClip, keepToClip, sayOf, say, actions: m, range, setRange, loopRange, snapQuiet,
+    liveShown, saveFailed, save, typeSource, sourceTyped, inputsOf, editInputs, formOf, ready, keptToClip, keepToClip, sayOf, say, actions: m, range, setRange, loopRange, snapQuiet,
     toggleSnapQuiet, emptyRange, toggle, toggleLoop, rangeAct, rangeItems, clipMenu, soundMenu, pinMenu, musicMenu, rangeMenu, onClip,
     newClip, move, missing, renderable, takes, takesOn, allMs, allOn, allBlocked, checks,
     trackKeys, jump, splitAt, stepTake, continueFrom, continueHere, clipHead,

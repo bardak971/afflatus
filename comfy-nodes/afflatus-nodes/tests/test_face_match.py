@@ -182,6 +182,37 @@ def test_onnx_runtime_runs_the_models_on_a_few_threads(monkeypatch):
         assert [m.session.path for m in app.models.values()] == ["det.onnx", "rec.onnx"]
 
 
+def test_faceid_s_insightface_is_loaded_only_once_its_files_are_checked(monkeypatch):
+    # the 2026-11-05 review, S5: IP-Adapter's own loader would fetch buffalo_l unhashed; this one waits for the checked fetch
+    steps = []
+
+    class FaceAnalysis:
+        def __init__(self, name, root, providers):
+            steps.append(("load", name, root, tuple(providers)))
+
+        def prepare(self, ctx_id, det_size):
+            steps.append(("prepare", ctx_id, det_size))
+
+    app_module = types.ModuleType("insightface.app")
+    app_module.FaceAnalysis = FaceAnalysis
+    monkeypatch.setitem(sys.modules, "insightface", types.ModuleType("insightface"))
+    monkeypatch.setitem(sys.modules, "insightface.app", app_module)
+    monkeypatch.setattr(face_match.folder_paths, "models_dir", "models", raising=False)
+    monkeypatch.setattr(face_match.face_models, "ready", lambda root: steps.append(("ready", root)))
+    root = os.path.join("models", "insightface")
+    face_match.AfflatusInsightFaceLoader.execute("CPU")
+    assert steps == [("ready", root), ("load", "buffalo_l", root, ("CPUExecutionProvider",)), ("prepare", 0, (640, 640))]
+
+    def refused(root):
+        raise RuntimeError("InsightFace's buffalo_l came with other bytes than its release's")
+
+    # a fetch refused fails the render with its reason, and nothing is loaded
+    steps.clear()
+    monkeypatch.setattr(face_match.face_models, "ready", refused)
+    with pytest.raises(RuntimeError, match="other bytes"):
+        face_match.AfflatusInsightFaceLoader.execute("CPU")
+    assert steps == []
+
 def test_a_frame_is_read_at_the_smaller_size_for_its_two_largest_faces(app):
     out = face_match.AfflatusFaceMatch.execute(picture(0.3, 12), picture(0.2), samples=4).ui["afflatus_face"][0]
     frames = [a for a in app.asked if a[0] == "detect"]

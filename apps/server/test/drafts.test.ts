@@ -3,6 +3,7 @@ import { makePng, type FakeComfy } from "@afflatus/comfy/testing";
 import { get, job, makeApp, makeFake, post, until, type TestApp } from "./helpers";
 import { IDLE_DRAFT_MS, sweepIdleDrafts, unusedDrafts } from "../src/drafts";
 import { newId, OWNER } from "../src/db";
+import { newAssetRow } from "../src/media";
 
 let t: TestApp;
 beforeEach(async () => {
@@ -66,6 +67,25 @@ describe("drafts", () => {
 
     expect((await t.app.inject({ method: "DELETE", url: `/api/drafts/${b.id}` })).statusCode).toBe(200);
     expect((await get(t.app, `/api/drafts/${b.id}`)).statusCode).toBe(404);
+  });
+
+  it("take the grids sent from them when deleted, and leave those grids' cells in the library", async () => {
+    const at = new Date().toISOString();
+    const grid = (draft: string) => ({ id: newId(), owner_id: OWNER, draft_id: draft, recipe_id: RECIPE, axes: "[]", count: 1, created_at: at });
+    const d = (await post(t.app, "/api/drafts", { recipe: RECIPE, forms: { [RECIPE]: { prompt: "a quiet harbour at dawn" } } })).json();
+    const other = (await post(t.app, "/api/drafts", { recipe: RECIPE, forms: { [RECIPE]: { prompt: "a lighthouse" } } })).json();
+    const [mine, theirs] = [grid(d.id), grid(other.id)];
+    await t.db.insertInto("grids").values([mine, theirs]).execute();
+    await t.db.insertInto("assets").values(newAssetRow({
+      id: "zz-test-cell", kind: "image", origin: "generated", name: "", file_key: "assets/zz-test-cell.png", thumb_key: null, mime: "image/png",
+      bytes: 3, width: 8, height: 8, duration_ms: null, fps: null, has_sound: 0, folder_id: null, generation_id: null, grid_id: mine.id, grid_cell: "0.0.0",
+    })).execute();
+
+    expect((await t.app.inject({ method: "DELETE", url: `/api/drafts/${d.id}` })).statusCode).toBe(200);
+    expect((await get(t.app, `/api/grids/${mine.id}`)).statusCode).toBe(404);
+    // another draft's grid stays, and the cell is still an item of the library
+    expect((await get(t.app, `/api/grids/${theirs.id}`)).statusCode).toBe(200);
+    expect(await t.db.selectFrom("assets").select("deleted_at").where("id", "=", "zz-test-cell").executeTakeFirst()).toEqual({ deleted_at: null });
   });
 
   it("keep the form of each recipe they have been on, and change only what is sent", async () => {

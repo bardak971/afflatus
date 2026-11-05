@@ -9,7 +9,7 @@ import {
 import { DETECTOR_INPUT } from "../shared/detector";
 import { SDXL_FACE_DENOISE } from "../shared/adetail";
 import { applyGuide, guideInputs, guideNeeds, guideNodes, type GuideSettings } from "../shared/guide";
-import { IP_ADAPTER_INPUTS, IP_FILES, IP_REFUSES, ipAdapterNeeds, ipAdapterNodes, withIpAdapter, type ReferenceSettings } from "../shared/references";
+import { IP_ADAPTER_INPUTS, IP_FILES, IP_OPTIONAL, IP_REFUSES, ipAdapterNeeds, ipAdapterNodes, withIpAdapter, type ReferenceSettings } from "../shared/references";
 import { SDXL_GUIDE } from "./family";
 
 const picture = { width: 832, height: 1216 };
@@ -45,6 +45,7 @@ export const sdxlRedraw = pictureForm("img2img", defineRecipe<SdxlRedraw>({
   // reference images ask for IP-Adapter's files, a guide picture for its ControlNet (as txt2img's)
   needsWith: (input) => [...ipAdapterNeeds(input), ...guideNeeds(input, SDXL_GUIDE)],
   nodes: (input) => [...modelNodes(input), "LoadImage", "ImageScale", "VAEEncode", "KSampler", "VAEDecode", "PreviewImage", ...ipAdapterNodes(input), ...guideNodes(input, SDXL_GUIDE)],
+  optionalNodes: IP_OPTIONAL,
   build(input, ctx) {
     const g = new GraphBuilder();
     const m = loadSdxl(g, input, input.prompt);

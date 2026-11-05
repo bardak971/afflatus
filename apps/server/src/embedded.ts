@@ -1,7 +1,7 @@
 import { open as openFile, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { inflateSync } from "node:zlib";
-import { modelStem } from "@afflatus/core";
+import { modelStem, WEIGHT_NUMBER } from "@afflatus/core";
 import { SAMPLERS, SCHEDULES } from "./a1111";
 import { isPng, pngChunks } from "./aiMark";
 import { PICTURE_MOST, pictureTooLarge } from "./media";
@@ -191,11 +191,13 @@ async function mediaTags(bytes: Uint8Array): Promise<Record<string, string>> {
 
 // ---------------------------------------------------------------- A1111 text
 
+/** A `<lora:name:w>` (or `<lyco:…>`) tag, its weight read as a prompt's is; anything after a second colon (A1111's text-encoder weight) skipped. */
+const LORA_TAG = new RegExp(String.raw`<(?:lora|lyco):([^:>]+)(?::(${WEIGHT_NUMBER}))?(?::[^>]*)?>`, "gi");
 /** `<lora:name:w>` tags, taken out of the text into a list. */
 function splitLoras(prompt: string): { text: string; loras: Array<{ name: string; weight: number }> } {
   const loras: Array<{ name: string; weight: number }> = [];
   const text = prompt
-    .replace(/<(?:lora|lyco):([^:>]+)(?::(-?[\d.]+))?(?::[^>]*)?>/gi, (_m, name: string, w?: string) => {
+    .replace(LORA_TAG, (_m, name: string, w?: string) => {
       loras.push({ name: modelStem(name.trim()), weight: w !== undefined && Number.isFinite(Number(w)) ? Number(w) : 1 });
       return "";
     })

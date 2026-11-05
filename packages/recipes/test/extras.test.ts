@@ -6,7 +6,7 @@ import { familyById, fluxPicture, h3Video, recipeById, recipes, sdxlTextToPictur
 import { DAEMON_NEEDED, LYING_SIGMA } from "../src/shared/detail";
 import { AUX_NODE } from "../src/shared/guide";
 import { SAGE_NEEDED, SAGE_NODE } from "../src/shared/speed";
-import { IP_FILES, IP_NOT_BOTH } from "../src/shared/references";
+import { CHECKED_INSIGHTFACE, IP_FILES, IP_NOT_BOTH } from "../src/shared/references";
 
 /** Detail boost, tiles, the guide picture, the speed-ups and Redux: the parts the graph checker cannot build (packs it has not got). */
 const of = (b: BuiltGraph, cls: string) => Object.entries(b.graph).filter(([, n]) => n.class_type === cls);
@@ -188,7 +188,8 @@ describe("reference images on SDXL (IP-Adapter)", () => {
   // the pack's last commit, built into the pod base, requires the InsightFace model's name; the Registry's 2.0.0 has no such
   // input and refuses one it does not know (card #282: every FaceID graph refused on a pod of image 0.1.55)
   it("names buffalo_l to the InsightFace loader unless it is known to take no name", () => {
-    const loader = (inputs?: string[]) => of(r.build(parseInput(r, faceId.input), dryContext({ slots: faceId.slots ?? {}, uploads: faceId.uploads ?? {}, ...(inputs ? { inputs: (n: string) => (n === "IPAdapterInsightFaceLoader" ? inputs : null) } : {}) })), "IPAdapterInsightFaceLoader").map(([, n]) => n.inputs);
+    // a machine without the Afflatus pack's checked loader (an older pack, or none)
+    const loader = (inputs?: string[]) => of(r.build(parseInput(r, faceId.input), dryContext({ slots: faceId.slots ?? {}, uploads: faceId.uploads ?? {}, has: (n) => n !== CHECKED_INSIGHTFACE, ...(inputs ? { inputs: (n: string) => (n === "IPAdapterInsightFaceLoader" ? inputs : null) } : {}) })), "IPAdapterInsightFaceLoader").map(([, n]) => n.inputs);
     // the reference node list (the pods' pack, as the server's tests read it too)
     const listed = JSON.parse(readFileSync(fileURLToPath(new URL("../../../reference/comfy-object-info.json", import.meta.url)), "utf-8")).IPAdapterInsightFaceLoader.input;
     expect(loader([...Object.keys(listed.required ?? {}), ...Object.keys(listed.optional ?? {})])).toEqual([{ provider: "CPU", model_name: "buffalo_l" }]);
@@ -197,6 +198,14 @@ describe("reference images on SDXL (IP-Adapter)", () => {
     expect(loader(["provider"])).toEqual([{ provider: "CPU" }]);
     // no node list (the loader unknown): the pods' pack, which requires it
     expect(loader()).toEqual([{ provider: "CPU", model_name: "buffalo_l" }]);
+  });
+  // the 2026-11-05 review, S5: IP-Adapter's own loader has InsightFace fetch buffalo_l unhashed in a pod's first minutes
+  it("builds InsightFace with the Afflatus pack's loader where the machine has it, which waits for buffalo_l whole and hashed", () => {
+    const p = built(faceId);
+    expect(of(p, CHECKED_INSIGHTFACE).map(([, n]) => n.inputs)).toEqual([{ provider: "CPU" }]);
+    expect(of(p, "IPAdapterInsightFaceLoader")).toHaveLength(0);
+    const [face] = of(p, "IPAdapterFaceID");
+    expect(from(p, face![1].inputs.insightface).class_type).toBe(CHECKED_INSIGHTFACE);
   });
   // on the pod test a place picture beside a FaceID person was copied and no person drawn (card #280)
   it.each(["sdxl.text-to-picture", "sdxl.redraw"])("%s refuses a person's picture with any other, before it is queued and in its build", (id) => {
