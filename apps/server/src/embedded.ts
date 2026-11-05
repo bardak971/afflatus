@@ -519,6 +519,30 @@ function ownFormOf(text: string | undefined): OwnForm | undefined {
   return { recipe: v.recipe.slice(0, 120), input: v.input as Record<string, unknown> };
 }
 
+/**
+ * The settings Afflatus's own form says, read by the ids its built-in forms use, for a file that has no A1111 text beside
+ * it: what the form is matched by (its model, its LoRAs) and what another form takes over, fromPicture.ts's ownInto then
+ * filling its own form exactly. The model went out by its file name (pngInfo.ts ownForm).
+ */
+function settingsOfOwn(own: OwnForm): FoundSettings {
+  const i = own.input;
+  const bare = (v: string) => v.replace(/^.*[\\/]/, "");
+  const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+  const model = str(i.checkpoint) ?? str(i.model) ?? str(i.unet);
+  const size = i.size && typeof i.size === "object" ? (i.size as { width?: unknown; height?: unknown }) : {};
+  const loras = Array.isArray(i.loras) ? (i.loras as Array<{ file?: unknown; weight?: unknown }>).filter((l) => typeof l?.file === "string" && typeof l.weight === "number") : [];
+  return {
+    source: "a1111",
+    prompt: str(i.prompt) ?? "", negative: str(i.negative) ?? "",
+    ...(model ? { checkpoint: modelStem(bare(model)) } : {}),
+    loras: loras.map((l) => ({ name: modelStem(bare(l.file as string)), weight: l.weight as number })),
+    steps: num(i.steps), cfg: num(i.cfg), sampler: str(i.sampler), scheduler: str(i.scheduler), seed: num(i.seed),
+    width: num(size.width), height: num(size.height),
+    notes: [],
+  };
+}
+
 /** What the texts found in a file (and a JPEG's or a WebP's comment) say: settings, a workflow, or why neither. */
 function fromTexts(texts: Record<string, string>, comment: string | null): Embedded {
   const graph = json(texts.prompt);
@@ -526,6 +550,8 @@ function fromTexts(texts: Record<string, string>, comment: string | null): Embed
   const infotext = texts.parameters ?? (comment && /Steps:\s*\d+/.test(comment) ? comment : null);
   const own = ownFormOf(texts.afflatus);
   if (infotext) return { settings: parseA1111(infotext), workflow, ...(own ? { own } : {}) };
+  // a render whose steps were not known goes out with no A1111 text, its own form alone (pngInfo.ts infotext)
+  if (own) return { settings: settingsOfOwn(own), workflow, own };
   if (isGraph(graph)) {
     const settings = parseComfy(graph);
     return settings ? { settings, workflow } : { settings: null, workflow, why: "Its workflow is not built around a checkpoint and a sampler, so it cannot fill the SDXL form. Import its workflow instead: it becomes something to create with." };

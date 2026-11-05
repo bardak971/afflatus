@@ -50,6 +50,22 @@ function chunks(bytes: Uint8Array): Array<{ type: string; key: string; text: str
   return out;
 }
 
+/** A PNG with a tEXt chunk put in before its end, as ComfyUI's Save Image writes its "prompt" and "workflow". */
+function withText(png: Uint8Array, key: string, text: string): Buffer {
+  const buf = Buffer.from(png);
+  const data = Buffer.from(`${key}\0${text}`, "latin1");
+  const head = Buffer.alloc(8);
+  head.writeUInt32BE(data.length, 0);
+  head.write("tEXt", 4, "latin1");
+  const sum = Buffer.alloc(4);
+  sum.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])) >>> 0, 0);
+  return Buffer.concat([buf.subarray(0, buf.length - 12), head, data, sum, buf.subarray(buf.length - 12)]);
+}
+
+/** ComfyUI's own texts of a render: the graph with a LoRA's sub-folder and an imported workflow's path on this computer. */
+const COMFY_GRAPH = JSON.stringify({ "1": { class_type: "LoraLoader", inputs: { lora_name: "people\\Mira.safetensors" } }, "2": { class_type: "VHS_LoadVideoPath", inputs: { video: "C:\\Users\\someone\\clip.mp4" } } });
+const comfyPng = () => withText(withText(makePng(8, 8, [1, 2, 3], [4, 5, 6]), "prompt", COMFY_GRAPH), "workflow", JSON.stringify({ nodes: [{ widgets_values: ["people\\Mira.safetensors"] }] }));
+
 describe("A1111's parameters text, as Afflatus writes it", () => {
   it("is A1111's own layout, key for key, quoted where A1111 quotes", () => {
     const text = infotext({
@@ -150,10 +166,10 @@ describe("a render's picture downloaded, then dropped back", () => {
     loras: [{ file: "styles\\Soft_Light-v2.safetensors", weight: 0.8 }], size: { width: 832, height: 1216 }, steps: 30, cfg: 6.5, sampler: "dpmpp_2m", scheduler: "karras", seed: -1,
   };
   /** A picture filed as a render of the SDXL form, its models hashed (and one matched on Civitai). */
-  const rendered = async () => {
-    const a = (await t.app.inject({ method: "POST", url: "/api/assets?name=zz-test", headers: { "content-type": "image/png" }, payload: Buffer.from(makePng(8, 8, [1, 2, 3], [4, 5, 6])) })).json() as { id: string };
+  const rendered = async (bytes: Uint8Array = makePng(8, 8, [1, 2, 3], [4, 5, 6]), form: Record<string, unknown> = FORM) => {
+    const a = (await t.app.inject({ method: "POST", url: "/api/assets?name=zz-test", headers: { "content-type": "image/png" }, payload: Buffer.from(bytes) })).json() as { id: string };
     const g = newId();
-    await t.db.insertInto("generations").values({ id: g, owner_id: OWNER, recipe_id: "sdxl.text-to-picture", recipe_version: 1, family: "sdxl", inputs: JSON.stringify(FORM), resolved: JSON.stringify({ seed: 1234567 }), gen_ms: 1, draft_id: null, created_at: now() } as never).execute();
+    await t.db.insertInto("generations").values({ id: g, owner_id: OWNER, recipe_id: "sdxl.text-to-picture", recipe_version: 1, family: "sdxl", inputs: JSON.stringify(form), resolved: JSON.stringify({ seed: 1234567 }), gen_ms: 1, draft_id: null, created_at: now() } as never).execute();
     await t.db.updateTable("assets").set({ origin: "generated", generation_id: g }).where("id", "=", a.id).execute();
     const hashed = { size: 1, mtime: 1, hashed_at: now(), hf_url: null, matched_at: now() };
     await t.db.insertInto("model_hashes").values({ folder: "checkpoints", file: CHECKPOINT, sha256: `ABCDEF0123${"0".repeat(54)}`, civitai_version: 11, ...hashed }).execute();
@@ -204,5 +220,52 @@ describe("a render's picture downloaded, then dropped back", () => {
     expect(keys).toContain("Comment");
     expect(keys).not.toContain("parameters");
     expect(keys).not.toContain("afflatus");
+  });
+
+  it("leaves ComfyUI's own graph behind, the switch off or on: the mark alone, or Afflatus's texts and no path", async () => {
+    const id = await rendered(comfyPng());
+    await writeSettings(t.db, { pngInfo: false });
+    const off = await download(id);
+    expect(chunks(off).map((c) => c.key).sort()).toEqual(["Comment", "XML:com.adobe.xmp"]);
+    expect(Buffer.from(off).toString("latin1")).not.toMatch(/Mira|someone|LoraLoader/);
+    // the picture itself is the same
+    expect((await readEmbedded(off)).workflow).toBeNull();
+
+    await writeSettings(t.db, { pngInfo: true });
+    const on = await download(id);
+    expect(chunks(on).map((c) => c.key).sort()).toEqual(["Comment", "XML:com.adobe.xmp", "afflatus", "parameters"]);
+    // never a folder or a path: neither ComfyUI's graph nor its sub-folders
+    expect(Buffer.from(on).toString("latin1")).not.toMatch(/Mira|someone|styles|people|[A-Z]:\\/);
+  });
+
+  it("writes a region by its box and words: no cast person, no LoRA folder, no mask", async () => {
+    const regions = [{ id: "r1", box: { x: 0.1, y: 0.1, w: 0.4, h: 0.5 }, prompt: "a red coat", cast: "kit-person-1", castLora: { file: "people\\Mira.safetensors", weight: 0.9 }, lora: { file: "styles\\Coat.safetensors", weight: 0.5 }, mask: "upload-123.png" }];
+    const file = await download(await rendered(undefined, { ...FORM, regions }));
+    const own = JSON.parse(chunks(file).find((c) => c.key === "afflatus")!.text) as { input: { regions: unknown[] } };
+    expect(own.input.regions).toEqual([{ id: "r1", box: regions[0]!.box, prompt: "a red coat", lora: { file: "Coat.safetensors", weight: 0.5 } }]);
+    expect(Buffer.from(file).toString("latin1")).not.toMatch(/kit-person|people|styles|upload-123/);
+  });
+
+  it("is read from Afflatus's own text alone, when it went out with no A1111 text", async () => {
+    const own = JSON.stringify({ afflatus: 1, recipe: "sdxl.text-to-picture", version: 1, input: { prompt: "a lighthouse", checkpoint: "illustrious.safetensors", steps: 28, seed: 42 } });
+    const back = await drop(markPng(makePng(8, 8, [0, 0, 0], [0, 0, 0]), { afflatus: own }));
+    expect(back.settings.recipe).toBe("sdxl.text-to-picture");
+    expect(back.settings.targets[0]).toEqual({ id: "sdxl.text-to-picture", why: "it was made with it" });
+    expect(back.settings.input).toMatchObject({ prompt: "a lighthouse", checkpoint: CHECKPOINT, steps: 28, seed: 42 });
+  });
+
+  it("dropped into the img2img it was made with, rolls its own seed as the img2img does", async () => {
+    const own = JSON.stringify({ afflatus: 1, recipe: "sdxl.redraw", version: 1, input: { prompt: "a lighthouse", strength: 0.4, seed: 42 } });
+    const back = await drop(markPng(makePng(8, 8, [0, 0, 0], [0, 0, 0]), { afflatus: own, parameters: "a lighthouse\nSteps: 20, Seed: 42, Size: 512x512, Denoising strength: 0.4" }), "sdxl.redraw");
+    expect(back.settings.recipe).toBe("sdxl.redraw");
+    expect(back.settings.input.strength).toBe(0.4);
+    expect(back.settings.input.seed).toBeUndefined();
+  });
+
+  it("goes out without its texts with the switch off when the user brought it in, and as it came with it on", async () => {
+    const a = (await t.app.inject({ method: "POST", url: "/api/assets?name=zz-test", headers: { "content-type": "image/png" }, payload: comfyPng() })).json() as { id: string };
+    expect(chunks(await download(a.id)).map((c) => c.key)).toEqual(["prompt", "workflow"]);
+    await writeSettings(t.db, { pngInfo: false });
+    expect(chunks(await download(a.id))).toEqual([]);
   });
 });

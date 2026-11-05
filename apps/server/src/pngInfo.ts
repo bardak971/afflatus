@@ -1,5 +1,5 @@
-import { dryContext, formModelInput, isModelFile, modelStem, parseInput, type InputSpec, type Recipe } from "@afflatus/core";
-import { markPng } from "./aiMark";
+import { dryContext, formModelInput, isModelFile, modelStem, parseInput, type InputSpec, type Recipe, type RegionValue } from "@afflatus/core";
+import { markPng, withoutTexts } from "./aiMark";
 import { VERSION } from "./config";
 import type { Tables } from "./db";
 import type { Services } from "./services";
@@ -126,6 +126,14 @@ const isPath = (v: string) => /^([a-zA-Z]:[\\/]|\\\\|\/)/.test(v);
 const bare = (v: string) => v.replace(/^.*[\\/]/, "");
 
 /**
+ * A region as it goes out: its box and words, its own LoRA by its file name. The cast person (a kit id), their LoRA (put in
+ * by the server, with the sub-folder it sits in) and a painted mask (an upload's name) mean nothing elsewhere and name
+ * what is on this computer, so they are left out: read back, the box keeps its words, which already hold the person's.
+ */
+const ownRegion = ({ cast: _cast, castLora: _castLora, mask: _mask, lora, ...r }: RegionValue): Omit<RegionValue, "cast" | "castLora" | "mask"> =>
+  ({ ...r, ...(lora ? { lora: { file: bare(lora.file), weight: lora.weight } } : {}) });
+
+/**
  * The form as it goes into the "afflatus" text: every setting but the library's pictures, sounds and clips; a model file
  * by its name alone; nothing that looks like a path. Read back, a model goes by its stem (fromPicture.ts sameModel).
  */
@@ -135,6 +143,7 @@ function ownForm(recipe: Recipe<any>, input: Record<string, unknown>): Record<st
     const v = input[spec.id];
     if (v === undefined || MEDIA_TYPES.has(spec.type)) continue;
     if (spec.type === "loras" && Array.isArray(v)) out[spec.id] = (v as Array<{ file: string; weight: number }>).map((l) => ({ file: bare(l.file), weight: l.weight }));
+    else if (spec.type === "regions" && Array.isArray(v)) out[spec.id] = (v as RegionValue[]).map(ownRegion);
     else if (typeof v === "string") {
       if (isPath(v)) continue;
       out[spec.id] = isModelFile(v) ? bare(v) : v;
@@ -254,9 +263,20 @@ async function infoTexts(s: Pick<Services, "db" | "registry">, a: Pick<Tables["a
 
 /**
  * A render's PNG as it leaves Afflatus: marked as made by a model (aiMark.ts), with how it was made when the switch is on.
+ * The texts it came with are dropped first, the switch on or off: ComfyUI's own "prompt" and "workflow" hold the whole
+ * graph, every model and LoRA with its sub-folder and an imported workflow's paths, which the switch's "?" promises never
+ * leave; the "parameters" and "afflatus" written here say the same settings without them (review 2026-11-05 S1).
  * What cannot be read for it (a generation gone) leaves it with the mark alone: a download never fails for its text.
  */
 export async function outgoingPng(s: Pick<Services, "db" | "registry">, a: Pick<Tables["assets"], "generation_id" | "width" | "height">, bytes: Uint8Array): Promise<Uint8Array> {
   const texts = await infoTexts(s, a).catch(() => ({}));
-  return markPng(bytes, texts);
+  return markPng(withoutTexts(bytes), texts);
+}
+
+/**
+ * A PNG the user brought in, as it leaves: as it came with the switch on (its texts are the user's own, put there before
+ * Afflatus had it), without them with the switch off, which says a download carries nothing of how a picture was made.
+ */
+export async function outgoingOwnPng(s: Pick<Services, "db">, bytes: Uint8Array): Promise<Uint8Array> {
+  return (await readSettings(s.db)).pngInfo ? bytes : withoutTexts(bytes);
 }

@@ -1,4 +1,4 @@
-import { BATCH, movedSeed, typedSeed, type InputSpec, type Recipe } from "@afflatus/core";
+import { BATCH, movedSeed, PROMPT_MOST, typedSeed, type InputSpec, type Recipe } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { compose, lookSchema, withMentions, type Look } from "./entities";
@@ -81,11 +81,24 @@ export async function queueRender(s: Services, body: z.output<typeof jobBody>, b
       const seeded = copy.input;
       // with a cast: each copy's choices ({a|b}, __colors__) settled before it is worked in, so that what was asked and what
       // renders pick the same
-      const own = recipe && look ? await settleTexts(s.wildcards, recipe, seeded) : seeded;
+      const own = recipe && look ? await settleTexts(s.wildcards, recipe, bounded(recipe, seeded)) : seeded;
       const each = recipe && look ? (await compose(s.db, recipe, own, look)).input : own;
       await ask.render(body.recipe, each, { label: copy.label ? `${label ?? recipe?.title ?? body.recipe} · ${copy.label}` : label, draft: body.draft, folder: body.folder, versionOf: body.versionOf, look, asked: each === own ? undefined : askedOf(own, each), machine: body.machine ?? null, mcpToken: by.mcpToken ?? null, ...(copy.grid ? { grid: copy.grid } : {}) });
     }
   });
+}
+
+/**
+ * A form's texts held to the prompt's bound before its wildcards are settled: settling copies a text on each of its turns,
+ * and the form is parsed (with that bound) only as it is queued, after; a text of megabytes held the server for seconds
+ * (review 2026-11-05 S4). Refused with the parser's own reason.
+ */
+function bounded(recipe: Recipe<any>, input: Record<string, unknown>): Record<string, unknown> {
+  for (const spec of recipe.inputs as InputSpec[]) {
+    const v = input[spec.id];
+    if (spec.type === "prompt" && typeof v === "string" && v.length > PROMPT_MOST) throw httpError(`${spec.label}: at most ${PROMPT_MOST.toLocaleString("en")} characters`);
+  }
+  return input;
 }
 
 /** One cell of an X/Y/Z grid as it is queued (grids.ts): its form, what it is said as, and its place on the board. */

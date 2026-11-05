@@ -114,12 +114,14 @@ function Sent({ title, text, folded }: { title: string; text: string; folded?: b
 }
 
 /** One thing to do with the item: a word, its key. Pressed: it is on (Kept, Trim). A long label wraps to a second line rather than being cut ("Reuse · new seed", "Remove background"). */
-function Act({ icon, label, k, pressed, done, onClick, disabled, title, more, tune }: { icon?: LucideIcon; label: string; k?: ReactNode; pressed?: boolean; done?: boolean; onClick(e: React.MouseEvent<HTMLButtonElement>): void; disabled?: boolean; title?: string; more?: boolean; tune?(at: TuneAt): void }) {
+function Act({ id, icon, label, k, pressed, done, onClick, disabled, title, more, tune }: { id?: string; icon?: LucideIcon; label: string; k?: ReactNode; pressed?: boolean; done?: boolean; onClick(e: React.MouseEvent<HTMLButtonElement>): void; disabled?: boolean; title?: string; more?: boolean; tune?(at: TuneAt): void }) {
   // just queued: a check and the ok look for a moment (itemActions.tsx `done`)
   const Icon = done ? Check : icon;
   const button = (
     <button
       type="button"
+      // what a key's popover opens next to (Viewer.tsx keyedAt)
+      data-act={id}
       // Shift+click: its settings first (TunePopover.tsx), as the ▾ beside it
       onClick={(e) => (tune && e.shiftKey ? tune(tuneAt(e.currentTarget)) : onClick(e))}
       disabled={disabled}
@@ -531,7 +533,7 @@ export function ViewerSidebar({ acts, list, asset, detail, trail, onTrail: setTr
             <div className="grid grid-cols-2 gap-1.5">
               {actions.map((x) => (
                 // one with a choice of its own (a model to open on): its list under it; its key still takes the one used last
-                <Act key={x.id} icon={x.icon} label={x.label} k={x.key && keysShown("viewer", x.id) ? x.key : undefined} pressed={x.pressed} done={x.done} disabled={x.disabled} title={x.disabled && x.note ? `${x.label}: ${x.note}` : x.tip} more={Boolean(x.items?.length) && x.id !== "timeline" && x.id !== "move"} tune={x.tune} onClick={(e) => (x.items?.length && x.id !== "timeline" && x.id !== "move" ? choose.open(e, x) : x.run?.())} />
+                <Act key={x.id} id={x.id} icon={x.icon} label={x.label} k={x.key && keysShown("viewer", x.id) ? x.key : undefined} pressed={x.pressed} done={x.done} disabled={x.disabled} title={x.disabled && x.note ? `${x.label}: ${x.note}` : x.tip} more={Boolean(x.items?.length) && x.id !== "timeline" && x.id !== "move"} tune={x.tune} onClick={(e) => (x.items?.length && x.id !== "timeline" && x.id !== "move" ? choose.open(e, x) : x.run?.())} />
               ))}
             </div>
             {group === "passes" && !a.inBin && <MorePasses madeWith={madeWith} shown={passTools} start={openTool} />}

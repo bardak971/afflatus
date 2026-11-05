@@ -6,7 +6,7 @@ that volume has no face figure, silently. And the pod's start (start.sh) and a F
 write the same zip at once. So the models are fetched into a folder of their own, beside the real one, and moved in only
 when the two files Face Match uses are there; a folder without them is taken as not there.
 
-The two files are checked against their SHA-256 as InsightFace's release gives them before they are moved in: the zip
+Every file of the pack is checked against its SHA-256 as InsightFace's release gives it before they are moved in: the zip
 comes from an address that carries no hash of its own (the 2026-11-02 review, L10).
 
 Standard library only at import (InsightFace is imported only to fetch): start.sh runs this file as a script, outside
@@ -22,10 +22,15 @@ import tempfile
 NAME = "buffalo_l"
 # What Face Match loads of the pack: the face detector and the recognition model (FaceAnalysis's allowed_modules)
 FILES = ("det_10g.onnx", "w600k_r50.onnx")
-# their bytes in InsightFace's buffalo_l release (v0.7), read from two copies fetched apart (2026-11-03)
+# the bytes of every file of InsightFace's buffalo_l release (v0.7), read from two copies fetched apart (2026-11-03, the
+# other three 2026-11-05): IP-Adapter's FaceID builds FaceAnalysis on the whole pack, so the three Face Match does not load
+# are checked too (the 2026-11-05 review, S5)
 SHA256 = {
     "det_10g.onnx": "5838f7fe053675b1c7a08b633df49e7af5495cee0493c7dcf6697200b85b5b91",
     "w600k_r50.onnx": "4c06341c33c2ca1f86781dab0e829f88ad5b64be9fba56e56bc9ebdefc619e43",
+    "1k3d68.onnx": "df5c06b8a0c12e422b2ed8947b8869faa4105387f199c477af038aa01f9a45cc",
+    "2d106det.onnx": "f001b856447c413801ef5c42091ed0cd516fcd21f2d6b79635b1e733a7109dbf",
+    "genderage.onnx": "4fde69b1c810857b88c64a335084f1c3fe8f01246c9a191b48c7bb756d6652fb",
 }
 
 
@@ -67,7 +72,8 @@ def fetch(root, download=_insightface_fetch, sha256=SHA256):
         download(temp)
         if not complete(temp):
             raise RuntimeError(f"InsightFace's {NAME} came without {' or '.join(FILES)}")
-        other = [f for f in FILES if _sha256(os.path.join(folder(temp), f)) != sha256[f]]
+        # every file the release has a hash for, there and with its bytes: one missing or other is not moved in
+        other = [f for f in sha256 if not os.path.isfile(os.path.join(folder(temp), f)) or _sha256(os.path.join(folder(temp), f)) != sha256[f]]
         if other:
             raise RuntimeError(f"InsightFace's {NAME} came with other bytes than its release's ({', '.join(other)}): not used")
         if not complete(root):

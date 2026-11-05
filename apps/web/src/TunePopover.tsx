@@ -68,7 +68,9 @@ function TunePanel({ ask, at, onClose }: { ask: TuneAsk; at: TuneAt; onClose(): 
                 {ask.more.label}
               </Button>
             )}
-            <Button type="submit" tone="primary">
+            {/* the focus here at once: Enter queues it (the key that opened it, B, leaves nothing else focused), and the button
+                that was Shift+clicked is not pressed again by it */}
+            <Button type="submit" tone="primary" autoFocus>
               {ask.go ?? `Queue${count > 1 ? ` ×${count}` : ""}`} <Kbd>Enter</Kbd>
             </Button>
           </span>

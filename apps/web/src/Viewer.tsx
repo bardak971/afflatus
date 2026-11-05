@@ -9,7 +9,7 @@ import { useLeave } from "./leave";
 import { Button, cx } from "./ui";
 import { ContextMenu, useMenu, type MenuItem } from "./ContextMenu";
 import { formPlaces, useFormTarget } from "./formTarget";
-import { actionOfKey, keyOfEvent, keysShown, placeMenu, stageBar, toMenu, type ItemAction } from "./itemActions";
+import { actionOfKey, keyOfEvent, keysShown, placeMenu, runByKey, stageBar, toMenu, type ItemAction, type TuneAt } from "./itemActions";
 import { tuneAt } from "./passTune";
 import { TuneButton } from "./TunePopover";
 import { askViewer, takeViewerAsk } from "./viewer/ask";
@@ -28,6 +28,17 @@ const PngInfo = lazy(() => import("./PngInfo").then((m) => ({ default: m.PngInfo
 
 /** A file that came from outside (uploaded, a linked folder's, imported): what made it may be written in it. An extracted sound is made here. */
 const madeElsewhere = (a: Asset) => a.origin === "uploaded" || (a.origin === "imported" && a.kind !== "audio");
+
+/**
+ * Where a pass's settings opened from its key go: next to its button when the viewer draws one (the side's, the Stage
+ * bar's), else over the middle of the viewer, the picture they are for.
+ */
+function keyedAt(root: HTMLElement | null, id: string): TuneAt {
+  const button = root?.querySelector(`[data-act="${id}"]`);
+  if (button) return tuneAt(button);
+  const r = root?.getBoundingClientRect() ?? { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+  return { left: r.left + r.width / 2 - 170, top: r.top + r.height / 3, width: 340, height: 0 };
+}
 
 /** One item, large, with how it was made and what can be done with it. */
 export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onDetails, onEscape, into }: {
@@ -247,7 +258,8 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
         setPinned(null);
         return;
       }
-      const open = document.querySelector("[data-keys-help], [role=listbox], [role=menu]") || info;
+      // a pass's settings open (TunePopover.tsx, a [data-floating] panel) close on their own Esc, the viewer staying
+      const open = document.querySelector(`[data-keys-help], ${OVER}`) || info;
       if (inline) {
         if (!open) onEscape?.();
         return;
@@ -285,10 +297,11 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
     else if (comparing && k === "w" && !e.shiftKey && compareKeys.current) compareKeys.current.wipe();
     else if (comparing && k === "x" && e.shiftKey && compareKeys.current) compareKeys.current.swap();
     else {
-      // every other key is the list's: the action whose key it is, when it acts here and is on now (in the bin, D)
+      // every other key is the list's: the action whose key it is, when it acts here and is on now (in the bin, D); B opens
+      // Remove background's settings rather than queuing it (runByKey), next to its button when one is drawn
       const action = actionOfKey(list, place, keyOfEvent(e));
       if (!action) return;
-      action.run!();
+      runByKey(action, () => keyedAt(root.current, action.id));
     }
     e.preventDefault();
   };
@@ -352,7 +365,7 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
       const tune = x.tune;
       const it = (
         // Shift+click: its settings first (TunePopover.tsx), as the ▾ beside it
-        <Button key={x.id} size="sm" tone={x.pressed && x.id !== "keep" ? "primary" : "plain"} aria-pressed={x.id === "keep" || x.id === "trim" || x.id === "compare" ? Boolean(x.pressed) : undefined} disabled={x.disabled} data-tip={x.disabled && x.note ? `${x.label}: ${x.note}` : x.tip} onClick={(e) => (tune && e.shiftKey ? tune(tuneAt(e.currentTarget)) : x.run?.())} className={cx(x.done && "m-ok border-good/50! bg-good/15 text-good!", tune && "rounded-r-none")}>
+        <Button key={x.id} data-act={x.id} size="sm" tone={x.pressed && x.id !== "keep" ? "primary" : "plain"} aria-pressed={x.id === "keep" || x.id === "trim" || x.id === "compare" ? Boolean(x.pressed) : undefined} disabled={x.disabled} data-tip={x.disabled && x.note ? `${x.label}: ${x.note}` : x.tip} onClick={(e) => (tune && e.shiftKey ? tune(tuneAt(e.currentTarget)) : x.run?.())} className={cx(x.done && "m-ok border-good/50! bg-good/15 text-good!", tune && "rounded-r-none")}>
           {x.id === "keep" ? <Star size={13} fill={x.pressed ? "currentColor" : "none"} /> : x.done ? <Check size={13} /> : <x.icon size={13} />} {x.label} {x.key && keysShown(place, x.id) && <Kbd>{x.key}</Kbd>}
         </Button>
       );

@@ -92,10 +92,15 @@ async function filesFor(texts: string[], folders: WildcardFolder[]): Promise<Wil
     return (await Promise.all(paths.map((p) => readFile(p, "utf8").then(linesOf, () => [])))).flat();
   };
   const queue = texts.flatMap(want);
+  // a name with no file is looked for once: a text naming it a thousand times walked the whole index a thousand times
+  const missed = new Set<string>();
   for (let name = queue.shift(); name !== undefined; name = queue.shift()) {
-    if (lines.has(name)) continue;
+    if (lines.has(name) || missed.has(name)) continue;
     const got = await read(name);
-    if (!got) continue;
+    if (!got) {
+      missed.add(name);
+      continue;
+    }
     lines.set(name, got);
     queue.push(...got.flatMap(want));
   }

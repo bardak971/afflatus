@@ -49,6 +49,8 @@ export type MenuItem =
        * the ▾ at its end.
        */
       tune?(at: { left: number; top: number; width: number; height: number }): void;
+      /** Its key opens its settings (`tune`) rather than running it (itemActions.tsx KEY_TUNES): B for Remove background. */
+      keyTunes?: boolean;
       /** A submenu: opened on hover, → or Enter; ← or Escape closes it. */
       items?: MenuItem[];
     }
@@ -178,6 +180,12 @@ export function keyedRow(items: MenuItem[], pressed: string[]): Extract<MenuItem
     if (wanted.some((p) => ways.includes(chordKey(p.split("+"))))) return it;
   }
   return null;
+}
+
+/** What a row's key does once the menu is closed: its settings next to `box` where its key opens them (`keyTunes`), else its run. */
+export function runKeyed(row: Extract<MenuItem, object>, box: { left: number; top: number; width: number; height: number } | undefined): void {
+  if (row.keyTunes && row.tune && box) row.tune({ left: box.left, top: box.top, width: box.width, height: box.height });
+  else row.run?.();
 }
 
 /** What a menu is about, at its top: a name, a dim line, and the picture of an item when it has one. */
@@ -376,8 +384,10 @@ function Panel({ at, flipX, items, label, head, onClose, onBack, keyed = true }:
         if (!row) return;
         e.preventDefault();
         e.stopPropagation();
+        // read before the menu goes: the popover opens where the row was, or the panel when the row is in a submenu
+        const box = (rows.current[items.indexOf(row)] ?? self.current)?.getBoundingClientRect();
         onClose();
-        row.run?.();
+        runKeyed(row, box);
         return;
       }
       e.preventDefault();

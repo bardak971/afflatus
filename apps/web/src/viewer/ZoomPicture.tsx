@@ -290,7 +290,8 @@ export function ZoomPicture({ src, natural: known, view: given, onView: setGiven
             } : undefined}
             onClick={(e) => {
               e.stopPropagation();
-              if (!pick || e.detail > 1) return;
+              // zoomed in, a press is the start of a pan: one that barely moved is still not a pick (the fitted picture's own)
+              if (!pick || e.detail > 1 || zoomed) return;
               window.clearTimeout(pending.current);
               pending.current = window.setTimeout(pick, DOUBLE_MS);
             }}

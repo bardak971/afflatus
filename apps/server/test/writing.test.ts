@@ -43,6 +43,17 @@ describe("choices written in a prompt", () => {
     expect(textOf([...fake.prompts.values()][0]!).some((x) => prompts.includes(x))).toBe(true);
   });
 
+  it("holds a cast render's texts to the prompt's bound before their wildcards are settled", async () => {
+    // settled before the form is parsed (a cast works its person in after): a text of megabytes full of unknown names
+    // walked the wildcard index on each and was copied on every turn, holding the server for seconds
+    const prompt = "__nowhere__ ".repeat(200_000);
+    const started = Date.now();
+    const res = await post(t.app, "/api/jobs", { recipe: "sdxl.text-to-picture", input: { prompt, checkpoint: CHECKPOINT, quality: "" }, look: { cast: [], snippets: ["zz-test"] } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/Prompt: at most 20,000 characters/);
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
   it("reads __name__ from the wildcard packs' folders of ComfyUI, the same picks for the same seed", async () => {
     const comfyDir = mkdtempSync(join(tmpdir(), "afflatus-wild-"));
     try {

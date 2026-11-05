@@ -19,6 +19,7 @@ export const TUNED_ROWS: Partial<Record<ActionId, readonly string[]>> = {
   upscale: ["factor", "upscaler"],
   face: ["strength", "detector"],
   hand: ["strength", "detector"],
+  background: ["model"],
   "vary-subtle": ["strength"],
   "vary-strong": ["strength"],
   variation: [],

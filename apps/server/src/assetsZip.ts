@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
+import { plural } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { fromRender } from "./aiMark";
@@ -8,7 +9,7 @@ import { stamp } from "./backup";
 import { markedVideoFile } from "./cut";
 import { httpError } from "./errors";
 import { extOf } from "./media";
-import { outgoingPng } from "./pngInfo";
+import { outgoingOwnPng, outgoingPng } from "./pngInfo";
 import type { Services } from "./services";
 import { sourceOf } from "./storage";
 import { ZipStream } from "./zipStream";
@@ -50,7 +51,7 @@ export function registerAssetsZip(app: FastifyInstance, s: Services): void {
   const asked = new Map<string, { ids: string[]; until: number }>();
 
   app.post("/api/assets/zip", async (req) => {
-    const { ids } = z.strictObject({ ids: z.array(z.string().min(1)).min(1).max(MOST) }).parse(req.body ?? {});
+    const { ids } = z.strictObject({ ids: z.array(z.string().min(1).max(64)).min(1).max(MOST) }).parse(req.body ?? {});
     const at = Date.now();
     for (const [k, v] of asked) if (v.until < at) asked.delete(k);
     const key = randomBytes(18).toString("base64url");
@@ -73,31 +74,51 @@ export function registerAssetsZip(app: FastifyInstance, s: Services): void {
     // what is written runs beside the reply, which takes the stream now; a write fails once the browser has gone (zipStream.ts)
     void (async () => {
       try {
+        // the items whose file could not be read (gone from the disk, a linked folder's moved away): left out, not the whole
+        // zip given up, and named in a note at its end, the only place a download followed as a link can say it
+        const missed: string[] = [];
         for (const [i, a] of items.entries()) {
           if (req.raw.destroyed) break;
           const path = names[i]!;
           const at = new Date(a.created_at);
           // a render goes in as the item's own Download gives it: marked as made by a model, a PNG with how it was made when
-          // Settings says so (aiMark.ts, pngInfo.ts)
-          if ((a.kind === "video" || a.mime === "image/png") && (await fromRender(s.db, a))) {
-            if (a.kind === "video") {
-              // read from the marked copy on the disk as it goes in, then removed: one video in memory at a time would be too much
-              const marked = await markedVideoFile(await sourceOf(s.storage, a.file_key), extOf(a.mime));
-              try {
-                await zip.add(path, createReadStream(marked.file), at, marked.size);
-              } finally {
-                await marked.done();
-              }
+          // Settings says so (aiMark.ts, pngInfo.ts); a PNG brought in, without its texts when Settings says none
+          const render = (a.kind === "video" || a.mime === "image/png") && (await fromRender(s.db, a));
+          if (render && a.kind === "video") {
+            // read from the marked copy on the disk as it goes in, then removed: one video in memory at a time would be too much
+            const marked = await markedVideoFile(await sourceOf(s.storage, a.file_key), extOf(a.mime)).catch(() => null);
+            if (!marked) {
+              missed.push(path);
               continue;
             }
-            const marked = await outgoingPng(s, a, await s.storage.get(a.file_key));
-            await zip.add(path, Readable.from([Buffer.from(marked.buffer, marked.byteOffset, marked.byteLength)]), at, marked.length);
+            try {
+              await zip.add(path, createReadStream(marked.file), at, marked.size);
+            } finally {
+              await marked.done();
+            }
+            continue;
+          }
+          if (a.mime === "image/png") {
+            const bytes = await s.storage.get(a.file_key).catch(() => null);
+            if (!bytes) {
+              missed.push(path);
+              continue;
+            }
+            const out = render ? await outgoingPng(s, a, bytes) : await outgoingOwnPng(s, bytes);
+            await zip.add(path, Readable.from([Buffer.from(out.buffer, out.byteOffset, out.byteLength)]), at, out.length);
             continue;
           }
           const f = await s.storage.open(a.file_key).catch(() => null);
-          // its file gone from the disk (a linked folder's, moved away): left out, not the whole zip given up
-          if (!f) continue;
+          if (!f) {
+            missed.push(path);
+            continue;
+          }
           await zip.add(path, f.stream, at, f.size);
+        }
+        if (missed.length && !req.raw.destroyed) {
+          // Windows line ends: the note is opened by whatever the user's system has, Notepad included
+          const note = Buffer.from(`Not found on the disk, so not in this zip (${plural(missed.length, "item")}):\r\n${missed.join("\r\n")}\r\n`, "utf8");
+          await zip.add(uniqueNames([...names, "Not in this zip.txt"]).at(-1)!, Readable.from([note]), new Date(), note.length);
         }
         await zip.finish();
       } catch (err) {

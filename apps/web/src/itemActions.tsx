@@ -63,7 +63,7 @@ export const ACTIONS: Record<ActionId, Spec> = {
   upscale: { group: "passes", sub: "passes", label: "Upscale 2x", key: "U", kinds: ["image"], icon: Maximize2, tip: "Upscale 2x: queued at once with the picture's generation parameters. Shift+click or ▾: the factor and the upscaler first." },
   face: { group: "passes", sub: "passes", label: "Face refine", key: "F", kinds: ["image"], icon: Smile, tip: "Face refine: queued at once with the picture's generation parameters; it comes back as a version under the picture. Shift+click or ▾: the denoise and the detector first." },
   hand: { group: "passes", sub: "passes", label: "Hand refine", key: "H", kinds: ["image"], icon: Hand, tip: "Hand refine: Face refine on the hand detector (hand_yolov8s), at denoise 0.35, crop factor 2, a prompt about hands; queued at once with the picture's generation parameters; it comes back as a version under the picture. Shift+click or ▾: the denoise and the detector first." },
-  background: { group: "passes", sub: "passes", label: "Remove background", key: "B", kinds: ["image"], icon: Eraser, tip: "Remove background: queued at once." },
+  background: { group: "passes", sub: "passes", label: "Remove background", key: "B", kinds: ["image"], icon: Eraser, tip: "Remove background: a click queues it at once. B, Shift+click or ▾: the model first, Enter queues it." },
   inpaint: { group: "passes", sub: "passes", label: "Inpaint…", key: "I", kinds: ["image"], icon: Paintbrush, tip: "Inpaint: Paint and fix on the Stage, the mask painted over the picture; the fixes come back as versions of it." },
   edit: { group: "passes", sub: "passes", label: "Edit…", key: "E", kinds: ["image"], icon: PenLine, tip: "Edit / img2img: on the Stage, an instruction for the whole picture (or a part painted); it comes back as versions of it." },
   outpaint: { group: "passes", sub: "passes", label: "Outpaint…", key: "R", kinds: ["image"], icon: SquareDashed, tip: "Outpaint: on the Stage, the frame dragged out round the picture; what it adds comes back as versions of it." },
@@ -93,6 +93,13 @@ export const ORDER = (Object.keys(ACTIONS) as ActionId[]).filter((id) => id !== 
 
 /** What a media type's list holds, in order: what never applies to the type is not in it at all. */
 export const actionIds = (kind: Kind): ActionId[] => ORDER.filter((id) => ACTIONS[id].kinds.includes(kind));
+
+/**
+ * The actions whose key opens their settings rather than running them (card #315, the owner's call): B sat a key away from
+ * the Regions' and the mask's Box, and queued a render at once. Their popover (TunePopover.tsx) opens on the key, Enter
+ * queues from it, Esc closes it; a click on the button still queues at once, as every pass's does.
+ */
+export const KEY_TUNES: ReadonlySet<ActionId> = new Set(["background"]);
 
 /** The passes by the viewer's key for them (viewer/shared.ts OPS reads the recipe for each). */
 export const PASS_KEYS: Partial<Record<ActionId, string>> = { upscale: "u", face: "f", hand: "h", background: "b", inpaint: "i", edit: "e", outpaint: "r" };
@@ -197,6 +204,12 @@ export interface ItemAction {
   /** Its settings first, in a popover, then queued (a pass's Shift+click or ▾, TunePopover.tsx); absent: it has none. */
   tune?(at: TuneAt): void;
   items?: MenuItem[];
+}
+
+/** What an action's key does: its settings where its key opens them (KEY_TUNES) and it has some, else what a click does. */
+export function runByKey(a: ItemAction, at: () => TuneAt): void {
+  if (KEY_TUNES.has(a.id) && a.tune) a.tune(at());
+  else a.run?.();
 }
 
 export type Runs = Partial<Record<ActionId, () => void>>;
@@ -382,7 +395,7 @@ const SUBMENUS: Record<SubId, { label: string; icon: LucideIcon; min: number }> 
 export function toMenu(list: ItemAction[], place: Place, folds: boolean | "passes" = true, organise: MenuItem[] = []): MenuItem[] {
   const line = (a: ItemAction): MenuItem => ({
     label: a.label, key: keysShown(place, a.id) ? a.key : undefined, icon: <a.icon size={14} />, note: a.note, danger: a.danger, disabled: a.disabled,
-    ...(a.items ? { items: a.items } : { run: a.run, ...(a.tune ? { tune: a.tune } : {}) }),
+    ...(a.items ? { items: a.items } : { run: a.run, ...(a.tune ? { tune: a.tune, ...(KEY_TUNES.has(a.id) ? { keyTunes: true } : {}) } : {}) }),
   });
   const folding = (sub: SubId | undefined): sub is SubId => Boolean(sub) && (folds === true || (folds === "passes" && sub === "passes"));
   const out: MenuItem[] = [];

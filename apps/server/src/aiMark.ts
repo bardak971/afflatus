@@ -86,6 +86,36 @@ export function markPng(bytes: Uint8Array, texts: Record<string, string> = {}): 
   return new Uint8Array(Buffer.concat([buf.subarray(0, end), ...added, buf.subarray(end)]));
 }
 
+/**
+ * The chunks that carry words rather than the picture: texts (ComfyUI's own "prompt" and "workflow", the whole graph with
+ * every model's and LoRA's sub-folder, upload names and an imported workflow's paths; a tool's XMP, which can hold a
+ * document's path) and EXIF (a camera's place and serial). None of them changes a pixel.
+ */
+const WORDS = new Set(["tEXt", "zTXt", "iTXt", "eXIf"]);
+
+/**
+ * A PNG without any of the words it came with (WORDS), its pictures untouched, so that what leaves says only what
+ * Afflatus puts in on purpose (markPng's mark, pngInfo.ts's texts). Anything that is not a whole PNG comes back as it was.
+ */
+export function withoutTexts(bytes: Uint8Array): Uint8Array {
+  const buf = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (buf.length < 8 || !buf.subarray(0, 8).equals(PNG_SIGNATURE)) return bytes;
+  const kept: Buffer[] = [buf.subarray(0, 8)];
+  let dropped = false;
+  for (let at = 8; at + 12 <= buf.length; ) {
+    const length = buf.readUInt32BE(at);
+    const type = buf.toString("latin1", at + 4, at + 8);
+    const end = at + 12 + length;
+    // a chunk cut short is not a PNG this can read: left whole rather than half-cleaned
+    if (end > buf.length) return bytes;
+    if (WORDS.has(type)) dropped = true;
+    else kept.push(buf.subarray(at, end));
+    if (type === "IEND") return dropped ? new Uint8Array(Buffer.concat(kept)) : bytes;
+    at = end;
+  }
+  return bytes;
+}
+
 /** How far back a copy of a copy is followed: further is a loop, or a chain nobody makes. */
 const MAX_DEPTH = 8;
 

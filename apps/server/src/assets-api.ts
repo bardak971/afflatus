@@ -21,7 +21,7 @@ import { httpError, notFound } from "./errors";
 import type { LibraryChange } from "./events";
 import { isLinked } from "./linked";
 import { assetView, extOf, newAssetRow } from "./media";
-import { outgoingPng } from "./pngInfo";
+import { outgoingOwnPng, outgoingPng } from "./pngInfo";
 import { castOf, madeIn } from "./provenance";
 import type { Services } from "./services";
 import { makeThumb, mirrorPicture, readPicture, SMALL_EDGE, smallThumbKey, thumbKey } from "./thumbs";
@@ -287,6 +287,12 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
       }
       const marked = await outgoingPng(s, a, await s.storage.get(a.file_key));
       return reply.header("Content-Length", marked.length).send(Buffer.from(marked.buffer, marked.byteOffset, marked.byteLength));
+    }
+    // a PNG the user brought in, saved to their disk: without its texts when the switch says a download carries none (pngInfo.ts)
+    if (req.query.download === "1" && a.mime === "image/png") {
+      const own = await outgoingOwnPng(s, await s.storage.get(a.file_key));
+      reply.header("Content-Type", a.mime).header("Cache-Control", "no-store");
+      return reply.header("Content-Length", own.length).send(Buffer.from(own.buffer, own.byteOffset, own.byteLength));
     }
     const size = await s.storage.size(a.file_key);
     reply.header("Content-Type", a.mime).header("Accept-Ranges", "bytes");
