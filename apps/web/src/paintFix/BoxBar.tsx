@@ -123,7 +123,7 @@ export function BoxBar({ boxes, selected, onSelect, onPrompt, editors, editor, o
       </div>
       {!editor.ready && <span className="text-xs font-semibold text-attention-ink">{editor.name}'s files are not all in ComfyUI: Settings › Models has them, or a pod fetches them</span>}
       <span className="flex flex-wrap items-center justify-center gap-x-1 text-xs text-ink-3">
-        Each box its own instruction, done one after another into one version · <Kbd>Del</Kbd> removes the box picked · paint a part to fix it instead · <Kbd>Esc</Kbd> leaves Paint and fix
+        Each box its own instruction, done one after another into one version · <Kbd>Del</Kbd> removes the box picked · paint a part to fix it instead · <Kbd>Esc</Kbd> lets go of the box picked, again leaves Paint and fix
         <Help title="Mask or box" text={MASK_OR_BOX} />
       </span>
     </div>

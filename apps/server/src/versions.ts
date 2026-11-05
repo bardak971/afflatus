@@ -6,6 +6,7 @@ import { httpError } from "./errors";
 import { isLinked } from "./linked";
 import { assetView } from "./media";
 import type { Services } from "./services";
+import { inUse } from "./sweep";
 
 /**
  * Versions of a picture (card #274): what a fix painted on the Stage, a face or hand refine, an edit make of a picture comes
@@ -46,6 +47,35 @@ export async function stackRoot(db: Kysely<Tables>, id: string): Promise<string 
   return head && !head.deleted_at ? head.id : null;
 }
 
+/**
+ * The draft that made the head, given to these items when what made them came from no draft (a fix sent from the viewer
+ * says none): a version that takes the head's place, or leaves the stack as a picture, shows in that draft's column as the
+ * head did, rather than only in the Inbox. Written on their generations, as a draft's items are found by them.
+ */
+async function carryDraft(tx: Kysely<Tables>, headId: string, ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  const made = await tx.selectFrom("assets").innerJoin("generations", "generations.id", "assets.generation_id").select("generations.draft_id")
+    .where("assets.id", "=", headId).executeTakeFirst();
+  if (!made?.draft_id) return;
+  await tx.updateTable("generations").set({ draft_id: made.draft_id }).where("draft_id", "is", null)
+    .where("id", "in", tx.selectFrom("assets").select("generation_id").where("id", "in", ids).where("generation_id", "is not", null).$castTo<string>()).execute();
+}
+
+/**
+ * Versions kept one by one as pictures of their own (Keep · S, a bulk keep, MCP's keep): kept and nothing more, a version
+ * would stay hidden under its head for good (spared by the sweep, out of the library). Each leaves its stack as Keep all
+ * does: in the head's folder and draft, beside it. What is not a version is left as it is.
+ */
+export async function ownPictures(tx: Kysely<Tables>, ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  const rows = await tx.selectFrom("assets").select(["id", "version_of"]).where("id", "in", ids).where("version_of", "is not", null).execute();
+  for (const r of rows) {
+    const top = await tx.selectFrom("assets").select("folder_id").where("id", "=", r.version_of!).executeTakeFirst();
+    await tx.updateTable("assets").set({ version_of: null, folder_id: top?.folder_id ?? null, countdown_from: null }).where("id", "=", r.id).execute();
+    await carryDraft(tx, r.version_of!, [r.id]);
+  }
+}
+
 /** A stack as the Stage's strip reads it: its head, and its versions in the order they were made (the head not among them). */
 export async function versionsOf(s: Services, id: string) {
   const head = await headOf(s.db, id);
@@ -79,15 +109,20 @@ export async function keepVersion(s: Services, { fileInLinked }: AssetLookup, id
   } else {
     await s.db.transaction().execute(async (tx) => {
       const [top, kept] = await Promise.all([
-        tx.selectFrom("assets").select(["id", "name", "folder_id", "file_key"]).where("id", "=", head.id).executeTakeFirstOrThrow(),
+        tx.selectFrom("assets").select(["id", "name", "folder_id", "file_key", "grid_id", "grid_cell"]).where("id", "=", head.id).executeTakeFirstOrThrow(),
         tx.selectFrom("assets").select(["id", "name", "version_of", "deleted_at"]).where("id", "=", version).executeTakeFirst(),
       ]);
       if (!kept || kept.version_of !== head.id || kept.deleted_at) throw httpError("this is not a version of this picture", 404);
-      // the head's place: its folder, and its name when it has one (a nameless one is called after how it was made, as the version is)
-      await tx.updateTable("assets").set({ version_of: null, folder_id: top.folder_id, name: top.name.trim() ? top.name : kept.name, kept_at: at, countdown_from: null }).where("id", "=", kept.id).execute();
+      // the head's place: its folder, its name when it has one (a nameless one is called after how it was made, as the
+      // version is), its draft, and its cell of an X/Y/Z grid (the board lists a cell by it, and only what is in the library)
+      await tx.updateTable("assets").set({ version_of: null, folder_id: top.folder_id, name: top.name.trim() ? top.name : kept.name, kept_at: at, countdown_from: null, grid_id: top.grid_id ?? null, grid_cell: top.grid_cell ?? null }).where("id", "=", kept.id).execute();
+      await carryDraft(tx, head.id, [kept.id]);
       await tx.updateTable("assets").set({ version_of: kept.id, kept_at: null, countdown_from: at }).where("version_of", "=", head.id).where("deleted_at", "is", null).execute();
-      // the old head: one in the bin stays there as it is (back from it, it is a plain picture again)
-      if (!head.deleted_at) await tx.updateTable("assets").set(isLinked(top.file_key) ? { version_of: kept.id } : { version_of: kept.id, kept_at: null, countdown_from: at }).where("id", "=", head.id).execute();
+      // the old head: one in the bin stays there as it is (back from it, it is a plain picture again); one something uses
+      // (a draft's form, a clip) stays kept, as an unkeep of it would be refused: the sweep spares it all the same, but
+      // kept, Keep all or a Keep of it later finds it as the user left it
+      const used = (await inUse(tx)).has(head.id);
+      if (!head.deleted_at) await tx.updateTable("assets").set(isLinked(top.file_key) || used ? { version_of: kept.id, grid_id: null, grid_cell: null } : { version_of: kept.id, kept_at: null, countdown_from: at, grid_id: null, grid_cell: null }).where("id", "=", head.id).execute();
       await tx.updateTable("jobs").set({ version_of: kept.id, updated_at: at }).where("version_of", "=", head.id).where("status", "in", ["queued", "running"]).execute();
     });
     // kept in a linked folder: written there as a file, as any item kept there
@@ -125,6 +160,7 @@ export async function keepAllVersions(s: Services, { fileInLinked }: AssetLookup
       seen.add(key(name));
       await tx.updateTable("assets").set({ version_of: null, folder_id: top.folder_id, kept_at: at, countdown_from: null, name }).where("id", "=", r.id).execute();
     }
+    await carryDraft(tx, head.id, rows.map((r) => r.id));
     return rows;
   });
   for (const k of kept) await fileInLinked(k.id);

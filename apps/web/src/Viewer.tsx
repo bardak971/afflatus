@@ -58,7 +58,13 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
   const base = trail.at(-1) ?? first;
   // a picture's versions (Inpaint, Face and Hand refine… made in place): the one shown large is picked in the strip under
   // it, and the whole viewer is then about that one (its parameters, its actions); another item forgets the pick
-  const versions = useVersions(base);
+  // K keeps a version in the original's place: the place that showed the original (a draft's column, a folder) shows the
+  // kept one, which the list now has instead, so the Stage stays on the picture just chosen
+  const trailed = useRef(false);
+  trailed.current = trail.length > 0;
+  const versions = useVersions(base, {
+    onKept: (head) => (trailed.current ? setTrail((t) => [...t.slice(0, -1), head]) : onOpen?.(head)),
+  });
   const [ver, setVer] = useState<{ of: string; id: string } | null>(null);
   const asset = (ver && ver.of === base.id && versions.all.find((v) => v.id === ver.id)) || base;
   const showVersion = (v: Asset) => setVer({ of: base.id, id: v.id });
@@ -76,13 +82,30 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
   const outpaint = () => useStageMode.getState().set(asset.id, "outpaint");
   const editHere = () => useStageMode.getState().set(asset.id, "edit");
   const leavePaint = () => useStageMode.getState().leave();
-  // another item shown, or the viewer gone: its Paint and fix ends with it (the mode of another picture is left alone)
+  // another item shown, or the viewer gone: its Paint and fix ends with it (the mode of another picture is left alone).
+  // The kept version shown in its original's place (K) is the same stack: Paint and fix goes on over it, its mask kept
   const stack = useRef(inStack);
   stack.current = inStack;
-  useEffect(() => () => {
-    const on = useStageMode.getState().on;
-    if (on && stack.current(on.asset)) useStageMode.getState().leave();
+  const gone = useRef(false);
+  // set again on mount: StrictMode's trial unmount must not leave it said for good
+  useEffect(() => {
+    gone.current = false;
+    return () => void (gone.current = true);
+  }, []);
+  useEffect(() => {
+    const was = base.id;
+    return () => {
+      const on = useStageMode.getState().on;
+      if (!gone.current && stack.current(was)) return;
+      if (on && stack.current(on.asset)) useStageMode.getState().leave();
+    };
   }, [base.id]);
+  // what Paint and fix is keyed by: its stack, under the same key after a Keep gives the stack a new root (the old root
+  // one of its versions now), so the mask, its undo and the boxes are not lost to a remount
+  const [paintKey, setPaintKey] = useState(versions.root || asset.id);
+  const rootNow = versions.root || asset.id;
+  const sameStack = paintKey === rootNow || versions.all.some((v) => v.id === paintKey);
+  if (!sameStack) setPaintKey(rootNow);
   // Compare: one item pinned, the arrow keys move the other one beside it
   const [pinned, setPinned] = useState<Asset | null>(null);
   /** The item's right-click menu (a picture, a video, a sound): its list, the open form first. */
@@ -320,7 +343,7 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
       onDetails={onDetails}
       onClose={onClose}
       onCopy={actionOfKey(list, place, "Ctrl+C")?.run}
-      paint={painting && stageOn ? { stack: versions.root || asset.id, mode: stageOn.mode, strip } : null}
+      paint={painting && stageOn ? { stack: sameStack ? paintKey : rootNow, mode: stageOn.mode, strip } : null}
     />
   );
   if (inline) {

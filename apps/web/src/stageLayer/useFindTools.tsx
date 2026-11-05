@@ -31,8 +31,34 @@ export interface FoundMask {
   box: Rect;
 }
 
-/** Runs a find job to its end: its masks, none when nothing was found; an error when the job failed. */
-export type Find = (req: FindRequest) => Promise<FoundMask[]>;
+/**
+ * Runs a find job to its end: its masks, none when nothing was found; an error when the job failed. `signal`: aborted when
+ * the answer is no longer waited for (a newer click, the tool put down, the layer gone), so the job is not left running.
+ */
+export type Find = (req: FindRequest, signal?: AbortSignal) => Promise<FoundMask[]>;
+
+/** How long a click waits for the next before it asks: quick clicks placing several points make one SAM job, not one each. */
+const CLICK_SETTLE_MS = 150;
+
+/**
+ * The one find a tool waits for: a new one gives up the last (its job cancelled by `find`), and so does the layer going
+ * away, a new picture, or the tool's own reset.
+ */
+function useOneFind() {
+  const on = useRef<AbortController | null>(null);
+  useEffect(() => () => on.current?.abort(), []);
+  return {
+    next() {
+      on.current?.abort();
+      on.current = new AbortController();
+      return on.current.signal;
+    },
+    stop() {
+      on.current?.abort();
+      on.current = null;
+    },
+  };
+}
 
 /** A found mask read into a plane of `w` × `h`: the asset's file, by default. Tests hand their own. */
 export type LoadMask = (asset: string, w: number, h: number) => Promise<Plane>;
@@ -50,8 +76,11 @@ function useOwnStep(mask: MaskLayer) {
     /** Puts `found` in, first taking back this tool's last step if nothing changed the mask since (`replace`). */
     put(found: Plane, ink: "add" | "subtract", replace: boolean) {
       const m = latest.current;
-      if (replace && mine.current !== null && m.version === mine.current) m.undo();
-      mine.current = m.apply(found, ink);
+      const took = replace && mine.current !== null && m.version === mine.current;
+      if (took) m.undo();
+      // a step that changed nothing is not this tool's: owning it would make the next result undo the user's own last step
+      const made = m.apply(found, ink);
+      if (made !== null || took) mine.current = made;
     },
     /** Takes this tool's last step back, if it is still the last change. */
     drop() {
@@ -98,8 +127,13 @@ export function useClickTool({ mask, natural, find, load = loadAsset, active }: 
   const own = useOwnStep(mask);
   const asked = useRef(0);
   const pointsNow = useRef(points);
+  const one = useOneFind();
+  const settle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(settle.current), []);
   const done = () => {
     asked.current += 1;
+    clearTimeout(settle.current);
+    one.stop();
     pointsNow.current = [];
     setPoints([]);
     setBusy(false);
@@ -107,6 +141,14 @@ export function useClickTool({ mask, natural, find, load = loadAsset, active }: 
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- done only clears this tool's own state
   useEffect(() => (active ? undefined : done()), [active]);
+  // another picture (a version flipped to): the points were on the one before, and so was what they found
+  const findFor = useRef(find);
+  useEffect(() => {
+    if (findFor.current === find) return;
+    findFor.current = find;
+    done();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- done only clears this tool's own state
+  }, [find]);
 
   const ask = async (all: ClickTool["points"]) => {
     if (!natural) return;
@@ -115,7 +157,7 @@ export function useClickTool({ mask, natural, find, load = loadAsset, active }: 
     setError(null);
     const pair = (p: { x: number; y: number }) => ({ x: Math.round(p.x), y: Math.round(p.y) });
     try {
-      const found = await find({ way: "points", add: all.filter((p) => p.add).map(pair), remove: all.filter((p) => !p.add).map(pair) });
+      const found = await find({ way: "points", add: all.filter((p) => p.add).map(pair), remove: all.filter((p) => !p.add).map(pair) }, one.next());
       if (n !== asked.current) return;
       if (!found.length) own.drop();
       else {
@@ -149,7 +191,10 @@ export function useClickTool({ mask, natural, find, load = loadAsset, active }: 
         const all = [...pointsNow.current, { x: p.x, y: p.y, add }];
         pointsNow.current = all;
         setPoints(all);
-        void ask(all);
+        // shown at once, asked once the clicks settle
+        setBusy(true);
+        clearTimeout(settle.current);
+        settle.current = setTimeout(() => void ask(pointsNow.current), CLICK_SETTLE_MS);
       },
       draw: (place) => (
         <>
@@ -194,6 +239,7 @@ export function useDetectTool({ mask, natural, find, load = loadAsset, active }:
   const [error, setError] = useState<string | null>(null);
   const own = useOwnStep(mask);
   const asked = useRef(0);
+  const one = useOneFind();
 
   const look = (kind: FindWhat, again = false) => {
     setWhat(kind);
@@ -201,7 +247,7 @@ export function useDetectTool({ mask, natural, find, load = loadAsset, active }:
     const n = ++asked.current;
     setBusy(true);
     setError(null);
-    find({ way: "detect", what: kind }).then(
+    find({ way: "detect", what: kind }, one.next()).then(
       (masks) => {
         if (n !== asked.current) return;
         setFound((f) => ({ ...f, [kind]: masks.map((m, i) => ({ id: `${kind}-${i}`, box: m.box, label: `${kind} ${i + 1}`, payload: m })) }));
@@ -217,6 +263,22 @@ export function useDetectTool({ mask, natural, find, load = loadAsset, active }:
   // faces first, the moment the tool is picked: the most asked for
   // eslint-disable-next-line react-hooks/exhaustive-deps -- look runs once per picking of the tool
   useEffect(() => void (active && natural && look(what)), [active, Boolean(natural)]);
+  // another picture (a version flipped to, an outpaint bigger than the original): what was found was on the one before,
+  // its boxes elsewhere and its masks another size; looked for again on this one while the tool is in hand
+  const findFor = useRef(find);
+  useEffect(() => {
+    if (findFor.current === find) return;
+    findFor.current = find;
+    asked.current += 1;
+    one.stop();
+    setFound({});
+    setPicked(new Set());
+    setBusy(false);
+    setError(null);
+    own.forget();
+    if (active && natural) look(what, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per picture: the rest is read as it stands then
+  }, [find]);
 
   const shapes = found[what] ?? [];
   return {

@@ -3,7 +3,7 @@ import { Settings2, Wand2 } from "lucide-react";
 import type { InputSpec } from "@afflatus/core";
 import type { RecipeInfo } from "../api";
 import { plural } from "../format";
-import { dialogOver } from "../Dialog";
+import { dialogOver, OVER } from "../Dialog";
 import { Kbd } from "../Keys";
 import { MAX_COUNT, tuneAt, useTune } from "../passTune";
 import type { QueuedJob } from "../queueVariation";
@@ -30,14 +30,15 @@ export const FIX_DENOISE = 0.95;
 /**
  * Ctrl+Enter runs the bar's job while the bar shows: taken on the capture phase, before the draft's Generate hears it (that
  * one skips a key already taken). Not under a dialog opened over the bar (`root`); the viewer over the screen, a dialog
- * itself, holds the bar and leaves it the key.
+ * itself, holds the bar and leaves it the key. Nor while ⚙ (a popover), a list or a menu is open: the bar would run on its
+ * settings from before the popover's, and the popover's own Enter queues with what it shows.
  */
 export function useCtrlEnter(run: () => void, root: RefObject<HTMLElement | null>) {
   const now = useRef(run);
   now.current = run;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !e.defaultPrevented && !dialogOver(root.current)) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !e.defaultPrevented && !dialogOver(root.current) && !document.querySelector(OVER)) {
         e.preventDefault();
         now.current();
       }

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import type { Asset, RecipeInfo } from "../../src/api";
 import { findOn } from "../../src/paintFix/findOn";
 import { frameSaid } from "../../src/paintFix/PaintAndFix";
@@ -51,6 +52,42 @@ describe("the viewer in Paint and fix", () => {
     await waitFor(() => expect(fakeApi.calls("POST", "/assets/zz-test-head/versions/keep")[0]?.body).toEqual({ version: "zz-test-v1" }));
   });
 
+  it("K keeps the place: the kept version is opened in the original's, Paint and fix stays on over it, the mask kept (#314, #295)", async () => {
+    withInpaint();
+    fakeApi.on("GET /assets/:id/versions", { head, versions: [v1] });
+    const opened: string[] = [];
+    // the place's own list, as a draft's column: the shown item is what onOpen picks
+    function Place() {
+      const [shown, setShown] = useState<Asset>(head);
+      return <Viewer inline asset={shown} items={[shown, next]} onOpen={(a) => { opened.push(a.id); setShown(a); }} onClose={() => {}} />;
+    }
+    draw(<Place />);
+    await screen.findByRole("group", { name: "Versions" });
+    act(() => useStageMode.getState().set(head.id, "paint"));
+    await screen.findByRole("group", { name: "Fix" });
+    Element.prototype.setPointerCapture ??= () => {};
+    const layer = () => document.querySelector("[data-stage-layer]")!;
+    await waitFor(() => expect(layer()).not.toBeNull());
+    const press = (type: string) => fireEvent(layer(), new PointerEvent(type, { bubbles: true, cancelable: true, clientX: 10, clientY: 10, pointerId: 3, pointerType: "mouse", button: 0, buttons: type === "pointerup" ? 0 : 1, isPrimary: true }));
+    press("pointerdown");
+    press("pointerup");
+    const chip = () => screen.getByText(/^Mask ·/).textContent;
+    await waitFor(() => expect(chip()).not.toBe("Mask · nothing painted"));
+    key("ArrowRight");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Version 1" }).getAttribute("aria-pressed")).toBe("true"));
+    const kept = { ...v1, versionOf: null };
+    const after = { head: kept, versions: [{ ...head, versionOf: v1.id }] };
+    fakeApi.on("POST /assets/:id/versions/keep", after);
+    fakeApi.on("GET /assets/:id/versions", after);
+    key("k");
+    await waitFor(() => expect(opened).toEqual([v1.id]));
+    await act(() => new Promise((r) => setTimeout(r, 30)));
+    expect(useStageMode.getState().on).not.toBeNull();
+    expect(screen.getByRole("group", { name: "Fix" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "The original" }).getAttribute("aria-pressed")).toBe("true");
+    expect(chip()).not.toBe("Mask · nothing painted");
+  });
+
   it("lets a press that closes the ⚙ popover only close it: nothing painted (owner)", async () => {
     withInpaint();
     fakeApi.on("GET /assets/:id/versions", { head, versions: [v1] });
@@ -96,6 +133,21 @@ describe("the viewer in Paint and fix", () => {
     expect(fakeApi.calls("POST", "/jobs")[0]!.body).toMatchObject({ recipe: "zz-test.edit", count: 3, versionOf: head.id, input: { source: head.id, prompt: "make the sky stormy" } });
   });
 
+  it("leaves Ctrl+Enter to ⚙ while it is open: the bar does not queue on its settings from before (#297)", async () => {
+    withInpaint();
+    fakeApi.on("GET /assets/:id/versions", { head, versions: [v1] });
+    fakeApi.on("POST /jobs", { ids: ["zz-test-job"] });
+    draw(<><Viewer inline asset={head} items={[head]} onOpen={() => {}} onClose={() => {}} /><TunePopoverHost /></>);
+    await screen.findByRole("group", { name: "Versions" });
+    act(() => useStageMode.getState().set(head.id, "edit"));
+    fireEvent.change(await screen.findByRole("textbox", { name: "What to change" }), { target: { value: "make the sky stormy" } });
+    fireEvent.click(screen.getByRole("button", { name: "The fix's settings" }));
+    await screen.findByRole("dialog", { name: /its settings/ });
+    key("Enter", { ctrlKey: true });
+    await act(() => new Promise((r) => setTimeout(r, 30)));
+    expect(fakeApi.calls("POST", "/jobs")).toHaveLength(0);
+  });
+
   it("says so in the bar when the picture has no edit model, and fixes a painted part instead", async () => {
     fakeApi.on("GET /recipes", { families: [{ id: "zz-test", name: "zz-test", summary: "" }], recipes: [INPAINT] });
     fakeApi.on("GET /assets/:id/versions", { head, versions: [v1] });
@@ -104,6 +156,14 @@ describe("the viewer in Paint and fix", () => {
     act(() => useStageMode.getState().set(head.id, "edit"));
     expect(await screen.findByText(/^No edit model for this picture/)).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Fix · 3 versions/ })).toBeTruthy();
+  });
+
+  it("without an edit model, B is the rectangle mask with the mask's options, not the edit boxes' strip (#297)", async () => {
+    await painting();
+    key("b");
+    await waitFor(() => expect(screen.getByRole("button", { name: /Rectangle mask/ }).getAttribute("aria-pressed")).toBe("true"));
+    expect(document.body.textContent).not.toContain("No box yet");
+    expect(document.body.textContent).toContain("Feather");
   });
 
   it("starts a Fix on denoise 0.95, not the Inpaint form's 0.75, which kept what was painted over (card #281)", async () => {
@@ -136,6 +196,21 @@ describe("the viewer in Paint and fix", () => {
     act(() => useStageMode.getState().set(head.id, "paint"));
     expect(screen.queryByRole("group", { name: "Fix" })).toBeNull();
     expect(screen.getByRole("group", { name: "Versions" })).toBeTruthy();
+  });
+});
+
+describe("Keep all", () => {
+  it("lets go of the stack under the ids that left it: a version kept as a picture is not shown its old stack (#298)", async () => {
+    fakeApi.on("GET /assets/:id/versions", { head, versions: [v1] });
+    const { client } = draw(<Viewer inline asset={head} items={[head]} onOpen={() => {}} onClose={() => {}} />);
+    await screen.findByRole("group", { name: "Versions" });
+    // v1's stack as it was, read under its own id (a strip opened on it before)
+    client.setQueryData(["assets", "versions", v1.id], { head, versions: [v1] });
+    fakeApi.on("POST /assets/:id/versions/keep-all", { head, versions: [] });
+    fakeApi.on("GET /assets/:id/versions", ({ params }) => (params.id === v1.id ? { head: { ...v1, versionOf: null }, versions: [] } : { head, versions: [] }));
+    fireEvent.click(screen.getByRole("button", { name: "Keep all as pictures" }));
+    await waitFor(() => expect(fakeApi.calls("POST", "/assets/zz-test-head/versions/keep-all")).toHaveLength(1));
+    await waitFor(() => expect((client.getQueryData(["assets", "versions", v1.id]) as { versions: unknown[] } | undefined)?.versions ?? []).toEqual([]));
   });
 });
 
@@ -184,6 +259,24 @@ describe("a mask found on the Stage", () => {
     const found = await findOn(head.id)({ way: "points", add: [{ x: 5, y: 6 }], remove: [] });
     expect(found).toEqual([{ asset: "zz-test-found", box: { x: 10, y: 20, w: 30, h: 40 } }]);
     expect(fakeApi.calls("POST", "/assets/zz-test-head/find-mask")[0]!.body).toEqual({ way: "points", add: [{ x: 5, y: 6 }], remove: [] });
+  });
+
+  it("given up or past its deadline, stops asking and cancels the job: nothing left polling or running on the GPU (#297, #308)", async () => {
+    fakeApi.on("POST /assets/:id/find-mask", { job: "zz-test-find" });
+    fakeApi.on("GET /assets/:id/find-mask/:job", { status: "queued", error: null, masks: [] });
+    fakeApi.on("POST /jobs/:id/cancel", { ok: true });
+    const stop = new AbortController();
+    const asking = findOn(head.id)({ way: "detect", what: "face" }, stop.signal);
+    await waitFor(() => expect(fakeApi.calls("GET", "/assets/zz-test-head/find-mask/zz-test-find").length).toBeGreaterThan(0));
+    stop.abort();
+    await expect(asking).rejects.toThrow();
+    await waitFor(() => expect(fakeApi.calls("POST", "/jobs/zz-test-find/cancel")).toHaveLength(1));
+    const polled = fakeApi.calls("GET", "/assets/zz-test-head/find-mask/zz-test-find").length;
+    await new Promise((r) => setTimeout(r, 400));
+    expect(fakeApi.calls("GET", "/assets/zz-test-head/find-mask/zz-test-find")).toHaveLength(polled);
+    // a queue paused or a ComfyUI down: the find gives up at its deadline, and says why
+    await expect(findOn(head.id, 0)({ way: "detect", what: "face" })).rejects.toThrow(/took too long/);
+    await waitFor(() => expect(fakeApi.calls("POST", "/jobs/zz-test-find/cancel")).toHaveLength(2));
   });
 
   it("throws the job's own reason when it failed, for the layer's strip to say", async () => {

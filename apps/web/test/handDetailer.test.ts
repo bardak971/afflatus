@@ -62,3 +62,25 @@ describe("a pass on an edited copy", () => {
     expect(renderOf({ generation: null, ancestor: null })).toBeNull();
   });
 });
+
+describe("a pass on a picture whose model lacks the tool (review 2026-11-05, #313)", () => {
+  // MOSS-Image makes pictures only: its Paint and fix and Edit in box borrow another family's recipe
+  const g = { id: "g", recipe: "moss.text-to-picture", family: "moss", inputs: { prompt: "zz-test a lamp on a desk", model: "moss_image_sft_demo.safetensors", negative: "worst quality, bad anatomy", seed: 7 }, resolved: { seed: 7 }, tookMs: 1 };
+  const made = byId("moss.text-to-picture");
+
+  it("hands the borrowed tool the picture's prompt, never MOSS's model file or negative", () => {
+    for (const id of ["klein.paint-over", "klein.edit-in-box", "sdxl.paint-over"]) {
+      const tool = byId(id);
+      const taken = carried(g, made, tool, false);
+      expect(taken.model, id).toBeUndefined();
+      expect(taken.checkpoint, id).toBeUndefined();
+      expect(taken.negative, id).toBeUndefined();
+      if (tool.inputs.some((i) => i.id === "prompt")) expect(taken.prompt, id).toBe("zz-test a lamp on a desk");
+    }
+  });
+
+  it("still carries the model and the negative into a tool of the picture's own family", () => {
+    const sdxl = { id: "g", recipe: "sdxl.text-to-picture", family: "sdxl", inputs: { prompt: "a lighthouse", checkpoint: "mine.safetensors", negative: "blurry" }, resolved: {}, tookMs: 1 };
+    expect(carried(sdxl, byId("sdxl.text-to-picture"), byId("sdxl.paint-over"), false)).toMatchObject({ checkpoint: "mine.safetensors", prompt: "a lighthouse", negative: "blurry" });
+  });
+});

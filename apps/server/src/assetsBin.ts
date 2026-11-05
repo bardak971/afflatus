@@ -8,6 +8,7 @@ import { isLinked } from "./linked";
 import { assetView, resetCountdown } from "./media";
 import type { Services } from "./services";
 import { inUse, withUseHeld } from "./sweep";
+import { ownPictures } from "./versions";
 
 /**
  * Kept or not, to the bin and back, one item or several. What something still needs (a take on a timeline,
@@ -36,6 +37,8 @@ export async function keepItem(s: Services, { asset, fileInLinked }: AssetLookup
   await unlessUsed(s, async (tx) => {
     if (!kept) await refuseUsed(tx, a.id, "it stays kept while it is");
     await tx.updateTable("assets").set({ kept_at: kept ? now() : null }).where("id", "=", id).execute();
+    // a version kept by itself is a picture of its own: kept under its head, it would be hidden there for good
+    if (kept) await ownPictures(tx, [a.id]);
   });
   // kept while it sits in a linked folder: it is written there as a file
   if (kept) await fileInLinked(a.id);
@@ -124,7 +127,9 @@ export async function bulkItems(s: Services, { fileInLinked }: AssetLookup, aske
     let query = tx.updateTable("assets").set(set).where("id", "in", b.ids).where("origin", "!=", "mask");
     // what is kept already keeps the day it was kept
     if (b.action === "keep") query = query.where("kept_at", "is", null);
-    return query.executeTakeFirst();
+    const result = await query.executeTakeFirst();
+    if (b.action === "keep") await ownPictures(tx, b.ids);
+    return result;
   });
   if (b.action === "keep") for (const id of b.ids) await fileInLinked(id);
   // unkept, or back from the bin: the day before the bin starts now

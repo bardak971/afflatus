@@ -57,8 +57,9 @@ export interface MaskLayer {
   /**
    * A mask from elsewhere (a click's, a detector's), at any size, added or taken away as one step, with the brush's feather
    * past its edge. Returns the mask's version after it: the step is still the last one while `version` says the same.
+   * Null when it changed nothing (adding over what is masked, taking away where nothing is): there is no step to own.
    */
-  apply(found: Plane, ink: Ink): number;
+  apply(found: Plane, ink: Ink): number | null;
   /** The mask drawn over the picture, for StageLayer. */
   view(place: LayerPlace): ReactNode;
 }
@@ -150,15 +151,19 @@ export function useMaskLayer({ natural, from = null, start = { size: 64, feather
     };
   }, [w, h, from, paint, changed]);
 
-  /** One step: opened, done, kept as an undo patch, drawn, said. */
-  const step = (does: (p: Plane) => Rect | null) => {
+  /**
+   * One step: opened, done, kept as an undo patch, drawn, said. Whether it changed anything: one that did not is no step,
+   * and the version stays, so a tool's own last step is still the last change after it.
+   */
+  const step = (does: (p: Plane) => Rect | null): boolean => {
     const p = plane.current;
-    if (!p) return;
+    if (!p) return false;
     history.current.begin(p);
     const dirty = does(p);
-    history.current.commit(p, dirty);
+    const kept = history.current.commit(p, dirty);
     paint(dirty);
-    changed();
+    if (kept) changed();
+    return kept;
   };
 
   // a stroke of the brush or the rubber, its points in the plane's pixels
@@ -301,10 +306,9 @@ export function useMaskLayer({ natural, from = null, start = { size: 64, feather
     },
     apply: (found, ink) => {
       const p = plane.current;
-      if (!p || !natural) return versionNow.current;
+      if (!p || !natural) return null;
       const fitted = found.w === p.w && found.h === p.h ? found : resample(found, p.w, p.h);
-      step((q) => combine(q, feathered(fitted, brush.feather * (p.w / natural.w)), ink));
-      return versionNow.current;
+      return step((q) => combine(q, feathered(fitted, brush.feather * (p.w / natural.w)), ink)) ? versionNow.current : null;
     },
     view: (place) => (
       <canvas

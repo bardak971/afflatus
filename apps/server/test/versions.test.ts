@@ -27,9 +27,9 @@ const row = (id: string) => t.db.selectFrom("assets").selectAll().where("id", "=
 const upload = async (name: string, folder?: string) =>
   (await t.app.inject({ method: "POST", url: `/api/assets?name=${encodeURIComponent(name)}${folder ? `&folder=${folder}` : ""}`, headers: { "content-type": "image/png" }, payload: Buffer.from(makePng(16, 16, [1, 2, 3], [4, 5, 6])) })).json() as { id: string };
 /** A job sent (with `versionOf` when given), and its id. */
-const send = async (versionOf?: string) => {
+const send = async (versionOf?: string, draft?: string) => {
   const before = fake.prompts.size;
-  const res = await post(t.app, "/api/jobs", { recipe: "sdxl.text-to-picture", input: { prompt: "zz-test a lamp", checkpoint: CHECKPOINT }, ...(versionOf ? { versionOf } : {}) });
+  const res = await post(t.app, "/api/jobs", { recipe: "sdxl.text-to-picture", input: { prompt: "zz-test a lamp", checkpoint: CHECKPOINT }, ...(versionOf ? { versionOf } : {}), ...(draft ? { draft } : {}) });
   expect(res.statusCode, res.body).toBe(200);
   await until(() => fake.prompts.size === before + 1);
   return { job: res.json().ids[0] as string, prompt: [...fake.prompts.keys()].at(-1)! };
@@ -41,7 +41,7 @@ const finish = async (sent: { job: string; prompt: string }) => {
   const job = await t.db.selectFrom("jobs").select("generation_id").where("id", "=", sent.job).executeTakeFirstOrThrow();
   return t.db.selectFrom("assets").selectAll().where("generation_id", "=", job.generation_id!).executeTakeFirstOrThrow();
 };
-const make = async (versionOf?: string) => finish(await send(versionOf));
+const make = async (versionOf?: string, draft?: string) => finish(await send(versionOf, draft));
 const listed = async (query = "") => (await get(t.app, `/api/assets${query}`)).json().items as Array<{ id: string; versions: number; versionOf: string | null }>;
 const stack = async (id: string) => (await get(t.app, `/api/assets/${id}/versions`)).json() as { head: { id: string }; versions: Array<{ id: string; versionOf: string }> };
 
@@ -185,6 +185,53 @@ describe("Keep", () => {
       expect(r.kept_at).not.toBeNull();
     }
     expect((await listed()).map((i) => i.id).sort()).toEqual([head.id, a.id, b.id].sort());
+  });
+
+  it("puts the version in the head's draft and its grid cell: the draft's column and the board still list it (#298, #314)", async () => {
+    const draft = newId();
+    const head = await make(undefined, draft);
+    await t.db.updateTable("assets").set({ grid_id: "zz-grid", grid_cell: "1.0.0" }).where("id", "=", head.id).execute();
+    // a fix sent from the viewer says no draft
+    const a = await make(head.id);
+    expect((await listed(`?draft=${draft}`)).map((i) => i.id)).toEqual([head.id]);
+    await post(t.app, `/api/assets/${head.id}/versions/keep`, { version: a.id });
+    expect((await listed(`?draft=${draft}`)).map((i) => i.id)).toEqual([a.id]);
+    expect(await row(a.id)).toMatchObject({ grid_id: "zz-grid", grid_cell: "1.0.0" });
+    expect(await row(head.id)).toMatchObject({ grid_id: null, grid_cell: null });
+    expect((await listed("?grid=zz-grid")).map((i) => i.id)).toEqual([a.id]);
+  });
+
+  it("all as pictures: each joins the head's draft beside it", async () => {
+    const draft = newId();
+    const head = await make(undefined, draft);
+    const a = await make(head.id);
+    await post(t.app, `/api/assets/${head.id}/versions/keep-all`);
+    expect((await listed(`?draft=${draft}`)).map((i) => i.id).sort()).toEqual([head.id, a.id].sort());
+  });
+
+  it("a version kept by itself (S, MCP's keep, a bulk keep) leaves its stack as a picture of its own, never kept and hidden", async () => {
+    const folder = (await post(t.app, "/api/folders", { name: "zz-test shots" })).json().id as string;
+    const head = await upload("zz-test terrace", folder);
+    const a = await make(head.id);
+    const b = await make(head.id);
+    expect((await post(t.app, `/api/assets/${a.id}/keep`, { kept: true })).statusCode).toBe(200);
+    expect(await row(a.id)).toMatchObject({ version_of: null, folder_id: folder });
+    expect((await row(a.id)).kept_at).not.toBeNull();
+    const bulk = await post(t.app, "/api/assets/bulk", { ids: [b.id], action: "keep" });
+    expect(bulk.statusCode, bulk.body).toBe(200);
+    expect((await row(b.id)).version_of).toBeNull();
+    expect((await listed()).map((i) => i.id).sort()).toEqual([head.id, a.id, b.id].sort());
+  });
+
+  it("leaves an old head something uses kept, as an unkeep of it would be refused", async () => {
+    const head = await upload("zz-test terrace");
+    await post(t.app, `/api/assets/${head.id}/keep`, { kept: true });
+    const a = await make(head.id);
+    const at = now();
+    await t.db.insertInto("drafts").values({ id: newId(), owner_id: OWNER, project_id: null, target: "new", recipe_id: "sdxl.inpaint", title: "zz-test", name: null, forms: JSON.stringify({ "sdxl.inpaint": { picture: head.id } }), count: 1, chat: null, look: null, created_at: at, updated_at: at } as never).execute();
+    await post(t.app, `/api/assets/${head.id}/versions/keep`, { version: a.id });
+    expect((await row(head.id)).version_of).toBe(a.id);
+    expect((await row(head.id)).kept_at).not.toBeNull();
   });
 
   it("all as pictures after a Keep: none comes out with the name of another (the old head numbered on)", async () => {

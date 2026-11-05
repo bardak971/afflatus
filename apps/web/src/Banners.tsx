@@ -211,7 +211,8 @@ export function Banners() {
 
   // Ctrl+Z undoes what the newest banner with an Undo said was done, and Ctrl+Shift+Z or Ctrl+Y redoes what the newest
   // one with a Redo says was undone (the keys the timeline editor's history has), but where they are the screen's own
-  // (the editor's history, a dialog such as the mask painter) or the cursor is in a field, whose own undo it is
+  // (the editor's history, a dialog such as the mask painter, the Stage's drawing layer whose Ctrl+Z is the mask's) or the
+  // cursor is in a field, whose own undo it is
   const undoable = [...items].reverse().find((b) => b.action?.undo);
   const redoable = [...items].reverse().find((b) => b.action?.redo);
   useEffect(() => {
@@ -222,7 +223,7 @@ export function Banners() {
       const banner = k === "z" && !e.shiftKey ? undoable : (k === "z" && e.shiftKey) || (k === "y" && !e.shiftKey) ? redoable : undefined;
       if (!banner) return;
       const t = e.target as HTMLElement | null;
-      if (t?.closest?.("input, textarea, select, [contenteditable]") || document.querySelector("[role=dialog][aria-modal=true]") || path.startsWith("/timelines/")) return;
+      if (t?.closest?.("input, textarea, select, [contenteditable]") || document.querySelector("[role=dialog][aria-modal=true], [data-stage-layer]") || path.startsWith("/timelines/")) return;
       e.preventDefault();
       dismiss(banner.id);
       banner.action!.run();

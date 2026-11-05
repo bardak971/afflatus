@@ -18,7 +18,10 @@ export function versionJobs(q: QueueStatus, root: string): { running: RunningJob
  * strip under the picture shows, with the jobs still making more. Asked with any id of the stack, it answers the root's.
  * A server without versions (or a picture with none) answers an empty stack: nothing is shown.
  */
-export function useVersions(asset: Asset | null) {
+export function useVersions(asset: Asset | null, { onKept }: {
+  /** A version kept in the original's place (K, the strip's Keep): the place showing the original shows it instead. */
+  onKept?(head: Asset): void;
+} = {}) {
   const id = asset && asset.kind === "image" && !asset.inBin ? asset.id : null;
   const client = useQueryClient();
   const query = useQuery({
@@ -44,15 +47,26 @@ export function useVersions(asset: Asset | null) {
   }, [jobs, id, client]);
   const [running = "", waiting = "0"] = (jobs ?? "|0").split("|");
 
+  /** The original, then each version, oldest first. */
+  const all: Asset[] = stack ? [stack.head, ...stack.versions] : [];
+
   const failed = useSayFailed({ here: true });
-  /** What Keep and Keep all answer: the stack as it is now, under every id it was asked by, and the library read again. */
+  /**
+   * What Keep and Keep all answer: the stack as it is now, under every id it was asked by, and the library read again. An id
+   * that left the stack (Keep all made it a picture of its own) is read again rather than left answering the stack it left.
+   */
   const landed = (next: AssetVersions) => {
+    const ids = new Set([next.head, ...next.versions].map((a) => a.id));
+    for (const a of all) if (!ids.has(a.id)) void client.resetQueries({ queryKey: queryKeys.assets.versions(a.id), exact: true });
     for (const a of [next.head, ...next.versions]) client.setQueryData(queryKeys.assets.versions(a.id), next);
     void client.invalidateQueries({ queryKey: queryKeys.assets.lists() });
   };
   const keep = useMutation({
     mutationFn: (version: string) => api.keepVersion(root, version),
-    onSuccess: landed,
+    onSuccess: (next) => {
+      landed(next);
+      if (next.head.id !== root) onKept?.(next.head);
+    },
     onError: failed("The version could not be kept"),
   });
   const keepAll = useMutation({
@@ -61,8 +75,6 @@ export function useVersions(asset: Asset | null) {
     onError: failed("The versions could not be kept"),
   });
 
-  /** The original, then each version, oldest first. */
-  const all: Asset[] = stack ? [stack.head, ...stack.versions] : [];
   return {
     root,
     all,
