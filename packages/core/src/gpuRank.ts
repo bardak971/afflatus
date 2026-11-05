@@ -1,4 +1,5 @@
 import { modelStem } from "./modelFiles";
+import { usdFor } from "./money";
 import { shortGpu } from "./text";
 
 /**
@@ -292,8 +293,8 @@ export function rankGpus(offers: readonly RankOffer[], renders: readonly RankRen
     const fit: RankedGpu["fit"] = ask.leftOut.includes(o.id) ? "left" : small ? "small" : o.price > ask.ceiling ? "price" : "yes";
     const fits = fit === "left" ? "left out by you" : fit === "small" ? "too small for these files" : fit === "price" ? ceilingSaid : "yes";
     const timeSaid = learnedFrom ? `from ${learnedFrom} of your renders` : guess ? `a guess from your ${shortGpu(anchor!.gpu)}'s renders, may be ${Math.round(GUESS_ERROR * 100)} % off` : "not known yet";
-    const overhead = learned.overheadMs ? (o.price * learned.overheadMs) / 3_600_000 : null;
-    const cost = seconds === null ? null : (o.price * seconds) / 3600;
+    const overhead = learned.overheadMs ? usdFor(learned.overheadMs, o.price) : null;
+    const cost = seconds === null ? null : usdFor(seconds * 1000, o.price);
     const perRender = cost === null ? null : cost + (overhead ?? 0) / waiting;
     return { id: o.id, name: o.name, price: o.price, memory: o.memory, fit, fits, seconds: seconds === null ? null : Math.round(seconds), cost, learned: learnedFrom, overhead, perRender, guess, timeSaid, stock: stockOf(o, ask.dataCenter), rank: 0 };
   });

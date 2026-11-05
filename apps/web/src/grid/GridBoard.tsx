@@ -37,7 +37,19 @@ export function GridBoard({ grid, draft, folder, onClose }: { grid: string; draf
     refetchInterval: (q) => (boardWaits(q.state.data) ? 2_000 : false),
   });
   const list = useAssets({ grid, limit: 200 }, true);
+  // every page of the grid's items: a 200-cell grid with cells done again holds more than one page, and its oldest cells
+  // read "not here" on the board when only the first was read
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = list;
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
   const items = useMemo(() => list.data?.pages.flatMap((p) => p.items) ?? [], [list.data]);
+  // this grid's jobs in the queue, waiting or running: a cell retried from the Queue page (a failed board does not poll)
+  // comes back to "waiting" on the board as it is queued, not when it lands
+  const queued = useQueueOf((q) => [...q.waiting, q.running, ...(q.machines ?? []).map((m) => m.running)].filter((j) => j?.grid?.id === grid).map((j) => j!.id).sort().join(","));
+  useEffect(() => {
+    if (queued) void client.invalidateQueries({ queryKey: queryKeys.grids.one(grid) });
+  }, [queued, grid, client]);
   // a cell that ended (its job left "running") brings its picture in: the library's list of the grid read again
   const ended = Object.values(view.data?.jobs ?? {}).filter((j) => j.status === "done").length;
   useEffect(() => {

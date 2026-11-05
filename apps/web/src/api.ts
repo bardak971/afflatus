@@ -4,7 +4,7 @@ import { size } from "./format";
 import type { Inspection, Wiring, WorkflowDef } from "@afflatus/workflows";
 export type { ModelInfo };
 import type { Advice, DeployOverhead, FillPlan, FormPacks, SetFinding, GpuOffer, HuntAsk, HuntView, HistoryPage, NetworkVolume, VolumeFilesView, VolumePlan, Job, QueueAnswer, QueuePart, QueueStatus, TimesPeriod, TimesWindow, TimesSummary, RenderItem, RedeployOffer, RentedSpending, RentedState, RunpodPod } from "./api/types/queue";
-import type { Asset, AssetDetail, AssetVersions, FindAsk, Folder, FoundMasks, GridBrief, GridView, Project, ProjectsTree, Storage } from "./api/types/library";
+import type { Asset, AssetDetail, AssetVersions, FindAsk, Folder, FoundMasks, GridAsk, GridBrief, GridPlanView, GridView, Project, ProjectsTree, Storage } from "./api/types/library";
 import type { Timeline, RangeContext, TimelineBrief, ClipPatch, TimelinePatch, FaceRoute, TakeMade } from "./api/types/timeline";
 import { lookAdds, type DraftBrief, type Draft, type DraftPatch, type DesignerReply, type TagIssue, type Look, type Entity, type Composed, type PresetFilesView, type PresetFile } from "./api/types/designer";
 import type { DeployAsk, FfmpegGetView, Health, FinishRedo, FinishSettings, MachineProbe, McpActivity, McpScope, McpStart, McpToken, SessionState, Settings, SettingsPatch, SignedDevices } from "./api/types/settings";
@@ -623,7 +623,9 @@ export const api = {
   /** Several items as one zip: the address to follow for it, good for a minute and once (the server's assetsZip.ts). */
   zipAssets: (ids: string[]) => call<{ href: string }>("POST", "/assets/zip", { ids }),
   /** An X/Y/Z grid queued (card #21): one job per cell, all or none; its id, for the board. `options`: the form's lists, for typed values to be found in. */
-  queueGrid: (body: { recipe: string; input: Record<string, unknown>; axes: GridSetup["axes"]; options?: Record<string, string[]>; look?: Look | null; draft?: string; folder?: string; machine?: string }) =>
+  /** What a grid will take, each cell at its own settings: the card's figure and the ask before queuing. */
+  gridPlan: (body: GridAsk, o?: Asked) => call<GridPlanView>("POST", "/grids/plan", body, o?.signal),
+  queueGrid: (body: { recipe: string; input: Record<string, unknown>; axes: GridSetup["axes"]; options?: Record<string, string[]>; look?: Look | null; draft?: string; folder?: string; machine?: string; key?: string }) =>
     call<{ id: string; count: number; jobs: string[] }>("POST", "/grids", { ...body, look: lookAdds(body.look ?? null) ? body.look : undefined }),
   grid: (id: string, o?: Asked) => call<GridView>("GET", `/grids/${id}`, undefined, o?.signal),
   /** A draft's grids, the newest first. */

@@ -1,4 +1,4 @@
-import { axisValues, GRID_AXES, gridFields, plural, splitValues, type GridAxis, type GridField, type GridSetup } from "@afflatus/core";
+import { axisValues, GRID_ASK_USD, GRID_AXES, gridFields, plural, splitValues, type GridAxis, type GridField, type GridSetup } from "@afflatus/core";
 import type { RecipeInfo, RecipeStatus } from "../api";
 import { aboutMs, usd } from "../format";
 import { Select, type Option } from "../Select";
@@ -108,8 +108,8 @@ export function GridCost({ plan }: { plan: GridPlan }) {
       <span><b className="text-ink-strong">{plan.said}</b>{plan.ms !== null && <> · {aboutMs(plan.ms)}</>}</span>
       {plan.pod && (
         <span className="flex items-center gap-1 text-xs text-ink-2">
-          On your pod: {plan.pod.ms !== null ? aboutMs(plan.pod.ms) : "time not known yet"} · {plan.pod.usd !== null ? `about ${usd(plan.pod.usd)}` : "cost not known yet"}
-          <Help text="From your own render times for this model and size (render_stats), on the pod's hourly rate. Asked before queuing above $3, near a spending cap, or when it cannot be told." />
+          On your pod: {plan.pod.ms !== null ? aboutMs(plan.pod.ms) : "time not known yet"} · {plan.pod.usd !== null ? `about ${usd(plan.pod.usd, true)}` : "cost not known yet"}
+          <Help text={`From your own render times for this model, each cell at its own steps and size (render_stats), on the pod's hourly rate. Asked before queuing above $${GRID_ASK_USD}, near a spending cap, or when it cannot be told.`} />
         </span>
       )}
     </div>

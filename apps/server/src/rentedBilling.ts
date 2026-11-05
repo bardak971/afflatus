@@ -1,6 +1,6 @@
 import { httpError } from "./errors";
 import type { BillRecord, VolumeBill } from "./runpod";
-import { dayStart, gpuKey, HOURS_A_MONTH, LEARNED_RENDERS, monthStart, runCost, STOPPED_DISK_PER_GB_MONTH, usd, usdFor, volumePerMonth } from "@afflatus/core";
+import { capRoom, dayStart, gpuKey, HOURS_A_MONTH, LEARNED_RENDERS, monthStart, runCost, STOPPED_DISK_PER_GB_MONTH, usd, usdFor, volumePerMonth } from "@afflatus/core";
 import { gpuPaces } from "./forecast";
 import { keptHoldings, noticeVolumes, viewVolumes, type Storage } from "./rentedVolumes";
 import { readSettings, type Machine } from "./settings";
@@ -395,11 +395,8 @@ export class RentedBilling extends RentedCore {
   async noRoomFor(more: number): Promise<string | null> {
     const caps = (await readSettings(this.db)).rentCaps;
     if (caps.day <= 0 && caps.month <= 0) return null;
-    const spent = await this.spent();
-    // the sum it was asked, said whole: what is spent, what more, and where that comes to
-    if (caps.day > 0 && spent.today + more > caps.day) return `today's cap is ${usd(caps.day)}, ${usd(spent.today)} is spent today, and ${usd(more)} more makes ${usd(spent.today + more)}`;
-    if (caps.month > 0 && spent.month + more > caps.month) return `this month's cap is ${usd(caps.month)}, ${usd(spent.month)} is spent this month, and ${usd(more)} more makes ${usd(spent.month + more)}`;
-    return null;
+    // the one rule the grid's ask holds too (core capRoom), the sum said whole
+    return capRoom({ caps, ...(await this.spent()) }, more);
   }
 
   /** Today's and this month's cost, the caps, RunPod's balance, and what storage costs. */

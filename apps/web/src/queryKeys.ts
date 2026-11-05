@@ -181,6 +181,8 @@ export const queryKeys = {
     all: () => ["grids"] as const,
     one: (id: string) => ["grids", id] as const,
     ofDraft: (draft: string) => ["grids", "draft", draft] as const,
+    /** A grid's plan, by what is asked and the models the machines hold (a load less on the one holding it). */
+    plan: (ask: string, held: string | null) => ["grids", "plan", ask, held] as const,
   },
   advice: {
     all: () => ["advice"] as const,

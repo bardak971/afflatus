@@ -1,18 +1,19 @@
 import { setTimeout as sleep } from "node:timers/promises";
-import { BATCH, cents, GRID_AXES, gridAxes, gridCount, notFilled, plural, usd, usdFor, verb, type InputSpec, type Recipe } from "@afflatus/core";
+import { BATCH, cents, GRID_AXES, notFilled, plural, usd, usdFor, verb, type Recipe } from "@afflatus/core";
 import { z } from "zod";
 import type { Tables } from "./db";
 import { compose, lookSchema, withMentions, type Look } from "./entities";
 import { httpError } from "./errors";
 import { jobBody, queueRender } from "./jobs-api";
-import { queueGrid } from "./grids";
+import { queueGrid, readGrid } from "./grids";
 import { oneAtATime } from "./keyedLock";
 import { scrubbed, secretsOf } from "./logScrub";
 import { readJson } from "./queueModel";
 import { needsComfy } from "./queueOffline";
-import { formArgs, formAsked, machineName, machineOf, seen, spends, wholeOf, type Seen } from "./mcpForms";
+import { formArgs, formAsked, machineName, machineOf, seen, spends, statusOf, wholeOf, type Seen } from "./mcpForms";
 import { quoted, tool, type ToolCtx } from "./mcpTool";
 import { refusal } from "./mcpTokens";
+import { cellTimes, podsOf, priced, type Prices } from "./podPrices";
 import { runwayNeed } from "./rentedBilling";
 import { EXPORT_JOB } from "./timelineModel";
 import type { Services } from "./services";
@@ -32,22 +33,6 @@ import { readSettings, type Machine } from "./settings";
  */
 
 
-/** A pod in these states takes no job now (stopped, terminated, gone from the account, failed): only a render pinned there may wait for it. */
-const IDLE_POD = new Set(["EXITED", "TERMINATED", "GONE", "ERROR"]);
-
-/**
- * Each rented pod's hourly rate (its RunPod price; null while it is not known), and whether it may take a job now, as the
- * pods are watched (rented.ts view, in memory: never the queue's last status, which may predate a pod just started). A pod
- * not read yet counts as up with no known price: a render that may land there is refused rather than counted as free.
- */
-function podsOf(s: Services, machines: readonly Machine[]): Map<string, { rate: number | null; up: boolean }> {
-  return new Map(machines.flatMap((machine) => {
-    if (!machine.rented) return [];
-    const v = s.rented.view(machine);
-    return [[machine.id, { rate: v?.rate ?? null, up: !v || !IDLE_POD.has(v.status) }] as const];
-  }));
-}
-
 /** The rented pods among these that are up now, as podsOf reads them (one not read yet counts as up). */
 export function podsUp(s: Services, machines: readonly Machine[]): Machine[] {
   const rates = podsOf(s, machines);
@@ -56,15 +41,6 @@ export function podsUp(s: Services, machines: readonly Machine[]): Machine[] {
 
 /** Why a pod is not counted when its price is not known (said by a refused render, and on a held job's Queue row). */
 const unpriced = (pod: Machine) => `${machineName(pod)}'s price is not known yet, so this token's spend cap cannot be held`;
-
-/** The forecasts read for one count of a token's work, by form: a token's renders of one form are forecast once. */
-type Prices = Map<string, Promise<Awaited<ReturnType<Services["queue"]["forecastToPrice"]>> | null>>;
-const priced = (s: Services, prices: Prices, recipe: string, input: unknown) => {
-  const key = `${recipe}\u0001${JSON.stringify(input)}`;
-  let got = prices.get(key);
-  if (!got) prices.set(key, (got = s.queue.forecastToPrice(recipe, input).catch(() => null)));
-  return got;
-};
 
 /**
  * What one render of a form may cost on the rented pods it may land on (USD): its forecast there, else the queue's floor
@@ -107,7 +83,7 @@ function idleTail(pods: readonly Machine[], rates: ReadonlyMap<string, { rate: n
     const r = pod.rented;
     const rate = rates.get(pod.id)?.rate;
     if (!r || r.mcpToken === tokenId || r.idleMinutes <= 0 || !rate) continue;
-    most = Math.max(most, (r.idleMinutes / 60) * rate);
+    most = Math.max(most, usdFor(r.idleMinutes * 60_000, rate));
   }
   return most;
 }
@@ -280,8 +256,10 @@ export async function mayQueue(s: Services, ctx: ToolCtx, at: Seen, o: { recipe:
 /**
  * The same for several jobs sent together (a timeline's clips, a finish): each `takes` times, `renders` of them counted
  * against the renders an hour, their costs on rented pods added up before the cap is asked. What they may cost (USD).
+ * `grid`: the jobs are one grid's cells in the order they are queued, each priced at its own settings (podPrices.ts
+ * cellTimes, as the grid card prices them), a model loaded once for a run of cells with it.
  */
-export async function mayQueueAll(s: Services, ctx: ToolCtx, at: Seen, jobs: ReadonlyArray<{ recipe: string; input: unknown; takes: number; warm?: boolean }>, o: { machine?: Machine; renders: number }): Promise<number> {
+export async function mayQueueAll(s: Services, ctx: ToolCtx, at: Seen, jobs: ReadonlyArray<{ recipe: string; input: unknown; takes: number; warm?: boolean }>, o: { machine?: Machine; renders: number; grid?: boolean }): Promise<number> {
   if (o.renders) await ctx.mayRender(o.renders);
   const rates = podsOf(s, at.machines.map((m) => m.machine));
   // the pods the queue may send it to: those up now (a stopped pod takes nothing until it is started)
@@ -293,8 +271,8 @@ export async function mayQueueAll(s: Services, ctx: ToolCtx, at: Seen, jobs: Rea
   }
   const may = o.machine ? (o.machine.rented ? [o.machine] : []) : pods;
   if (!may.length) return 0;
-  let usd = 0;
-  for (const j of jobs) usd += (await mayCostEach(s, j.recipe, j.input, may, rates, j.warm)) * j.takes;
+  let usd = o.grid ? await gridCostOn(s, jobs, may, rates) : 0;
+  if (!o.grid) for (const j of jobs) usd += (await mayCostEach(s, j.recipe, j.input, may, rates, j.warm)) * j.takes;
   // the pod's idle time once this work ends, on a pod this token did not start (its own run is counted whole as it goes)
   const tail = idleTail(may, rates, ctx.token.id);
   usd += tail;
@@ -303,6 +281,25 @@ export async function mayQueueAll(s: Services, ctx: ToolCtx, at: Seen, jobs: Rea
   const adds = `${plural(takes, "job")} on ${may.length === 1 ? quoted(machineName(may[0]!)) : `the dearest of ${plural(may.length, "pod")} up`}${tail ? ", with the pod's idle time after" : ""}`;
   await ctx.maySpend(usd + work.usd, { committed: workCommitted(work), adds: { what: adds, usd } });
   return usd;
+}
+
+/**
+ * What a grid's cells may cost on the dearest of these pods (USD): each cell at its own forecast there, a cell with none at
+ * the queue's floor (rentedBilling.ts runwayNeed) and an unsure one with its margin, as a single render is held to.
+ */
+async function gridCostOn(s: Services, cells: ReadonlyArray<{ recipe: string; input: unknown }>, pods: readonly Machine[], rates: ReadonlyMap<string, { rate: number | null }>): Promise<number> {
+  const recipe = cells[0]?.recipe;
+  if (!recipe) return 0;
+  const prices: Prices = new Map();
+  let most = 0;
+  for (const pod of pods) {
+    const rate = rates.get(pod.id)?.rate;
+    if (rate === null || rate === undefined) throw refusal(`${unpriced(pod)}: pin the render to another machine, or wait until the pod is up.`);
+    const times = await cellTimes(s, recipe, cells.map((c) => c.input), pod.id, prices);
+    const ms = times.reduce((n, t) => n + runwayNeed({ renderMs: t.ms, fetchMs: 0, sure: t.sure }), 0);
+    most = Math.max(most, usdFor(ms, rate));
+  }
+  return most;
 }
 
 /**
@@ -414,7 +411,7 @@ const renderGrid = tool({
   name: "render_grid",
   scope: "make",
   title: "Render an X/Y/Z grid",
-  description: "Render every combination of up to three axes of a draft's form (or a form with values), as A1111's X/Y/Z plot and Create's Grid card: one job per cell through the same path as render, so its refusals, the token's renders-an-hour limit (each cell counts) and the rented-pod rules hold, and a failed cell fails alone. An axis is a setting id (describe_form), \"sr\" for Prompt S/R (the first value must be in the prompt, each value replaces it) or \"lora:<list id>:<file>\" for a LoRA's weight, with its values typed as A1111 types them: \"20, 30, 40\", \"1-5\", \"1-10 (+2)\", \"0-1 [5]\", quotes around a value with commas. Left out, the draft's own Grid card is used. A random seed is drawn once for the whole grid. Answers the grid's id (its cells are the library's items with that grid, search_library), the job ids, the count and what it may cost; the user sees the board on the draft's Stage.",
+  description: "Render every combination of up to three axes of a draft's form (or a form with values), as A1111's X/Y/Z plot and Create's Grid card: one job per cell through the same path as render, so its refusals, the token's renders-an-hour limit (each cell counts) and the rented-pod rules hold (each cell priced at its own steps, size and model against the spend cap, before any is queued), and a failed cell fails alone. An axis is a setting id (describe_form), \"sr\" for Prompt S/R (the first value must be in the prompt, each value replaces it) or \"lora:<list id>:<file>\" for a LoRA's weight, with its values typed as A1111 types them: \"20, 30, 40\", \"1-5\", \"1-10 (+2)\", \"0-1 [5]\", quotes around a value with commas; a model or a choice may be typed as part of its name, found in the machines' lists. Left out, the draft's own Grid card is used. A random seed is drawn once for the whole grid. Answers the grid's id (its cells are the library's items with that grid, search_library), the job ids, the count and what it may cost; the user sees the board on the draft's Stage.",
   input: {
     ...formArgs,
     axes: z.array(z.object({ field: z.string().max(600), values: z.string().max(4000) })).max(GRID_AXES.length).optional().describe("X, Y, Z in order: each a setting and its values. Left out: the draft's Grid card."),
@@ -426,13 +423,15 @@ const renderGrid = tool({
     const form = await sendable(s, at, args);
     const axes = args.axes ?? form.draft?.grid?.axes;
     if (!axes?.some((a) => a.field)) throw httpError(`${form.name}: no axes, and the draft has no Grid of its own: give axes`);
-    const read = gridAxes(form.recipe.inputs as InputSpec[], form.input, { axes });
-    if ("error" in read) throw httpError(`${GRID_AXES[read.axis] ?? "X"}: ${read.error}`);
+    // the machines' own lists, as the grid card finds a typed model or sampler in them ("juggernaut" for its file)
     const machine = args.machine ? machineOf(at, args.machine) : undefined;
+    const body = { recipe: form.recipe.id, input: form.input, axes, options: statusOf(at, form.recipe.id)?.options ?? {}, look: form.look, draft: form.draft?.id, machine: machine?.id };
+    const read = readGrid(s, body);
     return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
-      // every cell is a render: counted against the renders an hour, and its cost on a pod asked before any is queued
-      const usd = await mayQueue(s, ctx, at, { recipe: form.recipe.id, input: form.input, takes: gridCount(read.axes), machine });
-      const grid = await queueGrid(s, { recipe: form.recipe.id, input: form.input, axes, look: form.look, draft: form.draft?.id, machine: machine?.id }, { mcpToken: token.id });
+      // every cell is a render: counted against the renders an hour, and each cell's own cost on a pod asked before any is
+      // queued; the cells priced are the cells queued, with the same seed
+      const usd = await mayQueueAll(s, ctx, at, read.jobs.map((j) => ({ recipe: form.recipe.id, input: j.input, takes: 1 })), { machine, renders: read.jobs.length, grid: true });
+      const grid = await queueGrid(s, body, { mcpToken: token.id }, read);
       ctx.said(`Rendered a grid of ${plural(grid.count, "cell")} of ${quoted(form.name)}${machine ? ` on ${quoted(machineName(machine))}` : ""}`);
       return { grid: grid.id, jobs: grid.jobs, count: grid.count, ...(usd ? { mayCostUsd: cents(usd) } : {}) };
     });

@@ -99,6 +99,11 @@ describe("an X/Y/Z grid, as it is queued", () => {
     expect(await t.db.selectFrom("grids").select("id").execute()).toEqual([]);
   });
 
+  it("plans a grid off pods: its count, no money line", async () => {
+    const plan = (await post(t.app, "/api/grids/plan", { recipe, input, axes: [{ field: "cfg", values: "4, 6" }, { field: "steps", values: "20, 30" }] })).json();
+    expect(plan).toEqual({ count: 4, ms: null, pod: null });
+  });
+
   it("puts each Prompt S/R value in place of the first", async () => {
     const res = (await post(t.app, "/api/grids", { recipe, input, axes: [{ field: "sr", values: "red coat, blue coat" }, { field: "seed", values: "1, 2" }] })).json() as { id: string };
     const jobs = await t.db.selectFrom("jobs").select(["inputs", "grid_cell"]).where("grid_id", "=", res.id).orderBy("created_at").execute();

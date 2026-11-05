@@ -29,6 +29,13 @@ describe("the shared helpers' guard", () => {
     expect(why("apps/server/src/x.ts", "const usd = (ms / 3_600_000) * rate;")).toEqual(["a time priced by hand"]);
     expect(why("apps/web/src/x.tsx", "{usd((s.parts.outside / HOUR) * s.rate, true)}")).toEqual(["a time priced by hand"]);
     expect(why("apps/web/src/x.tsx", "const at = new Date(Math.floor(now / HOUR) * HOUR);")).toEqual([]);
+    // price first, and in minutes or seconds: gpuRank and mcpRender priced so past the narrower rule
+    expect(why("packages/core/src/x.ts", "const overhead = (o.price * learned.overheadMs) / 3_600_000;")).toEqual(["a time priced by hand"]);
+    expect(why("packages/core/src/x.ts", "const cost = (o.price * seconds) / 3600;")).toEqual(["a time priced by hand"]);
+    expect(why("apps/server/src/x.ts", "most = Math.max(most, (r.idleMinutes / 60) * rate);")).toEqual(["a time priced by hand"]);
+    expect(why("apps/server/src/x.ts", "const usd = rate * (ms / 3_600_000);")).toEqual(["a time priced by hand"]);
+    expect(why("apps/server/src/x.ts", "most = Math.max(most, usdFor(r.idleMinutes * 60_000, rate));")).toEqual([]);
+    expect(why("apps/web/src/x.tsx", "const frames = Math.round((ms / 1000) * fps);")).toEqual([]);
     expect(why("apps/server/src/x.ts", "const month = new Date(d.getFullYear(), d.getMonth(), 1).getTime();")).toEqual(["the start of a month or a day made by hand"]);
     expect(why("apps/server/src/x.ts", "const end = new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();")).toEqual(["the start of a month or a day made by hand"]);
     expect(why("apps/web/src/x.tsx", "return { from: new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() };")).toEqual(["the start of a month or a day made by hand"]);

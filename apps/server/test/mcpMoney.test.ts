@@ -380,3 +380,78 @@ describe("every token", () => {
     await c.close();
   });
 });
+
+/**
+ * A grid priced at each cell's own settings (card #305, the 2026-11-05 review's M1 and M4): a forecast that goes with the
+ * steps, a minute a step on the pod, so that a steps axis costs what it renders and not the base form's 20 steps times
+ * the count. The pod at about $0.70 an hour with its disk.
+ */
+describe("a grid on a pod", () => {
+  const byStep = () => vi.spyOn(t.services.queue, "forecastToPrice").mockImplementation(async (_recipe, input) => {
+    const steps = Number((input as { steps?: number }).steps ?? 30);
+    const f = { ms: steps * 60_000, loadMs: 0, samples: 5, pace: "usual" as const, fitsUpTo: 0 };
+    return { forecast: f, shape: { pixels: 1024 * 1024, frames: 1 }, model: CHECKPOINT, on: { [pod]: f, m1: f } };
+  });
+
+  it("MCP's render_grid is refused at the cap its cells reach, though the base form times the count is under it", async () => {
+    byStep();
+    // 20 + 60 steps: 80 min, about $0.93, and the pod's idle time after; the base form's 20 steps twice was 40 min, $0.47
+    const { token, id } = await made("spend", { spendCapUsd: 1 });
+    const c = await connect(token);
+    await pause();
+    await refusedWith(c, "render_grid", { ...FORM, values: { ...FORM.values, steps: 20 }, axes: [{ field: "steps", values: "20, 60" }] }, /cap is \$1\.00 a month/);
+    expect(await jobsOf(id)).toEqual([]);
+    expect(await t.db.selectFrom("grids").select("id").execute()).toEqual([]);
+    // under the cap, its figure is each cell's: 20 + 30 steps, 50 min (about $0.58) and the idle time after
+    const ok = await call(c, "render_grid", { ...FORM, values: { ...FORM.values, steps: 20 }, axes: [{ field: "steps", values: "20, 30" }] });
+    expect(ok.isError, textOf(ok)).toBeFalsy();
+    const said = JSON.parse(textOf(ok)) as { mayCostUsd: number; count: number };
+    expect(said.count).toBe(2);
+    expect(said.mayCostUsd).toBeGreaterThan(0.65);
+    expect(said.mayCostUsd).toBeLessThan(0.75);
+    await c.close();
+  });
+
+  it("MCP's render_grid finds a typed model in the machines' files, as the grid card does", async () => {
+    const { token } = await made("make");
+    const c = await connect(token);
+    await pause();
+    // the checkpoint by part of its name: refused whole before, as no list was given to match it in
+    const r = await call(c, "render_grid", { ...FORM, axes: [{ field: "checkpoint", values: CHECKPOINT.replace(/\.safetensors$/, "").slice(0, 6) }, { field: "cfg", values: "4, 6" }] });
+    expect(r.isError, textOf(r)).toBeFalsy();
+    const grid = JSON.parse(textOf(r)) as { grid: string; count: number };
+    expect(grid.count).toBe(2);
+    // each cell sent the file itself, not the part typed (which no machine has)
+    const cells = await t.db.selectFrom("jobs").select("inputs").where("grid_id", "=", grid.grid).execute();
+    expect(cells.map((j) => (JSON.parse(j.inputs) as { checkpoint: string }).checkpoint)).toEqual([CHECKPOINT, CHECKPOINT]);
+    await c.close();
+  });
+
+  it("the grid card's plan prices a size axis at each cell's pixels, not the base render's", async () => {
+    // a minute per megapixel: 1024² and 1536² are 1 and 2.25 min, where the base form's 1024² twice was 2
+    vi.spyOn(t.services.queue, "forecastToPrice").mockImplementation(async (_recipe, input) => {
+      const size = (input as { size?: { width: number; height: number } }).size ?? { width: 1024, height: 1024 };
+      const f = { ms: Math.round(((size.width * size.height) / (1024 * 1024)) * 60_000), loadMs: 0, samples: 5, pace: "usual" as const, fitsUpTo: 0 };
+      return { forecast: f, shape: { pixels: size.width * size.height, frames: 1 }, model: CHECKPOINT, on: { [pod]: f, m1: f } };
+    });
+    const plan = (await post(t.app, "/api/grids/plan", { recipe: RECIPE, input: FORM.values, axes: [{ field: "size", values: "1024x1024, 1536x1536" }], machine: pod })).json() as { pod: { ms: number } };
+    expect(plan.pod.ms).toBe(60_000 + 135_000);
+  });
+
+  it("the grid card's plan prices each cell on the pod; on Auto a stopped pod counts", async () => {
+    byStep();
+    const body = { recipe: RECIPE, input: { ...FORM.values, steps: 20 }, axes: [{ field: "steps", values: "20, 60" }] };
+    const plan = (await post(t.app, "/api/grids/plan", { ...body, machine: pod })).json() as { count: number; ms: number; pod: { ms: number; usd: number } };
+    expect(plan.count).toBe(2);
+    expect(plan.pod.ms).toBe(80 * 60_000);
+    expect(plan.pod.usd).toBeGreaterThan(0.9);
+    expect(plan.pod.usd).toBeLessThan(0.96);
+    expect(plan.ms).toBe(80 * 60_000);
+    // stopped, the pod is still where Auto may send the grid once it is started: it is priced, not left out
+    expect((await post(t.app, `/api/machines/${pod}/stop`, {})).statusCode).toBe(200);
+    await until(async () => (await t.services.rented.poll(), runpod.pods[0]!.status === "EXITED"));
+    await t.services.rented.poll();
+    const auto = (await post(t.app, "/api/grids/plan", body)).json() as { pod: { usd: number } | null };
+    expect(auto.pod?.usd).toBeGreaterThan(0.9);
+  });
+});

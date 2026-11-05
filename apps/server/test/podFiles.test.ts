@@ -922,6 +922,24 @@ describe("a rented pod's node packs", () => {
     }
   });
 
+  it("ask Manager's queue start again at a later pass, never waiting inside the pass every pod shares (M5, 2026-11-05)", async () => {
+    const { pm, pf } = await withManager();
+    try {
+      // a minute apart: waited for inside the pass, the pass took that minute, every other pod's downloads with it
+      pf.packStartRetryMs = 60_000;
+      pm.startAnswers = [404];
+      pf.wantPacks("pod", ["comfyui-impact-pack"], "j1");
+      const from = Date.now();
+      await pf.tick();
+      await pf.tick();
+      expect(Date.now() - from).toBeLessThan(5_000);
+      expect(pf.packsView("pod")[0]?.state).toBe("installing");
+      expect(pm.startAnswers).toEqual([]);
+    } finally {
+      await pm.close();
+    }
+  });
+
   it("fail when the pod's proxy keeps answering Manager's queue start, said with its answer", async () => {
     const { pm, pf } = await withManager();
     try {
