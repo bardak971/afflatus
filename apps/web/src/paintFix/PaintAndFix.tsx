@@ -109,7 +109,8 @@ export function PaintAndFix({ acts, mode, strip, overlay }: {
     : toolId === "wand" ? <WandOptions wand={wand} />
     : toolId === "click" ? <ClickOptions click={click} />
     : toolId === "detect" ? <DetectOptions detect={detect} />
-    : toolId === "box" || toolId === "select" ? <BoxOptions count={boxes.length} />
+    // "box" is the edit box with an editor; without one it is the rectangle mask, whose options are the mask's
+    : (toolId === "box" && editor) || toolId === "select" ? <BoxOptions count={boxes.length} />
     : <MaskOptions mask={mask} grow={grow} onGrow={setGrow} />;
   // boxes drawn and nothing painted: the bar edits in them; a part painted is the fix asked for, the boxes left for later
   const inBoxes = Boolean(editor) && boxes.length > 0 && !outpainting && !mask.area;
@@ -136,9 +137,10 @@ export function PaintAndFix({ acts, mode, strip, overlay }: {
   if (!job || !natural) return null;
   return (
     <div ref={room} className="flex min-h-0 w-full grow flex-col items-center gap-2">
-      <LayerStrip title={inBoxes ? "Edit in box" : verb === "Fix" ? "Paint and fix" : verb} className="w-full">{options}</LayerStrip>
+      <LayerStrip title={inBoxes ? "Edit in box" : verb === "Fix" ? "Paint and fix" : verb} className="w-full shrink-0">{options}</LayerStrip>
       <div className="flex min-h-0 w-full grow items-start gap-3">
-        <LayerToolbar items={items} active={toolId} onPick={setToolId} />
+        {/* a short Stage (1280 × 800 with the form open) holds fewer tools than the bar has: it scrolls rather than run over the strip */}
+        <LayerToolbar items={items} active={toolId} onPick={setToolId} className="max-h-full overflow-y-auto [scrollbar-width:none]" />
         <div className="relative flex h-full min-w-0 grow flex-col">
           {mask.failed && <ErrorNote>{mask.failed}</ErrorNote>}
           <ZoomPicture

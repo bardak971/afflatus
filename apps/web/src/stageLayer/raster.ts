@@ -452,19 +452,23 @@ export class History {
     this.open = plane.data.slice();
   }
 
-  /** After it: kept as one step of the part it touched (none when it touched nothing). A new step drops what Undo took back. */
-  commit(plane: Plane, dirty: Rect | null) {
+  /**
+   * After it: kept as one step of the part it touched (none when it touched nothing). A new step drops what Undo took back.
+   * Says whether a step was kept: a tool that replaces its own last step must know there is one.
+   */
+  commit(plane: Plane, dirty: Rect | null): boolean {
     const was = this.open;
     this.open = null;
     const r = dirty && clip(dirty, plane);
-    if (!was || !r) return;
+    if (!was || !r) return false;
     const before = cut({ w: plane.w, h: plane.h, data: was }, r);
     const after = cut(plane, r);
-    if (before.every((v, i) => v === after[i])) return;
+    if (before.every((v, i) => v === after[i])) return false;
     this.back.push({ rect: r, before, after });
     this.ahead = [];
     let bytes = this.back.reduce((n, p) => n + p.before.length * 2, 0);
     while (this.back.length > this.count || (bytes > this.most && this.back.length > 1)) bytes -= this.back.shift()!.before.length * 2;
+    return true;
   }
 
   /** A step left half done (a stroke cut short by a second finger, a pinch): the plane as it was before it. */

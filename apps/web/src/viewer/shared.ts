@@ -1,6 +1,6 @@
-import { RANDOM_SEED, REMOVE_BACKGROUND, typedSeed, type ChoiceInput } from "@afflatus/core";
+import { RANDOM_SEED, REMOVE_BACKGROUND, squash, typedSeed, type ChoiceInput } from "@afflatus/core";
 import type { AssetDetail, RecipeInfo } from "../api";
-import { carryOver, modelGroups } from "../picker";
+import { carryAcross, carryOver, modelGroups } from "../picker";
 
 export const FORMATS: Record<string, string> = { "image/png": "PNG", "image/jpeg": "JPEG", "image/webp": "WebP", "video/mp4": "MP4", "video/webm": "WebM", "audio/wav": "WAV", "audio/mpeg": "MP3", "audio/flac": "FLAC", "audio/mp4": "M4A", "audio/ogg": "OGG" };
 
@@ -66,9 +66,26 @@ export const renderOf = (d: Pick<AssetDetail, "generation" | "ancestor"> | undef
  */
 export function carried(g: AssetDetail["generation"] | null | undefined, from: RecipeInfo | undefined, to: RecipeInfo, withLook: boolean): Record<string, unknown> {
   if (!g || !from) return {};
-  const taken = carryOver(from, to, ownInputs(g, withLook), undefined);
+  const own = ownInputs(g, withLook);
+  const taken = squash(from.family) === squash(to.family) ? carryOver(from, to, own, undefined) : borrowed(from, to, own);
   for (const i of to.inputs) if (i.type === "image" || i.type === "seed") delete taken[i.id];
   return taken;
+}
+
+/**
+ * What goes to another model's tool, the one a picture's own model lacks (MOSS has no inpaint and no editor: Paint and fix
+ * and Edit in box borrow Klein's or SDXL's): what the picture is of, never how its model was run. Its model file in the
+ * other's model slot is a refusal or garbage, its negative and LoRAs are that model's own. Its prompt goes along whatever
+ * the two call it and however they are written to: an empty Fix keeps "the picture's own", as the bar says.
+ */
+function borrowed(from: RecipeInfo, to: RecipeInfo, own: Record<string, unknown>): Record<string, unknown> {
+  const out = carryAcross(from, to, own, undefined);
+  const said = (r: RecipeInfo) => r.inputs.find((i) => i.type === "prompt" && !i.optional);
+  const a = said(from);
+  const b = said(to);
+  const text = a && own[a.id];
+  if (b && out[b.id] === undefined && typeof text === "string" && text.trim()) out[b.id] = text;
+  return out;
 }
 
 /**

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent } from "@testing-library/react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Brush } from "lucide-react";
 import { DetectOptions, FrameOptions, WandOptions } from "../../src/stageLayer/LayerStrip";
 import { fillRect, newPlane } from "../../src/stageLayer/raster";
@@ -362,6 +362,8 @@ describe("the tools that find a mask", () => {
     draw(<FindRig find={find} />);
     await vi.waitFor(() => expect(mask!.ready).toBe(true));
     click(150, 150);
+    // the second click once the first was asked (clicks closer together are one ask)
+    await vi.waitFor(() => expect(asked).toHaveLength(1));
     click(350, 150);
     await vi.waitFor(() => expect(mask!.area).toEqual(BOXES.b));
     slow([{ asset: "a", box: BOXES.a! }]);
@@ -369,6 +371,26 @@ describe("the tools that find a mask", () => {
     expect(mask!.area).toEqual(BOXES.b);
     click(600, 500);
     await vi.waitFor(() => expect(mask!.area).toBeNull());
+  });
+
+  it("click to mask: quick clicks are one ask, and an ask a newer one replaced is given up (its job cancelled)", async () => {
+    const signals: AbortSignal[] = [];
+    const find: Find = (req, signal) => {
+      asked.push(req);
+      signals.push(signal!);
+      // the first never answers: it is the one given up
+      return asked.length === 1 ? new Promise(() => {}) : Promise.resolve([{ asset: "b", box: BOXES.b! }]);
+    };
+    draw(<FindRig find={find} />);
+    await vi.waitFor(() => expect(mask!.ready).toBe(true));
+    click(150, 150);
+    click(160, 150);
+    await vi.waitFor(() => expect(asked).toHaveLength(1));
+    expect(asked[0]).toEqual({ way: "points", add: [{ x: 150, y: 150 }, { x: 160, y: 150 }], remove: [] });
+    click(350, 150);
+    await vi.waitFor(() => expect(mask!.area).toEqual(BOXES.b));
+    expect(signals[0]!.aborted).toBe(true);
+    expect(signals[1]!.aborted).toBe(false);
   });
 
   it("the detector: faces looked for when picked, a box clicked into the mask and out again", async () => {
@@ -393,6 +415,35 @@ describe("the tools that find a mask", () => {
     expect(asked[1]).toEqual({ way: "detect", what: "hands" });
   });
 
+  it("the detector on another picture (a version flipped to): the boxes found on the one before are gone, looked for again", async () => {
+    let on = "zz-test-a";
+    const find = (picture: string): Find => async (req) => {
+      asked.push(req);
+      return picture === "zz-test-a" ? [{ asset: "face", box: BOXES.face! }] : [{ asset: "a", box: BOXES.a! }];
+    };
+    function Flip() {
+      const [picture, setPicture] = useState(on);
+      const m = useMaskLayer({ natural: NATURAL, start: { size: 10, feather: 0 } });
+      mask = m;
+      const f = useMemo(() => find(picture), [picture]);
+      const detect = useDetectTool({ mask: m, natural: NATURAL, find: f, load, active: true });
+      return (
+        <>
+          <button type="button" onClick={() => setPicture((on = "zz-test-b"))}>flip</button>
+          <ZoomPicture src="/api/assets/zz-test/file" natural={NATURAL} panMode="layer" overlay={(place) => <StageLayer place={place} tool={detect.tool} mask={m} />} />
+        </>
+      );
+    }
+    draw(<Flip />);
+    await vi.waitFor(() => expect(document.querySelector("[data-found]")).not.toBeNull());
+    const box = () => (document.querySelector<HTMLElement>("[data-found]")!.style.left);
+    const before = box();
+    fireEvent.click(document.querySelector("button")!);
+    await vi.waitFor(() => expect(asked).toHaveLength(2));
+    await vi.waitFor(() => expect(box()).not.toBe(before));
+    expect(document.querySelectorAll("[data-found]")).toHaveLength(1);
+  });
+
   it("the wand: a click takes the place of its last, Shift adds, Alt takes away", async () => {
     // the picture: its left half red, its right half blue
     const pixels: LoadPixels = async (w, h) => {
@@ -412,5 +463,29 @@ describe("the tools that find a mask", () => {
     await vi.waitFor(() => expect(mask!.area).toEqual({ x: 0, y: 0, w: 800, h: 600 }));
     click(700, 100, { altKey: true });
     await vi.waitFor(() => expect(mask!.area).toEqual({ x: 0, y: 0, w: 400, h: 600 }));
+  });
+
+  it("a wand click that changes nothing is no step: the next click does not take the user's stroke back", async () => {
+    const pixels: LoadPixels = async (w, h) => {
+      const rgba = new Uint8ClampedArray(w * h * 4);
+      for (let i = 0; i < w * h; i++) rgba.set(i % w < w / 2 ? [220, 20, 20, 255] : [20, 20, 220, 255], i * 4);
+      return rgba;
+    };
+    draw(<FindRig find={async () => []} pixels={pixels} />);
+    await vi.waitFor(() => expect(mask!.ready).toBe(true));
+    // a brush stroke on the blue half, then undone and redone, so a redo would be lost too if a no-op cleared it
+    fireEvent.keyDown(window, { key: "p" });
+    click(600, 300);
+    expect(mask!.steps).toBe(1);
+    fireEvent.keyDown(window, { key: "w" });
+    // Alt on the red half, which nothing masks: it takes nothing away
+    click(100, 100, { altKey: true });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mask!.steps).toBe(1);
+    // a plain click replaces the wand's last step only: there is none, so the stroke stays
+    click(100, 100);
+    await vi.waitFor(() => expect(mask!.area?.w).toBeGreaterThan(400));
+    expect(mask!.steps).toBe(2);
+    expect(mask!.redos).toBe(0);
   });
 });

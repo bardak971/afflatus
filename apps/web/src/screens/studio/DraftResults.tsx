@@ -75,7 +75,14 @@ export function DraftResults({ draft, folder, list, title, empty }: {
     if (newest) seen.current = newest;
   }, [newest]);
   useEffect(() => setPicked(null), [draft]);
-  const chosen = picked && picked !== "live" ? items.find((a) => a.id === picked) : undefined;
+  // an item the viewer opened itself (K kept a version, which takes its original's place): held until the list, read
+  // again, has it; in between, the Stage would show the list's first item and lose the user's place
+  const [held, setHeld] = useState<Asset | null>(null);
+  const heldListed = Boolean(held && items.some((a) => a.id === held.id));
+  useEffect(() => {
+    if (heldListed) setHeld(null);
+  }, [heldListed]);
+  const chosen = picked && picked !== "live" ? items.find((a) => a.id === picked) ?? (held?.id === picked ? held : undefined) : undefined;
   const live = running && (picked === "live" || !chosen);
   const shown = chosen ?? (live ? undefined : items[0]);
   // the regions of the draft in the form (card #271): its frame before anything is made, the boxes over its picture when asked
@@ -130,7 +137,10 @@ export function DraftResults({ draft, folder, list, title, empty }: {
             asset={shown}
             items={items}
             more={more}
-            onOpen={(a) => setPicked(a.id)}
+            onOpen={(a) => {
+              setPicked(a.id);
+              setHeld(a);
+            }}
             onClose={() => {}}
             onDetails={() => setDetails(shown)}
             onEscape={running ? () => setPicked("live") : undefined}
