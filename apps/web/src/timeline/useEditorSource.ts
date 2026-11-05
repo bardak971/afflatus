@@ -20,16 +20,13 @@ type SourceCut = { windowMs?: number; withinMs?: number; inputs?: Record<string,
  * given another form, its stretch trimmed, taken away), each asked first when it leaves rendered takes behind. The clips
  * they make are sent on through `toRender`, the editor's, which a recording's runs share.
  */
-export function useEditorSource({ t, slots, videoRecipes, selection, m, save, typeSource, sourceTyped, oneTrim, toRender, setToRender, trimmed }: {
+export function useEditorSource({ t, slots, videoRecipes, selection, m, save, oneTrim, toRender, setToRender, trimmed }: {
   t: Timeline | undefined;
   slots: ReturnType<typeof layout>;
   videoRecipes: RecipeInfo[];
   selection: EditorSelection;
   m: ReturnType<typeof useTimelineMutations>;
   save: ReturnType<typeof useClipEdits>["save"];
-  /** What is typed in the source panel, kept until it is saved (useClipEdits). */
-  typeSource: ReturnType<typeof useClipEdits>["typeSource"];
-  sourceTyped: ReturnType<typeof useClipEdits>["sourceTyped"];
   oneTrim: ReturnType<typeof useOneTrim>;
   toRender: unknown;
   setToRender(v: { ids: string[]; render: boolean }): void;
@@ -37,7 +34,7 @@ export function useEditorSource({ t, slots, videoRecipes, selection, m, save, ty
   trimmed(clips: string[]): void;
 }) {
   const { sourceOpen, setSourceOpen, select, current } = selection;
-  const { readBack, edit, makeSource: makeSourceMut, cutSource: cutSourceMut, sourceForm: sourceFormMut, trimSource: trimSourceMut, splitSource } = m;
+  const { readBack, edit, makeSource: makeSourceMut, cutSource: cutSourceMut, sourceForm: sourceFormMut, trimSource: trimSourceMut } = m;
   /** The moment of the source a drag on its lane stands on: the stage shows it meanwhile. */
   const [sourcePeek, setSourcePeek] = useState<number | null>(null);
   /** Each swap clip's Show the mask, by clip: its job, and whether it is drawn over the source on the stage. */
@@ -160,5 +157,5 @@ export function useEditorSource({ t, slots, videoRecipes, selection, m, save, ty
     keep: () => setStretchAsk(null),
   };
   stretchNow.current = stretch;
-  return { place, sourceMarks, sourcePeek, setSourcePeek, masks, setMasks, maskOfCurrent, whoPicking, setWhoPicking, removeSource, makeSource, cutSource, sourceForm, stretch, splitSource, typeSource, sourceTyped };
+  return { place, sourceMarks, sourcePeek, setSourcePeek, masks, setMasks, maskOfCurrent, whoPicking, setWhoPicking, removeSource, makeSource, cutSource, sourceForm, stretch };
 }

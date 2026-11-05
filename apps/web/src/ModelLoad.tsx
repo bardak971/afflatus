@@ -116,13 +116,22 @@ export function StripModel() {
   if (queue.data?.online === false) return null;
   // with several ComfyUIs the machines' pill says what each holds (MachinesPill): here only a form's own model, and where it is
   if (severalMachines(queue.data).length) return form ? <ModelMenu><OfForm {...form} /></ModelMenu> : null;
-  // a render that freed the memory for its model names that one until it ends: the queue's model is the one before it until
-  // ComfyUI takes the prompt, and a progress event changes the phase without reading the queue again
-  const loads = queue.data?.running?.loads;
-  if (loads) return <ModelMenu>{NOT_IN.has(queue.data!.running!.phase) ? <Loading name={loads.model} family={loads.family} /> : form ? <OfForm {...form} /> : <Held name={loads.model} family={loads.family} />}</ModelMenu>;
-  // a render still bringing in the model held (its graph sent, its models not told warm yet): named as it is held
-  if (queue.data?.running?.phase === "loading" && queue.data.model) return <ModelMenu><Loading name={queue.data.model} /></ModelMenu>;
-  return <ModelMenu>{form ? <OfForm {...form} /> : <Held name={queue.data?.model ?? null} />}</ModelMenu>;
+  const now = heldNow(queue.data);
+  if (now.loading && now.name) return <ModelMenu><Loading name={now.name} family={now.family} /></ModelMenu>;
+  return <ModelMenu>{form ? <OfForm {...form} /> : <Held name={now.name} family={now.family} />}</ModelMenu>;
+}
+
+/**
+ * The model ComfyUI holds, or is bringing in for the running render (`loading`), with its family id when known: what the
+ * strip names and what a form's own model is set against. A render that freed the memory for its model names that one
+ * until it ends: the queue's model is the one before it until ComfyUI takes the prompt, and a progress event changes the
+ * phase without reading the queue again. A render still bringing in the model held (its graph sent, its models not told
+ * warm yet) names it as held.
+ */
+function heldNow(q: ReturnType<typeof useQueue>["data"]): { name: string | null; family?: string; loading: boolean } {
+  const loads = q?.running?.loads;
+  if (loads) return { name: loads.model, family: loads.family, loading: NOT_IN.has(q!.running!.phase) };
+  return { name: q?.model ?? null, family: q?.modelFamily ?? undefined, loading: q?.running?.phase === "loading" };
 }
 
 /**
@@ -238,8 +247,7 @@ function OfForm({ recipe, input, look }: OpenForm) {
   const state = several.length && loaded.data && loaded.data.loaded !== null ? Boolean(loaded.data.on) : loaded.data?.loaded;
   // with several ComfyUIs: the one that holds it, named; none holding it is said for all of them
   const on = several.length ? machineName(queue.data, loaded.data?.on) : null;
-  // the running render's own model once it freed the memory for it: the queue's is the one before it until ComfyUI takes it
-  const held = several.length ? null : queue.data?.running?.loads?.model ?? queue.data?.model ?? null;
+  const held = several.length ? null : heldNow(queue.data).name;
   // a model file the form uses that ComfyUI does not have yet (an official file picked greyed, a family file to come):
   // there is nothing to load before its Download. Matched as the field and the server match it (picksUnlisted).
   const status = setup.data?.recipes.find((r) => r.id === recipe.id);

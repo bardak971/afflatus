@@ -69,7 +69,7 @@ export function trackSourceProps(e: LoadedEditor): Pick<ComponentProps<typeof Tr
             e.setNote("Put the playhead inside the source's stretch (click the source lane: the stage plays it) to split it there.");
             return;
           }
-          e.sourceLane.splitSource.mutate(at);
+          e.actions.splitSource.mutate(at);
         }
       : undefined,
   };

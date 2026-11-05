@@ -152,8 +152,8 @@ function Editor({ id }: { id: string }) {
             onLook={(look) => e.actions.edit.mutate({ look })}
             recipes={e.videoRecipes}
             onEdit={(source) => e.actions.edit.mutate({ source })}
-            onType={(inputs) => e.sourceLane.typeSource(t.id, inputs)}
-            typed={() => e.sourceLane.sourceTyped(t.id)}
+            onType={(inputs) => e.typeSource(t.id, inputs)}
+            typed={() => e.sourceTyped(t.id)}
             onMake={e.sourceLane.makeSource.run}
             making={e.sourceLane.makeSource.pending}
             made={{ left: sourceLeft.length, queued: clips.filter((c) => fromSource.has(c.id) && c.job).length }}
