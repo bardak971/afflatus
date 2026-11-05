@@ -81,3 +81,26 @@ def test_a_fetch_with_another_file_of_the_pack_changed_is_refused(tmp_path):
     # and one missing from the zip is not moved in either
     with pytest.raises(RuntimeError, match="genderage"):
         F.fetch(root, download=_extract, sha256=every)
+
+
+def test_models_for_faceid_are_fetched_checked_and_read_once(tmp_path, monkeypatch):
+    # IP-Adapter's FaceID loads the pack through AfflatusInsightFaceLoader: fetched as Face Match's are when not there yet
+    monkeypatch.setattr(F, "_checked", set())
+    root = str(tmp_path)
+    assert F.ready(root, download=_extract, sha256=ONNX) == F.folder(root) and F.complete(root)
+    read = []
+    monkeypatch.setattr(F, "_sha256", lambda path: read.append(path) or ONNX[os.path.basename(path)])
+    F.ready(root, download=lambda into: pytest.fail("fetched again"), sha256=ONNX)
+    assert read == []
+
+
+def test_models_already_there_with_other_bytes_are_refused_for_faceid(tmp_path, monkeypatch):
+    # what InsightFace's own fetch (IP-Adapter's loader) left there unhashed: never loaded, and the render says why
+    monkeypatch.setattr(F, "_checked", set())
+    root = str(tmp_path)
+    _extract(root)
+    every = {**ONNX, "w600k_r50.onnx": hashlib.sha256(b"release").hexdigest()}
+    with pytest.raises(RuntimeError, match="w600k_r50.onnx.*Delete that folder"):
+        F.ready(root, download=lambda into: pytest.fail("fetched again"), sha256=every)
+    # nothing of the user's folder is removed
+    assert F.complete(root)

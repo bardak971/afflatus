@@ -4,7 +4,7 @@ import { hiresInputs, hiresPass, isVPred, loadSdxl, modelInputs, PREDICTION_NODE
 import { SDXL_GUIDE } from "./family";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, kSample, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { applyGuide, FOLLOW_MAP, guideInputs, guideNeeds, guideNodes, type GuideSettings } from "../shared/guide";
-import { IP_ADAPTER_INPUTS, IP_FILES, IP_REFUSES, ipAdapterNeeds, ipAdapterNodes, withIpAdapter, type ReferenceSettings } from "../shared/references";
+import { IP_ADAPTER_INPUTS, IP_FILES, IP_OPTIONAL, IP_REFUSES, ipAdapterNeeds, ipAdapterNodes, withIpAdapter, type ReferenceSettings } from "../shared/references";
 import { redrawInTiles, tileNodes, TILES_ON, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import { SDXL_AREA } from "./common";
 import { adetail, ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FILES, SDXL_FACE_DENOISE, sized, type AdetailSettings } from "../shared/adetail";
@@ -77,7 +77,7 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
   presets: SDXL_PRESETS,
   // a person's reference image with another is refused before it is queued, and said by the form (card #280)
   refuses: IP_REFUSES,
-  optionalNodes: [...DETAIL_OPTIONAL, ...ADETAIL_OPTIONAL],
+  optionalNodes: [...DETAIL_OPTIONAL, ...ADETAIL_OPTIONAL, ...IP_OPTIONAL],
   // the Detail rows ask for their detectors, reference images for IP-Adapter's files, a guide picture for its ControlNet
   needsWith: (input, slots, where) => [...adetailNeeds(input, slots, where), ...ipAdapterNeeds(input), ...guideNeeds(input, SDXL_GUIDE)],
 

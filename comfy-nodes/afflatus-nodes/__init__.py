@@ -24,7 +24,8 @@ Afflatus's other routes:
 - Afflatus: Face Match / Face At — how much a face in a picture is the person of some photos (InsightFace's ArcFace, on the
   CPU), to rank the pictures a Motion transfer is made from; Face Crop / Face Crop to Frame — a person's picture cut
   around their face (a square, or the clip's frame shape at its size), and Face Backdrop — what is around their head and
-  shoulders blurred or grey, for LTX 2.5's references; registered only when insightface is installed.
+  shoulders blurred or grey, for LTX 2.5's references; InsightFace Loader — buffalo_l for IP-Adapter's FaceID, fetched
+  whole and checked against its hashes first; registered only when insightface is installed.
 - Afflatus: Follow Colours — a Motion transfer clip's colours brought to its driving video's at each moment, both
   averaged over about a second first, so that a drift inside a window is followed and windows of one source meet.
 - Afflatus: Room Tone — a faint noise laid into a sound's stretches of digital silence before LTX is pinned to it (LTX 2.3
@@ -103,7 +104,7 @@ from .continuation_nodes import (  # noqa: E402
 )
 from .latent_io import AfflatusH3LatentHeadGuide, AfflatusH3LatentLanding, AfflatusH3RunAnchor, AfflatusH3RunUpMatch, AfflatusH3SeamLatent, AfflatusLoadH3Latent, AfflatusNormalizeH3Latent, AfflatusSaveH3Latent, AfflatusTrimH3Latent  # noqa: E402
 from .latent_ltx import AfflatusLoadLTXLatent, AfflatusLTXContinuation, AfflatusLTXSeamLatent, AfflatusSaveLTXLatent, AfflatusTrimLTXLatent  # noqa: E402
-from .face_match import AfflatusFaceAt, AfflatusFaceBackdrop, AfflatusFaceCrop, AfflatusFaceFrame, AfflatusFaceMatch, available as face_available  # noqa: E402
+from .face_match import AfflatusFaceAt, AfflatusFaceBackdrop, AfflatusFaceCrop, AfflatusFaceFrame, AfflatusFaceMatch, AfflatusInsightFaceLoader, available as face_available  # noqa: E402
 from .swap_mask import AfflatusSwapMask, AfflatusSwapMaskPreview, AfflatusSwapMatch, AfflatusSwapPaste  # noqa: E402
 from .face_refine import AfflatusH3AudioLock  # noqa: E402
 from .colour_follow import AfflatusColorFollow  # noqa: E402
@@ -168,8 +169,9 @@ class AfflatusExtension(ComfyExtension):
             AfflatusFaceDetailKeep,
             AfflatusH3InjectRegion,
             # a face's likeness to some photos, for the pictures a Motion transfer is made from, and a person's picture cut to
-            # their face (LTX 2.5's references): only with insightface installed
-            *([AfflatusFaceMatch, AfflatusFaceAt, AfflatusFaceCrop, AfflatusFaceFrame, AfflatusFaceBackdrop] if face_available() else []),
+            # their face (LTX 2.5's references), and InsightFace for IP-Adapter's FaceID once its files are checked (pack
+            # 0.50.0): only with insightface installed
+            *([AfflatusFaceMatch, AfflatusFaceAt, AfflatusFaceCrop, AfflatusFaceFrame, AfflatusFaceBackdrop, AfflatusInsightFaceLoader] if face_available() else []),
         ]
 
 

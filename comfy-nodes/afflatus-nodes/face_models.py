@@ -90,5 +90,23 @@ def fetch(root, download=_insightface_fetch, sha256=SHA256):
         shutil.rmtree(temp, ignore_errors=True)
 
 
+# the models folders whose files were read against their hashes in this process: ~330 MB, read once, not at every render
+_checked = set()
+
+
+def ready(root, download=_insightface_fetch, sha256=SHA256):
+    """The models under `root` whole and with the release's bytes, for a loader that builds FaceAnalysis on the whole pack
+    (IP-Adapter's FaceID, AfflatusInsightFaceLoader): fetched as `fetch` does when they are not there, and the files already
+    there read against `sha256` once a process, since IP-Adapter's own loader (or InsightFace's fetch from another pack) may
+    have put them there without a hash. Raises, naming the files, when their bytes are not the release's."""
+    where = fetch(root, download, sha256)
+    if where in _checked:
+        return where
+    other = [f for f in sha256 if os.path.isfile(os.path.join(where, f)) and _sha256(os.path.join(where, f)) != sha256[f]]
+    if other:
+        raise RuntimeError(f"InsightFace's {NAME} in {where} has other bytes than its release's ({', '.join(other)}): not used. Delete that folder for it to be fetched again")
+    _checked.add(where)
+    return where
+
 if __name__ == "__main__":
     fetch(sys.argv[1])
