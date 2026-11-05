@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
-import { api, type Folder, type Project } from "./api";
+import { api, type AssetVersions, type Folder, type Project } from "./api";
 import { applyChange, itemsWord, listShows, madeOf, placeName, placesBefore, rollback, type Made, type Seats } from "./assetCache";
 import { clearDraftUse } from "./draftUse";
 import type { AssetChange } from "./queryKeys";
@@ -54,6 +54,15 @@ const asLibraryChange = (c: AssetChange): LibraryChange =>
   // filed in a folder keeps them; taken out of any, nothing is kept
   : c.kind === "move" ? { change: "moved", items: c.ids, ...(c.folder === null ? { kept: false } : {}) }
   : { change: "binned", items: c.ids };
+/**
+ * Of these items, those a stack the page holds lists as versions (the Stage's strip): kept by itself, a version leaves its
+ * stack for the head's folder (versions.ts ownPictures), which a keep written in place does not show.
+ */
+function versionsAmong(client: QueryClient, ids: string[]): string[] {
+  const under = new Set<string>();
+  for (const [, data] of client.getQueriesData<AssetVersions>({ queryKey: ["assets", "versions"] })) for (const v of data?.versions ?? []) under.add(v.id);
+  return ids.filter((id) => under.has(id));
+}
 let said = 0;
 const bannerId = (what: string) => `${what}:${Date.now()}:${++said}`;
 /** The refusal banner said for each item: a later change to the item takes it away, its Retry would undo that change. */
@@ -161,6 +170,9 @@ export async function changeAssets(client: QueryClient, c: AssetChange, opts: Ch
     inFlight--;
     own.until = Date.now() + OWN_EVENT_MS;
     done.push(own.change);
+    // versions kept by themselves came into the lists as pictures of their own: read as a move of them
+    const freed = c.kind === "keep" && c.kept && whole ? versionsAmong(client, c.ids) : [];
+    if (freed.length) done.push({ change: "moved", items: freed });
     if (shown && whole && made && (c.kind === "move" || c.kind === "bin" || c.kind === "restore")) shown.push(made);
     else shown = null;
     if (!inFlight) {

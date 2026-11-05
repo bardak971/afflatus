@@ -13,6 +13,7 @@ import type { Storage } from "./storage";
 import { missingFiles } from "./missingFiles";
 import { inUse } from "./sweep";
 import { oneAtATime } from "./keyedLock";
+import { isLinked, LINKED } from "./linkedKey";
 
 /**
  * Folders linked to a directory of the disk the server runs on (a mounted volume, in a container).
@@ -25,8 +26,7 @@ import { oneAtATime } from "./keyedLock";
  * item of the library into a linked folder writes it there as a file with a readable name.
  */
 
-const LINKED = "linked:";
-export const isLinked = (key: string) => key.startsWith(LINKED);
+export { isLinked };
 const diskPath = (key: string) => key.slice(LINKED.length);
 const under = (path: string, root: string) => path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
 
@@ -173,10 +173,14 @@ export class RoutedStorage implements Storage {
     const p = this.file(key);
     return { size: (await this.statOf(key)).size, stream: createReadStream(p, range) as Readable };
   }
+  /**
+   * A file of a linked folder is the user's own file: it is never removed through here, whatever asks (an item erased
+   * from the bin, an orphan sweep). Only taking it to the bin moves it out of its directory (linkedToBin), and only once
+   * a copy of it is in Afflatus's storage. An item whose row still names its file in its folder lost nothing that way.
+   */
   async delete(key: string): Promise<void> {
     if (isLinked(key)) {
-      await rm(this.file(key), { force: true });
-      return;
+      throw httpError("A file of a linked folder is never deleted from the disk: take it to the bin, which moves it out of its folder.", 409);
     }
     // a backup is being made: the file waits until it is done, so that the database it copied finds every file it names
     if (this.holds > 0) {

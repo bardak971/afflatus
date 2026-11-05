@@ -2,6 +2,7 @@ import type { ExpressionBuilder, Kysely } from "kysely";
 import type { AssetLookup } from "./assets-api";
 import { capName, shownNames } from "./autoName";
 import { now, type Tables } from "./db";
+import { foldersOf, type LibraryChange } from "./events";
 import { httpError } from "./errors";
 import { isLinked } from "./linked";
 import { assetView } from "./media";
@@ -74,17 +75,26 @@ async function carryDraft(tx: Kysely<Tables>, headId: string, ids: string[]): Pr
 /**
  * Versions kept one by one as pictures of their own (Keep · S, a bulk keep, MCP's keep): kept and nothing more, a version
  * would stay hidden under its head for good (spared by the sweep, out of the library). Each leaves its stack as Keep all
- * does: in the head's folder and draft, beside it. What is not a version is left as it is.
+ * does: in the head's folder and draft, beside it. What is not a version is left as it is. Returns those that left a
+ * stack, with the folder each went to: the lists show them now, which a keep written in place does not say (freedChange).
  */
-export async function ownPictures(tx: Kysely<Tables>, ids: string[]): Promise<void> {
-  if (!ids.length) return;
-  const rows = await tx.selectFrom("assets").select(["id", "version_of"]).where("id", "in", ids).where("version_of", "is not", null).execute();
+export async function ownPictures(tx: Kysely<Tables>, ids: string[]): Promise<Array<{ id: string; folder_id: string | null }>> {
+  if (!ids.length) return [];
+  const rows = await tx.selectFrom("assets").select(["id", "version_of", "file_key", "folder_id"]).where("id", "in", ids).where("version_of", "is not", null).execute();
+  const out: Array<{ id: string; folder_id: string | null }> = [];
   for (const r of rows) {
     const top = await tx.selectFrom("assets").select("folder_id").where("id", "=", r.version_of!).executeTakeFirst();
-    await tx.updateTable("assets").set({ version_of: null, folder_id: top?.folder_id ?? null, countdown_from: null }).where("id", "=", r.id).execute();
+    // a file of a linked folder (an old head) stays in the folder its file lies in
+    const folder = isLinked(r.file_key) ? r.folder_id : top?.folder_id ?? null;
+    await tx.updateTable("assets").set({ version_of: null, folder_id: folder, countdown_from: null }).where("id", "=", r.id).execute();
     await carryDraft(tx, r.version_of!, [r.id]);
+    out.push({ id: r.id, folder_id: folder });
   }
+  return out;
 }
+
+/** What versions kept by themselves did, for the other tabs: they came into the lists of their folders, as a move would. */
+export const freedChange = (freed: Array<{ id: string; folder_id: string | null }>): LibraryChange => ({ change: "moved", items: freed.map((f) => f.id), folders: foldersOf(freed) });
 
 /** A stack as the Stage's strip reads it: its head, and its versions in the order they were made (the head not among them). */
 export async function versionsOf(s: Services, id: string) {
@@ -110,6 +120,10 @@ export async function keepVersion(s: Services, { fileInLinked }: AssetLookup, id
   const at = now();
   if (version === head.id) {
     await s.db.transaction().execute(async (tx) => {
+      // as it is now: a Keep of one of its versions made meanwhile has made this a version of that one, and keeping it
+      // here would leave it kept but hidden under its new head
+      const still = await tx.selectFrom("assets").select(["version_of", "deleted_at"]).where("id", "=", head.id).executeTakeFirst();
+      if (!still || still.version_of || still.deleted_at) throw httpError("This stack was changed meanwhile: look at its versions again.", 409);
       await tx.updateTable("assets").set({ kept_at: at }).where("id", "=", head.id).where("kept_at", "is", null).execute();
       await tx.updateTable("assets").set({ countdown_from: at }).where(liveVersionsOf(head.id)).execute();
     });
@@ -117,20 +131,30 @@ export async function keepVersion(s: Services, { fileInLinked }: AssetLookup, id
   } else {
     await s.db.transaction().execute(async (tx) => {
       const [top, kept] = await Promise.all([
-        tx.selectFrom("assets").select(["id", "name", "folder_id", "file_key", "grid_id", "grid_cell"]).where("id", "=", head.id).executeTakeFirstOrThrow(),
-        tx.selectFrom("assets").select(["id", "name", "version_of", "deleted_at"]).where("id", "=", version).executeTakeFirst(),
+        tx.selectFrom("assets").select(["id", "name", "folder_id", "file_key", "grid_id", "grid_cell", "deleted_at"]).where("id", "=", head.id).executeTakeFirstOrThrow(),
+        tx.selectFrom("assets").select(["id", "name", "version_of", "deleted_at", "file_key", "folder_id"]).where("id", "=", version).executeTakeFirst(),
       ]);
       if (!kept || kept.version_of !== head.id || kept.deleted_at) throw httpError("this is not a version of this picture", 404);
-      // the head's place: its folder, its name when it has one (a nameless one is called after how it was made, as the
-      // version is), its draft, and its cell of an X/Y/Z grid (the board lists a cell by it, and only what is in the library)
-      await tx.updateTable("assets").set({ version_of: null, folder_id: top.folder_id, name: top.name.trim() ? top.name : kept.name, kept_at: at, countdown_from: null, grid_id: top.grid_id ?? null, grid_cell: top.grid_cell ?? null }).where("id", "=", kept.id).execute();
+      // the head's place: its folder (but a file of a linked folder kept back, an old head, stays in the folder its file
+      // lies in), its name when it has one (a nameless one is called after how it was made, as the version is), its draft,
+      // and its cell of an X/Y/Z grid (the board lists a cell by it, and only what is in the library)
+      const folder = isLinked(kept.file_key) ? kept.folder_id : top.folder_id;
+      await tx.updateTable("assets").set({ version_of: null, folder_id: folder, name: top.name.trim() ? top.name : kept.name, kept_at: at, countdown_from: null, grid_id: top.grid_id ?? null, grid_cell: top.grid_cell ?? null }).where("id", "=", kept.id).execute();
       await carryDraft(tx, head.id, [kept.id]);
-      await tx.updateTable("assets").set({ version_of: kept.id, kept_at: null, countdown_from: at }).where(liveVersionsOf(head.id)).execute();
-      // the old head: one in the bin stays there as it is (back from it, it is a plain picture again); one something uses
-      // (a draft's form, a clip) stays kept, as an unkeep of it would be refused: the sweep spares it all the same, but
-      // kept, Keep all or a Keep of it later finds it as the user left it
-      const used = (await inUse(tx)).has(head.id);
-      if (!head.deleted_at) await tx.updateTable("assets").set(isLinked(top.file_key) || used ? { version_of: kept.id, grid_id: null, grid_cell: null } : { version_of: kept.id, kept_at: null, countdown_from: at, grid_id: null, grid_cell: null }).where("id", "=", head.id).execute();
+      // the old head and the other versions become the kept one's, their day starting now. Not unkept: a file of a linked
+      // folder (an old head, from an earlier Keep), kept as such files always are, or the sweep would bin it by a plain
+      // update; nor one something uses (a draft's form, a clip), as an unkeep of it would be refused: the sweep spares it
+      // all the same, but kept, Keep all or a Keep of it later finds it as the user left it. An old head in the bin stays
+      // there as it is (back from it, it is a plain picture again), but gives its grid cell up all the same, or put back
+      // it would share the cell with the kept version.
+      const used = await inUse(tx);
+      const stays = (r: { id: string; file_key: string }) => isLinked(r.file_key) || used.has(r.id);
+      const rows = [...await tx.selectFrom("assets").select(["id", "file_key"]).where(liveVersionsOf(head.id)).execute(), ...(top.deleted_at ? [] : [top])];
+      const held = rows.filter(stays).map((r) => r.id);
+      const unkept = rows.filter((r) => !stays(r)).map((r) => r.id);
+      if (held.length) await tx.updateTable("assets").set({ version_of: kept.id, countdown_from: at }).where("id", "in", held).execute();
+      if (unkept.length) await tx.updateTable("assets").set({ version_of: kept.id, kept_at: null, countdown_from: at }).where("id", "in", unkept).execute();
+      await tx.updateTable("assets").set({ grid_id: null, grid_cell: null }).where("id", "=", head.id).execute();
       await tx.updateTable("jobs").set({ version_of: kept.id, updated_at: at }).where("version_of", "=", head.id).where("status", "in", ["queued", "running"]).execute();
     });
     // kept in a linked folder: written there as a file, as any item kept there

@@ -17,6 +17,7 @@ const KEYS: Record<string, QueryKey> = {
   item1: ["assets", "one", "i1"],
   item2: ["assets", "one", "i2"],
   unkept: ["assets", "unkept", "all", "none"],
+  versions: ["assets", "versions", "h1"],
   folders: ["folders"],
   storage: ["storage"],
   projects: ["projects"],
@@ -52,7 +53,7 @@ describe("a library event on the page", () => {
   it("writes a keep in place and reads the kept lists, the expiring count and the disk use", () => {
     const c: LibraryChange = { change: "kept", items: ["i1"], kept: true };
     expect(libraryInPlace(c)).toEqual({ kind: "keep", ids: ["i1"], kept: true });
-    expect(read(c)).toEqual(["keptOnly", "unkept", "storage"]);
+    expect(read(c)).toEqual(["keptOnly", "unkept", "versions", "storage"]);
     // not said which: the item is read again with the lists
     expect(read({ change: "kept", items: ["i1"] })).toContain("item1");
   });
@@ -67,13 +68,20 @@ describe("a library event on the page", () => {
 
   it("reads after a move the two folders, the moved items, the counts; the disk use only when filing kept them", () => {
     const c: LibraryChange = { change: "moved", items: ["i1"], folders: ["A", "B"], kept: false };
-    expect(read(c)).toEqual(["studio", "searched", "folderA", "folderB", "keptOnly", "bin", "treeA", "treeAByName", "treeB", "item1", "unkept", "folders", "projects", "projectsTree"]);
+    expect(read(c)).toEqual(["studio", "searched", "folderA", "folderB", "keptOnly", "bin", "treeA", "treeAByName", "treeB", "item1", "unkept", "versions", "folders", "projects", "projectsTree"]);
     expect(read({ ...c, kept: true })).toContain("storage");
   });
 
   it("reads after a bin what the items leave and the bin; after an erase the bin and the disk use alone", () => {
-    expect(read({ change: "binned", items: ["i1"], folders: ["B"] })).toEqual(["studio", "searched", "folderB", "keptOnly", "bin", "treeB", "item1", "unkept", "folders", "storage", "projects", "projectsTree", "families", "models"]);
+    expect(read({ change: "binned", items: ["i1"], folders: ["B"] })).toEqual(["studio", "searched", "folderB", "keptOnly", "bin", "treeB", "item1", "unkept", "versions", "folders", "storage", "projects", "projectsTree", "families", "models"]);
     expect(read({ change: "erased", items: ["i2"] })).toEqual(["bin", "item2", "storage"]);
+  });
+
+  it("reads a stack's versions (the Stage's strip) after a keep, a bin or a move, as any of them may leave it (#325)", () => {
+    // S on a version in the viewer: kept by itself it leaves its stack, the strip must not list it still
+    for (const c of [{ change: "kept", items: ["v1"], kept: true }, { change: "binned", items: ["v1"] }, { change: "moved", items: ["v1"] }] as LibraryChange[]) expect(read(c)).toContain("versions");
+    // nothing that cannot change a stack: a rename, a render, a project
+    for (const c of [{ change: "fields", items: ["v1"], name: "zz-test" }, { change: "added", items: ["n1"] }, { change: "places" }] as LibraryChange[]) expect(read(c)).not.toContain("versions");
   });
 
   it("reads after a project made or renamed the places alone", () => {

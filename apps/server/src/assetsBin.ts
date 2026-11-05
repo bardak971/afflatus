@@ -8,7 +8,7 @@ import { isLinked } from "./linked";
 import { assetView, resetCountdown } from "./media";
 import type { Services } from "./services";
 import { inUse, withUseHeld } from "./sweep";
-import { ownPictures } from "./versions";
+import { freedChange, ownPictures } from "./versions";
 
 /**
  * Kept or not, to the bin and back, one item or several. What something still needs (a take on a timeline,
@@ -32,13 +32,19 @@ const unlessUsed = <T>(s: Services, work: (tx: Db) => Promise<T>) => withUseHeld
 /** Kept or not (POST /api/assets/:id/keep, MCP's keep and unkeep): what something still uses stays kept, refused with what uses it. */
 export async function keepItem(s: Services, { asset, fileInLinked }: AssetLookup, id: string, kept: boolean) {
   const a = await asset(id);
-  // a file of a linked folder is the user's own file: it is kept, whatever is asked
-  if (isLinked(a.file_key)) return assetView(a);
-  await unlessUsed(s, async (tx) => {
+  // a file of a linked folder is the user's own file: it is kept, whatever is asked. Kept, one that is a version (an old
+  // head) leaves its stack all the same, as any version kept by itself
+  if (isLinked(a.file_key)) {
+    if (!kept || !a.version_of) return assetView(a);
+    const freed = await s.db.transaction().execute((tx) => ownPictures(tx, [a.id]));
+    s.queue.events.emit("library", freedChange(freed));
+    return assetView(await asset(id));
+  }
+  const freed = await unlessUsed(s, async (tx) => {
     if (!kept) await refuseUsed(tx, a.id, "it stays kept while it is");
     await tx.updateTable("assets").set({ kept_at: kept ? now() : null }).where("id", "=", id).execute();
     // a version kept by itself is a picture of its own: kept under its head, it would be hidden there for good
-    if (kept) await ownPictures(tx, [a.id]);
+    return kept ? ownPictures(tx, [a.id]) : [];
   });
   // kept while it sits in a linked folder: it is written there as a file
   if (kept) await fileInLinked(a.id);
@@ -46,6 +52,8 @@ export async function keepItem(s: Services, { asset, fileInLinked }: AssetLookup
   else await resetCountdown(s.db, [a.id]);
   // the other tabs: the flag is written in place there, the disk use's split and the expiring count read again
   s.queue.events.emit("library", { change: "kept", items: [a.id], kept } satisfies LibraryChange);
+  // and a version that left its stack came into its folder's lists, which a keep written in place does not show
+  if (freed.length) s.queue.events.emit("library", freedChange(freed));
   return assetView(await asset(id));
 }
 
@@ -108,10 +116,15 @@ export async function bulkItems(s: Services, { fileInLinked }: AssetLookup, aske
   let special = 0;
   if (b.action === "bin") for (const a of onDisk) { await s.linked.toBin(a); special++; }
   if (b.action === "restore") for (const a of back) { await s.linked.restore(a); special++; }
+  // kept, the linked files that are versions (old heads) leave their stacks, as the others below
+  const linkedVersions = b.action === "keep" ? onDisk.filter((a) => a.version_of).map((a) => a.id) : [];
+  const freed = linkedVersions.length ? await s.db.transaction().execute((tx) => ownPictures(tx, linkedVersions)) : [];
+  special += freed.length;
   const handled = new Set([...(b.action === "bin" || b.action === "unkeep" || b.action === "keep" ? onDisk : []), ...(b.action === "restore" ? back : [])].map((a) => a.id));
   b.ids = b.ids.filter((id) => !handled.has(id));
   if (!b.ids.length) {
     s.queue.events.emit("library", change);
+    if (freed.length) s.queue.events.emit("library", freedChange(freed));
     return said(special);
   }
   const set = b.action === "keep" ? { kept_at: now() } : b.action === "unkeep" ? { kept_at: null } : b.action === "bin" ? { deleted_at: now(), version_of: null } : { deleted_at: null };
@@ -128,13 +141,15 @@ export async function bulkItems(s: Services, { fileInLinked }: AssetLookup, aske
     // what is kept already keeps the day it was kept
     if (b.action === "keep") query = query.where("kept_at", "is", null);
     const result = await query.executeTakeFirst();
-    if (b.action === "keep") await ownPictures(tx, b.ids);
+    if (b.action === "keep") freed.push(...await ownPictures(tx, b.ids));
     return result;
   });
   if (b.action === "keep") for (const id of b.ids) await fileInLinked(id);
   // unkept, or back from the bin: the day before the bin starts now
   if (b.action === "unkeep" || b.action === "restore") await resetCountdown(s.db, b.ids);
   s.queue.events.emit("library", change);
+  // the versions that left their stacks came into their folders' lists, which a keep written in place does not show
+  if (freed.length) s.queue.events.emit("library", freedChange(freed));
   return said(Number(done.numUpdatedRows) + special);
 }
 

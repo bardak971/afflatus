@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { sql, type Kysely } from "kysely";
 import { UNKEPT_MS } from "@afflatus/core";
 import { now, toRun, type Db, type Tables } from "./db";
+import { LINKED, isLinked } from "./linkedKey";
 import { onPostgres } from "./migrations/dialect";
 import type { Storage } from "./storage";
 import { SCRATCH_MS } from "./library";
@@ -211,7 +212,9 @@ export async function eraseUnused(db: Db, storage: Storage, due: (tx: Db) => Pro
   const { picked, erased } = await withUseHeld(db, async (tx) => {
     const used = await inUse(tx, { undo });
     const all = await due(tx);
-    const ids = all.filter((a) => !used.has(a.id)).map((a) => a.id);
+    // a row that still names a file of a linked folder is the user's file where it lies: never erased with it (a file of
+    // a linked folder is binned by moving it into Afflatus's storage first, linked.ts)
+    const ids = all.filter((a) => !used.has(a.id) && !isLinked(a.file_key)).map((a) => a.id);
     const out: Erased[] = [];
     // in slices: SQLite takes a limited number of values in one statement
     for (let i = 0; i < ids.length; i += 500) {
@@ -250,6 +253,8 @@ export async function sweep(db: Db, storage: Storage, at = Date.now(), keep: Kee
       // and a version a Keep set aside, whatever it was (an uploaded original too: versions.ts)
       .where((eb) => eb.or([eb("origin", "=", "generated"), eb("version_of", "is not", null)]))
       .where((eb) => eb(eb.fn.coalesce("countdown_from", "created_at"), "<", unkeptBefore))
+      // never a file of a linked folder: it is the user's own file, binned only by hand, through linked.ts
+      .where("file_key", "not like", `${LINKED}%`)
       .execute();
     const bin = due.map((a) => a.id).filter((id) => !used.has(id));
     let n = 0;
@@ -260,6 +265,11 @@ export async function sweep(db: Db, storage: Storage, at = Date.now(), keep: Kee
     }
     return n;
   });
+
+  // a file of a linked folder that a plain update put in the bin (a second Keep unkept it, before 0.10.0) never left its
+  // folder: it is back in the library, kept, as such files always are, rather than waiting in the bin for nothing
+  await db.updateTable("assets").set({ deleted_at: null, kept_at: now() }).where("deleted_at", "is not", null)
+    .where("file_key", "like", `${LINKED}%`).execute();
 
   const maskBefore = new Date(at - BIN_MS).toISOString();
   const scratchBefore = new Date(at - SCRATCH_MS).toISOString();
