@@ -153,8 +153,6 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       const d = adetail(g, ctx, input, drawn, {
         model: () => shifted(g, k.model, input, { width: 1024, height: 1024 }), clip: k.clip, vae: k.vae, cond: (text) => (text ? cond(g, k, input, text) : c),
         steps: k.steps, cfg: k.cfg, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed, scale: input.hires ? input.hiresScale : 1,
-        // a cast person's face redrawn from their box's words (their LoRA is on the whole picture already)
-        ...(input.detailFace ? { size: input.hires ? largeOf(input) : size, people: regions.filter((r) => r.cast && r.kind !== "text").map((r) => ({ box: r.box, positive: cond(g, k, input, r.prompt).positive })) } : {}),
       });
       const out = g.add("PreviewImage", { images: d.image });
       const all = d.passes.length ? [...sized(passes, [size.width * size.height, largeOf(input).width * largeOf(input).height]), ...d.passes] : passes;

@@ -24,19 +24,18 @@ export const REGIONS_WHY = {
 } as const;
 
 /** The Regions row: `lora` says what a region's LoRA does on this model, `kinds` whether a box can be a text. */
-export function regionsInput(o: { lora?: "scoped" | "global"; kinds?: true; picture?: true; how: string; face?: string }): InputSpec {
+export function regionsInput(o: { lora?: "scoped" | "global"; kinds?: true; how: string }): InputSpec {
   const lora = o.lora === "scoped"
     ? "A region's LoRA, and its cast person's, act inside its box alone."
     : o.lora === "global"
       ? "A region's LoRA, and its cast person's, are put on the whole picture: this model reads every box in one text, so a LoRA cannot be held to one."
       : "";
   return {
-    id: REGIONS, type: "regions", label: "Regions", max: MOST, ...(o.kinds ? { kinds: true } : {}), ...(o.lora ? { lora: o.lora } : {}), ...(o.picture ? { picture: true } : {}),
+    id: REGIONS, type: "regions", label: "Regions", max: MOST, ...(o.kinds ? { kinds: true } : {}), ...(o.lora ? { lora: o.lora } : {}),
     note: [
       `boxes drawn on the Stage, each with its own prompt, a cast person (their words and LoRA) and a LoRA. ${o.how}`,
       lora,
       "The result is guided, not exact: a box says where a thing should go, the model may still move it, shrink it or let it spill.",
-      o.face ?? "With Detail: face on, each face found in a person's box is redrawn from that person's words and LoRA",
     ].filter(Boolean).join(" "),
   };
 }
@@ -82,17 +81,6 @@ export function sdxlRegionNodes(value: unknown): string[] {
   return ["SolidMask", "MaskComposite", ...(plain ? ["ConditioningSetMask", "ConditioningCombine"] : []), ...(hooked ? ["CreateHookLora", "SetClipHooks", "ConditioningSetPropertiesAndCombine"] : [])];
 }
 
-/** What a region's text was read into, for the face pass after: its box and its conditioning (with its LoRA's hooks). */
-export interface RegionCond {
-  box: RegionValue["box"];
-  /** Its words as read, whole-picture (no mask): what a face of it is redrawn from. */
-  cond: Ref;
-  /** Its LoRAs as hooks, when it has any: the face pass's conditioning carries them, so they act on that face alone. */
-  hooks: Ref | null;
-  /** A cast person stands in it. */
-  person: boolean;
-}
-
 /**
  * The picture's text with each region's added over its box: ComfyUI's masked conditioning, the region's words sampled inside
  * its box beside the whole picture's everywhere (the base keeps the scene one picture). A region with a LoRA (its own, its
@@ -100,11 +88,9 @@ export interface RegionCond {
  * (CreateHookLora on the clip with SetClipHooks, and on the conditioning with ConditioningSetPropertiesAndCombine), its own
  * documented way to hold a LoRA to one part of a picture, so that two people's LoRAs do not blend into one face.
  */
-export function sdxlRegions(g: GraphBuilder, o: { clip: Ref; positive: Ref; quality: string; size: { width: number; height: number } }, value: unknown): { positive: Ref; regions: RegionCond[] } {
-  const regions = regionsOf(value);
+export function sdxlRegions(g: GraphBuilder, o: { clip: Ref; positive: Ref; quality: string; size: { width: number; height: number } }, value: unknown): Ref {
   let positive = o.positive;
-  const out: RegionCond[] = [];
-  for (const r of regions) {
+  for (const r of regionsOf(value)) {
     const text = [o.quality.trim().replace(/,\s*$/, ""), r.prompt.trim()].filter(Boolean).join(", ");
     const mask = boxMask(g, [r.box], o.size);
     const loras = regionLoras(r);
@@ -114,33 +100,16 @@ export function sdxlRegions(g: GraphBuilder, o: { clip: Ref; positive: Ref; qual
       const clip = g.out("SetClipHooks", { clip: o.clip, apply_to_conds: true, schedule_clip: false, hooks: hooks! });
       const cond = g.out("CLIPTextEncode", { text, clip });
       positive = g.out("ConditioningSetPropertiesAndCombine", { cond: positive, cond_NEW: cond, strength: 1, set_cond_area: "default", mask, hooks: hooks! });
-      out.push({ box: r.box, cond, hooks, person: Boolean(r.cast) });
     } else {
       const cond = g.out("CLIPTextEncode", { text, clip: o.clip });
       positive = g.out("ConditioningCombine", { conditioning_1: positive, conditioning_2: g.out("ConditioningSetMask", { conditioning: cond, mask, strength: 1, set_cond_area: "default" }) });
-      out.push({ box: r.box, cond, hooks: null, person: Boolean(r.cast) });
     }
   }
-  return { positive, regions: out };
+  return positive;
 }
 
 /** The region LoRA files a render loads (for `loads`). */
 export const regionLoads = (value: unknown): string[] => allRegionLoras(regionsOf(value)).map((l) => `loras/${l.file}`);
-
-// ---- the face pass, region by region
-
-/** The nodes the face pass by region adds, beside the Impact Pack's detailer: optional as it is (shared/adetail.ts). */
-export const REGION_FACE_NODES = ["SolidMask", "MaskComposite", "InvertMask", "MaskToSEGS", "ImpactSEGSIntersectionFilter", "ConditioningSetProperties"];
-
-/**
- * The faces found inside these boxes (`inside`), or outside all of them: a face kept when less than half of it lies on the
- * other side (the Impact Pack's intersection filter, which drops a face more than half over the mask it is given).
- */
-export function facesIn(g: GraphBuilder, segs: Ref, boxes: Array<RegionValue["box"]>, size: { width: number; height: number }, inside: boolean): Ref {
-  const mask = boxMask(g, boxes, size);
-  const away = g.out("MaskToSEGS", { mask: inside ? g.out("InvertMask", { mask }) : mask, combined: true, crop_factor: 1, bbox_fill: false, drop_size: 1, contour_fill: false });
-  return g.out("ImpactSEGSIntersectionFilter", { segs1: segs, segs2: away, ioa_threshold: 0.5 });
-}
 
 // ---- Krea 2: every box read in one pass (ComfyUI-Krea2-Regional)
 
