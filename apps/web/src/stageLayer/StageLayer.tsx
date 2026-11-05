@@ -4,6 +4,7 @@ import { dialogOver, OVER } from "../Dialog";
 import { typing } from "../Keys";
 import type { LayerPlace } from "../viewer/ZoomPicture";
 import { BrushCursor } from "./BrushCursor";
+import { nextView } from "./maskView";
 import { toolForKey, type LayerPointer, type LayerTool, type ToolbarItem } from "./tools";
 import type { MaskLayer } from "./useMaskLayer";
 
@@ -109,7 +110,7 @@ export function StageLayer({ place, tool, mask, children }: {
       onPointerCancel={(e) => end(e, "cancel")}
       onPointerLeave={() => setHover(null)}
     >
-      {mask?.view(place)}
+      {mask?.draw(place)}
       {children}
       {tool?.draw?.(place)}
       {brush && <BrushCursor place={place} at={hover} size={mask.brush.size} feather={mask.brush.feather} />}
@@ -119,7 +120,7 @@ export function StageLayer({ place, tool, mask, children }: {
 
 /**
  * The layer's keys, while it is on screen: a tool's letter picks it (or does it, for invert), [ and ] the brush's size
- * (with Shift: its feather), M shows or hides the mask, Ctrl+Z and Ctrl+Shift+Z (Ctrl+Y) undo and redo. Not while typing,
+ * (with Shift: its feather), M the mask's next view (Tint, Spotlight, B&W, Off), Ctrl+Z and Ctrl+Shift+Z (Ctrl+Y) undo and redo. Not while typing,
  * nor under a dialog opened over the layer (`root`: what the layer is in). [ and ] are also read by where they sit (a
  * French keyboard has them under AltGr), as every paint program does.
  */
@@ -155,7 +156,7 @@ export function useLayerKeys({ items, onPick, mask, root }: {
       }
       if (m && !ctrl && !e.altKey && k === "m") {
         e.preventDefault();
-        return m.setShown(!m.shown);
+        return m.setView(nextView);
       }
       const t = toolForKey(list, e);
       if (!t) return;

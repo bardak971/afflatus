@@ -411,6 +411,24 @@ export function tint(plane: Plane, rgb: readonly [number, number, number], stren
   return { data: out, rect: r };
 }
 
+/**
+ * The mask as shown, one step nearer the mask as it is, in `r`: each pixel moves by at most `step` toward its value in
+ * `plane`. What fades a fresh stroke in (and a rubbed-out one away) without the mask itself ever being anything but what
+ * was painted. Whether all of `r` has arrived.
+ */
+export function chase(shown: Uint8ClampedArray, plane: Plane, r: Rect, step: number): boolean {
+  let arrived = true;
+  for (let y = r.y; y < r.y + r.h; y++)
+    for (let i = y * plane.w + r.x, end = i + r.w; i < end; i++) {
+      const s = shown[i]!;
+      const t = plane.data[i]!;
+      if (s === t) continue;
+      shown[i] = s < t ? Math.min(t, s + step) : Math.max(t, s - step);
+      if (shown[i] !== t) arrived = false;
+    }
+  return arrived;
+}
+
 /** The pixels of a part of the plane, copied out. */
 export function cut(plane: Plane, r: Rect): Uint8ClampedArray {
   const out = new Uint8ClampedArray(r.w * r.h);

@@ -81,33 +81,34 @@ describe("a picture on the clipboard", () => {
 
 describe("the viewer over the screen", () => {
   const acts = { a: picture } as unknown as ViewerActions;
-  const media = (more: { onCopy?(): void; onClose?(): void }) => (
-    <ViewerMedia acts={acts} player={{ current: null }} trim={false} onTrim={() => {}} trimRange={null} onTrimRange={() => {}} onMenu={() => {}} overlay {...more} />
-  );
 
-  it("copies the picture on a click on it, and closes on a click beside it", async () => {
-    const onCopy = vi.fn();
+  it("copies nothing on a click on the picture (Ctrl+C does), and closes on a click beside it", async () => {
     const onClose = vi.fn();
-    draw(media({ onCopy, onClose }));
-    const img = screen.getByRole("button", { name: "Copy the picture" });
-    expect(img.getAttribute("data-tip")).toBe("Click to copy the picture (Ctrl+C)");
+    draw(<ViewerMedia acts={acts} player={{ current: null }} trim={false} onTrim={() => {}} trimRange={null} onTrimRange={() => {}} onMenu={() => {}} overlay onClose={onClose} />);
+    fakeClipboard();
+    fakeApi.on("GET /assets/:id/file", png);
+    // the picture is no button over the screen, and says nothing of a copy
+    expect(screen.queryByRole("button", { name: "Copy the picture" })).toBeNull();
+    const img = screen.getByRole("img");
+    expect(img.hasAttribute("data-tip")).toBe(false);
     fireEvent.click(img, { detail: 1 });
-    // a moment later: a double-click there zooms (fit / 1:1) instead of copying twice
-    expect(onCopy).not.toHaveBeenCalled();
-    await waitFor(() => expect(onCopy).toHaveBeenCalledTimes(1));
+    // past the double-click's wait: still nothing copied, and the viewer stays
+    await act(() => new Promise((done) => setTimeout(done, 300)));
+    expect(written).toHaveLength(0);
     expect(onClose).not.toHaveBeenCalled();
     // beside it: the room the picture is drawn in, around it
     fireEvent.click(img.closest("[data-zoom-room]")!);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("says nothing of a copy where the page cannot make one", () => {
-    const onClose = vi.fn();
-    draw(media({ onClose }));
-    const img = screen.getByRole("img");
-    expect(img.hasAttribute("data-tip")).toBe(false);
-    fireEvent.click(img);
-    expect(onClose).not.toHaveBeenCalled();
+  it("copies nothing on a click on the picture in the full viewer either", async () => {
+    fakeApi.on("GET /assets/:id/file", png);
+    draw(<Viewer asset={picture} items={[picture]} onOpen={() => {}} onClose={() => {}} />);
+    fakeClipboard();
+    fireEvent.click(screen.getByRole("img", { name: "Image" }), { detail: 1 });
+    await act(() => new Promise((done) => setTimeout(done, 300)));
+    expect(written).toHaveLength(0);
+    expect(useBanners.getState().items.filter((b) => b.title === "Picture copied")).toHaveLength(0);
   });
 });
 

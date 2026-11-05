@@ -172,6 +172,12 @@ textarea:focus-visible {
 [data-knob]:focus-visible {
   outline: none;
 }
+/* Paint and fix's toolbar, eye and bar mark keyboard focus with a soft ring, never the accent's rectangle (owner,
+   2026-11-04). Outside Tailwind's layers, as the rules above, to undo the :focus-visible rule */
+[data-soft-focus]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-ink) 22%, transparent);
+}
 input[type="range"] {
   accent-color: var(--color-accent);
 }
@@ -318,6 +324,11 @@ input[type="range"] {
   }
 }
 /* a change the server refused, back in its place: a short shake, twice */
+@keyframes m-box-dash {
+  to {
+    stroke-dashoffset: calc(-1 * var(--dash, 10px));
+  }
+}
 @keyframes m-shake {
   25% {
     transform: translateX(-3px);
@@ -405,6 +416,10 @@ input[type="range"] {
     .m-gate-pulse { animation: m-gate-pulse 900ms ease-out; }
     .m-gate-in { animation: m-gate-in 500ms ease both; }
     .m-gate-said { animation: m-gate-said 200ms ease both; }
+    /* Paint and fix's edit box: the picked one's dash moves (its length, --dash, set in screen pixels by its zoom), and
+       the dimming round a box being drawn or moved fades in */
+    .m-box-dash { animation: m-box-dash 0.8s linear infinite; }
+    .m-box-dim { animation: m-fade-in 180ms ease-out both; }
   }
   /* a colour that fades, no movement: under "reduce motion" too */
   .m-aim {

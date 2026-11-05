@@ -200,7 +200,7 @@ export function AutoText({ value, className, rows = 2, ...rest }: Omit<TextareaH
  * A number to type: what is written is taken when the box is left or Enter is pressed, brought back
  * within its limits and onto its steps. A comma works as a decimal point.
  */
-export function NumberBox({ value, min, max, step = 1, unit, label, onCommit, className }: {
+export function NumberBox({ value, min, max, step = 1, unit, label, onCommit, className, narrow }: {
   value: number;
   min: number;
   max: number;
@@ -209,6 +209,8 @@ export function NumberBox({ value, min, max, step = 1, unit, label, onCommit, cl
   label: string;
   onCommit(value: number): void;
   className?: string;
+  /** 48 px rather than 60: a short number (a count, a denoise) in a tight row, as Paint and fix's bar. */
+  narrow?: boolean;
 }) {
   const [text, setText] = useState<string | null>(null);
   // Escape gives up what was typed and leaves the box (its blur then commits nothing): kept in it, the editor's own Escape
@@ -244,7 +246,7 @@ export function NumberBox({ value, min, max, step = 1, unit, label, onCommit, cl
             e.currentTarget.blur();
           }
         }}
-        className="h-[30px] w-[60px] rounded-lg border border-line bg-raised px-1.5 text-center text-ink outline-none focus:border-accent focus:shadow-[0_0_0_3px_var(--color-accent-wash)]"
+        className={cx("h-[30px] rounded-lg border border-line bg-raised px-1.5 text-center text-ink outline-none focus:border-accent focus:shadow-[0_0_0_3px_var(--color-accent-wash)]", narrow ? "w-12" : "w-[60px]")}
       />
       {unit && <span>{unit.trim()}</span>}
     </span>

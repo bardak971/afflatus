@@ -7,7 +7,7 @@ import { fillRect, newPlane } from "../../src/stageLayer/raster";
 import { useClickTool, useDetectTool, useWandTool, type Find, type FindRequest, type FoundMask, type LoadMask, type LoadPixels } from "../../src/stageLayer/useFindTools";
 import { LayerToolbar } from "../../src/stageLayer/LayerToolbar";
 import { StageLayer, useLayerKeys } from "../../src/stageLayer/StageLayer";
-import { HAND_TOOL, type LayerTool, type ToolbarItem } from "../../src/stageLayer/tools";
+import { HAND_TOOL, isTool, type LayerTool, type ToolbarItem } from "../../src/stageLayer/tools";
 import { useFrameTool, type FrameSides, type FrameTool } from "../../src/stageLayer/useFrameTool";
 import { useMaskLayer, type MaskLayer } from "../../src/stageLayer/useMaskLayer";
 import { FIT, fitted, placed } from "../../src/viewer/zoom";
@@ -124,7 +124,7 @@ describe("the mask layer", () => {
     const items: ToolbarItem[] = [m.tools.brush, m.tools.eraser, m.tools.box, m.tools.lasso, "rule", m.tools.invert, HAND_TOOL];
     const [id, setId] = useState("brush");
     useLayerKeys({ items, onPick: setId, mask: m });
-    const tool = items.find((t): t is LayerTool => t !== "rule" && t.id === id) ?? null;
+    const tool = items.find((t): t is LayerTool => isTool(t) && t.id === id) ?? null;
     return (
       <>
         <LayerToolbar items={items} active={id} onPick={setId} />
@@ -170,8 +170,10 @@ describe("the mask layer", () => {
     expect(mask!.brush.size).toBeGreaterThan(64);
     fireEvent.keyDown(window, { key: "{", code: "BracketLeft", shiftKey: true });
     expect(mask!.brush.feather).toBe(12);
+    // M: the eye's next view, Tint first, then Spotlight, B&W, Off and back
+    expect(mask!.view).toBe("tint");
     fireEvent.keyDown(window, { key: "m" });
-    expect(mask!.shown).toBe(false);
+    expect(mask!.view).toBe("spot");
     const prompt = document.querySelector<HTMLInputElement>("input[aria-label=prompt]")!;
     fireEvent.keyDown(prompt, { key: "l" });
     expect(pressed()).toEqual(["Rectangle mask"]);
@@ -313,7 +315,7 @@ describe("the tools that find a mask", () => {
     const wandTool = useWandTool({ mask: m, natural: NATURAL, src: "/api/assets/zz-test/file", pixels });
     const items: ToolbarItem[] = [m.tools.brush, wandTool.tool, click.tool, detect.tool];
     useLayerKeys({ items, onPick: setId, mask: m });
-    const tool = items.find((t): t is LayerTool => t !== "rule" && t.id === id) ?? null;
+    const tool = items.find((t): t is LayerTool => isTool(t) && t.id === id) ?? null;
     return (
       <>
         {id === "detect" && <DetectOptions detect={detect} />}

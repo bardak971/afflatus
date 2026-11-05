@@ -11,7 +11,7 @@ import { FrameOptions, LayerStrip, MaskOptions } from "../stageLayer/LayerStrip"
 import { LayerToolbar } from "../stageLayer/LayerToolbar";
 import type { Rect } from "../stageLayer/raster";
 import { StageLayer, useLayerKeys } from "../stageLayer/StageLayer";
-import { HAND_TOOL, type LayerTool, type ToolbarItem } from "../stageLayer/tools";
+import { HAND_TOOL, isTool, type LayerTool, type ToolbarItem } from "../stageLayer/tools";
 import { useBoxKeys } from "../stageLayer/useBoxKeys";
 import { useFrameTool, type FrameSides } from "../stageLayer/useFrameTool";
 import { useMaskLayer } from "../stageLayer/useMaskLayer";
@@ -82,7 +82,8 @@ export function PaintAndFix({ acts, mode, strip, overlay }: {
   const editor = editors.find((e) => e.family === picked) ?? start;
   const [boxes, setBoxes] = useState<RegionValue[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
-  const boxTools = useRegionTool({ spec: { max: MAX_BOXES }, regions: boxes, natural, selected, onSelect: setSelected, onChange: setBoxes, nameOf: () => undefined, noun: "box" });
+  // a mask painted takes the bar: the boxes are then left out of the fix, and drawn so (grey, dashed, still)
+  const boxTools = useRegionTool({ spec: { max: MAX_BOXES }, regions: boxes, natural, selected, onSelect: setSelected, onChange: setBoxes, nameOf: () => undefined, noun: "box", look: "edit", ignored: Boolean(mask.area) });
   const [toolId, setToolId] = useState(mode === "outpaint" && out ? "frame" : mode === "edit" && editor ? "box" : "brush");
   // the finds run on the picture shown (a version is a picture of its own)
   const find = useMemo(() => findOn(a.id), [a.id]);
@@ -91,16 +92,22 @@ export function PaintAndFix({ acts, mode, strip, overlay }: {
   const sides: FrameSides = { shape: "Custom", ...frame.pads };
   const { tools } = mask;
   // with an editor, B draws an edit's box (V picks and moves one) and the mask's box is O; without one, B is the mask's box.
-  // The edit box has a pen in its square, so it does not read as the rectangle mask's dashed square below it
+  // The edit box has a pen in its square, so it does not read as the rectangle mask's dashed square
   const boxing: ToolbarItem[] = editor ? [
+    { group: "Box", tone: "box" },
     boxTools.select,
     { ...boxTools.box, label: "Edit box", icon: SquarePen, tip: "Drag a box where an edit model is to follow an instruction, then say it in the bar; a click on a box picks it" },
-    "rule",
   ] : [];
   const maskBox = editor ? { ...tools.box, id: "maskBox", key: "O" } : tools.box;
   const maskTools = useMaskTools({ mask, natural, src: fileUrl(a.id), find, toolId, box: maskBox });
-  const items: ToolbarItem[] = [...boxing, ...maskTools.items, "rule", tools.invert, ...(out ? [frame.tool] : []), HAND_TOOL];
-  const tool = items.find((t): t is LayerTool => t !== "rule" && t.id === toolId) ?? null;
+  // grouped as the owner picked them (mock-0.10-paint-look): Mask, Box, Frame, View
+  const items: ToolbarItem[] = [
+    { group: "Mask" }, ...maskTools.items, tools.invert,
+    ...boxing,
+    ...(out ? [{ group: "Frame" }, frame.tool] : []),
+    { group: "View" }, HAND_TOOL,
+  ];
+  const tool = items.find((t): t is LayerTool => isTool(t) && t.id === toolId) ?? null;
   const room = useRef<HTMLDivElement>(null);
   useLayerKeys({ items, onPick: setToolId, mask, root: room });
   const [grow, setGrow] = useState(GROW);
@@ -123,10 +130,10 @@ export function PaintAndFix({ acts, mode, strip, overlay }: {
   if (!job || !natural) return null;
   return (
     <div ref={room} className="flex min-h-0 w-full grow flex-col items-center gap-2">
-      <LayerStrip title={inBoxes ? "Edit in box" : verb === "Fix" ? "Paint and fix" : verb} className="w-full shrink-0">{options}</LayerStrip>
+      <LayerStrip title={inBoxes ? "Edit in box" : verb === "Fix" ? "Paint and fix" : verb} tone={inBoxes ? "box" : undefined} className="w-full shrink-0">{options}</LayerStrip>
       <div className="flex min-h-0 w-full grow items-start gap-3">
         {/* a short Stage (1280 × 800 with the form open) holds fewer tools than the bar has: it scrolls rather than run over the strip */}
-        <LayerToolbar items={items} active={toolId} onPick={setToolId} className="max-h-full overflow-y-auto [scrollbar-width:none]" />
+        <LayerToolbar items={items} active={toolId} onPick={setToolId} named className="max-h-full overflow-y-auto [scrollbar-width:none]" />
         <div className="relative flex h-full min-w-0 grow flex-col">
           {mask.failed && <ErrorNote>{mask.failed}</ErrorNote>}
           <ZoomPicture

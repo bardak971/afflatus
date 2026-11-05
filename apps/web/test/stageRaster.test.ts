@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  bounds, clear, clip, combine, cut, dab, distanceOut, dropStrays, EMPTY_BELOW, falloff, feathered, fillPolygon, fillRect, fromRgba, History, insidePolygon, invert,
+  bounds, chase, clear, clip, combine, cut, dab, distanceOut, dropStrays, EMPTY_BELOW, falloff, feathered, fillPolygon, fillRect, fromRgba, History, insidePolygon, invert,
   line, newPlane, normal, paste, resample, tint, toRgba, union, wand, workSize, WORK_EDGE, type Plane,
 } from "../src/stageLayer/raster";
 
@@ -445,5 +445,25 @@ describe("a found mask's strays", () => {
     fillRect(p, { x: 20, y: 40, w: 200, h: 200 }, 12, "add");
     const before = sum(p);
     expect(sum(dropStrays(p))).toBe(before);
+  });
+});
+
+describe("the mask as shown, chasing the mask", () => {
+  it("moves each pixel of the part by at most a step toward the plane, both ways, and says when all of it arrived", () => {
+    const p = newPlane(4, 1);
+    p.data.set([255, 0, 100, 40]);
+    const shown = new Uint8ClampedArray([0, 255, 100, 0]);
+    const all = { x: 0, y: 0, w: 4, h: 1 };
+    expect(chase(shown, p, all, 100)).toBe(false);
+    expect([...shown]).toEqual([100, 155, 100, 40]);
+    expect(chase(shown, p, all, 100)).toBe(false);
+    expect(chase(shown, p, all, 100)).toBe(true);
+    expect([...shown]).toEqual([...p.data]);
+    // only the part asked: the rest as it was shown
+    const part = new Uint8ClampedArray(4);
+    expect(chase(part, p, { x: 2, y: 0, w: 2, h: 1 }, 255)).toBe(true);
+    expect([...part]).toEqual([0, 0, 100, 40]);
+    // the plane itself is never written: what is sent stays what was painted
+    expect([...p.data]).toEqual([255, 0, 100, 40]);
   });
 });
