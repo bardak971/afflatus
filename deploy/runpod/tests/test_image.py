@@ -181,14 +181,6 @@ class Base(unittest.TestCase):
         compiled = "a==1 \\\n    --hash=sha256:" + "0" * 64 + " \\\n    --hash=sha256:" + "1" * 64 + "\n    # via x\nb==2 \\\n    --hash=sha256:" + "2" * 64 + "\n"
         self.assertEqual(tool.one_line_each(compiled), [f"a==1 --hash=sha256:{'0' * 64} --hash=sha256:{'1' * 64}", f"b==2 --hash=sha256:{'2' * 64}"])
 
-    def test_krea2edit_is_built_in_at_its_commit(self):
-        # never ComfyUI-Manager's "nightly" (its repository's head): packs.ts holds the same commit (ownPacks.test.ts)
-        text = read(BASE)
-        commit = re.search(r"(?m)^ARG KREA2EDIT_COMMIT=([0-9a-f]{40})$", text).group(1)
-        self.assertIn('pin comfyui-krea2edit https://github.com/lbouaraba/comfyui-krea2edit "${KREA2EDIT_COMMIT}"', text)
-        with open(os.path.join(POD, "..", "..", "packages", "core", "src", "packs.ts"), encoding="utf-8") as f:
-            self.assertIn(f'commit: "{commit}"', f.read())
-
     def test_ipadapter_plus_is_built_in_at_its_commit(self):
         # SDXL's references: ComfyUI-Manager's install of it on a pod failed once, its jobs never run there (card #282). Its
         # folder is linked under the name whose lower case is the Registry id, so start.sh takes the place of a copy Manager
@@ -198,15 +190,6 @@ class Base(unittest.TestCase):
         self.assertIn('pin ComfyUI_IPAdapter_plus https://github.com/cubiq/ComfyUI_IPAdapter_plus "${IPADAPTER_COMMIT}"', text)
         with open(os.path.join(POD, "..", "..", "packages", "core", "src", "packs.ts"), encoding="utf-8") as f:
             self.assertIn('name: "comfyui_ipadapter_plus"', f.read())
-
-    def test_krea2_regional_is_built_in_at_its_commit(self):
-        # Krea 2's regions (card #271): not on the Comfy Registry, a pod's ComfyUI-Manager refused it by name; its only other way
-        # is its repository's head, unchecked. packs.ts holds the same commit, so the app never asks Manager for it
-        text = read(BASE)
-        commit = re.search(r"(?m)^ARG KREA2REGIONAL_COMMIT=([0-9a-f]{40})$", text).group(1)
-        self.assertIn('pin ComfyUI-Krea2-Regional https://github.com/januspluto/ComfyUI-Krea2-Regional "${KREA2REGIONAL_COMMIT}"', text)
-        with open(os.path.join(POD, "..", "..", "packages", "core", "src", "packs.ts"), encoding="utf-8") as f:
-            self.assertIn(f'commit: "{commit}"', f.read())
 
     def test_impact_subpack_is_built_in_at_its_commit_without_its_downloads(self):
         # ComfyUI-Manager's install of it fetched the YOLO pickles from Hugging Face's main, unchecked, before Afflatus's

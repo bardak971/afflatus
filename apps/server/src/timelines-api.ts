@@ -20,7 +20,7 @@ import { folderOfTimeline } from "./timelineFolder";
 import { fcp7Xml, otioJson, projectPlan, projectReadme } from "./timelineProject";
 import { ownInputIds } from "./timelinePlan";
 import { sourcePatch } from "./timelineSource";
-import { finishBody, finishClips, finishEstimate, finishPlan } from "./timelineFinish";
+import { finishBody, finishEstimate, finishTimeline } from "./timelineFinish";
 import { ZipStream } from "./zipStream";
 import type { Services } from "./services";
 import { clockOf, FROM_PREVIOUS } from "./timelines";
@@ -184,7 +184,7 @@ export function sent<V extends { clips: Array<{ take: { id: string } | null; tak
 export const rangeBody = z.strictObject({ startMs: z.number().min(0), endMs: z.number().min(0), action: z.enum(["copy", "split", "remove", "slow"]), crf: z.number().int().min(0).max(40).optional(), factor: z.union([z.literal(2), z.literal(4)]).optional(), even: z.boolean().optional(), timeline: z.string().optional() });
 
 /**
- * A range of a video kept as new videos: copied, split out, or removed (see Timelines.cutRange), or slowed. Done in the
+ * A range of a video kept as new videos: copied, split out, or removed (see TimelineRange.cutRange), or slowed. Done in the
  * queue, by ffmpeg (a slow motion by RIFE where ComfyUI has it); the job's label says what it does. A sound the same way
  * (not slowed), `even` evening out the loudness of what it makes. Split and remove take the source to the bin, as a bin
  * does: never one that something still uses. `by`: the MCP token whose call sent a slow motion (RIFE on the GPU: its limits
@@ -321,7 +321,7 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     const clips = await t.recording.recordingForm(req.params.id, z.strictObject({ asset: z.string().min(1), inputs: z.record(z.string(), z.unknown()) }).parse(req.body));
     return { ok: true, clips };
   });
-  // the form a recording's new clips are made in, Lip sync or one it plays over (its panel's New clips: Timelines.recordingNewClips)
+  // the form a recording's new clips are made in, Lip sync or one it plays over (its panel's New clips: TimelineRecording.recordingNewClips)
   app.post<{ Params: { id: string } }>("/api/timelines/:id/recording/new-clips", async (req) => {
     await t.recording.recordingNewClips(req.params.id, z.strictObject({ asset: z.string().min(1), recipe: z.string().min(1) }).parse(req.body));
     return { ok: true };
@@ -503,14 +503,8 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
    * latent larger, its join decoded as one piece with the clip before's. Clips finished already are skipped unless `redo`.
    */
   app.post<{ Params: { id: string } }>("/api/timelines/:id/finish", async (req) => {
-    const b = finishBody.parse(req.body);
-    // looked at and queued one request at a time, as an export is: two quick Finish clicks queued two finishes of each clip
-    const done = await t.history.oneAtATime(`finish:${req.params.id}`, async () => {
-      const { plan, skipped } = await finishPlan(s, req.params.id, b);
-      return finishClips(s, plan, skipped);
-    });
-    s.queue.events.emit("timeline");
-    return done;
+    const { jobs, skipped } = await finishTimeline(s, req.params.id, finishBody.parse(req.body));
+    return { jobs, skipped };
   });
 
   /** What Finish with these settings would take in all (finishEstimate: its jobs through the machines' lanes); null when a job of it has no learned figure yet. */

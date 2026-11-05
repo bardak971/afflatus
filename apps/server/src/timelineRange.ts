@@ -13,7 +13,7 @@ import { inUse } from "./sweep";
 import { readVideo, readVideoFile, videoFacts } from "./video";
 import { clockOf, laidOut, landingOnGrid, lengthOf, lengthOnGrid, plays, setTrims, STILL_MS, visible, type AssetRow, type ClipRow, type Laid, type Placed, type TimelineCore } from "./timelineModel";
 import { precomputeOf } from "./precompute";
-import { clipsOfSource, sourceOfRow, windowRunUp } from "./timelineSource";
+import { sourceOfRow, windowRunUp } from "./timelineSource";
 
 /**
  * Cuts, on the timeline's clock and in a video's own time: a clip split or duplicated, a range of the
@@ -284,7 +284,7 @@ export class TimelineRange {
     }
     const t = await db.selectFrom("timelines").select("source").where("id", "=", timelineId).executeTakeFirst();
     const plan = sourceOfRow(t?.source ?? null);
-    if (plan && clipsOfSource(plan, [clip], (r) => this.core.registry.recipe(r)).length) {
+    if (plan && this.core.sourceClips(plan, [clip]).length) {
       throw httpError("This clip is a window of the source: its part of it cannot be split in two. Remove the window (its part is cut out), or set its windows anew in Source settings.");
     }
   }

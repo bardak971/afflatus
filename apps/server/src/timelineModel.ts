@@ -335,6 +335,8 @@ export interface TimelineCore {
   /** What is on a timeline is wanted: it never goes to the bin on its own. `db`: the transaction this is part of. */
   keep(assetId: string, db?: Db): Promise<void>;
   renumber(timelineId: string, order: string[], db?: Db): Promise<void>;
+  /** Of these clips, the ids of those that are windows of the source cut from `plan.asset` (timelineSource.ts clipsOfSource). */
+  sourceClips(plan: { asset: string }, clips: Array<{ id: string; recipe_id: string | null; inputs: string }>): string[];
   /** What a new clip takes over from the nearest clip before it made with the same recipe: its settings, not its story or its pictures. */
   settingsOf(recipe: Recipe<any>, all: Placed[], index: number): Record<string, unknown>;
   /** One frame of a video as a picture in the library (timelineMedia.ts), in the folder of the timeline it is taken in. */

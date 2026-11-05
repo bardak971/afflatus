@@ -9,7 +9,7 @@ import { FFMPEG_TIMEOUT, ffmpegThere } from "./clipKit";
 import { get, sentView, withTakes, makeApp, type TestApp } from "./helpers";
 
 /**
- * A voice recording dropped on the track made into Lip sync clips, cut at its pauses (Timelines.makeFromRecording). The
+ * A voice recording dropped on the track made into Lip sync clips, cut at its pauses (TimelineRecording.makeFromRecording). The
  * recording is a tone with two pauses, made by ffmpeg; nothing is rendered.
  */
 

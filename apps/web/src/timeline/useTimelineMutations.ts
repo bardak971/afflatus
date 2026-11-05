@@ -122,10 +122,10 @@ export function useTimelineMutations(id: string, o: {
   });
   /** The source cut again into its clips (its window or its scene cuts changed): those rendered at its start are kept. */
   const cutSource = useMutation({ mutationFn: () => api.makeFromSource(id, true), onSuccess: after });
-  /** A recording's Lip sync clips trimmed (Timelines.trimRecording). */
+  /** A recording's Lip sync clips trimmed (TimelineRecording.trimRecording). */
   const trimRecording = useMutation({ mutationFn: (v: { asset: string; fromMs: number; toMs: number }) => api.trimRecording(id, v.asset, v.fromMs, v.toMs), onSuccess: readBack });
   /**
-   * The source's stretch trimmed after Make (Timelines.trimSource). What the server says of it (windows it passed) goes
+   * The source's stretch trimmed after Make (TimelineSource.trimSource). What the server says of it (windows it passed) goes
    * behind the header note's "?", where it is read whole and stays longer: it is said once only, and a sentence that
    * long was cut off in the note's line.
    */
@@ -136,9 +136,9 @@ export function useTimelineMutations(id: string, o: {
       return readBack();
     },
   });
-  /** A recording's clips cut again from its panel, at another length or window (Timelines.cutRecording). */
+  /** A recording's clips cut again from its panel, at another length or window (TimelineRecording.cutRecording). */
   const cutRecording = useMutation({ mutationFn: (v: { asset: string; seconds: number; window: number }) => api.cutRecording(id, v.asset, v.seconds, v.window), onSuccess: readBack });
-  /** What a recording's clips share, given to all of them (Timelines.recordingForm). */
+  /** What a recording's clips share, given to all of them (TimelineRecording.recordingForm). */
   const recordingForm = useMutation({
     mutationFn: (v: { asset: string; inputs: Record<string, unknown> }) => api.recordingForm(id, v.asset, v.inputs),
     onSuccess: (r) => {
@@ -148,13 +148,13 @@ export function useTimelineMutations(id: string, o: {
       return readBack();
     },
   });
-  /** The form a recording's new clips are made in, from its panel (Timelines.recordingNewClips). */
+  /** The form a recording's new clips are made in, from its panel (TimelineRecording.recordingNewClips). */
   const recordingNewClips = useMutation({ mutationFn: (v: { asset: string; recipe: string }) => api.recordingNewClips(id, v.asset, v.recipe), onSuccess: readBack });
   /** A voice recording made into Lip sync clips (their ids, the first opened once the timeline is read again). */
   const recording = useMutation({ mutationFn: (v: { asset: string; clip?: string }) => api.makeFromRecording(id, v.asset, v.clip), onSuccess: after });
-  /** The source given another windowed form: its windows and takes kept on the same grid, else made anew (Timelines.sourceForm). */
+  /** The source given another windowed form: its windows and takes kept on the same grid, else made anew (TimelineSource.sourceForm). */
   const sourceForm = useMutation({ mutationFn: (recipe: string) => api.sourceForm(id, recipe), onSuccess: after });
-  /** One window of the source given another form of its grid, in place (Timelines.windowForm). */
+  /** One window of the source given another form of its grid, in place (TimelineSource.windowForm). */
   const windowForm = useMutation({ mutationFn: (v: { clip: string; recipe: string }) => api.windowForm(id, v.clip, v.recipe), onSuccess: after });
   /** The source split at a moment of it: the part before plays as it is, a clip of its own. */
   const splitSource = useMutation({ mutationFn: (atMs: number) => api.splitSource(id, atMs), onSuccess: after });

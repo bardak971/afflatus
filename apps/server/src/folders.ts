@@ -5,6 +5,7 @@ import { newId, now, OWNER } from "./db";
 import { foldersOf, type LibraryChange } from "./events";
 import { oneAtATime } from "./keyedLock";
 import { fromThisComputer } from "./hostCheck";
+import { inLibrary } from "./library";
 import { isLinked, whyNotLinkableFrom } from "./linked";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
@@ -38,8 +39,8 @@ export async function foldersList(s: Services) {
     .select((eb) => ["folder_id", eb.fn.countAll().as("n")])
     .where("deleted_at", "is", null)
     .where("folder_id", "is not", null)
-    // a version waiting under its picture is not one of the folder's items until it is kept (versions.ts)
-    .where("version_of", "is", null)
+    // the items the tree shows: not a version waiting under its picture (versions.ts), a mask, a kit's picture or a scratch one
+    .where(inLibrary)
     .groupBy("folder_id")
     .execute();
   const byFolder = new Map(counts.map((c) => [c.folder_id, Number(c.n)]));

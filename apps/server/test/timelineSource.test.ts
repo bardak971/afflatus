@@ -370,7 +370,7 @@ describe("a timeline's source lane", () => {
     });
   });
 
-  describe("given another form after Make (Timelines.sourceForm)", () => {
+  describe("given another form after Make (TimelineSource.sourceForm)", () => {
     const WHO = "Replace the woman in <Video 1> with the man in <Picture 1>.";
     const madeWith = async (recipe: string) => {
       const tl = await call("POST", "/api/timelines", { name: `zz-test source form ${recipe}` });
@@ -445,7 +445,7 @@ describe("a timeline's source lane", () => {
     });
   });
 
-  describe("trimmed after Make (Timelines.trimSource)", () => {
+  describe("trimmed after Make (TimelineSource.trimSource)", () => {
     const madeSwap = async () => {
       const tl = await call("POST", "/api/timelines", { name: "zz-test source trim" });
       const meme = await asset("video");

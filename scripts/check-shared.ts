@@ -373,7 +373,8 @@ export function sources(root: string, { tests = false }: { tests?: boolean } = {
     }
   }
   walk(join(root, "scripts"));
-  return out;
+  // a session's throwaway probes (scripts/zz-*, git-ignored): never committed, so never the checks' business (card #312)
+  return out.filter((p) => !/^zz-/.test(relative(join(root, "scripts"), p).split(/[\\/]/)[0] ?? ""));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

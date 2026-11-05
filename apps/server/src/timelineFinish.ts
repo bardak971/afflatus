@@ -71,6 +71,25 @@ export async function finishEstimate(s: Services, timeline: string, b: z.infer<t
 }
 
 /** The jobs a finish would queue, in order, and the clips skipped with why: nothing is queued here. */
+/**
+ * Finish asked of a timeline, by its dialog or MCP's finish: looked at and queued one request at a time, as an export is (two
+ * quick Finish clicks queued two finishes of each clip), the timeline told it changed. `check`: what the asker refuses or
+ * says of the plan before anything is queued (MCP's money rules); what it gives comes back as `checked`.
+ */
+export async function finishTimeline<T = undefined>(
+  s: Services, timeline: string, b: z.infer<typeof finishBody>,
+  by: { mcpToken?: string; check?: (plan: FinishJob[], skipped: Array<{ clip: number; why: string }>) => Promise<T> } = {},
+): Promise<{ jobs: string[]; skipped: Array<{ clip: number; why: string }>; clips: number; checked?: T }> {
+  const out = await s.timelines.history.oneAtATime(`finish:${timeline}`, async () => {
+    const { plan, skipped } = await finishPlan(s, timeline, b);
+    const checked = by.check ? await by.check(plan, skipped) : undefined;
+    const done = await finishClips(s, plan, skipped, by.mcpToken ? { mcpToken: by.mcpToken } : {});
+    return { ...done, clips: plan.length, ...(checked !== undefined ? { checked } : {}) };
+  });
+  s.queue.events.emit("timeline");
+  return out;
+}
+
 export async function finishPlan(s: Services, timeline: string, b: z.infer<typeof finishBody>): Promise<{ plan: FinishJob[]; skipped: Array<{ clip: number; why: string }> }> {
   const t = s.timelines;
   const view = await t.view(timeline);

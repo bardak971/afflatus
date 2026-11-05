@@ -11,9 +11,6 @@ The figures are numpy (the tests run them without torch). The node reads and mov
 device and a piece at a time (torch_follow): numpy's float64 took 0.3 s a frame at 576x1024 and nearly 1 s at 1080p, minutes
 on a long clip, for the same figures to a hundredth of a level. `rgb_to_lab`, `lab_to_rgb` and `apply_follow` stay as the
 reference for it.
-
-Match Picture Colours, at the end, moves one picture by one transform: a person's reference picture brought to the light of
-the frame an H3 continuation carries on from (card #222).
 """
 
 import numpy as np

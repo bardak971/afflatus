@@ -9,7 +9,7 @@ import { trimOut } from "@afflatus/core";
 import { makeApp, png, type TestApp } from "./helpers";
 
 /**
- * A source's windows and a recording's Lip sync clips trimmed in and out after Make (Timelines.trimSource, trimRecording,
+ * A source's windows and a recording's Lip sync clips trimmed in and out after Make (TimelineSource.trimSource, trimRecording,
  * and the rule they share, trimIn and trimOut): what is set aside comes back as it was, and no take is ever lost on the
  * way. Takes and jobs are rows put in by hand; nothing is rendered. The recording is a sound ffmpeg makes.
  */

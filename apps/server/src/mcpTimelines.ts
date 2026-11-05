@@ -11,7 +11,7 @@ import { rootFolderOf } from "./projects";
 import type { Services } from "./services";
 import { contactSheet } from "./thumbs";
 import { exportBody, exportTimeline, maskPreview, maskPreviewOf, rangeAction, renderClips, timelineRangeBody } from "./timelines-api";
-import { finishBody, finishClips, finishPlan } from "./timelineFinish";
+import { finishBody, finishTimeline } from "./timelineFinish";
 import { faceRouteSaid, type FaceRoute } from "./timelineFace";
 import { clockOf, CUT_JOB } from "./timelineModel";
 import type { ClipPatch, TimelinePatch, Timelines } from "./timelines";
@@ -781,16 +781,20 @@ const finish = tool({
     const view = await viewOf(s, timeline);
     const b = finishBody.parse({ ...args, clips: args.clips?.map((r) => clipAt(view, r).clip.id), redo: args.redo ?? false });
     const at = await seen(s);
-    return oneAtATime(s.db, `mcp-render:${token.id}`, () => s.timelines.history.oneAtATime(`finish:${view.id}`, async () => {
-      const { plan, skipped } = await finishPlan(s, view.id, b);
-      if (!plan.length) throw httpError(`Nothing to finish on “${view.name}”: ${skipped.map((x) => `clip ${x.clip}: ${x.why}`).join("; ") || "no clip"}.`);
-      const jobs = plan.flatMap((j) => (j.kind === "render" ? [{ recipe: j.recipe, input: j.input, takes: 1 }, ...(j.then ? [{ recipe: CUT_JOB, input: j.then.cut, takes: 1 }] : [])] : [{ recipe: CUT_JOB, input: j.cut, takes: 1 }]));
-      const usd = await mayQueueAll(s, ctx, at, jobs, { renders: jobs.length });
-      const done = await finishClips(s, plan, skipped, { mcpToken: token.id });
-      s.queue.events.emit("timeline");
-      ctx.said(`Finished ${plural(plan.length, "clip")} of “${view.name}” (${args.route})`);
+    return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
+      const done = await finishTimeline(s, view.id, b, {
+        mcpToken: token.id,
+        // refused before anything is queued: nothing to finish, or past the money rules of mcpRender.ts
+        check: async (plan, skipped) => {
+          if (!plan.length) throw httpError(`Nothing to finish on “${view.name}”: ${skipped.map((x) => `clip ${x.clip}: ${x.why}`).join("; ") || "no clip"}.`);
+          const jobs = plan.flatMap((j) => (j.kind === "render" ? [{ recipe: j.recipe, input: j.input, takes: 1 }, ...(j.then ? [{ recipe: CUT_JOB, input: j.then.cut, takes: 1 }] : [])] : [{ recipe: CUT_JOB, input: j.cut, takes: 1 }]));
+          return { usd: await mayQueueAll(s, ctx, at, jobs, { renders: jobs.length }) };
+        },
+      });
+      ctx.said(`Finished ${plural(done.clips, "clip")} of “${view.name}” (${args.route})`);
+      const usd = done.checked?.usd;
       return { jobs: done.jobs, skipped: done.skipped.map((x) => `clip ${x.clip}: ${x.why}`), ...(usd ? { mayCostUsd: cents(usd) } : {}) };
-    }));
+    });
   },
   task: (a: { jobs: string[] }) => ({ jobs: a.jobs }),
 });
