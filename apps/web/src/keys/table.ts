@@ -267,7 +267,7 @@ export const PLACES: KeyPlace[] = [
           { keys: "U", does: "Upscale 2x", note: "queued at once" },
           { keys: "F", does: "Face refine", note: "queued at once" },
           { keys: "H", does: "Hand refine", note: "queued at once, on the hand detector" },
-          { keys: "B", does: "Remove background", note: "queued at once" },
+          { keys: "B", does: "Remove background", note: "its model first: Enter queues it, Esc closes; a click on its button queues it at once" },
           { keys: "I", does: "Inpaint…", note: "Paint and fix on the Stage: the fixes come back as versions" },
           { keys: "E", does: "Edit…", note: "on the Stage: an instruction, the results as versions" },
           { keys: "R", does: "Outpaint…", note: "on the Stage: the frame dragged out, the results as versions" },

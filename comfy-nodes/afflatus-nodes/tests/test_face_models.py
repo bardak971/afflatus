@@ -68,4 +68,16 @@ def test_a_fetch_of_other_bytes_than_the_release_is_refused(tmp_path):
     with pytest.raises(RuntimeError, match="other bytes"):
         F.fetch(root, download=_extract)
     assert not os.path.exists(F.folder(root)) and _left(root) == []
-    assert set(F.SHA256) == set(F.FILES) and all(len(h) == 64 for h in F.SHA256.values())
+    assert set(F.FILES) <= set(F.SHA256) and len(F.SHA256) == 5 and all(len(h) == 64 for h in F.SHA256.values())
+
+
+def test_a_fetch_with_another_file_of_the_pack_changed_is_refused(tmp_path):
+    # FaceID loads the whole pack: a file Face Match never reads is checked all the same
+    root = str(tmp_path)
+    every = {**ONNX, "genderage.onnx": hashlib.sha256(b"release").hexdigest()}
+    with pytest.raises(RuntimeError, match="genderage"):
+        F.fetch(root, download=lambda into: _extract(into, files=(*F.FILES, "genderage.onnx")), sha256=every)
+    assert not os.path.exists(F.folder(root)) and _left(root) == []
+    # and one missing from the zip is not moved in either
+    with pytest.raises(RuntimeError, match="genderage"):
+        F.fetch(root, download=_extract, sha256=every)

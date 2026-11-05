@@ -163,9 +163,12 @@ const bare = (v: string) => v.replace(/^.*[\\/]/, "");
  * the form keeps its own.
  */
 function ownInto(recipe: Recipe<any>, own: Record<string, unknown>, input: Record<string, unknown>, options: Options): void {
+  // a form that starts from the picture rolls its own seed and keeps the picture's size, as fill does
+  const fromPicture = takesPicture(recipe);
   for (const spec of recipe.inputs as InputSpec[]) {
     const v = own[spec.id];
     if (v === undefined || MEDIA_TYPES.has(spec.type) || spec.type === "loras" || spec === formModelInput(recipe)) continue;
+    if (fromPicture && (spec.type === "seed" || spec.type === "size")) continue;
     if (typeof v === "string" && isModelFile(v)) {
       const offered = spec.type === "choice" && Array.isArray(spec.options) ? spec.options : options[spec.id] ?? [];
       const file = offered.find((o) => o === v) ?? offered.find((o) => bare(o).toLowerCase() === v.toLowerCase());

@@ -608,10 +608,13 @@ export function formModelInput(recipe: { family?: string; inputs: readonly Input
 
 const multipleOf = (n: number, grid: number) => Math.round(n / grid) * grid;
 
+/** The longest a prompt may be: the schema's bound, and the one a text is held to before its wildcards are settled. */
+export const PROMPT_MOST = 20_000;
+
 function schemaOf(spec: InputSpec): z.ZodType {
   switch (spec.type) {
     case "prompt": {
-      const s = z.string().max(20_000);
+      const s = z.string().max(PROMPT_MOST);
       return spec.optional ? s.default(spec.default ?? "") : spec.default !== undefined ? s.default(spec.default) : s.min(1);
     }
     case "model": {

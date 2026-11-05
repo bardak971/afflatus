@@ -3,6 +3,7 @@ import sharp from "sharp";
 import { AI_COMMENT } from "../src/aiMark";
 import { uniqueNames, zipName } from "../src/assetsZip";
 import { get, makeApp, post } from "./helpers";
+import { zipNames } from "./zipKit";
 
 /** A library selection downloaded as one zip (assetsZip.ts): asked by ids, followed as a link, streamed. */
 
@@ -55,6 +56,30 @@ describe("a selection downloaded as a zip", () => {
       expect((await post(t.app, "/api/assets/zip", { ids: [] })).statusCode).toBe(400);
       const none = (await post(t.app, "/api/assets/zip", { ids: ["gone"] })).json() as { href: string };
       expect((await get(t.app, none.href)).statusCode).toBe(404);
+    } finally {
+      await t.close();
+    }
+  });
+
+  it("skips an item whose file is gone from the disk, a render too, and says which in a note at its end", async () => {
+    const t = await makeApp();
+    try {
+      const upload = async (name: string, r: number) => (await t.app.inject({ method: "POST", url: `/api/assets?name=${name}`, headers: { "content-type": "image/png" }, payload: await picture(r) })).json() as { id: string };
+      const kept = await upload("kept", 10);
+      const lost = await upload("lost", 20);
+      const made = await upload("render", 30);
+      await t.db.updateTable("assets").set({ origin: "generated" }).where("id", "=", made.id).execute();
+      // both files moved away from under the library (a linked folder's): the render's read whole, the other's streamed
+      await t.db.updateTable("assets").set({ file_key: "zz-test/missing-1.png" }).where("id", "=", made.id).execute();
+      await t.db.updateTable("assets").set({ file_key: "zz-test/missing-2.png" }).where("id", "=", lost.id).execute();
+
+      const { href } = (await post(t.app, "/api/assets/zip", { ids: [made.id, kept.id, lost.id] })).json() as { href: string };
+      const zip = (await get(t.app, href)).rawPayload;
+      expect(zipNames(zip)).toEqual(["kept.png", "Not in this zip.txt"]);
+      const body = zip.toString("utf8");
+      expect(body).toContain("Not found on the disk, so not in this zip (2 items):\r\nrender.png\r\nlost.png");
+      // an id longer than any id is refused before anything is looked up
+      expect((await post(t.app, "/api/assets/zip", { ids: ["x".repeat(65)] })).statusCode).toBe(400);
     } finally {
       await t.close();
     }

@@ -8,7 +8,7 @@ import { nameOf } from "./autoName";
 import { VERSION } from "./config";
 import { CutError, markedVideoFile } from "./cut";
 import { musicTrack } from "./exportJoin";
-import { outgoingPng } from "./pngInfo";
+import { outgoingOwnPng, outgoingPng } from "./pngInfo";
 import { now } from "./db";
 import { httpError } from "./errors";
 import { compose, lookSchema, withMood } from "./entities";
@@ -491,6 +491,12 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
             }
             const marked = await outgoingPng(s, a, await s.storage.get(key));
             await zip.add(path, Readable.from([Buffer.from(marked.buffer, marked.byteOffset, marked.byteLength)]), new Date(), marked.length);
+            continue;
+          }
+          // a PNG brought in: without its texts when Settings says a download carries none (pngInfo.ts)
+          if (a?.mime === "image/png") {
+            const own = await outgoingOwnPng(s, await s.storage.get(key));
+            await zip.add(path, Readable.from([Buffer.from(own.buffer, own.byteOffset, own.byteLength)]), new Date(), own.length);
             continue;
           }
           const f = await s.storage.open(key);
