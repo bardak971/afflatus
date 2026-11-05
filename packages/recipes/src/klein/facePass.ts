@@ -81,7 +81,7 @@ export interface FacePassed {
  * no Klein or detector here, the Impact Pack missing). `pictures`: the person's pictures as ComfyUI has them (their upload
  * names); `scale`: how much larger the picture is than as it was drawn (a hires fix), which the face's size is read at.
  */
-export function facePass(g: GraphBuilder, ctx: BuildContext, input: FacePassValues, image: Ref, at: { pictures: string[]; scale: number; within?: (segs: Ref) => Ref; none?: string }): FacePassed {
+export function facePass(g: GraphBuilder, ctx: BuildContext, input: FacePassValues, image: Ref, at: { pictures: string[]; scale: number }): FacePassed {
   const as: FacePassed = { image, pass: null, loads: [], said: null };
   if (!input.faceRefine || !at.pictures.length) return as;
   const said = facePassSkipped(input, ctx, at.pictures);
@@ -102,9 +102,8 @@ export function facePass(g: GraphBuilder, ctx: BuildContext, input: FacePassValu
   const cond = kleinCond(g, k, SAME_FACE, at.pictures.map((p) => g.out("LoadImage", { image: p })));
   const detector = g.out("UltralyticsDetectorProvider", { model_name: slots.faceDetector });
   const found = g.out("BboxDetectorSEGS", { bbox_detector: detector, image, threshold: 0.5, dilation: Math.round(FACE_GROW * at.scale), crop_factor: FACE_CROP, drop_size: 10, labels: "all" });
-  // the largest face is the person's: another one in the background is not turned into them. With regions, the largest of
-  // those in the person's own box (`within`), so that two people's faces are each redrawn from their own picture
-  const largest = g.out("ImpactSEGSOrderedFilter", { segs: at.within ? at.within(found) : found, target: "area(=w*h)", order: true, take_start: 0, take_count: 1 });
+  // the largest face is the person's: another one in the background is not turned into them
+  const largest = g.out("ImpactSEGSOrderedFilter", { segs: found, target: "area(=w*h)", order: true, take_start: 0, take_count: 1 });
   // a small one only: Impact's range filter reads the crop, which is the face's height times the crop factor
   const small = g.out("ImpactSEGSRangeFilter", { segs: largest, target: "height", mode: true, min_value: 0, max_value: Math.round(SMALL_FACE_PX * at.scale * FACE_CROP) });
   const detailer = g.add("DetailerForEach", {
@@ -115,7 +114,7 @@ export function facePass(g: GraphBuilder, ctx: BuildContext, input: FacePassValu
   const loads = [`diffusion_models/${slots.kleinUnet}`, `text_encoders/${slots.kleinClip}`, `vae/${slots.kleinVae}`, `ultralytics/${slots.faceDetector}`];
   // a face over the size, or none, leaves the picture as drawn and the pass samples nothing: its job says so, where a
   // picture shown at 28 steps ran 8, and nothing said whether Face refine had done anything
-  const unsampled = at.none ?? `Face refine left the face as drawn: it redraws a face under ${SMALL_FACE_PX} px tall, and found none (larger faces were not helped by it in Afflatus's test).`;
+  const unsampled = `Face refine left the face as drawn: it redraws a face under ${SMALL_FACE_PX} px tall, and found none (larger faces were not helped by it in Afflatus's test).`;
   // the crop is redrawn at the guide size, whatever the picture's: what a step of the pass samples
   return { image: [detailer, 0], pass: { node: detailer, steps, pixels: FACE_GUIDE * FACE_GUIDE, unsampled }, loads, said: null };
 }

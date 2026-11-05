@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Square, Type } from "lucide-react";
 import type { InputSpec, LoraValue } from "@afflatus/core";
 import { api, type FamilyInfo } from "../api";
+import { useEntities } from "../data";
 import { Loras } from "../fields/Loras";
 import { field } from "../fields/Label";
 import { fileLabel, plural } from "../format";
@@ -119,7 +120,7 @@ function RegionPrompt({ r, label, placeholder, people, onChange, onCast }: {
 }
 
 /** One region's row: its number in its box's colour, where it is, its kind (MOSS), its words, its person, its LoRA. */
-function RegionRow({ r, n, spec, family, model, loraOptions, people, selected, onPick, onChange, onRemove }: {
+function RegionRow({ r, n, spec, family, model, loraOptions, people, peopleKnown, selected, onPick, onChange, onRemove }: {
   r: RegionValue;
   n: number;
   spec: RegionsSpec;
@@ -127,6 +128,8 @@ function RegionRow({ r, n, spec, family, model, loraOptions, people, selected, o
   model: string | undefined;
   loraOptions: string[];
   people: Person[];
+  /** The Prompt kit's people are read: a cast id none of them has is a person deleted since. */
+  peopleKnown: boolean;
   selected: boolean;
   onPick(): void;
   onChange(r: RegionValue): void;
@@ -145,6 +148,9 @@ function RegionRow({ r, n, spec, family, model, loraOptions, people, selected, o
     pickedHere.current = false;
   }, [selected]);
   const person = r.cast ? people.find((p) => p.id === r.cast) : undefined;
+  // a person deleted from the Prompt kit since they were cast here: nothing of them is sent (the server drops the id), and
+  // the row says so with a way to take them off, rather than keep an id no chip shows (card #300)
+  const gone = Boolean(r.cast && peopleKnown && !person);
   const text = r.kind === "text";
   const brings = person && family ? personBrings(person, family.id) : null;
   // the LoRA row's own field, held to one: the same list, ranking and trigger words as the form's LoRAs
@@ -190,6 +196,12 @@ function RegionRow({ r, n, spec, family, model, loraOptions, people, selected, o
         </>
       ) : (
         <>
+          {gone && (
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-ink-2">
+              <Chip onRemove={() => onChange({ ...r, cast: undefined })} removeLabel={`Take the deleted person off region ${n}`}>@unknown person</Chip>
+              <span>no longer in the Prompt kit: nothing of them is sent</span>
+            </div>
+          )}
           {person && (
             <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-ink-2">
               <Chip tone="accent" onRemove={() => onChange({ ...r, cast: undefined })} removeLabel={`Take ${person.name} off region ${n}`}>
@@ -274,6 +286,7 @@ export function RegionsField({ spec, absent, value, onChange, family, model, lor
   onDraw(tool: "box" | "text"): void;
 }) {
   const people = usePeople();
+  const peopleKnown = useEntities().isSuccess;
   const selected = useRegionsStage((s) => s.selected);
   const select = useRegionsStage((s) => s.select);
   if (!spec) {
@@ -311,6 +324,7 @@ export function RegionsField({ spec, absent, value, onChange, family, model, lor
           model={model}
           loraOptions={loraOptions}
           people={people}
+          peopleKnown={peopleKnown}
           selected={selected === r.id}
           onPick={() => selected !== r.id && select(r.id)}
           onChange={(next) => onChange(value.map((x) => (x.id === r.id ? next : x)))}

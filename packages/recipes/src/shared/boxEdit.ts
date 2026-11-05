@@ -12,7 +12,7 @@ import { GraphBuilder, inBoxOf, isRef, MAX_BOXES, regionBox, roundTo, type Build
  */
 
 /** The margin round a box the editor sees, each side, as a share of the box's size (√(w·h)): enough of the scene to fit into. */
-export const MARGIN = 0.3;
+const MARGIN = 0.3;
 /**
  * The soft edge where the edit fades into what was there, as a share of the box's shorter side, and the share of it that lies
  * outside the box (in the margin the editor saw), so that the box itself is the edit's to its edge. At 0.1 inside the box,

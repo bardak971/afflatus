@@ -6,11 +6,13 @@ import { z } from "zod";
 import { isNetworkPath } from "./linked";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
+import { missingWildcards } from "./wildcardFiles";
 
 /**
  * The CLIP token count under an SDXL prompt (core clipTokens.ts). Exact with the BPE merges of ComfyUI's own tokenizer
  * (comfy/sd1_tokenizer/merges.txt, the file its CLIPTextEncode reads), when ComfyUI's folder is on this computer; else a
- * guess from the words, said as one. Nothing leaves the machine.
+ * guess from the words, said as one. Nothing leaves the machine. Beside it, the wildcard names a prompt holds that no file
+ * answers, said under any prompt as it is written.
  */
 
 /** The counter of the merges file read last, by its path: read once (570 kB), not at every count. */
@@ -36,5 +38,10 @@ export function registerPromptTokens(app: FastifyInstance, s: Services): void {
     const { text } = z.strictObject({ text: z.string().max(20_000) }).parse(req.body);
     const count = await counterOf((await readSettings(s.db)).comfyDir);
     return { chunks: clipChunks(text, count ?? estimatePieces), exact: count !== null };
+  });
+  /** The `__name__` wildcards of a prompt that no file answers, said under it as it is written (wildcardFiles.ts). */
+  app.post("/api/prompt/wildcards", async (req) => {
+    const { text } = z.strictObject({ text: z.string().max(20_000) }).parse(req.body);
+    return { missing: await missingWildcards(s.wildcards, text) };
   });
 }

@@ -1,4 +1,4 @@
-import { roundTo, type BuildContext, type GraphBuilder, type InputSpec, type LoraValue, type MediaFacts, type Ref } from "@afflatus/core";
+import { roundTo, withQuality, type BuildContext, type GraphBuilder, type InputSpec, type LoraValue, type MediaFacts, type Ref } from "@afflatus/core";
 import { DEFAULT_NEGATIVE, SDXL_NETS, SDXL_UNION } from "./family";
 
 /** What every SDXL recipe that works on a picture asks for besides its own inputs. */
@@ -61,7 +61,7 @@ export const samplingInputs = (steps = 28): InputSpec[] => [
 ];
 
 /** Which prediction a checkpoint was trained for: read from its name, or said. */
-export const PREDICTION_INPUTS: InputSpec[] = [
+const PREDICTION_INPUTS: InputSpec[] = [
   {
     id: "prediction", type: "choice", label: "Prediction", options: [PREDICTION_AUTO, "epsilon", V_PRED], default: PREDICTION_AUTO, advanced: true, perModel: true,
     note: "v-prediction for NoobAI v-pred and its merges (Auto reads \"vpred\" in the file name): without it they come out grey and washed. Epsilon is every other SDXL checkpoint",
@@ -92,9 +92,7 @@ export function loadSdxl(g: GraphBuilder, input: SdxlBase, prompt: string) {
   // N = stop at the Nth-last layer; SDXL's own default is already the second-last
   if (input.clipSkip > 1) clip = g.out("CLIPSetLastLayer", { clip, stop_at_clip_layer: -input.clipSkip });
   model = withPrediction(g, model, input);
-  // the prompt goes in as written (a settled wildcard can end in a separator; what is sent is what the record says)
-  const text = [input.quality.trim().replace(/,\s*$/, ""), prompt].filter(Boolean).join(", ");
-  const positive = g.out("CLIPTextEncode", { text, clip });
+  const positive = g.out("CLIPTextEncode", { text: withQuality(input.quality, prompt), clip });
   const negative = g.out("CLIPTextEncode", { text: input.negative, clip });
   return { model, clip, vae, positive, negative };
 }
@@ -177,6 +175,14 @@ export interface FaceSettings {
  * leaves it two or three steps, too few to draw a face; more than 30 (Qwen Image's 50) is time a crop does not need.
  */
 export const faceSteps = (steps: number) => Math.min(30, Math.max(8, steps));
+/**
+ * The steps a face pass takes on a model file distilled to a few steps (FlowSpec.distilled), else faceSteps: its share of the
+ * model's own steps for the denoise, rounded down, so that they are never closer together than the model was distilled for;
+ * two at least, for a pass to correct its first. Qwen Image 2.1 Turbo at 0.4 on a pod (card #286): 3 steps gave clean skin,
+ * as the full model's 30 did; 4 left a faint grain, 5 more, 8 (faceSteps) the most. Every face pass of a family reads this
+ * one rule, Face refine's and a txt2img's Detail face alike (card #303).
+ */
+export const faceStepsFor = (steps: number, denoise: number, distilled: boolean) => (distilled ? Math.max(2, Math.floor(steps * denoise + 1e-9)) : faceSteps(steps));
 /** What a face detailer's job says when it found no face: ComfyUI says nothing, and the picture comes out as it went in. */
 export const NO_FACE = "No face found: the picture is as it was (a lower Detection threshold finds more).";
 export const FACE_INPUTS: InputSpec[] = [
@@ -241,7 +247,7 @@ export interface OutpaintSettings {
   feathering: number;
 }
 /** The outpaint's shape that extends the picture by the sides set, not to an aspect ratio. */
-export const CUSTOM_SHAPE = "Custom";
+const CUSTOM_SHAPE = "Custom";
 /** The aspect ratios an outpaint extends a picture to (Klein's, card #275: every family's now). */
 export const OUTPAINT_SHAPES = ["Portrait 2:3", "Square 1:1", "Landscape 3:2", "Widescreen 16:9", "Portrait 9:16"];
 /**

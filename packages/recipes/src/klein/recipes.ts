@@ -1,15 +1,16 @@
 import { defineRecipe, GraphBuilder, roundTo, type InputSpec, type ReferenceValue, type Ref, type SizeValue } from "@afflatus/core";
 import { noGuide, noReferences, pictureForm } from "../shared/pictureForm";
 import {
-  boxOf, FACE_INPUTS, faceSteps, FACTOR_INPUT, HIRES_PASS_INPUTS, nothingToExtend, OUTPAINT_INPUTS, outpaintSides, SAME_PASS, shapeInput, MASK_INPUTS, NO_FACE, MASK_NODES, maskParts, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_PREFER,
+  boxOf, FACE_INPUTS, faceSteps, FACTOR_INPUT, HIRES_PASS_INPUTS, nothingToExtend, OUTPAINT_INPUTS, outpaintSides, SAME_PASS, shapeInput, MASK_INPUTS, NO_FACE, MASK_NODES, maskParts, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_DEFAULT, UPSCALER_PREFER,
   type FaceSettings, type MaskSettings, type OutpaintSettings, type RefineColourMatch, type UpscaleSettings,
 } from "../sdxl/common";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { redrawInTiles, tileInputs, tileNodes, TILE_NODES, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import {
-  introduce, KLEIN_PRESETS, kleinCond, kleinInputs, kleinModel, kleinNeeds, kleinNoise, kleinRealPass, kleinSample, kleinSampleLatent, kleinSize, LOAD_NODES, loadKlein, REFERENCE_NODES, SAMPLE_NODES, withIntro,
+  introduce, KLEIN_PRESETS, kleinCond, kleinInputs, kleinModel, kleinNeeds, kleinNoise, kleinRealPass, kleinSample, kleinSampleLatent, kleinSize, KLEIN_FACE_DENOISE, LOAD_NODES, loadKlein, REFERENCE_NODES, SAMPLE_NODES,
   type KleinBase,
 } from "./common";
+import { outpaintAsk, withIntro } from "../shared/asks";
 import { DETECTOR_INPUT } from "../shared/detector";
 import { SAME_FACE } from "./facePass";
 import { REGIONS_WHY } from "../shared/regions";
@@ -75,7 +76,7 @@ export const kleinPicture = pictureForm("txt2img", defineRecipe<KleinPicture>({
         { id: "wide-16-9", label: "Landscape 16:9", width: 1360, height: 768 },
       ],
     },
-    ...adetailInputs("sentences", "With reference images of a person, the face (and a person found) is redrawn from them, so that it stays them"),
+    ...adetailInputs("sentences", "With reference images of a person, the face (and a person found) is redrawn from them, so that it stays them", KLEIN_FACE_DENOISE),
     ...DETAIL_INPUTS,
     { id: "hires", type: "toggle", label: "Hires fix", note: "upscale, then a second pass over the larger picture", default: false, advanced: true, perModel: true },
     { id: "hiresScale", type: "number", label: "Upscale by", note: "past about 2.5 megapixels, the second pass is redrawn in tiles (see Redraw)", min: 1.1, max: 4, step: 0.05, default: 1.5, unit: "×", showWhen: "hires", advanced: true, perModel: true },
@@ -366,7 +367,7 @@ export const kleinPaintOver = pictureForm("inpaint", defineRecipe<KleinPaintOver
 
 // ---------------------------------------------------------------- another shape
 
-const EXTEND = "The plain grey areas at the edges of this picture are empty. Fill them by continuing the scene naturally beyond its edges: the same place, the same light, the same style. Everything already in the picture stays exactly the same.";
+const EXTEND = outpaintAsk("this picture", "the picture");
 
 interface KleinReshape extends KleinBase, Omit<OutpaintSettings, "feathering"> {
   source: string;
@@ -460,7 +461,7 @@ export const kleinSharper = pictureForm("upscale", defineRecipe<KleinSharper>({
   inputs: [
     kleinModel,
     { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
-    { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: "RealESRGAN_x4plus.pth", prefer: ["x4plus(?!.*anime)", ...UPSCALER_PREFER], section: "out" },
+    { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: UPSCALER_DEFAULT, prefer: UPSCALER_PREFER, section: "out" },
     FACTOR_INPUT,
     {
       id: "refine", type: "toggle", label: "img2img pass after upscale", default: true, section: "out",
@@ -575,7 +576,7 @@ export const kleinFixFace = pictureForm("face", defineRecipe<KleinFixFace>({
       id: "second", type: "references", label: "Reference images of the second person", max: 4, roles: ["person"],
       note: "only with two people in the picture: the one on the RIGHT. Each face is then redrawn from its own person's pictures.",
     },
-    { id: "strength", type: "number", label: "Denoising strength", note: `0.5 pulls the face back to the reference images; ${kleinNoise.detailer(0.5, 20)}`, min: 0.1, max: 0.8, step: 0.05, default: 0.5 },
+    { id: "strength", type: "number", label: "Denoising strength", note: `${KLEIN_FACE_DENOISE} pulls the face back to the reference images; ${kleinNoise.detailer(KLEIN_FACE_DENOISE, 20)}`, min: 0.1, max: 0.8, step: 0.05, default: KLEIN_FACE_DENOISE },
     // its strength pulls a face to a person's pictures, which the hand values were not measured for: they stay the classic detailers'
     { ...DETECTOR_INPUT, whenChosen: undefined },
     ...FACE_INPUTS,

@@ -123,7 +123,7 @@ export const SHOT_WORDS: Record<string, string> = { Wide: "Wide shot.", Medium: 
  * The form with its shot's words before what happens, unless they are there already, or the text is in H3's own layout,
  * sent as written (the words glued in front of it were sent with it).
  */
-export function withShot<T extends { shot?: string; description: string }>(input: T): T {
+function withShot<T extends { shot?: string; description: string }>(input: T): T {
   const words = SHOT_WORDS[input.shot ?? ""];
   return words && !input.description.trim().startsWith(words) && !isH3Layout(input.description) ? { ...input, description: `${words} ${input.description}`.trim() } : input;
 }

@@ -1,4 +1,4 @@
-import { defineRecipe, GraphBuilder, roundTo, type LoraValue, type Ref, type RegionValue, type SizeValue } from "@afflatus/core";
+import { defineRecipe, GraphBuilder, roundTo, withQuality, type LoraValue, type Ref, type RegionValue, type SizeValue } from "@afflatus/core";
 import { pictureForm } from "../shared/pictureForm";
 import { HIRES_PASS_INPUTS, hiresPass, isVPred, loadSdxl, modelInputs, PREDICTION_NODES, samplingInputs, SDXL_DROPS, SDXL_PRESETS, UPSCALER_DEFAULT, UPSCALER_PREFER } from "./common";
 import { SDXL_GUIDE } from "./family";
@@ -60,7 +60,7 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
         { id: "wide-16-9", label: "Landscape 16:9", width: 1344, height: 768 },
       ],
     },
-    regionsInput({ lora: "scoped", how: "Each box's tags are sampled inside it beside the prompt's everywhere (ComfyUI's masked conditioning); the hires fix keeps them, its tiles redraw from the prompt alone." }),
+    regionsInput({ lora: "scoped", how: "Masked conditioning: each box's tags inside it, beside the prompt's; hires tiles redraw from the prompt alone." }),
     ...adetailInputs("tags", "", SDXL_FACE_DENOISE),
     ...DETAIL_INPUTS,
     // the checkpoint, its LoRAs and how it samples: the rows of the SDXL tools, which the skeleton lays out (pictureForm)
@@ -179,7 +179,7 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
     // the whole picture's), each crop at the size it draws best; a prompt of its own after the checkpoint's quality tags
     const d = adetail(g, ctx, input, image, {
       model: () => model, clip: loaded.clip, vae,
-      cond: (text) => (text ? { positive: g.out("CLIPTextEncode", { text: [input.quality.trim().replace(/,\s*$/, ""), text].filter(Boolean).join(", "), clip: loaded.clip }), negative: loaded.negative } : { positive: loaded.positive, negative: loaded.negative }),
+      cond: (text) => (text ? { positive: g.out("CLIPTextEncode", { text: withQuality(input.quality, text), clip: loaded.clip }), negative: loaded.negative } : { positive: loaded.positive, negative: loaded.negative }),
       steps: input.steps, cfg: input.cfg, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed, scale: input.hires ? input.hiresScale : 1,
     });
     // PreviewImage writes to ComfyUI's temp folder, which ComfyUI clears itself: nothing piles up in output/

@@ -128,7 +128,7 @@ const spec: FlowSpec = {
     },
   }],
   layout: {
-    how: "MOSS-Image reads them natively, as one JSON layout of boxes (ComfyUI's Create Bounding Boxes and MOSS-Image Layout Prompt): an object box is described by its prompt, a text box draws its text word for word in the look its prompt says, a cast person's box is labelled a character. Its authors measure the layout right about 80 % of the time.",
+    how: "MOSS-Image's own JSON layout: an object box by its prompt, a text box drawn word for word, a cast box as a character.",
     guidance: { single: "22", end: 0.5 },
   },
   drops: {

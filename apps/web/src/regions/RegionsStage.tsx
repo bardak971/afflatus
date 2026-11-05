@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { Users } from "lucide-react";
-import { dialogOver } from "../Dialog";
+import { dialogOver, OVER } from "../Dialog";
 import { Keys, typing } from "../Keys";
 import { useKeysHere } from "../keys/here";
 import { LayerStrip } from "../stageLayer/LayerStrip";
@@ -51,12 +51,13 @@ export function RegionsStage({ here, picture, onLeave }: {
   const room = useRef<HTMLDivElement>(null);
   useLayerKeys({ items, onPick: setTool, root: room });
 
-  // Del removes the box picked; Esc lets it go, then leaves the picture (a draft's frame has nothing to leave to)
+  // Del removes the box picked; Esc lets it go, then leaves the picture (a draft's frame has nothing to leave to). Not while
+  // a list or a popover is open over the Stage, whose Esc is its own (Paint and fix's rule): it dropped the box or left
   const now = useRef({ selected, regions, set, onLeave, select });
   now.current = { selected, regions, set, onLeave, select };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || typing(e) || dialogOver(room.current) || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.defaultPrevented || typing(e) || dialogOver(room.current) || document.querySelector(OVER) || e.ctrlKey || e.metaKey || e.altKey) return;
       const n = now.current;
       if ((e.key === "Delete" || e.key === "Backspace") && n.selected && !why) {
         e.preventDefault();
@@ -83,6 +84,9 @@ export function RegionsStage({ here, picture, onLeave }: {
   const inside = (u: { x: number; y: number } | null) => Boolean(u && u.x >= 0 && u.y >= 0 && u.x <= 1 && u.y <= 1);
   const takes = (e: DragEvent) => !why && e.dataTransfer.types.includes(DRAG_PERSON);
   const full = Boolean(spec && regions.length >= spec.max);
+  // the boxes a person can be cast in: a text box (MOSS) draws letters, not a person; dropped there, they make a box of
+  // their own (their words went into its caption and their LoRA on the whole picture, with no chip to see it, card #300)
+  const castable = regions.filter((r) => r.kind !== "text");
 
   const frame = picture ? undefined : { w: size.w, h: size.h, x: 0, y: 0 };
   const heldName = held ? nameOf(held) : undefined;
@@ -109,7 +113,7 @@ export function RegionsStage({ here, picture, onLeave }: {
             onDragOver={(e) => {
               if (!takes(e)) return;
               const u = atDrop(e);
-              const r = inside(u) ? regionAt(regions, u!) : undefined;
+              const r = inside(u) ? regionAt(castable, u!) : undefined;
               if (!r && (full || !inside(u))) return setOver(null);
               e.preventDefault();
               e.dataTransfer.dropEffect = "copy";
@@ -126,7 +130,7 @@ export function RegionsStage({ here, picture, onLeave }: {
               const u = atDrop(e);
               if (!person || !inside(u)) return;
               e.preventDefault();
-              const r = regionAt(regions, u!);
+              const r = regionAt(castable, u!);
               if (r) {
                 set(regions.map((x) => (x.id === r.id ? { ...x, cast: person } : x)));
                 select(r.id);

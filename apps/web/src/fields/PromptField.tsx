@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
-import { CLIP_CHUNK, type InputSpec } from "@afflatus/core";
+import { CLIP_CHUNK, FILE_CHOICE, withQuality, type InputSpec } from "@afflatus/core";
 import { api, type FamilyInfo, type TagIssue } from "../api";
 import { useDebounced } from "../hooks";
 import { queryKeys } from "../queryKeys";
@@ -134,6 +134,23 @@ function TokenCount({ text }: { text: string }) {
 }
 
 /**
+ * Under a prompt that names a wildcard file no folder has: one line, said as it is written (card #318), where before only
+ * Render said it, refused ("no wildcard file"). Asked a moment after the typing stops, and only of a text with a `__name__`.
+ */
+function WildcardCheck({ text }: { text: string }) {
+  const asked = useDebounced(text, 400, true, text);
+  const named = FILE_CHOICE.test(asked);
+  const check = useQuery({ queryKey: queryKeys.promptWildcards(asked), queryFn: ({ signal }) => api.promptWildcards(asked, { signal }), enabled: named, staleTime: 5_000 });
+  const missing = named ? check.data?.missing ?? [] : [];
+  if (!missing.length) return null;
+  return (
+    <span className="text-xs text-warn-ink" data-tip="Put the file in the wildcards folder of Afflatus's data folder, or in the Impact pack's or Dynamic Prompts' wildcard folder (Settings › Prompts)">
+      No wildcard file {missing.map((n) => `${n}.txt`).join(", ")}: Render refuses it
+    </span>
+  );
+}
+
+/**
  * A text box of a prompt. Ctrl + ↑ / ↓ changes the weight of the tag the cursor is in, or of what is
  * selected: (red dress:1.1). In a prompt of sentences only a selection is weighed.
  */
@@ -149,7 +166,11 @@ export function PromptField({ spec, id, value, values, family, onChange, bare }:
   // the prompts rendered before: the main text's (the history holds those), not a negative's nor a few words on one line
   const remembers = !spec.line && !spec.optional && spec.id !== "negative";
   const history = usePromptHistory({ value, onChange, label: spec.label });
-  const counted = !spec.line && Boolean(family && CLIP_FAMILIES.has(family.id));
+  // one counter for what the main text is sent as, the checkpoint's quality tags in front of it (the recipe's withQuality):
+  // counted alone, a Pony preset's 30 tokens and a 60-token prompt said "60/75" and filled 90, a tag cut at the chunk's end.
+  // The quality tags' own row counts nothing apart: they are in the prompt's count
+  const counted = !spec.line && spec.id !== "quality" && Boolean(family && CLIP_FAMILIES.has(family.id));
+  const sent = spec.id === "prompt" && typeof values?.quality === "string" ? withQuality(values.quality, value) : value;
   // the keys it takes, in its ? rather than over the text on every hover
   // a few words on one line (a swap's Track) take no weights and no choices: neither is said
   const keys = spec.line ? "" : `${weighs ? `Ctrl + ↑ or ↓: the weight of ${spec.style === "tags" ? "the tag the cursor is in, or of " : ""}what is selected. ` : ""}{a|b|c}, __name__ (a wildcard file): one is picked for each result.${remembers ? " ↑ in an empty prompt: the recent prompts." : ""}`;
@@ -191,10 +212,11 @@ export function PromptField({ spec, id, value, values, family, onChange, bare }:
           the text (the other texts' rows have a ? of their own) */}
       {bare && !spec.optional && keys && <Help title={spec.label} text={keys} className="absolute right-2 bottom-2 opacity-60 hover:opacity-100" />}
       </div>
+      {!spec.line && <WildcardCheck text={value} />}
       {(checked || counted) && (
         <div className="flex items-start gap-2">
           {checked && <TagCheck text={value} ignore={ignore} onChange={onChange} />}
-          {counted && <span className="ml-auto shrink-0"><TokenCount text={value} /></span>}
+          {counted && <span className="ml-auto shrink-0"><TokenCount text={sent} /></span>}
         </div>
       )}
     </div>

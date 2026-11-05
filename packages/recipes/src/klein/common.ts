@@ -218,5 +218,9 @@ export function introduce(refs: ReferenceValue[], first = 1): string {
   return `${parts.join("; ")}.${keep}`;
 }
 
-/** The words Klein is given: what the pictures are, then what the user wrote. */
-export const withIntro = (intro: string, prompt: string) => [intro, prompt.trim()].filter(Boolean).join(" ");
+/**
+ * Where Klein's face passes start, Face refine's and txt2img's Detail face alike (card #303): one value, as SDXL's
+ * SDXL_FACE_DENOISE is. 0.5 is Face refine's start since Klein came in: with a person's reference images, it pulls the face
+ * back to them (Detail face redraws from the same pictures); its copy at the Detail rows' 0.4 had parted from it.
+ */
+export const KLEIN_FACE_DENOISE = 0.5;

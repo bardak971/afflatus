@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { clipBpe, clipChunks, clipPieces, estimatePieces, promptParts } from "../src/clipTokens";
+import { clipBpe, clipChunks, clipPieces, estimatePieces, promptParts, withQuality } from "../src/clipTokens";
 
 // the merges CLIP's merges.txt applies to these prompts, kept in their order (the whole file is ComfyUI's, 570 kB): BPE
 // with only them gives what it gives with all of them, since every merge it makes is among them
@@ -49,5 +49,13 @@ describe("CLIP tokens of a prompt", () => {
       const exact = k.chunks.reduce((a, b) => a + b, 0);
       expect(Math.abs(guess - exact) / exact, k.text).toBeLessThan(0.25);
     }
+  });
+});
+
+describe("an SDXL text as it is sent (card #300)", () => {
+  it("puts the quality tags in front of the prompt, once, as the recipe encodes it and the form counts it", () => {
+    expect(withQuality("score_9, score_8_up, ", "1girl, smile")).toBe("score_9, score_8_up, 1girl, smile");
+    expect(withQuality("", "1girl")).toBe("1girl");
+    expect(withQuality("masterpiece", "")).toBe("masterpiece");
   });
 });

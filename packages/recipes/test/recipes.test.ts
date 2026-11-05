@@ -622,6 +622,11 @@ describe("things done to a picture", () => {
     expect(pickChoice(upscaler, ["4x-UltraSharp.pth", "4xNomos8kSC.pth"])).toBe("4xNomos8kSC.pth");
     // nothing offered (ComfyUI not asked yet): the default stands
     expect(pickChoice(upscaler, [])).toBe("4xNomos8kSC.safetensors");
+    // every family's Upscale 2x starts on the same row: Klein's had its own, on RealESRGAN (card #303)
+    for (const r of recipes.filter((x) => x.id.endsWith(".sharper"))) {
+      const row = r.inputs.find((i) => i.id === "upscaler") as ChoiceInput;
+      expect({ default: row.default, prefer: row.prefer }, r.id).toEqual({ default: upscaler.default, prefer: upscaler.prefer });
+    }
     const finder = recipeById("klein.fix-face")!.inputs.find((i) => i.id === "detector") as ChoiceInput;
     expect(pickChoice(finder, ["bbox/hand_yolov8s.pt", "bbox/face_yolov8n.pt"])).toBe("bbox/face_yolov8n.pt");
   });

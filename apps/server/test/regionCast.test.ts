@@ -57,6 +57,22 @@ describe("the people of a form's regions", () => {
     expect(asked.filter((f) => f.folder === "loras")).toEqual([{ input: "loras", file: "coat.safetensors", folder: "loras" }, { input: "loras", file: "mira.safetensors", folder: "loras" }]);
   });
 
+  it("drop a person deleted since they were cast, and a box left with nothing in it is no box (card #300)", async () => {
+    const moss = recipeById("moss.text-to-picture")!;
+    const { input } = await regionCast(t.db, moss, { prompt: "a", regions: [{ id: "a", box, prompt: "", cast: "zz-test-gone" }, { id: "b", box, prompt: "a lamp", cast: "zz-test-gone" }] });
+    expect(input.regions).toEqual([{ id: "a", box, prompt: "" }, { id: "b", box, prompt: "a lamp" }]);
+  });
+
+  it("put nobody in a text box: it draws letters, its caption is how they look (card #300)", async () => {
+    const mira = await person("zz-test Mira", { sentence: "a woman with long red hair", models: { moss: { lora: "mira_moss.safetensors", weight: 0.8, trigger: "" } } });
+    const moss = recipeById("moss.text-to-picture")!;
+    const text = { id: "t", box, prompt: "bold serif", kind: "text", text: "OPEN", cast: mira, castLora: { file: "x.safetensors", weight: 1 } };
+    const { input, words, loras } = await regionCast(t.db, moss, { prompt: "a", regions: [text] });
+    expect(input.regions).toEqual([{ id: "t", box, prompt: "bold serif", kind: "text", text: "OPEN" }]);
+    expect(words).toEqual([]);
+    expect(loras).toEqual([]);
+  });
+
   it("leaves regions with nobody in them as they were", async () => {
     const sdxl = recipeById("sdxl.text-to-picture")!;
     const asked = { prompt: "a", regions: [{ id: "a", box, prompt: "@nobody waves" }] };

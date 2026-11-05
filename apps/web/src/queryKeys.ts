@@ -205,6 +205,8 @@ export const queryKeys = {
   barEstimate: <E>(of: E) => ["bar-estimate", of] as const,
   /** The CLIP token count of a prompt's text (TokenCount). */
   promptTokens: (text: string) => ["prompt-tokens", text] as const,
+  /** The wildcard files a prompt names that are not there (WildcardCheck). */
+  promptWildcards: (text: string) => ["prompt-wildcards", text] as const,
   promptHistory: {
     all: () => ["prompt-history"] as const,
     search: (q: string) => ["prompt-history", q] as const,

@@ -1,16 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { dryContext, parseInput, type Recipe } from "@afflatus/core";
 import { recipeById } from "../src";
+import { DETECTOR_FILES } from "../src/shared/adetail";
 
 type Graph = Record<string, { class_type: string; inputs: Record<string, unknown> }>;
 const of = (g: Graph, cls: string) => Object.entries(g).filter(([, n]) => n.class_type === cls);
 
-/** A recipe built from its first variant with these inputs changed, on a ComfyUI that has every node. */
-function built(id: string, change: Record<string, unknown>, media?: Record<string, unknown>): Graph {
+/** A recipe built from its first variant with these inputs changed, on a ComfyUI that has every node (and `slots` more files). */
+function built(id: string, change: Record<string, unknown>, media?: Record<string, unknown>, slots: Record<string, string> = {}): Graph {
   const recipe = recipeById(id) as Recipe<any>;
   const v = recipe.variants[0]!;
   const input = parseInput(recipe, { ...v.input, ...change });
-  const ctx = dryContext({ slots: v.slots ?? {}, uploads: v.uploads ?? {}, media: { ...(v.media ?? {}), ...(media ?? {}) } as Record<string, any>, has: () => true });
+  const ctx = dryContext({ slots: { ...v.slots, ...slots }, uploads: v.uploads ?? {}, media: { ...(v.media ?? {}), ...(media ?? {}) } as Record<string, any>, has: () => true });
   return (recipe.build(input as never, ctx) as { graph: Graph }).graph;
 }
 
@@ -98,5 +99,34 @@ describe("Qwen Image 2.1's outpaint and Turbo face (card #286)", () => {
     // the full model as before: the form's steps, 8 to 30
     expect(steps({ steps: 40, strength: 0.4 })).toBe(30);
     expect(steps({ model: "qwen_image_2.1_int8_convrot.safetensors", steps: 4, strength: 0.4 })).toBe(8);
+  });
+});
+
+describe("one rule for every form of Qwen Image 2.1 (card #303)", () => {
+  const turbo = "qwen_image_2.1_turbo_int8_convrot.safetensors";
+
+  it("txt2img's Detail face keeps the Turbo file's step spacing, as Face refine does", () => {
+    const g = built("qwen21.text-to-picture", { model: turbo, steps: 8, detailFace: true, detailFaceDenoise: 0.4 }, undefined, DETECTOR_FILES);
+    expect(of(g, "DetailerForEach")[0]![1].inputs.steps).toBe(3);
+    // the full model as before: the form's steps, 8 to 30
+    expect(of(built("qwen21.text-to-picture", { steps: 40, detailFace: true }, undefined, DETECTOR_FILES), "DetailerForEach")[0]![1].inputs.steps).toBe(30);
+  });
+
+  it("Edit, the motion picture and Edit in box start the Turbo file on 8 steps too: at 40 it came out overcooked", () => {
+    for (const id of ["qwen21.edit", "qwen21.motion-picture", "qwen21.edit-in-box"]) {
+      expect(recipeById(id), id).toBeTruthy();
+      expect(startsOn(recipeById(id) as Recipe<any>, turbo), id).toMatchObject({ steps: 8 });
+      expect(startsOn(recipeById(id) as Recipe<any>, "qwen_image_2.1_int8_convrot.safetensors"), id).toEqual({});
+    }
+  });
+
+  it("asks outpaint with the words Klein's outpaint asks, the picture named as each reads it", () => {
+    const qwen = of(built("qwen21.outpaint", { padLeft: 256 }, { source: { width: 896, height: 1152 } }), "TextEncodeQwenImage21")[0]![1].inputs.prompt as string;
+    const k = recipeById("klein.change-shape") as Recipe<any>;
+    const v = k.variants[0]!;
+    const g = k.build(parseInput(k, { ...v.input, prompt: "a" }), dryContext({ slots: v.slots ?? {}, uploads: v.uploads ?? {}, media: (v.media ?? {}) as Record<string, any>, has: () => true })).graph as Graph;
+    const klein = Object.values(g).map((n) => n.inputs.text ?? n.inputs.prompt).find((t) => typeof t === "string" && t.startsWith("The plain grey")) as string;
+    expect(klein).toContain("the same style and the same camera");
+    expect(klein.replace(/this picture|the picture/g, "<image1>")).toBe(qwen);
   });
 });

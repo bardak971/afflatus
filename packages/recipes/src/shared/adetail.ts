@@ -1,5 +1,5 @@
 import { wanted, type BuildContext, type GraphBuilder, type InputSpec, type Ref } from "@afflatus/core";
-import { faceSteps } from "../sdxl/common";
+import { faceStepsFor } from "../sdxl/common";
 import { SMALL_FACE_PX } from "../klein/facePass";
 import { DETECTOR_SLOTS, HAND_THRESHOLD, HAND_VALUES } from "./detector";
 
@@ -150,8 +150,10 @@ export interface DetailWith {
   clip: Ref;
   vae: Ref;
   cond: (text: string | null, kind: Kind["key"]) => { positive: Ref; negative: Ref };
-  /** The form's steps: each crop is redrawn in faceSteps of them (8 to 30, every face pass's rule). */
+  /** The form's steps: each crop is redrawn in faceStepsFor of them (every face pass's rule). */
   steps: number;
+  /** A model file distilled to a few steps (FlowSpec.distilled): its crops keep the spacing of its steps, as its Face refine does. */
+  distilled?: boolean;
   cfg: number;
   sampler: string;
   scheduler: string;
@@ -210,13 +212,14 @@ export function adetail(g: GraphBuilder, ctx: BuildContext, input: AdetailSettin
     if (k.most) segs = g.out("ImpactSEGSOrderedFilter", { segs, target: "area(=w*h)", order: true, take_start: 0, take_count: k.most });
     const text = String(values[`${id}Prompt`] ?? "").trim();
     const c = w.cond(text || null, k.key);
-    const steps = faceSteps(w.steps);
+    const denoise = Number(values[`${id}Denoise`] ?? k.denoise);
+    const steps = faceStepsFor(w.steps, denoise, Boolean(w.distilled));
     const redraw = (found: Ref, positive: Ref, unsampled: string) => {
       const node = g.add("DetailerForEach", {
         image: made.image, segs: found, model: (model ??= w.model()), clip: w.clip, vae: w.vae, positive, negative: c.negative,
         // the crop redrawn at the guide size (ADetailer's way), as every Face refine does
         guide_size: GUIDE, guide_size_for: false, max_size: MAX, seed: w.seed, steps, cfg: w.cfg, sampler_name: w.sampler, scheduler: w.scheduler,
-        denoise: Number(values[`${id}Denoise`] ?? k.denoise), feather: Math.round(FEATHER * w.scale), noise_mask: true, force_inpaint: true, wildcard: "", cycle: 1,
+        denoise, feather: Math.round(FEATHER * w.scale), noise_mask: true, force_inpaint: true, wildcard: "", cycle: 1,
       });
       made.image = [node, 0];
       // a crop is redrawn at the guide size whatever the picture's: what a step samples. One of each is counted (how many
@@ -224,8 +227,6 @@ export function adetail(g: GraphBuilder, ctx: BuildContext, input: AdetailSettin
       made.passes.push({ node, steps, pixels: GUIDE * GUIDE, unsampled });
     };
     const none = under > 0 ? `Detail: ${k.word} left the picture as drawn: it redraws ${k.word === "hands" ? "hands" : `a ${k.word}`} under ${under} px tall, and found none.` : `Detail: ${k.word} found no ${k.word}: the picture is as drawn.`;
-    // (each face redrawn from its own region's words and LoRA was tried until 2026-11-05 and taken out: on pods it never made
-    // a cast person recognisable, card #271)
     redraw(segs, c.positive, none);
   }
   return made;

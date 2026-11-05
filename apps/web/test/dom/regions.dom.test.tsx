@@ -106,6 +106,24 @@ describe("the region tools", () => {
     expect(now.map((r) => r.id)).toEqual(["r2"]);
   });
 
+  it("leave a box picked when Esc closes a list or a popover over the Stage (card #310)", async () => {
+    const now: RegionValue[] = [{ id: "r1", box: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 }, prompt: "" }];
+    draw(<Rig start={now} />);
+    await waitFor(() => expect(layer()).toBeTruthy());
+    act(() => useRegionsStage.getState().select("r1"));
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    document.body.append(menu);
+    try {
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(useRegionsStage.getState().selected).toBe("r1");
+    } finally {
+      menu.remove();
+    }
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(useRegionsStage.getState().selected).toBeNull();
+  });
+
   it("keep each box in its place when the form's size changes", async () => {
     const start = [{ id: "r1", box: { x: 0.25, y: 0.5, w: 0.5, h: 0.25 }, prompt: "" }];
     const one = draw(<Rig start={start} />);
@@ -179,6 +197,25 @@ describe("a cast person dropped", () => {
     expect(now[0]!.prompt).toBe("holding a cup");
     // the row says who is in it
     expect(await screen.findByText("@Mira")).toBeTruthy();
+  });
+
+  it("on a text box (MOSS) makes a box of their own: a text box draws letters, not a person (card #300)", async () => {
+    const MOSS: RegionsSpec = { ...SDXL, lora: "global", kinds: true };
+    let now: RegionValue[] = [{ id: "t", box: { x: 0, y: 0, w: 1, h: 1 }, prompt: "serif", kind: "text", text: "OPEN" }];
+    draw(<Rig start={now} spec={MOSS} onRegions={(r) => (now = r)} />);
+    await waitFor(() => expect(layer()).toBeTruthy());
+    dropAt(400, 300);
+    expect(now).toHaveLength(2);
+    expect(now[0]!.cast).toBeUndefined();
+    expect(now[1]).toMatchObject({ cast: "zz-test-mira", kind: "object" });
+  });
+
+  it("deleted since is said on its row, with a way to take them off (card #300)", async () => {
+    let now: RegionValue[] = [{ id: "r1", box: { x: 0.5, y: 0, w: 0.5, h: 1 }, prompt: "", cast: "zz-test-gone" }];
+    draw(<Rig start={now} onRegions={(r) => (now = r)} />);
+    expect(await screen.findByText("@unknown person")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Take the deleted person off region 1" }));
+    expect(now[0]!.cast).toBeUndefined();
   });
 
   it("on empty canvas makes a box where it lands", async () => {

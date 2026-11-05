@@ -27,7 +27,7 @@ export interface Recording {
  */
 export const RECORDING_AFTER = 4;
 /** A quarter second after the last word, so that the frame grid's rounding never ends the clip on it. */
-export const RECORDING_PAD = 0.25;
+const RECORDING_PAD = 0.25;
 
 /**
  * What a model's clips hold of a recording: its frame rate, the most frames a clip takes, the shortest and longest clip
@@ -44,7 +44,7 @@ export interface RecordingFrames {
   pad?: number;
 }
 /** H3's: 24 a second, 362 frames at most, 4 to 15 s a clip. */
-export const H3_RECORDING: RecordingFrames = { fps: H3_FPS, frames: H3_MAX_FRAMES, min: 4, most: 15 };
+const H3_RECORDING: RecordingFrames = { fps: H3_FPS, frames: H3_MAX_FRAMES, min: 4, most: 15 };
 
 /**
  * The recording's inputs: the recording and its part, Normalize loudness, and the two toggles a timeline sets for a
