@@ -1,5 +1,5 @@
 import { defineRecipe, GraphBuilder, type Recipe } from "@afflatus/core";
-import { dropsFor, pictureForm } from "../shared/pictureForm";
+import { dropsFor, pictureForm, SOURCE_INPUT, strengthInput } from "../shared/pictureForm";
 import { FACE_INPUTS, faceStepsFor, NO_FACE, type FaceSettings } from "../sdxl/common";
 import { A_FACE, photo, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
 import { DETECTOR_INPUT } from "../shared/detector";
@@ -21,9 +21,9 @@ export function flowFixFace(spec: FlowSpec, kit: FlowKit): Recipe<FlowFixFace> {
     output: "image",
     inputs: [
       spec.model,
-      { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+      SOURCE_INPUT,
       { id: "prompt", type: "prompt", label: "Prompt", note: "the face and who it is: eye colour, hair, expression", style: "sentences", optional: true, default: "" },
-      { id: "strength", type: "number", label: "Denoising strength", note: ["0.3 cleans the face, 0.6 can make another one", noise].filter(Boolean).join("; "), min: 0.1, max: 0.8, step: 0.05, default: 0.4 },
+      strengthInput({ default: 0.4, note: ["0.3 cleans the face, 0.6 can make another one", noise].filter(Boolean).join("; "), min: 0.1, max: 0.8 }),
       DETECTOR_INPUT,
       ...FACE_INPUTS,
       ...inputs,

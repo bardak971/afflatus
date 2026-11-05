@@ -36,9 +36,9 @@ import { clockOf, derivedKeys, formFilled, FROM_PREVIOUS, laidOut, lengthOf, mar
  * arrive at, an opening picture) and fills them in.
  */
 
-// the parts of the model other modules name: the opening-picture placeholder and the clock (timelineModel.ts), a clip's plan (timelinePlan.ts)
+// the parts of the model other modules name: the opening-picture placeholder and the clock (timelineModel.ts), a take's links (timelinePlan.ts)
 export { clockOf, FROM_PREVIOUS };
-export type { ClipPlan, TakeLinks };
+export type { TakeLinks };
 
 export interface CutOptions {
   asset: string;
@@ -213,10 +213,10 @@ export class Timelines {
   /** Takes placed on their clips (a job done, a tool's video), and what a clip is made from (a new clip's form, a job's neighbours). */
   readonly takes: TimelineTakes;
   readonly planner: TimelinePlan;
-  /** What each H3 clip does with its person's picture, and giving a changed one to the clips after it (timelineFace.ts, card #223). */
   /** A source's windows and a recording's Lip sync clips, made, trimmed and cut again (timelineSource.ts, timelineRecording.ts). */
   readonly source: TimelineSource;
   readonly recording: TimelineRecording;
+  /** What each H3 clip does with its person's picture, and giving a changed one to the clips after it (timelineFace.ts, card #223). */
   readonly face: { routes(timelineId: string): Promise<Record<string, FaceRoute>>; spread(clipId: string): Promise<{ from: number; to: number }> };
   /** The parts of a timeline's view besides its clips: its takes' records, its jobs, its header. */
   private readonly views: TimelineViews;
@@ -234,6 +234,7 @@ export class Timelines {
       remember: (id, label, added, db) => this.remember(id, label, added, db), oneAtATime: (key, work) => this.history.oneAtATime(key, work), touch: (id) => this.touch(id), keep: (id, db) => this.keep(id, db), renumber: (id, order, db) => this.renumber(id, order, db),
       settingsOf, frame: (video, atMs, once, timeline) => this.media.frame(video, atMs, once, timeline), motion: (id, row) => this.media.motion(id, row),
       cutRuns: (id, ids, tx) => this.cutRuns(id, ids, tx as Tx),
+      sourceClips: (plan, clips) => this.sourceClips(plan, clips),
     };
     this.range = new TimelineRange(core);
     this.media = new TimelineMedia(core);
@@ -245,6 +246,11 @@ export class Timelines {
     this.views = new TimelineViews(db);
     this.source = new TimelineSource(core, this.planner, this.media, { busyOf: (ids, db) => this.busyOf(ids, db), runsOf: (t, all) => this.runsOf(t, all), edit: (id, patch) => this.edit(id, patch) });
     this.recording = new TimelineRecording(core, this.planner, this.media, { busyOf: (ids, db) => this.busyOf(ids, db) });
+  }
+
+  /** Of these clips, the ids of the windows of a source (TimelineCore.sourceClips). */
+  private sourceClips(plan: { asset: string }, clips: Array<{ id: string; recipe_id: string | null; inputs: string }>): string[] {
+    return clipsOfSource(plan, clips, (r) => this.registry.recipe(r));
   }
 
   /** Keep what the timeline looks like now, before a change (see TimelineHistory.remember). */
@@ -624,7 +630,7 @@ export class Timelines {
       source = JSON.stringify(patchedSource(sourceOfRow(before.source), patch.source, video, end));
     }
     // the source taken away takes the clips it made with it, rendered or not (Undo brings back the source, its clips and their takes)
-    const gone = patch.source === null && sourceOfRow(before.source) ? clipsOfSource(sourceOfRow(before.source)!, (await this.placed(id)).map((p) => p.clip), (r) => this.registry.recipe(r)) : [];
+    const gone = patch.source === null && sourceOfRow(before.source) ? this.sourceClips(sourceOfRow(before.source)!, (await this.placed(id)).map((p) => p.clip)) : [];
     const songMs = m?.fromMs !== undefined ? (await this.assetRow(m.asset ?? before.music_asset_id))?.duration_ms ?? null : null;
     const fromMs = m?.fromMs !== undefined ? Math.max(0, Math.min(songMs ?? Infinity, Math.round(m.fromMs / 100) * 100)) : m?.asset ? 0 : undefined;
     await this.remember(
@@ -773,7 +779,7 @@ export class Timelines {
   /** The click on the source's first frame (or none) given to the first clip made from it, the one whose window starts there. */
   private async pickOnFirst(timelineId: string, plan: SourcePlan, tx: Db) {
     const placed = await this.placed(timelineId, tx);
-    const made = clipsOfSource(plan, placed.map((p) => p.clip), (r) => this.registry.recipe(r));
+    const made = this.sourceClips(plan, placed.map((p) => p.clip));
     const first = placed.find((p) => made.includes(p.clip.id))?.clip;
     const recipe = first?.recipe_id ? this.registry.recipe(first.recipe_id) : undefined;
     const driving = recipe?.inputs.find((i) => i.type === "clip" && i.role === "source" && i.window);
@@ -1277,7 +1283,7 @@ export class Timelines {
     if (plan && recipe && driving?.type === "clip" && driving.window) {
       const w = driving.window;
       const fps = recipe.traits!.fps;
-      const ofSource = clipsOfSource(plan, all.map((p) => p.clip), (r) => this.registry.recipe(r));
+      const ofSource = this.sourceClips(plan, all.map((p) => p.clip));
       const ids = all.filter((p) => ofSource.includes(p.clip.id)).map((p) => p.clip.id);
       const span = (clip: RunClip, first: boolean) => {
         const inputs = JSON.parse(String(clip.inputs)) as Record<string, unknown>;

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 import { AI_COMMENT } from "../src/aiMark";
-import { uniqueNames, zipName } from "../src/assetsZip";
+import { downloadName } from "@afflatus/core";
+import { uniqueNames } from "../src/assetsZip";
 import { get, makeApp, post } from "./helpers";
 import { zipNames } from "./zipKit";
 
@@ -11,9 +12,12 @@ const picture = (r: number) => sharp({ create: { width: 6, height: 4, channels: 
 
 describe("the names in a selection's zip", () => {
   it("are the item's own with its extension, the same name twice numbered as a file manager does", () => {
-    expect(zipName({ id: "abc", name: "", mime: "image/png" })).toBe("abc.png");
-    expect(zipName({ id: "abc", name: "cat: 0:05", mime: "video/mp4" })).toBe("cat. 0.05.mp4");
-    expect(zipName({ id: "abc", name: "done.PNG", mime: "image/png" })).toBe("done.PNG");
+    expect(downloadName({ id: "abc", name: "", mime: "image/png" })).toBe("abc.png");
+    expect(downloadName({ id: "abc", name: "cat: 0:05", mime: "video/mp4" })).toBe("cat. 0.05.mp4");
+    expect(downloadName({ id: "abc", name: "done.PNG", mime: "image/png" })).toBe("done.PNG");
+    // as the web's Download names them (card #311): a .jpeg keeps its name, a type with no extension here its own
+    expect(downloadName({ id: "abc", name: "photo.jpeg", mime: "image/jpeg" })).toBe("photo.jpeg");
+    expect(downloadName({ id: "abc", name: "clip.mov", mime: "video/quicktime" })).toBe("clip.mov");
     expect(uniqueNames(["a.png", "b.png", "A.png", "a.png", "x"])).toEqual(["a.png", "b.png", "A (2).png", "a (3).png", "x"]);
   });
 });

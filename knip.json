@@ -3,7 +3,7 @@
   "ignoreExportsUsedInFile": true,
   "ignoreBinaries": ["ffmpeg", "ffprobe"],
   "workspaces": {
-    ".": { "entry": ["scripts/**/*.{ts,mts,mjs}!", "!scripts/check-player.ts!", "!scripts/corpus-expect.mts!", "!scripts/zz-*/**!", "!scripts/zz-*!"] },
+    ".": { "entry": ["scripts/**/*.{ts,mts,mjs}!", "!scripts/check-player.ts!", "!scripts/corpus-expect.mts!", "!scripts/zz-*/**!", "!scripts/zz-*!", "!scripts/zz-*/**", "!scripts/zz-*"] },
     "packages/workflows": { "entry": ["test/comfyExport.mjs"] }
   }
 }

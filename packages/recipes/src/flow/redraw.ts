@@ -1,5 +1,5 @@
 import { defineRecipe, GraphBuilder, type Recipe } from "@afflatus/core";
-import { dropsFor, pictureForm } from "../shared/pictureForm";
+import { dropsFor, pictureForm, SOURCE_INPUT, strengthInput } from "../shared/pictureForm";
 import { applyGuide, guideInputs, guideNeeds, guideNodes, type GuideSettings } from "../shared/guide";
 import { REDUX_NODES, reduxInputs, reduxNeeds, withRedux, type ReferenceSettings } from "../shared/references";
 import { sigmaWords } from "../shared/sigmaWords";
@@ -28,9 +28,9 @@ export function flowRedraw(spec: FlowSpec, kit: FlowKit): Recipe<FlowRedraw> {
     ...(spec.references || spec.guide ? { needsWith: (input: FlowRedraw) => [...(spec.references ? reduxNeeds(input) : []), ...(spec.guide ? guideNeeds(input, spec.guide) : [])] } : {}),
     inputs: [
       spec.model,
-      { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+      SOURCE_INPUT,
       { id: "prompt", type: "prompt", label: "Prompt", style: "sentences", placeholder: "what the picture shows, as it should come out" },
-      { id: "strength", type: "number", label: "Denoising strength", note: strengthNote, min: 0.05, max: 1, step: 0.05, default: 0.55 },
+      strengthInput({ default: 0.55, note: strengthNote }),
       ...(spec.references ? reduxInputs() : []),
       ...(spec.guide ? guideInputs(spec.guide) : []),
       ...inputs,

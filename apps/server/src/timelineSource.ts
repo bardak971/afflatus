@@ -280,7 +280,7 @@ export class TimelineSource {
    */
   /** What `append` adds after: every clip the source made kept, the new windows from where the last one ends, after it. */
   private afterAll(all: Placed[], plan: SourcePlan, driving: Extract<InputSpec, { type: "clip" }>) {
-    const ofSource = clipsOfSource(plan, all.map((p) => p.clip), (r) => this.core.registry.recipe(r));
+    const ofSource = this.core.sourceClips(plan, all.map((p) => p.clip));
     const mine = all.filter((p) => ofSource.includes(p.clip.id));
     const last = mine.at(-1);
     if (!last) throw httpError("The source has no clips to add after: make them first.");
@@ -330,7 +330,7 @@ export class TimelineSource {
       const w = driving.window;
       const fps = recipe.traits.fps;
       const all = await this.core.placed(timelineId);
-      const ofSource = clipsOfSource(plan, all.map((p) => p.clip), (r) => this.core.registry.recipe(r));
+      const ofSource = this.core.sourceClips(plan, all.map((p) => p.clip));
       const mine = all.filter((p) => ofSource.includes(p.clip.id));
       // a window that carries on starts its part early by the frames it carries (its run-up): its own frames begin there; one
       // ended on a scene cut stops there, its take hiding what its part runs past it (SourcePlan.hidden)
@@ -434,7 +434,7 @@ export class TimelineSource {
 
   /** What `anew` drops: every clip the source made, from the first one's place; none of them in the queue. */
   private async allAnew(all: Placed[], plan: SourcePlan) {
-    const ofSource = clipsOfSource(plan, all.map((p) => p.clip), (r) => this.core.registry.recipe(r));
+    const ofSource = this.core.sourceClips(plan, all.map((p) => p.clip));
     if (!ofSource.length) throw httpError("The source has no clips to make anew: make them first.");
     if ((await this.timelines.busyOf(ofSource)).size) throw httpError("A clip of the source is rendering or in the queue: let it end, or stop it, to change the source's model.", 409);
     return { kept: 0, drop: ofSource, after: undefined, opens: false, index: all.findIndex((p) => p.clip.id === ofSource[0]), form: undefined };
@@ -460,7 +460,7 @@ export class TimelineSource {
       if (!plan) throw httpError("Drop a video on the Source lane first.");
       const old = plan.recipe ? this.core.registry.recipe(plan.recipe) : undefined;
       const all = await this.core.placed(timelineId);
-      const ofSource = clipsOfSource(plan, all.map((p) => p.clip), (r) => this.core.registry.recipe(r));
+      const ofSource = this.core.sourceClips(plan, all.map((p) => p.clip));
       if (!ofSource.length || !old || !sameWindowGrid(old, next)) {
         if (!ofSource.length) {
           await this.timelines.edit(timelineId, { source: { recipe: next.id } });
@@ -506,7 +506,7 @@ export class TimelineSource {
     await this.core.oneAtATime(timelineId, async () => {
       const all = await this.core.placed(timelineId);
       const p = all.find((x) => x.clip.id === clipId);
-      if (!p || !clipsOfSource(plan, [p.clip], (r) => this.core.registry.recipe(r)).length) throw httpError("That clip is not a window of the source.");
+      if (!p || !this.core.sourceClips(plan, [p.clip]).length) throw httpError("That clip is not a window of the source.");
       if (p.clip.recipe_id === next.id) return;
       if ((await this.timelines.busyOf([clipId])).size) throw httpError("The clip is rendering or in the queue: let it end, or stop it, to change its model.", 409);
       const was = (p.clip.recipe_id ? this.core.registry.recipe(p.clip.recipe_id) : undefined) ?? source;
@@ -521,7 +521,7 @@ export class TimelineSource {
   }
 
   private async cutAgain(all: Placed[], plan: SourcePlan, driving: Extract<InputSpec, { type: "clip" }>) {
-    const ofSource = clipsOfSource(plan, all.map((p) => p.clip), (r) => this.core.registry.recipe(r));
+    const ofSource = this.core.sourceClips(plan, all.map((p) => p.clip));
     const mine = all.filter((p) => ofSource.includes(p.clip.id));
     if (!mine.length) throw httpError("The source has no clips to cut again: make them first.");
     const busy = new Set((await this.core.db.selectFrom("jobs").select("clip_id").where("clip_id", "in", mine.map((p) => p.clip.id)).where("status", "in", ["queued", "running"]).execute()).map((j) => j.clip_id));
@@ -794,7 +794,7 @@ export class TimelineSource {
    * (the voice band's, else the whole sound's), each kept beside it once read. A video without sound has none of the last two;
    * one whose cuts could not be read is cut at the others (not kept: read again next time), not refused.
    */
-  async sourceMarksOf(assetId: string): Promise<SourceMarks> {
+  private async sourceMarksOf(assetId: string): Promise<SourceMarks> {
     const video = await this.core.assetRow(assetId);
     if (!video) throw notFound("the source video");
     const [{ cuts }, pauses, levels] = await Promise.all([

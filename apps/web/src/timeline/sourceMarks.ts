@@ -5,7 +5,7 @@ import { api, type Timeline } from "../api";
 import { queryKeys } from "../queryKeys";
 
 /**
- * What a timeline's source is cut at besides its length, as the server reads them (Timelines.sourceMarksOf): its scene
+ * What a timeline's source is cut at besides its length, as the server reads them (TimelineSource.sourceMarksOf): its scene
  * cuts, the pauses in its speech and its loudness (the voice band's, else the whole sound's), each read once. Undefined
  * while they are read, or for a source cut at its length alone (± 0): its windows are then drawn at the length.
  */

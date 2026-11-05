@@ -1,17 +1,12 @@
 import { randomBytes } from "node:crypto";
-import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
-import { plural } from "@afflatus/core";
+import { downloadName, plural } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { fromRender } from "./aiMark";
 import { stamp } from "./backup";
-import { markedVideoFile } from "./cut";
 import { httpError } from "./errors";
-import { extOf } from "./media";
-import { outgoingOwnPng, outgoingPng } from "./pngInfo";
+import { outgoingFile } from "./outgoing";
 import type { Services } from "./services";
-import { sourceOf } from "./storage";
 import { ZipStream } from "./zipStream";
 
 /**
@@ -24,13 +19,6 @@ import { ZipStream } from "./zipStream";
 const ASKED_MS = 60_000;
 /** The most items one zip is asked for: a whole library is a backup (Settings › Storage), not a selection. */
 const MOST = 2000;
-
-/** A file name no system refuses, as the web's downloadName makes it: the item's own name, else its id, with its extension. */
-export function zipName(a: { id: string; name: string; mime: string }): string {
-  const ext = extOf(a.mime);
-  const name = (a.name.trim() || a.id).replace(/[\\/:*?"<>|\u0000-\u001f]/g, ".");
-  return name.toLowerCase().endsWith(`.${ext}`) ? name : `${name}.${ext}`;
-}
 
 /** Two items of the same name both go in: the second "name (2).png", as a file manager does. */
 export function uniqueNames(names: string[]): string[] {
@@ -68,7 +56,7 @@ export function registerAssetsZip(app: FastifyInstance, s: Services): void {
     const byId = new Map(rows.map((r) => [r.id, r]));
     const items = ask.ids.flatMap((id) => byId.get(id) ?? []);
     if (!items.length) throw httpError("None of these items is in the library any more.", 404);
-    const names = uniqueNames(items.map(zipName));
+    const names = uniqueNames(items.map(downloadName));
     const zip = new ZipStream();
     reply.header("Content-Type", "application/zip").header("Content-Disposition", `attachment; filename="afflatus-${items.length}-items-${stamp()}.zip"`).header("Cache-Control", "no-store");
     // what is written runs beside the reply, which takes the stream now; a write fails once the browser has gone (zipStream.ts)
@@ -77,43 +65,24 @@ export function registerAssetsZip(app: FastifyInstance, s: Services): void {
         // the items whose file could not be read (gone from the disk, a linked folder's moved away): left out, not the whole
         // zip given up, and named in a note at its end, the only place a download followed as a link can say it
         const missed: string[] = [];
+        // the model hashes read once for the whole zip, not once a picture
+        const reads = {};
         for (const [i, a] of items.entries()) {
           if (req.raw.destroyed) break;
           const path = names[i]!;
           const at = new Date(a.created_at);
-          // a render goes in as the item's own Download gives it: marked as made by a model, a PNG with how it was made when
-          // Settings says so (aiMark.ts, pngInfo.ts); a PNG brought in, without its texts when Settings says none
-          const render = (a.kind === "video" || a.mime === "image/png") && (await fromRender(s.db, a));
-          if (render && a.kind === "video") {
-            // read from the marked copy on the disk as it goes in, then removed: one video in memory at a time would be too much
-            const marked = await markedVideoFile(await sourceOf(s.storage, a.file_key), extOf(a.mime)).catch(() => null);
-            if (!marked) {
-              missed.push(path);
-              continue;
-            }
-            try {
-              await zip.add(path, createReadStream(marked.file), at, marked.size);
-            } finally {
-              await marked.done();
-            }
-            continue;
-          }
-          if (a.mime === "image/png") {
-            const bytes = await s.storage.get(a.file_key).catch(() => null);
-            if (!bytes) {
-              missed.push(path);
-              continue;
-            }
-            const out = render ? await outgoingPng(s, a, bytes) : await outgoingOwnPng(s, bytes);
-            await zip.add(path, Readable.from([Buffer.from(out.buffer, out.byteOffset, out.byteLength)]), at, out.length);
-            continue;
-          }
-          const f = await s.storage.open(a.file_key).catch(() => null);
+          // a render goes in as the item's own Download gives it, a PNG brought in as well (outgoing.ts); any other file as it is
+          const f = await outgoingFile(s, a, reads).then((out) => out ?? s.storage.open(a.file_key).then((o) => ({ ...o, done: async () => {} }))).catch(() => null);
           if (!f) {
             missed.push(path);
             continue;
           }
-          await zip.add(path, f.stream, at, f.size);
+          try {
+            await zip.add(path, f.stream, at, f.size);
+          } finally {
+            // a video's marked copy, read as it goes in, then removed: one video in memory at a time would be too much
+            await f.done();
+          }
         }
         if (missed.length && !req.raw.destroyed) {
           // Windows line ends: the note is opened by whatever the user's system has, Notepad included

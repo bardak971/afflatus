@@ -1,5 +1,5 @@
 import { defineRecipe, GraphBuilder, type Recipe } from "@afflatus/core";
-import { dropsFor, pictureForm } from "../shared/pictureForm";
+import { dropsFor, pictureForm, SOURCE_INPUT, strengthInput } from "../shared/pictureForm";
 import { boxOf, MASK_INPUTS, MASK_NODES, maskParts, type MaskSettings } from "../sdxl/common";
 import { INPAINT_PATCH_NODES, inpaintPatched, inpaintPatchNeeds, photo, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
 
@@ -23,10 +23,10 @@ export function flowPaintOver(spec: FlowSpec, kit: FlowKit): Recipe<FlowPaintOve
     output: "image",
     inputs: [
       spec.model,
-      { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
+      SOURCE_INPUT,
       { id: "mask", type: "image", role: "mask", of: "source", label: "Inpaint mask", note: "the part to redo, painted over the picture" },
       { id: "prompt", type: "prompt", label: "Prompt", note: "the masked part with what is around it, as it should come out", style: "sentences", placeholder: "A woman's hand holding a glass of orange juice, on a terrace table in morning light." },
-      { id: "strength", type: "number", label: "Denoising strength", note: ["1 ignores what was there", noise].filter(Boolean).join("; "), min: 0.05, max: 1, step: 0.05, default: 0.8 },
+      strengthInput({ default: 0.8, note: ["1 ignores what was there", noise].filter(Boolean).join("; ") }),
       ...MASK_INPUTS,
       ...inputs,
     ],

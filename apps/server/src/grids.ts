@@ -1,4 +1,4 @@
-import { GRID_AXES, gridAxes, gridJobs, parseInput, PROMPT_SR, SEED_RANGE, usdFor, type GridAxisValues, type GridJob, type InputSpec, type Recipe } from "@afflatus/core";
+import { GRID_AXES, gridAxes, gridJobs, parseInput, PROMPT_SR, randomSeed, usdFor, type GridAxisValues, type GridJob, type InputSpec, type Recipe } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { assetLookup } from "./assets-api";
@@ -69,7 +69,7 @@ export function readGrid(s: Services, body: Pick<z.output<typeof gridBody>, "rec
   const read = gridAxes(specs, body.input, { axes: body.axes }, body.options);
   if ("error" in read) throw httpError(`${GRID_AXES[read.axis] ?? "X"}: ${read.error}`);
   if (!read.axes.length) throw httpError("a grid needs at least one axis with values");
-  return { recipe, axes: read.axes, jobs: gridJobs(specs, body.input, read.axes, Math.floor(Math.random() * SEED_RANGE)) };
+  return { recipe, axes: read.axes, jobs: gridJobs(specs, body.input, read.axes, randomSeed()) };
 }
 
 /**

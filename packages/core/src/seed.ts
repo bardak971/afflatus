@@ -2,6 +2,8 @@ import { RANDOM_SEED } from "./inputs";
 
 /** How many seeds a model takes: 0 to 2³² − 1. */
 export const SEED_RANGE = 4294967296;
+/** A seed drawn at random, for a render asked with none (RANDOM_SEED) and a grid's cells. */
+export const randomSeed = () => Math.floor(Math.random() * SEED_RANGE);
 
 /** A typed seed that moves from one render to the next: one up, or one down. */
 export type SeedMove = "up" | "down";

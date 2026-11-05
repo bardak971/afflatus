@@ -1,7 +1,7 @@
-import { defineFamily, defineRecipe, GraphBuilder, REFERENCE_ROLES, roundTo, type InputSpec, type LoraValue, type Ref, type ReferenceValue } from "@afflatus/core";
-import { flowRecipes, type FlowSpec } from "../flow/recipes";
+import { defineFamily, defineRecipe, GraphBuilder, REFERENCE_ROLES, roundTo, type BuildContext, type InputSpec, type LoraValue, type Ref, type ReferenceValue } from "@afflatus/core";
+import { flowKit, flowRecipes, type FlowBase, type FlowSpec } from "../flow/recipes";
 import { dropsFor, noGuide, noReferences, pictureForm } from "../shared/pictureForm";
-import { loadUnet, unetNodes } from "../shared/unet";
+import { unetNodes } from "../shared/unet";
 import { qwen21Lint } from "../shared/lint";
 import { FACE_AT_NODE, FACE_NODE, faceScore } from "../shared/face";
 import { detectorSlots } from "../shared/detector";
@@ -90,38 +90,11 @@ interface Qwen21Edit extends Qwen21Base { source: string; prompt: string; refere
 interface Qwen21MotionPicture extends Qwen21Base { source: string; people: ReferenceValue[]; scene: string; relight: boolean; replace: string; relit: string; resolution: number }
 
 const model: InputSpec = { id: "model", type: "model", label: "Model", folder: "diffusion_models", slot: "unet", match: ["qwen.?image.?2[._]1(?!.*vae)"], note: "Qwen Image 2.1, or a fine-tune of it" };
-/** How it samples: the values of ComfyUI's template (25 steps) raised to what Qwen's authors give (about 40 with euler), each kept per model once saved. */
-const sampling: InputSpec[] = [
-  { id: "loras", type: "loras", label: "LoRAs", max: 6 },
-  { id: "negative", type: "prompt", label: "Negative prompt", note: "unused at CFG 1, which is the model's own setting; raise the CFG scale for it to act", style: "sentences", optional: true, default: "", advanced: true, perModel: true },
-  { id: "steps", type: "number", label: "Steps", note: "about 40 with euler, as Qwen's authors give; ComfyUI's template starts at 25", min: 1, max: 80, step: 1, default: 40, advanced: true, perModel: true },
-  { id: "cfg", type: "number", label: "CFG scale", note: "1 is the model's own setting. Above 1 the negative prompt acts and every step takes twice as long", min: 1, max: 10, step: 0.5, default: 1, advanced: true, perModel: true },
-  { id: "sampler", type: "choice", label: "Sampler", options: { node: "KSampler", input: "sampler_name" }, default: "euler", advanced: true, perModel: true },
-  { id: "scheduler", type: "choice", label: "Scheduler", options: { node: "KSampler", input: "scheduler" }, default: "simple", advanced: true, perModel: true },
-  {
-    id: "precision", type: "choice", label: "Weight precision", options: { node: "UNETLoader", input: "weight_dtype" }, default: "default", advanced: true, perModel: true,
-    note: "how the model's weights are held in memory: default keeps the file's own; fp8 halves a bf16 file",
-  },
-  {
-    id: "cacheDtype", type: "choice", label: "KV cache precision", options: ["default", "int8", "int4"], default: "default", advanced: true,
-    note: "the model's cache of the prompt and the reference pictures: default is lossless; int8 halves it at about the same quality, int4 quarters it. Smaller helps edits with many pictures on a small card",
-  },
-  { id: "seed", type: "seed", label: "Seed" },
-];
-
-/** The model with its LoRAs and its cache, the text encoder and the VAE. */
-function load(g: GraphBuilder, input: Qwen21Base, ctx: Parameters<typeof loadUnet>[1]) {
-  const unet = input.model ?? ctx.slots.unet;
-  let m: Ref = loadUnet(g, ctx, unet, input.precision || "default");
-  for (const l of input.loras) if (l.weight !== 0) m = g.out("LoraLoaderModelOnly", { model: m, lora_name: l.file, strength_model: l.weight });
-  m = g.out("QwenImage21Cache", { model: m, device: "auto", dtype: input.cacheDtype });
-  return {
-    model: m,
-    clip: g.out("CLIPLoader", { clip_name: ctx.slots.clip, type: "qwen_image", device: "default" }),
-    vae: g.out("VAELoader", { vae_name: ctx.slots.vae }),
-    loads: [`diffusion_models/${unet}`, `text_encoders/${ctx.slots.clip}`, `vae/${ctx.slots.vae}`, ...input.loras.filter((l) => l.weight !== 0).map((l) => `loras/${l.file}`)],
-  };
-}
+/**
+ * The model with its LoRAs and its cache, the text encoder and the VAE, as its picture forms load them (the kit's load, the
+ * cache as its patch): Edit and the motion picture have no Turbo or shift for it to read.
+ */
+const load = (g: GraphBuilder, input: Qwen21Base, ctx: BuildContext) => qwen21Kit.load(g, input as unknown as FlowBase, ctx);
 const NODES = (input: Qwen21Base) => [...unetNodes(input.model), "QwenImage21Cache", "CLIPLoader", "VAELoader", "TextEncodeQwenImage21", "KSampler", "VAEDecode", "PreviewImage"];
 /** The sampling rows of the picture forms (pictureForm) that Qwen Image 2.1's do not take. */
 const QWEN21_DROPS = {
@@ -170,11 +143,20 @@ const qwen21Spec: FlowSpec = {
   },
   distilled: TURBO_FILE,
   patch: { nodes: ["QwenImage21Cache"], put: (g, m, input) => g.out("QwenImage21Cache", { model: m, device: "auto", dtype: (input as Partial<Qwen21Base>).cacheDtype ?? "default" }) },
-  // no shift row (its inputs have none): the model samples at its own, which is not known here
+  // no shift row (rows.omit): the model samples at its own, which is not known here
   shift: { node: "ModelSamplingAuraFlow", default: 0, note: "" },
   negative: { default: "", note: "unused at CFG 1, which is the model's own setting; raise the CFG scale for it to act", empty: "encode" },
-  sampling: { steps: 40, stepsNote: "about 40 with euler, as Qwen's authors give; ComfyUI's template starts at 25", cfg: 1, cfgNote: "1 is the model's own setting", sampler: "euler", scheduler: "simple" },
-  inputs: sampling,
+  sampling: { steps: 40, stepsNote: "about 40 with euler, as Qwen's authors give; ComfyUI's template starts at 25", cfg: 1, cfgNote: "1 is the model's own setting. Above 1 the negative prompt acts and every step takes twice as long", sampler: "euler", scheduler: "simple" },
+  // the values of ComfyUI's template (25 steps) raised to what Qwen's authors give (about 40 with euler), and its KV cache
+  rows: {
+    omit: ["shift"],
+    max: { cfg: 10 },
+    precisionNote: "how the model's weights are held in memory: default keeps the file's own; fp8 halves a bf16 file",
+    extra: [{
+      id: "cacheDtype", type: "choice", label: "KV cache precision", options: ["default", "int8", "int4"], default: "default", advanced: true,
+      note: "the model's cache of the prompt and the reference pictures: default is lossless; int8 halves it at about the same quality, int4 quarters it. Smaller helps edits with many pictures on a small card",
+    }],
+  },
   latent: "EmptyLatentImage",
   alpha: true,
   detail: "daemon",
@@ -214,6 +196,9 @@ const qwen21Spec: FlowSpec = {
 };
 
 const made = flowRecipes(qwen21Spec);
+const qwen21Kit = flowKit(qwen21Spec);
+/** How it samples, as its picture forms do: Edit and the motion picture take the same rows. */
+const sampling = qwen21Kit.inputs;
 export const qwen21Picture = made.picture;
 export const qwen21Redraw = made.redraw;
 export const qwen21PaintOver = made.paintOver;

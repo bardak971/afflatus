@@ -90,6 +90,15 @@ describe("folders", () => {
     expect((await post(t.app, "/api/folders", { name: "   " })).statusCode).toBe(400);
   });
 
+  it("count only what the tree shows: a scratch picture filed there is not one of its items (card #312)", async () => {
+    const f = await create("Swaps");
+    const [a, mask] = [await addAsset(), await addAsset()];
+    await post(t.app, "/api/assets/move", { ids: [a, mask], folderId: f });
+    // a swap's Show the mask keeps the folder of its job, as queueStore writes it
+    await t.db.updateTable("assets").set({ origin: "scratch" }).where("id", "=", mask).execute();
+    expect((await folders()).find((x) => x.id === f)!.count).toBe(1);
+  });
+
   it("filter the library, and filing something keeps it", async () => {
     const f = await create("Kept things");
     const [a, b] = [await addAsset(), await addAsset()];

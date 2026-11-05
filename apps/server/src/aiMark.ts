@@ -36,6 +36,24 @@ function chunk(type: string, data: Buffer): Buffer {
 }
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+/** Whether the bytes start as a PNG does. */
+export const isPng = (buf: Buffer) => buf.length >= 8 && buf.subarray(0, 8).equals(PNG_SIGNATURE);
+
+/**
+ * A PNG's chunks in order, up to its IEND (given too), each with where it starts and ends and its data: the one walk the
+ * mark, the stripping of texts and the reader (embedded.ts) make. A chunk cut short is given with `end` past the bytes and
+ * the data that is there, and the walk stops after it. For bytes isPng took.
+ */
+export function* pngChunks(buf: Buffer): Generator<{ type: string; at: number; end: number; data: Buffer }> {
+  for (let at = 8; at + 12 <= buf.length; ) {
+    const length = buf.readUInt32BE(at);
+    const type = buf.toString("latin1", at + 4, at + 8);
+    const end = at + 12 + length;
+    yield { type, at, end, data: buf.subarray(at + 8, at + 8 + length) };
+    if (type === "IEND" || end > buf.length) return;
+    at = end;
+  }
+}
 
 /**
  * A text chunk: tEXt for plain ASCII, the one every reader takes; anything else (an accent, another script) iTXt,
@@ -56,25 +74,21 @@ function textChunk(key: string, text: string): Buffer {
  */
 export function markPng(bytes: Uint8Array, texts: Record<string, string> = {}): Uint8Array {
   const buf = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (buf.length < 8 || !buf.subarray(0, 8).equals(PNG_SIGNATURE)) return bytes;
-  let at = 8;
+  if (!isPng(buf)) return bytes;
   let end = -1;
   let hasXmp = false;
   const had = new Set<string>();
-  while (at + 12 <= buf.length) {
-    const length = buf.readUInt32BE(at);
-    const type = buf.toString("latin1", at + 4, at + 8);
-    if (type === "IEND") {
-      end = at;
+  for (const c of pngChunks(buf)) {
+    if (c.type === "IEND") {
+      end = c.at;
       break;
     }
-    if (type === "tEXt" || type === "iTXt" || type === "zTXt") {
-      const nul = buf.indexOf(0, at + 8);
-      if (nul > at + 8 && nul < at + 8 + length) had.add(buf.toString("latin1", at + 8, nul));
+    if (c.type === "tEXt" || c.type === "iTXt" || c.type === "zTXt") {
+      const nul = c.data.indexOf(0);
+      if (nul > 0) had.add(c.data.toString("latin1", 0, nul));
     }
-    if (type === "iTXt" && buf.toString("latin1", at + 8, at + 8 + XMP_KEY.length + 1) === `${XMP_KEY}\0`) hasXmp = true;
-    if (type === "tEXt" && buf.toString("latin1", at + 8, at + 8 + 8) === "Comment\0" && buf.toString("latin1", at + 16, at + 8 + length) === AI_COMMENT) return bytes;
-    at += 12 + length;
+    if (c.type === "iTXt" && c.data.toString("latin1", 0, XMP_KEY.length + 1) === `${XMP_KEY}\0`) hasXmp = true;
+    if (c.type === "tEXt" && c.data.toString("latin1", 0, 8) === "Comment\0" && c.data.toString("latin1", 8) === AI_COMMENT) return bytes;
   }
   if (end < 0) return bytes;
   const added = [
@@ -99,19 +113,15 @@ const WORDS = new Set(["tEXt", "zTXt", "iTXt", "eXIf"]);
  */
 export function withoutTexts(bytes: Uint8Array): Uint8Array {
   const buf = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (buf.length < 8 || !buf.subarray(0, 8).equals(PNG_SIGNATURE)) return bytes;
+  if (!isPng(buf)) return bytes;
   const kept: Buffer[] = [buf.subarray(0, 8)];
   let dropped = false;
-  for (let at = 8; at + 12 <= buf.length; ) {
-    const length = buf.readUInt32BE(at);
-    const type = buf.toString("latin1", at + 4, at + 8);
-    const end = at + 12 + length;
+  for (const c of pngChunks(buf)) {
     // a chunk cut short is not a PNG this can read: left whole rather than half-cleaned
-    if (end > buf.length) return bytes;
-    if (WORDS.has(type)) dropped = true;
-    else kept.push(buf.subarray(at, end));
-    if (type === "IEND") return dropped ? new Uint8Array(Buffer.concat(kept)) : bytes;
-    at = end;
+    if (c.end > buf.length) return bytes;
+    if (WORDS.has(c.type)) dropped = true;
+    else kept.push(buf.subarray(c.at, c.end));
+    if (c.type === "IEND") return dropped ? new Uint8Array(Buffer.concat(kept)) : bytes;
   }
   return bytes;
 }

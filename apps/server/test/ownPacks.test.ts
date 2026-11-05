@@ -397,9 +397,19 @@ describe("the version a pack is installed at", () => {
     expect(krea.state).toBe("failed");
     expect(krea.error).toMatch(/git clone https:\/\/github\.com\/lbouaraba\/comfyui-krea2edit custom_nodes\/comfyui-krea2edit, then git -C custom_nodes\/comfyui-krea2edit checkout [0-9a-f]{40}/);
     expect(krea.error).toContain(packCommit("comfyui-krea2edit")!);
-    const base = readFileSync(join(__dirname, "..", "..", "..", "deploy", "runpod", "base", "Dockerfile"), "utf8");
-    expect(base).toContain(`ARG KREA2EDIT_COMMIT=${packCommit("comfyui-krea2edit")}`);
     expect(missingNodesSaid(["Krea2EditModelPatch"])).toContain(`checkout ${packCommit("comfyui-krea2edit")}`);
+  });
+});
+
+describe("a pack the pod base builds in at a commit", () => {
+  it("is at the commit packs.ts holds it at, which the app tells a ComfyUI without it to check out (card #312)", () => {
+    const base = readFileSync(join(__dirname, "..", "..", "..", "deploy", "runpod", "base", "Dockerfile"), "utf8");
+    const args = new Map([...base.matchAll(/^ARG (\w+_COMMIT)=([0-9a-f]{40})$/gm)].map((m) => [m[1]!, m[2]!]));
+    const pins = [...base.matchAll(/pin (\S+) https:\/\/github\.com\/\S+ "\$\{(\w+_COMMIT)\}"/g)].map((m) => ({ name: m[1]!, commit: args.get(m[2]!) }));
+    const held = pins.filter((p) => packCommit(p.name));
+    for (const p of held) expect(p.commit, p.name).toBe(packCommit(p.name));
+    // the packs packs.ts holds at a commit, each pinned there: one held but not pinned would install from its head on a pod
+    expect(held.map((p) => p.name)).toEqual(["comfyui-krea2edit", "ComfyUI-Krea2-Regional"]);
   });
 });
 

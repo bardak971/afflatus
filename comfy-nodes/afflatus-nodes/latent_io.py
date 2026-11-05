@@ -3,7 +3,7 @@
 ComfyUI's own SaveLatent writes `samples["samples"]` as a single tensor; H3's latent is a nested pair
 (video, audio), so it cannot be stored that way. These two nodes keep both streams, with the frame count
 in the file's metadata, so that a finished clip's latent can be continued later with the MiniMax H3
-continuation nodes (Guided Continuation Window, Latent Tail Guide, Append Continuation).
+continuation nodes (Guided Continuation Window, Latent Tail Guide).
 
 File layout: safetensors with tensors "video" [1, 24, T, H, W] and "audio" [1, 32, 2, T_audio], and
 metadata {"format": "afflatus-h3-av-latent/1", "frames": "<pixel frames>"}, and "runup_width" for a continuation window

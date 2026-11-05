@@ -5,7 +5,7 @@ import { Button, Help, NumberBox } from "../../ui";
 /**
  * A clip under a recording dropped on the track (the rethink's step 6), whatever its form, as its panel shows it: the
  * recording's stretch its clips are made of, In and Out (seconds of the recording), trimmed as a source's is
- * (Timelines.trimRecording), and the question when a moved start would leave rendered takes behind.
+ * (TimelineRecording.trimRecording), and the question when a moved start would leave rendered takes behind.
  */
 export type ClipRecording = {
   /** How many clips the recording made, this one among them; this one's part. */

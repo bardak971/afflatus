@@ -57,7 +57,7 @@ export function useEditorPanels() {
     setRecordingOpen(null);
     setJoinOpen(clip);
   };
-  return { selected, setSelected, picked, setPicked, musicOpen, setMusicOpen, joinOpen, setJoinOpen, sourceOpen, setSourceOpen, recordingOpen, setRecordingOpen, select, openSource, openRecording, openJoin };
+  return { selected, setSelected, picked, setPicked, musicOpen, setMusicOpen, joinOpen, sourceOpen, setSourceOpen, recordingOpen, setRecordingOpen, select, openSource, openRecording, openJoin };
 }
 
 /**

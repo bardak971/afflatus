@@ -1,4 +1,4 @@
-import type { Kysely } from "kysely";
+import type { ExpressionBuilder, Kysely } from "kysely";
 import type { AssetLookup } from "./assets-api";
 import { capName, shownNames } from "./autoName";
 import { now, type Tables } from "./db";
@@ -36,6 +36,16 @@ async function headOf(db: Kysely<Tables>, id: string): Promise<Head | null> {
   }
   return at ?? null;
 }
+
+/** A stack's head, or the 404 a route answers when there is none. */
+async function headOr404(db: Kysely<Tables>, id: string) {
+  const head = await headOf(db, id);
+  if (!head) throw httpError("there is no such picture", 404);
+  return head;
+}
+
+/** The versions still under a head: not those in the bin. */
+const liveVersionsOf = (head: string) => (eb: ExpressionBuilder<Tables, "assets">) => eb.and([eb("version_of", "=", head), eb("deleted_at", "is", null)]);
 
 /**
  * The head that what a job makes for `id` joins as versions: the root of its stack, followed from the picture the job was
@@ -78,9 +88,8 @@ export async function ownPictures(tx: Kysely<Tables>, ids: string[]): Promise<vo
 
 /** A stack as the Stage's strip reads it: its head, and its versions in the order they were made (the head not among them). */
 export async function versionsOf(s: Services, id: string) {
-  const head = await headOf(s.db, id);
-  if (!head) throw httpError("there is no such picture", 404);
-  const rows = await s.db.selectFrom("assets").selectAll().where((eb) => eb.or([eb("id", "=", head.id), eb.and([eb("version_of", "=", head.id), eb("deleted_at", "is", null)])]))
+  const head = await headOr404(s.db, id);
+  const rows = await s.db.selectFrom("assets").selectAll().where((eb) => eb.or([eb("id", "=", head.id), liveVersionsOf(head.id)(eb)]))
     .orderBy("created_at").orderBy("id").execute();
   const shown = await shownNames(s.db, rows, (r) => s.registry.recipe(r)?.title);
   const view = (r: Tables["assets"]) => ({ ...assetView(r), ...(shown.has(r.id) ? { shownName: shown.get(r.id)! } : {}) });
@@ -97,13 +106,12 @@ export async function versionsOf(s: Services, id: string) {
  * Returns the stack as it is after.
  */
 export async function keepVersion(s: Services, { fileInLinked }: AssetLookup, id: string, version: string) {
-  const head = await headOf(s.db, id);
-  if (!head) throw httpError("there is no such picture", 404);
+  const head = await headOr404(s.db, id);
   const at = now();
   if (version === head.id) {
     await s.db.transaction().execute(async (tx) => {
       await tx.updateTable("assets").set({ kept_at: at }).where("id", "=", head.id).where("kept_at", "is", null).execute();
-      await tx.updateTable("assets").set({ countdown_from: at }).where("version_of", "=", head.id).where("deleted_at", "is", null).execute();
+      await tx.updateTable("assets").set({ countdown_from: at }).where(liveVersionsOf(head.id)).execute();
     });
     await fileInLinked(head.id);
   } else {
@@ -117,7 +125,7 @@ export async function keepVersion(s: Services, { fileInLinked }: AssetLookup, id
       // version is), its draft, and its cell of an X/Y/Z grid (the board lists a cell by it, and only what is in the library)
       await tx.updateTable("assets").set({ version_of: null, folder_id: top.folder_id, name: top.name.trim() ? top.name : kept.name, kept_at: at, countdown_from: null, grid_id: top.grid_id ?? null, grid_cell: top.grid_cell ?? null }).where("id", "=", kept.id).execute();
       await carryDraft(tx, head.id, [kept.id]);
-      await tx.updateTable("assets").set({ version_of: kept.id, kept_at: null, countdown_from: at }).where("version_of", "=", head.id).where("deleted_at", "is", null).execute();
+      await tx.updateTable("assets").set({ version_of: kept.id, kept_at: null, countdown_from: at }).where(liveVersionsOf(head.id)).execute();
       // the old head: one in the bin stays there as it is (back from it, it is a plain picture again); one something uses
       // (a draft's form, a clip) stays kept, as an unkeep of it would be refused: the sweep spares it all the same, but
       // kept, Keep all or a Keep of it later finds it as the user left it
@@ -139,12 +147,11 @@ export async function keepVersion(s: Services, { fileInLinked }: AssetLookup, id
  * Returns the stack after: the head with no versions, unless jobs for it still run (what they make comes back under it).
  */
 export async function keepAllVersions(s: Services, { fileInLinked }: AssetLookup, id: string) {
-  const head = await headOf(s.db, id);
-  if (!head) throw httpError("there is no such picture", 404);
+  const head = await headOr404(s.db, id);
   const top = await s.db.selectFrom("assets").select(["folder_id", "name"]).where("id", "=", head.id).executeTakeFirstOrThrow();
   const at = now();
   const kept = await s.db.transaction().execute(async (tx) => {
-    const rows = await tx.selectFrom("assets").select(["id", "name"]).where("version_of", "=", head.id).where("deleted_at", "is", null).orderBy("created_at").orderBy("id").execute();
+    const rows = await tx.selectFrom("assets").select(["id", "name"]).where(liveVersionsOf(head.id)).orderBy("created_at").orderBy("id").execute();
     // a nameless one is called after how it was made (shownNames), which tells it apart already
     const key = (name: string) => name.trim().toLowerCase();
     const taken = new Set([top.name, ...rows.map((r) => r.name)].map(key).filter(Boolean));

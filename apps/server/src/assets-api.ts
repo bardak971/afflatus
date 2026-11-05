@@ -1,9 +1,7 @@
-import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { toEditor } from "@afflatus/workflows";
-import { fromRender } from "./aiMark";
 import { fromName, nameOf, shownNames, soundName } from "./autoName";
 import { registerAssetSearch, withShownName } from "./assetSearch";
 import { registerAssetsBin } from "./assetsBin";
@@ -15,13 +13,13 @@ import { registerAssetUpload } from "./assetUpload";
 import { openInComfy } from "./comfyOpen";
 import { loginKeyOf } from "./comfyLogins";
 import { tagMatches } from "./compress";
-import { markedVideoFile, probeMediaFile, silentOf, soundOf } from "./cut";
+import { probeMediaFile, silentOf, soundOf } from "./cut";
 import { newId, now, type Tables } from "./db";
 import { httpError, notFound } from "./errors";
 import type { LibraryChange } from "./events";
 import { isLinked } from "./linked";
 import { assetView, extOf, newAssetRow } from "./media";
-import { outgoingOwnPng, outgoingPng } from "./pngInfo";
+import { outgoingFile } from "./outgoing";
 import { castOf, madeIn } from "./provenance";
 import type { Services } from "./services";
 import { makeThumb, mirrorPicture, readPicture, SMALL_EDGE, smallThumbKey, thumbKey } from "./thumbs";
@@ -274,25 +272,12 @@ export function registerAssets(app: FastifyInstance, s: Services): void {
 
   app.get<{ Params: { id: string }; Querystring: { download?: string } }>("/api/assets/:id/file", async (req, reply) => {
     const a = await asset(req.params.id);
-    // saved to the user's disk (not played here): a render goes out marked as made by a model (aiMark.ts), whole, a
-    // picture with how it was made (pngInfo.ts)
-    if (req.query.download === "1" && (a.mime === "image/png" || a.kind === "video") && (await fromRender(s.db, a))) {
-      reply.header("Content-Type", a.mime).header("Cache-Control", "no-store");
-      if (a.kind === "video") {
-        // streamed from the marked copy on the disk, removed once sent (or the download stopped): never whole in memory
-        const marked = await markedVideoFile(await sourceOf(s.storage, a.file_key), extOf(a.mime));
-        const stream = createReadStream(marked.file);
-        stream.on("close", () => void marked.done());
-        return reply.header("Content-Length", marked.size).send(stream);
-      }
-      const marked = await outgoingPng(s, a, await s.storage.get(a.file_key));
-      return reply.header("Content-Length", marked.length).send(Buffer.from(marked.buffer, marked.byteOffset, marked.byteLength));
-    }
-    // a PNG the user brought in, saved to their disk: without its texts when the switch says a download carries none (pngInfo.ts)
-    if (req.query.download === "1" && a.mime === "image/png") {
-      const own = await outgoingOwnPng(s, await s.storage.get(a.file_key));
-      reply.header("Content-Type", a.mime).header("Cache-Control", "no-store");
-      return reply.header("Content-Length", own.length).send(Buffer.from(own.buffer, own.byteOffset, own.byteLength));
+    // saved to the user's disk (not played here): a render marked, a PNG with or without its texts (outgoing.ts), the
+    // marked copy of a video removed once sent or the download stopped
+    const out = req.query.download === "1" ? await outgoingFile(s, a) : null;
+    if (out) {
+      out.stream.on("close", () => void out.done());
+      return reply.header("Content-Type", a.mime).header("Cache-Control", "no-store").header("Content-Length", out.size).send(out.stream);
     }
     const size = await s.storage.size(a.file_key);
     reply.header("Content-Type", a.mime).header("Accept-Ranges", "bytes");

@@ -1,5 +1,6 @@
-import { formModelInput, isModelFile, type InputSpec, type Recipe } from "@afflatus/core";
-import { stemOf, type FoundSettings, type OwnForm } from "./embedded";
+import { formModelInput, isModelFile, modelStem, SEED_RANGE, type InputSpec, type Recipe } from "@afflatus/core";
+import { a1111Slots, bare, MEDIA_TYPES, takesPicture } from "./a1111";
+import type { FoundSettings, OwnForm } from "./embedded";
 
 /**
  * Settings read from a picture, worked into the form of a recipe: any recipe that makes a picture from
@@ -11,24 +12,18 @@ type Options = Record<string, string[]>;
 
 /** A model named in a picture and a file on disk are the same model: the same name, or one is the other with something added ("_fp8"). */
 export function sameModel(name: string, file: string): boolean {
-  const a = stemOf(name).toLowerCase();
-  const b = stemOf(file).toLowerCase();
+  const a = modelStem(name).toLowerCase();
+  const b = modelStem(file).toLowerCase();
   if (a === b) return true;
   const [short, long] = a.length <= b.length ? [a, b] : [b, a];
   return short.length >= 10 && long.startsWith(short);
 }
 const fileFor = (name: string | undefined, list: string[] | undefined) =>
-  name ? (list ?? []).find((o) => stemOf(o).toLowerCase() === stemOf(name).toLowerCase()) ?? (list ?? []).find((o) => sameModel(name, o)) : undefined;
+  name ? (list ?? []).find((o) => modelStem(o).toLowerCase() === modelStem(name).toLowerCase()) ?? (list ?? []).find((o) => sameModel(name, o)) : undefined;
 
 /** A recipe a picture's settings can go into: it makes a picture from a prompt, and needs no picture to start from. */
 const takesSettings = (r: Recipe<any>) =>
   r.output === "image" && r.inputs.some((i) => i.type === "prompt" && !i.optional || i.id === "prompt") && !r.inputs.some((i) => (i.type === "image" && !i.optional) || (i.type === "image" && i.role === "mask"));
-
-/**
- * A form a picture itself can go into with its settings (img2img, inpaint, upscale, a face pass): it makes a picture and
- * starts from one. The picture is put in its source slot by the page, once it is in the library.
- */
-export const takesPicture = (r: Recipe<any>) => r.output === "image" && r.inputs.some((i) => i.type === "image" && i.role === "source" && !i.optional);
 
 export interface Target {
   id: string;
@@ -55,7 +50,6 @@ export function targetsFor(found: FoundSettings, recipes: Recipe<any>[], options
 }
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
-const named = (i: InputSpec, id: string, label: RegExp) => i.id === id || label.test(i.label);
 
 /**
  * The form of a recipe, filled with what the picture says: each setting goes to the input that holds
@@ -72,17 +66,14 @@ export function fill(found: FoundSettings, recipe: Recipe<any>, options: Options
   const missing: Array<{ file: string; folder: string; civitai?: number }> = [];
   const number = (i: Extract<InputSpec, { type: "number" }>, value: number) => (input[i.id] = clamp(i.step >= 1 ? Math.round(value) : value, i.min, i.max));
 
-  const prompts = recipe.inputs.filter((i): i is Extract<InputSpec, { type: "prompt" }> => i.type === "prompt");
-  const prompt = prompts.find((i) => i.id === "prompt") ?? prompts.find((i) => !i.optional) ?? prompts[0];
-  if (prompt) input[prompt.id] = found.prompt;
-  const negative = prompts.find((i) => i !== prompt && named(i, "negative", /negative/i));
-  if (negative) input[negative.id] = found.negative;
+  const slot = a1111Slots(recipe);
+  if (slot.prompt) input[slot.prompt.id] = found.prompt;
+  if (slot.negative) input[slot.negative.id] = found.negative;
   else if (found.negative.trim()) notes.push("This form has no negative prompt: the picture's is left out.");
-  const quality = prompts.find((i) => i.id === "quality");
-  if (quality) input[quality.id] = "";
+  if (slot.quality) input[slot.quality.id] = "";
 
   // the model: picked in the form when the recipe has it to pick; an imported workflow loads its own
-  const model = formModelInput(recipe);
+  const model = slot.model;
   const own = (recipe.files ?? []).find((f) => found.checkpoint && sameModel(found.checkpoint, f.file));
   const picked = model ? fileFor(found.checkpoint, options[model.id]) : undefined;
   if (model && picked) input[model.id] = picked;
@@ -92,36 +83,29 @@ export function fill(found: FoundSettings, recipe: Recipe<any>, options: Options
     else notes.push(`This workflow loads its own model, not ${found.checkpoint}: the result will differ.`);
   }
 
-  const lorasInput = recipe.inputs.find((i): i is Extract<InputSpec, { type: "loras" }> => i.type === "loras");
+  const lorasInput = slot.loras;
   const loras = found.loras.map((l) => ({ ...l, file: lorasInput ? fileFor(l.name, options[lorasInput.id]) : undefined }));
   if (lorasInput) input[lorasInput.id] = loras.filter((l) => l.file).slice(0, lorasInput.max).map((l) => ({ file: l.file, weight: clamp(l.weight, -4, 4) }));
   for (const l of loras) if (!l.file && online && lorasInput) missing.push({ file: `${l.name}.safetensors`, folder: "loras", ...(l.civitai ? { civitai: l.civitai } : {}) });
   if (!lorasInput && found.loras.length) notes.push("This form takes no LoRAs: the picture's are left out.");
   if (!online) notes.push("ComfyUI is not answering, so its model and LoRAs could not be looked up: the form keeps the ones it has.");
 
-  const size = recipe.inputs.find((i): i is Extract<InputSpec, { type: "size" }> => i.type === "size");
+  const size = slot.size;
   if (size && found.width && found.height && !fromPicture) {
     const edge = (n: number) => Math.round(clamp(n, size.min, size.max) / size.grid) * size.grid;
     input[size.id] = { width: edge(found.width), height: edge(found.height) };
   }
-  const seed = recipe.inputs.find((i) => i.type === "seed");
+  const seed = slot.seed;
   // a pass on the picture itself rolls its own seed, as one from the library does (the web's carried)
-  if (seed && !fromPicture && found.seed !== undefined && found.seed >= 0 && found.seed < 2 ** 32) input[seed.id] = Math.floor(found.seed);
+  if (seed && !fromPicture && found.seed !== undefined && found.seed >= 0 && found.seed < SEED_RANGE) input[seed.id] = Math.floor(found.seed);
 
   // the settings of the first pass: under their own names in a built-in form, under the node's names in an imported one
-  const numbers = recipe.inputs.filter((i): i is Extract<InputSpec, { type: "number" }> => i.type === "number");
-  const steps = numbers.find((i) => named(i, "steps", /^steps( · first pass)?$/i));
-  if (steps && found.steps) number(steps, found.steps);
-  const cfg = numbers.find((i) => named(i, "cfg", /^cfg( scale)?( · first pass)?$/i));
-  if (cfg && found.cfg) number(cfg, found.cfg);
-  const strength = numbers.find((i) => !i.id.startsWith("hires") && named(i, "strength", /^denois(e|ing strength)$/i));
-  if (strength && fromPicture && found.denoise) number(strength, found.denoise);
-  const clipSkip = numbers.find((i) => i.id === "clipSkip");
-  if (clipSkip && found.clipSkip) number(clipSkip, found.clipSkip);
-  const choices = recipe.inputs.filter((i): i is Extract<InputSpec, { type: "choice" }> => i.type === "choice");
+  if (slot.steps && found.steps) number(slot.steps, found.steps);
+  if (slot.cfg && found.cfg) number(slot.cfg, found.cfg);
+  if (slot.strength && found.denoise) number(slot.strength, found.denoise);
+  if (slot.clipSkip && found.clipSkip) number(slot.clipSkip, found.clipSkip);
   const offered = (i: Extract<InputSpec, { type: "choice" }>) => (Array.isArray(i.options) ? i.options : options[i.id] ?? []);
-  const sampler = choices.find((i) => named(i, "sampler", /^sampler( name)?( · first pass)?$/i));
-  const scheduler = choices.find((i) => named(i, "scheduler", /^scheduler( · first pass)?$/i));
+  const { sampler, scheduler } = slot;
   if (sampler && found.sampler) {
     if (!offered(sampler).length || offered(sampler).includes(found.sampler)) input[sampler.id] = found.sampler;
     else notes.push(`Its sampler (${found.sampler}) is not one ComfyUI has: the form keeps its own.`);
@@ -129,11 +113,11 @@ export function fill(found: FoundSettings, recipe: Recipe<any>, options: Options
   if (scheduler && found.scheduler && (!offered(scheduler).length || offered(scheduler).includes(found.scheduler))) input[scheduler.id] = found.scheduler;
 
   // hires fix, where the form has A1111's own (the built-in txt2img)
-  if (recipe.inputs.some((i) => i.id === "hires" && i.type === "toggle")) {
+  if (slot.hires) {
     input.hires = Boolean(found.hires);
     if (found.hires) {
       // the upscale model it names when this ComfyUI has it; else a latent upscale where the form has one, else the form's own
-      const upscaler = recipe.inputs.find((i) => i.id === "hiresUpscaler");
+      const upscaler = slot.hires.upscaler;
       const has = fileFor(found.hires.upscaler, options.hiresUpscaler) ?? (upscaler?.type === "choice" && upscaler.extra?.includes("latent") ? "latent" : undefined);
       if (has) input.hiresUpscaler = has;
       if (found.hires.scale) input.hiresScale = clamp(found.hires.scale, 1.1, 2);
@@ -151,10 +135,6 @@ export function fill(found: FoundSettings, recipe: Recipe<any>, options: Options
     loras: loras.map((l) => ({ name: l.name, weight: l.weight, found: Boolean(l.file) })),
   };
 }
-
-/** The inputs that hold the library's pictures, sounds and clips: a file from elsewhere names none of this library's. */
-const MEDIA_TYPES = new Set(["image", "audio", "clip", "references", "cues", "video"]);
-const bare = (v: string) => v.replace(/^.*[\\/]/, "");
 
 /**
  * Afflatus's own form, read from a picture it gave out (pngInfo.ts), over what the A1111 text filled: every setting as it

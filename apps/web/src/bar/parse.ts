@@ -3,7 +3,7 @@
  * picks, and in the command mode, which command and its figures. Pure, run at every keystroke.
  */
 
-import { TRANSITION_KINDS, TRANSITIONS, type TransitionKind } from "@afflatus/core";
+import { SEED_RANGE, TRANSITION_KINDS, TRANSITIONS, type TransitionKind } from "@afflatus/core";
 
 export type Mode = "all" | "command" | "setting" | "calc" | "queue" | "keys" | "cast";
 
@@ -254,7 +254,7 @@ export function parseCommand(input: string): Command | null {
   if (/^export(?: (?:the )?timeline)? for (?:an? )?(?:video )?(?:editor|resolve|davinci|premiere|kdenlive|nle)$/.test(low)) return { cmd: "export-editor" };
   if ((m = new RegExp(`^seed (\\d{1,10})$`).exec(low))) {
     const value = Number(m[1]);
-    return value <= 2 ** 32 - 1 ? { cmd: "seed", value } : null;
+    return value < SEED_RANGE ? { cmd: "seed", value } : null;
   }
   if ((m = new RegExp(`^steps? ${NUMBER}$`).exec(low))) return Number.isInteger(num(m[1]!)) && num(m[1]!) > 0 ? { cmd: "steps", value: num(m[1]!) } : null;
   if ((m = new RegExp(`^(?:cfg|guidance) ${NUMBER}$`).exec(low))) return num(m[1]!) >= 0 ? { cmd: "cfg", value: num(m[1]!) } : null;

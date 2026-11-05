@@ -1,4 +1,4 @@
-import { regionBox, regionsOf, withQuality, type GraphBuilder, type InputSpec, type LoraValue, type Ref, type RegionValue } from "@afflatus/core";
+import { clampBox, regionBox, regionsOf, withQuality, type GraphBuilder, type InputSpec, type LoraValue, type Ref, type RegionValue } from "@afflatus/core";
 
 /**
  * Regions on the Stage (card #271): boxes over a txt2img picture's frame, each with words of its own, a cast person and a
@@ -39,9 +39,7 @@ export function regionsInput(o: { lora: "scoped" | "global"; kinds?: true; how: 
 /** A box in pixels of a picture of this size: whole pixels, at least one each way, within the picture. */
 function boxPixels(box: RegionValue["box"], size: { width: number; height: number }) {
   const b = regionBox(box);
-  const x = Math.min(size.width - 1, Math.round(b.x * size.width));
-  const y = Math.min(size.height - 1, Math.round(b.y * size.height));
-  return { x, y, width: Math.max(1, Math.min(size.width - x, Math.round(b.w * size.width))), height: Math.max(1, Math.min(size.height - y, Math.round(b.h * size.height))) };
+  return clampBox({ x: b.x * size.width, y: b.y * size.height, width: b.w * size.width, height: b.h * size.height }, size);
 }
 
 /** A region's LoRAs: its own and its cast person's (put in by the server), those not at 0, each file once. */

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { openAsBlob } from "node:fs";
-import { baseModels, checkGraph, choicesOf, graphFiles, clockFits, exactSoundPart, FRAME_SLACK_MS, isChunkStart, latentClockOf, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, neededSlots, onGrid, packOfNode, parseInput, pickChoice, pickedFiles, RANDOM_SEED, relocateFiles, soundPartOf, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue, type SetFinding } from "@afflatus/core";
+import { baseModels, checkGraph, choicesOf, graphFiles, clockFits, exactSoundPart, FRAME_SLACK_MS, isChunkStart, latentClockOf, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, neededSlots, onGrid, packOfNode, parseInput, pickChoice, pickedFiles, RANDOM_SEED, randomSeed, relocateFiles, soundPartOf, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue, type SetFinding } from "@afflatus/core";
 import { catalogKey, ComfyCancelled, ComfyError, ComfyUnreachable, filesIn } from "@afflatus/comfy";
 import { Kept } from "./kept";
 import { chunksOf, forecast, fromRates, sizedFrom, workOf, type Forecast } from "./forecast";
@@ -108,8 +108,6 @@ function settled(recipe: Recipe<any>, input: Record<string, unknown>, catalog: A
   }
   return chosen;
 }
-
-const randomSeed = () => Math.floor(Math.random() * 2 ** 32);
 
 /** What the files of a form become on their way up: the names ComfyUI has them under, what is known of each, and what was sent otherwise than asked. */
 interface Sent {

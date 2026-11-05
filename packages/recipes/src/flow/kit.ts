@@ -93,8 +93,12 @@ export interface FlowSpec {
    * second pass redraws and its steps. Without it, 1.25×, 0.4 and half the steps (4 at least).
    */
   hires?: { scale?: number; denoise?: number; steps?: number };
-  /** How it samples on the form, when the family's inputs are not the usual ones (Krea 2's: no weight precision, Turbo's ranges). */
-  inputs?: InputSpec[];
+  /**
+   * How its sampling rows differ from the usual ones, which are made from the fields above (the notes, defaults and template's
+   * sampler): rows it leaves out (Krea 2's weight precision, Qwen Image 2.1's shift), lower maxima, the weight precision's own
+   * note, and rows of its own put before the seed (Qwen Image 2.1's KV cache).
+   */
+  rows?: { omit?: Array<"precision" | "shift">; max?: { steps?: number; cfg?: number }; precisionNote?: string; extra?: InputSpec[] };
   /** Inpainting with the mask as it is, without Differential Diffusion's soft edge (Krea 2's). */
   hardInpaint?: boolean;
   /**
@@ -153,6 +157,15 @@ export const SAME_PICTURE = "The same picture in high quality, with sharp, natur
 export const A_FACE = "A detailed, natural face with sharp eyes and realistic skin.";
 export const photo = { width: 1536, height: 2048 };
 
+/** The sizes of a new picture on FLUX.1 and Krea 2: about 1 megapixel, on the grid of 16 both are on. */
+export const FLOW_SHAPES: FlowSpec["shapes"] = [
+  { id: "tall", label: "Portrait", width: 896, height: 1152 },
+  { id: "square", label: "Square", width: 1024, height: 1024 },
+  { id: "wide", label: "Landscape", width: 1152, height: 896 },
+  { id: "tall-9-16", label: "Portrait 9:16", width: 768, height: 1360 },
+  { id: "wide-16-9", label: "Landscape 16:9", width: 1360, height: 768 },
+];
+
 /** The nodes the inpaint patch brings in: ComfyUI's own, used only when the family's file is there. */
 export const INPAINT_PATCH_NODES = ["ModelPatchLoader", "ZImageFunControlnet"];
 
@@ -191,7 +204,8 @@ export function flowKit(spec: FlowSpec) {
   const row = flowTurboRow(spec);
   /** How it samples: the values of ComfyUI's own template to begin with, each kept per model once saved. */
   const rows = [...(row ? [row] : []), ...(spec.extras ?? []).map((e) => e.row)];
-  const inputs: InputSpec[] = spec.inputs ?? [
+  const omit = new Set<string>(spec.rows?.omit ?? []);
+  const inputs: InputSpec[] = ([
     { id: "loras", type: "loras", label: "LoRAs", max: 6, ...(rows.length ? { added: rows.map(addedRow) } : {}) },
     ...rows.flatMap(addedInputs),
     { id: "negative", type: "prompt", label: "Negative prompt", note: spec.negative.note, style: "sentences", optional: true, default: spec.negative.default, advanced: true, perModel: true },
@@ -202,18 +216,19 @@ export function flowKit(spec: FlowSpec) {
       ] satisfies InputSpec[])
       : []),
     ...(spec.extras ?? []).map((e): InputSpec => ({ id: e.toggle.id, type: "toggle", label: e.toggle.label, note: e.toggle.note, default: false, advanced: true, perModel: true })),
-    { id: "steps", type: "number", label: "Steps", note: spec.sampling.stepsNote, min: 1, max: 80, step: 1, default: spec.sampling.steps, advanced: true, perModel: true },
-    { id: "cfg", type: "number", label: "CFG scale", note: spec.sampling.cfgNote, min: 1, max: 12, step: 0.5, default: spec.sampling.cfg, advanced: true, perModel: true },
+    { id: "steps", type: "number", label: "Steps", note: spec.sampling.stepsNote, min: 1, max: spec.rows?.max?.steps ?? 80, step: 1, default: spec.sampling.steps, advanced: true, perModel: true },
+    { id: "cfg", type: "number", label: "CFG scale", note: spec.sampling.cfgNote, min: 1, max: spec.rows?.max?.cfg ?? 12, step: 0.5, default: spec.sampling.cfg, advanced: true, perModel: true },
     ...(spec.guidance ? ([{ id: "guidance", type: "number", label: "Guidance (distilled CFG)", note: spec.guidance.note, min: 0, max: 10, step: 0.1, default: spec.guidance.default, advanced: true, perModel: true }] satisfies InputSpec[]) : []),
     { id: "sampler", type: "choice", label: "Sampler", options: { node: "KSampler", input: "sampler_name" }, default: spec.sampling.sampler, advanced: true, perModel: true },
     { id: "scheduler", type: "choice", label: "Scheduler", options: { node: "KSampler", input: "scheduler" }, default: spec.sampling.scheduler, advanced: true, perModel: true },
     { id: "shift", type: "number", label: "Shift", note: spec.shift.note, min: 0, max: 12, step: 0.05, default: spec.shift.default, advanced: true, perModel: true },
     {
       id: "precision", type: "choice", label: "Weight precision", options: { node: "UNETLoader", input: "weight_dtype" }, default: "default", advanced: true, perModel: true,
-      note: "how the model's weights are held in memory: default keeps the file's own. fp8 halves the memory of a bf16 file (a 22 GB FLUX.1 dev takes 11) at a slight cost in quality; a file that is fp8 already gains nothing",
+      note: spec.rows?.precisionNote ?? "how the model's weights are held in memory: default keeps the file's own. fp8 halves the memory of a bf16 file (a 22 GB FLUX.1 dev takes 11) at a slight cost in quality; a file that is fp8 already gains nothing",
     },
+    ...(spec.rows?.extra ?? []),
     { id: "seed", type: "seed", label: "Seed" },
-  ];
+  ] satisfies InputSpec[]).filter((i) => !omit.has(i.id));
 
   /**
    * The nodes a recipe that samples once at the model's own size uses: the loaders, the texts, the sampler, the

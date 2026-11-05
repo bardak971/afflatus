@@ -1,8 +1,8 @@
 import { defineRecipe, GraphBuilder, regionsOf, roundTo, type Recipe, type Ref, type RegionValue, type SizeValue } from "@afflatus/core";
 import { dropsFor, pictureForm } from "../shared/pictureForm";
-import { HIRES_PASS_INPUTS, hiresPass, UPSCALER_PREFER, type HiresPass } from "../sdxl/common";
+import { hiresInputs, hiresPass, type HiresPass } from "../sdxl/common";
 import { asDaemon, DAEMON_DETAIL_INPUTS, DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
-import { redrawInTiles, tileInputs, tileNodes, tilePass, inTiles, type TileSettings } from "../shared/tiles";
+import { redrawInTiles, tileNodes, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import { adetail, ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FILES, sized, type AdetailSettings } from "../shared/adetail";
 import { applyGuide, FOLLOW_MAP, guideInputs, guideNeeds, guideNodes, type GuideSettings } from "../shared/guide";
 import { REDUX_NODES, reduxInputs, reduxNeeds, withRedux, type ReferenceSettings } from "../shared/references";
@@ -63,18 +63,9 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       ...(layout ? [regionsInput({ lora: "global", kinds: true, how: layout.how })] : []),
       ...adetailInputs("sentences"),
       ...(spec.detail === "daemon" ? DAEMON_DETAIL_INPUTS : DETAIL_INPUTS),
-      ...inputs.slice(0, -1),
-      { id: "hires", type: "toggle", label: "Hires fix", note: "upscale, then a second pass over the larger picture", default: false, advanced: true, perModel: true },
-      { id: "hiresScale", type: "number", label: "Upscale by", note: "past 2×, the second pass is redrawn in tiles (see Redraw)", min: 1.1, max: 4, step: 0.05, default: spec.hires?.scale ?? 1.25, unit: "×", showWhen: "hires", advanced: true, perModel: true },
-      {
-        id: "hiresUpscaler", type: "choice", label: "Upscaler", note: "from your upscale models", showWhen: "hires", advanced: true, perModel: true,
-        options: { node: "UpscaleModelLoader", input: "model_name" }, default: "RealESRGAN_x4plus.pth", prefer: UPSCALER_PREFER,
-      },
-      { id: "hiresDenoise", type: "number", label: "Denoising strength", note: ["how much the second pass may redraw", hiresNoise].filter(Boolean).join("; "), min: 0.05, max: 0.9, step: 0.05, default: hiresDefault.denoise, showWhen: "hires", advanced: true, perModel: true },
-      { id: "hiresSteps", type: "number", label: "Hires steps", min: 1, max: 60, step: 1, default: hiresDefault.steps, showWhen: "hires", advanced: true, perModel: true },
-      ...HIRES_PASS_INPUTS,
-      ...tileInputs("hires"),
-      inputs.at(-1)!,
+      // the seed among them, which pictureForm puts last
+      ...inputs,
+      ...hiresInputs({ scale: hiresDefault.scale, denoise: hiresDefault.denoise, denoiseNote: ["how much the second pass may redraw", hiresNoise].filter(Boolean).join("; "), steps: hiresDefault.steps }),
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),
     ...(layout ? { layoutOf: (input: FlowPicture) => (regionsIn(input).length ? mossLayout(input.prompt, regionsIn(input), sizeOf(input)) : null) } : {}),

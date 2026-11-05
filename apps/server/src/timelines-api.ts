@@ -1,21 +1,18 @@
-import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { CUT_WINDOW_MOST, RANDOM_SEED, TRANSITION_KINDS, TRANSITION_MS, movedSeed, typedSeed } from "@afflatus/core";
-import { fromRender } from "./aiMark";
 import { nameOf } from "./autoName";
 import { VERSION } from "./config";
-import { CutError, markedVideoFile } from "./cut";
+import { CutError } from "./cut";
 import { musicTrack } from "./exportJoin";
-import { outgoingOwnPng, outgoingPng } from "./pngInfo";
+import { outgoingFile } from "./outgoing";
 import { now } from "./db";
 import { httpError } from "./errors";
 import { compose, lookSchema, withMood } from "./entities";
 import { spreadSaid } from "./timelineFace";
 import { askedOf } from "./jobs-api";
-import { assetView, extOf } from "./media";
-import { sourceOf } from "./storage";
+import { assetView } from "./media";
 import { rifeModelIn } from "./queue";
 import { rootFolderOf } from "./projects";
 import { inUse } from "./sweep";
@@ -23,7 +20,7 @@ import { folderOfTimeline } from "./timelineFolder";
 import { fcp7Xml, otioJson, projectPlan, projectReadme } from "./timelineProject";
 import { ownInputIds } from "./timelinePlan";
 import { sourcePatch } from "./timelineSource";
-import { finishBody, finishClips, finishEstimate, finishPlan } from "./timelineFinish";
+import { finishBody, finishEstimate, finishTimeline } from "./timelineFinish";
 import { ZipStream } from "./zipStream";
 import type { Services } from "./services";
 import { clockOf, FROM_PREVIOUS } from "./timelines";
@@ -187,7 +184,7 @@ export function sent<V extends { clips: Array<{ take: { id: string } | null; tak
 export const rangeBody = z.strictObject({ startMs: z.number().min(0), endMs: z.number().min(0), action: z.enum(["copy", "split", "remove", "slow"]), crf: z.number().int().min(0).max(40).optional(), factor: z.union([z.literal(2), z.literal(4)]).optional(), even: z.boolean().optional(), timeline: z.string().optional() });
 
 /**
- * A range of a video kept as new videos: copied, split out, or removed (see Timelines.cutRange), or slowed. Done in the
+ * A range of a video kept as new videos: copied, split out, or removed (see TimelineRange.cutRange), or slowed. Done in the
  * queue, by ffmpeg (a slow motion by RIFE where ComfyUI has it); the job's label says what it does. A sound the same way
  * (not slowed), `even` evening out the loudness of what it makes. Split and remove take the source to the bin, as a bin
  * does: never one that something still uses. `by`: the MCP token whose call sent a slow motion (RIFE on the GPU: its limits
@@ -324,7 +321,7 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
     const clips = await t.recording.recordingForm(req.params.id, z.strictObject({ asset: z.string().min(1), inputs: z.record(z.string(), z.unknown()) }).parse(req.body));
     return { ok: true, clips };
   });
-  // the form a recording's new clips are made in, Lip sync or one it plays over (its panel's New clips: Timelines.recordingNewClips)
+  // the form a recording's new clips are made in, Lip sync or one it plays over (its panel's New clips: TimelineRecording.recordingNewClips)
   app.post<{ Params: { id: string } }>("/api/timelines/:id/recording/new-clips", async (req) => {
     await t.recording.recordingNewClips(req.params.id, z.strictObject({ asset: z.string().min(1), recipe: z.string().min(1) }).parse(req.body));
     return { ok: true };
@@ -471,36 +468,22 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
           files.set(i.file, i.key);
           if (i.soundFile) files.set(i.soundFile.file, i.soundFile.key);
         }
-        // a render (or a frame, cut or edit of one) goes in marked as made by a model, its frames as they are (aiMark.ts),
-        // a rendered picture with how it was made (pngInfo.ts)
+        // a render (or a frame, cut or edit of one) goes in marked as made by a model, a PNG as a Download gives it (outgoing.ts)
         const rows = await s.db.selectFrom("assets").select(["file_key", "kind", "mime", "origin", "source_id", "generation_id", "width", "height"]).where("file_key", "in", [...files.values()]).execute();
         const byKey = new Map(rows.map((r) => [r.file_key, r]));
+        // the model hashes read once for the whole zip, not once a picture
+        const reads = {};
         for (const [path, key] of files) {
           if (req.raw.destroyed) break;
           const a = byKey.get(key);
-          if (a && (a.kind === "video" || a.mime === "image/png") && (await fromRender(s.db, a))) {
-            if (a.kind === "video") {
-              // read from the marked copy on the disk as it goes into the zip, then removed: one file in memory at a time held 800 MB
-              const marked = await markedVideoFile(await sourceOf(s.storage, key), extOf(a.mime));
-              try {
-                await zip.add(path, createReadStream(marked.file), new Date(), marked.size);
-              } finally {
-                await marked.done();
-              }
-              continue;
-            }
-            const marked = await outgoingPng(s, a, await s.storage.get(key));
-            await zip.add(path, Readable.from([Buffer.from(marked.buffer, marked.byteOffset, marked.byteLength)]), new Date(), marked.length);
-            continue;
+          const out = a ? await outgoingFile(s, a, reads) : null;
+          const f = out ?? { ...(await s.storage.open(key)), done: async () => {} };
+          try {
+            await zip.add(path, f.stream, new Date(), f.size);
+          } finally {
+            // a video's marked copy, read as it goes in, then removed: one file in memory at a time held 800 MB
+            await f.done();
           }
-          // a PNG brought in: without its texts when Settings says a download carries none (pngInfo.ts)
-          if (a?.mime === "image/png") {
-            const own = await outgoingOwnPng(s, await s.storage.get(key));
-            await zip.add(path, Readable.from([Buffer.from(own.buffer, own.byteOffset, own.byteLength)]), new Date(), own.length);
-            continue;
-          }
-          const f = await s.storage.open(key);
-          await zip.add(path, f.stream, new Date(), f.size);
         }
         if (music) await zip.add("media/music.wav", Readable.from([Buffer.from(music)]), new Date(), music.length);
         await zip.finish();
@@ -520,14 +503,8 @@ export function registerTimelines(app: FastifyInstance, s: Services): void {
    * latent larger, its join decoded as one piece with the clip before's. Clips finished already are skipped unless `redo`.
    */
   app.post<{ Params: { id: string } }>("/api/timelines/:id/finish", async (req) => {
-    const b = finishBody.parse(req.body);
-    // looked at and queued one request at a time, as an export is: two quick Finish clicks queued two finishes of each clip
-    const done = await t.history.oneAtATime(`finish:${req.params.id}`, async () => {
-      const { plan, skipped } = await finishPlan(s, req.params.id, b);
-      return finishClips(s, plan, skipped);
-    });
-    s.queue.events.emit("timeline");
-    return done;
+    const { jobs, skipped } = await finishTimeline(s, req.params.id, finishBody.parse(req.body));
+    return { jobs, skipped };
   });
 
   /** What Finish with these settings would take in all (finishEstimate: its jobs through the machines' lanes); null when a job of it has no learned figure yet. */

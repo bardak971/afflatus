@@ -160,7 +160,7 @@ export class TimelineRecording {
     const replaced = gone.length ? all.findIndex((p) => gone.includes(p.clip.id)) : -1;
     const index = replaced >= 0 ? replaced : after ? all.findIndex((p) => p.clip.id === after) + 1 : all.length;
     const model = replaced >= 0 ? all[replaced] : after ? all.find((p) => p.clip.id === after) : undefined;
-    const fresh = (at.form && this.holdsRecording(at.form) ? this.core.registry.recipe(at.form) : undefined) ?? this.newClipsForm(undefined, model?.clip.recipe_id);
+    const fresh = this.newClipsForm(at.form, model?.clip.recipe_id);
     const ofPart = new Set([spec.id, spec.window.start, spec.window.seconds, "seed"]);
     // the clips it replaces taken out, the new ones go where the first of them was: the clip before is the one just ahead
     const left = all.filter((p) => !gone.includes(p.clip.id));

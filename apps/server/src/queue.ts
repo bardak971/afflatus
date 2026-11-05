@@ -758,7 +758,7 @@ export class Queue {
     return id;
   }
 
-  /** A range of a video kept as new videos (see Timelines.cutRange): ffmpeg only, no model, no ComfyUI. */
+  /** A range of a video kept as new videos (see TimelineRange.cutRange): ffmpeg only, no model, no ComfyUI. */
   async enqueueCut(opts: CutOptions, label: string, extra: CutExtra = {}): Promise<string> {
     const row = await this.cutJob(opts, label, extra);
     await this.db.insertInto("jobs").values(row).execute();

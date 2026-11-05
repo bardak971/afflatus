@@ -18,6 +18,9 @@ data-demo*/
 __pycache__/
 *.pyc
 
+# the golden graph dump (scripts/golden-graphs.ts): written from one commit, compared on the next
+/golden/
+
 # vitest's local cache (it holds this machine's paths)
 **/.vitest/
 

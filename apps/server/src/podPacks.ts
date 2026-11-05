@@ -485,8 +485,8 @@ export class PodPacks {
       // 502–504): asked again in a moment, as many times as a pack not found yet. Taken for Manager's, an empty 404 said the
       // pod had no Manager
       const away = !res || (!res.ok && (await fromProxy(res)));
-      if ((!res || away) && (e.tries ?? 0) + 1 < TRIES) Object.assign(e, { tries: (e.tries ?? 0) + 1, notBefore: Date.now() + this.retryMs });
-      else if (!res || away) Object.assign(e, { state: "failed", failedAt: Date.now(), error: "its ComfyUI did not answer" });
+      if (away && (e.tries ?? 0) + 1 < TRIES) Object.assign(e, { tries: (e.tries ?? 0) + 1, notBefore: Date.now() + this.retryMs });
+      else if (away) Object.assign(e, { state: "failed", failedAt: Date.now(), error: "its ComfyUI did not answer" });
       else if (res.status === 404) Object.assign(e, { state: "failed", failedAt: Date.now(), error: "its ComfyUI has no ComfyUI-Manager" });
       else if (!res.ok) Object.assign(e, { state: "failed", failedAt: Date.now(), error: `ComfyUI-Manager refused it (${res.status})` });
       else {

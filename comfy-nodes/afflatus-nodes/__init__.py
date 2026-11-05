@@ -1,19 +1,17 @@
 """Afflatus nodes for ComfyUI.
 
-Twelve nodes for continuing a MiniMax H3 clip from its own latent rather than from re-encoded pixels, and the nodes of
+Ten nodes for continuing a MiniMax H3 clip from its own latent rather than from re-encoded pixels, and the nodes of
 Afflatus's other routes:
 
 - Afflatus: Save H3 Latent / Load H3 Latent — a MiniMax H3 video+audio latent as one safetensors file
   (ComfyUI's own SaveLatent cannot store the nested pair); Normalize H3 Latent — a sampled window's audio
-  rounded to its own frame boundary, so it can be continued from; Trim H3 Latent — its first frames, for a clip handed over before its end; H3 Tail Guide — the clip before's tail as
-  the guide, its decoded frames re-encoded for the picture (a chain of exact latents drifts softer and darker)
-  and its exact latent for the sound; H3 Latent Head Guide — the clip after's first tokens anchored at the
+  rounded to its own frame boundary, so it can be continued from; Trim H3 Latent — its first frames, for a clip handed over before its end; H3 Latent Head Guide — the clip after's first tokens anchored at the
   end of the window, for a clip that must land on another; H3 Latent Landing — the same from where any of its
   17-frame chunks begins, for a clip that lands inside another; H3 Seam Latent — a continuation's new tokens after
   the clip before's own last ones, so that decoded, the join is the whole chain's decoded at once; H3 Run-up Match — a
   sampled window brought back to the clip before's contrast, its run-up matched per channel to the tail it copies (a chain
   of exact latents otherwise widens a few per cent at every join).
-- MiniMax H3 Guided Continuation Window, Latent Tail Guide, Append Continuation — the native latent-tail
+- MiniMax H3 Guided Continuation Window, Latent Tail Guide — the native latent-tail
   continuation by ttulttul (MIT, see LICENSE-continuation), vendored with one change: the check for a recent
   enough ComfyUI says "update ComfyUI" when the module it reads is missing, instead of a bare ImportError.
 - Afflatus: Save LTX Latent / Load LTX Latent / Trim LTX Latent / LTX Continuation / LTX Seam Latent — the same for LTX
