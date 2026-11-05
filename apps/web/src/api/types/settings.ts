@@ -347,6 +347,8 @@ export interface Settings {
   updateChecks: boolean;
   /** Once a day, GitHub is asked whether a newer Afflatus is out (Settings → About); nothing about the user is sent. */
   afflatusUpdateChecks: boolean;
+  /** This PC is asked not to sleep while a rented GPU works (a pod billing, a deploy under way); the display may. */
+  keepAwake: boolean;
   /** The command bar's shortcut and its optional parts. */
   bar: BarSettings;
   /** The projects pinned to the rail under the one worked in, in their order there (four at most). */

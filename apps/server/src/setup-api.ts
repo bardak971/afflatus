@@ -46,6 +46,8 @@ export async function saveSettings(s: Services, body: unknown, by: { session: st
   if (body && typeof body === "object" && "slotFiles" in body) for (const { comfy } of await s.machines()) comfy.forgetScan();
   // a family switched, on every machine or on one: what each machine may run changed (the queue looks again, the pages read it again)
   if (body && typeof body === "object" && ("families" in body || "machines" in body)) s.queue.events.emit("setup");
+  // keeping this PC awake for the pods switched: held or let go now, not at RunPod's next read
+  if (body && typeof body === "object" && "keepAwake" in body) await s.rented.syncAwake();
   // the user's ComfyUI given by its address alone (the first launch, Add): its folder found from what it says, when it
   // runs on this machine, so that the node pack goes in by itself (written in there too). Off now: looked for again once it answers
   const asked = body && typeof body === "object" && ("comfyUrl" in body || "machines" in body);

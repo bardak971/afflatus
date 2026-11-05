@@ -8,7 +8,7 @@ import { bootNote, bootSaid, clock, idleEndSaid, machinesByName, machineState, o
 
 const pod = (over: Partial<RentedState> = {}): RentedState => ({
   provider: "runpod", pod: "p1", status: "EXITED", rate: 0.69, gpuRate: null, gpu: "NVIDIA GeForce RTX 5090", dataCenter: "EU-RO-1", cuda: null, hostCuda: null,
-  since: null, spent: 0, diskPerDay: 0.33, volume: false, otherPorts: [], closedPorts: [], watchdog: "unknown", answers: null, idleAt: null, capped: false, stopping: false,
+  since: null, spent: 0, diskPerDay: 0.33, volume: false, otherPorts: [], closedPorts: [], watchdog: "unknown", answers: null, idleAt: null, capped: false, stopping: false, awake: null,
   stoppedBy: null, crash: null, booting: false, error: null, files: [], packs: [], disk: null, ...over,
 });
 

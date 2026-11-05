@@ -171,6 +171,14 @@ export function RentedRows({ machine, state, put, ops, remove }: { machine: Mach
               : r.watchdog === "none" ? <span className="text-warn-ink">· no watchdog: the Afflatus node pack 0.13 is not on the pod</span> : null)}
           </span>
         </Row>
+        {/* what keeps the watchdog from having to: this PC asked not to sleep while the pod works (Settings' switch) */}
+        {r?.awake && (
+          <Block>
+            {r.awake === "held"
+              ? <span className="text-xs text-ink-2">Keeping this PC awake while the pod works (the screen may still turn off).</span>
+              : <span className="text-xs text-warn-ink">This PC may sleep while the pod works: Afflatus could not ask it not to (the server's log says why). Asleep, nothing drives the pod until its watchdog stops it.</span>}
+          </Block>
+        )}
       </div>
       {r && (r.otherPorts.length > 0 || rented.closedPorts.length > 0) && (
         <Row label="Public ports" help={WHY_PORTS}>

@@ -396,6 +396,12 @@ export const settingsSchema = z.object({
   civitaiLookups: z.boolean().default(true),
   /** Once a day, Civitai is asked whether it has newer versions of the models here (only with lookups on; hashes of the files are sent). */
   updateChecks: z.boolean().default(false),
+  /**
+   * While a rented pod works (it bills: starting, booting, fetching, rendering or idle), or a deploy is under way, this PC is
+   * asked not to sleep (keepAwake.ts); the display may. Asleep, nothing here drives the pod or stops it when idle: it bills
+   * until its watchdog stops it (card #320).
+   */
+  keepAwake: z.boolean().default(true),
   /** Once a day, GitHub is asked whether a newer Afflatus is out (updates.ts); nothing about the user is sent. Apart from `updateChecks`, which is about the models. */
   afflatusUpdateChecks: z.boolean().default(true),
   /**
@@ -962,6 +968,7 @@ export function publicSettings(s: Settings, here: (url: string) => boolean = () 
     lastDeploy: s.lastDeploy,
     volumeUnusedDays: s.volumeUnusedDays,
     bootLogDays: s.bootLogDays,
+    keepAwake: s.keepAwake,
     finish: s.finish,
     slotFiles: s.slotFiles,
     acceptedPresets: s.acceptedPresets,
