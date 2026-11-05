@@ -151,7 +151,9 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
     KREA2_LAYOUT_INPUT,
     {
       // on a pod (2026-11-04, Fabien and Nicolas): 0.6 kept the faces the words drew, 0.8 took one of the two people, 0.9 and
-      // 1 took both (and the photo's own setting, until the picture was cut to the head and shoulders, 2026-11-05)
+      // 1 took both (and the photo's own setting, until the picture was cut to the head and shoulders, 2026-11-05). Both were
+      // then a pass from pure noise (KSampler's int(8 / 0.9) is 8), which copied the greyed picture whole; 0.9 is now 1 step
+      // of 9 skipped (passStart), what 0.85 sampled then: Fabien taken in the scene, Nicolas not yet (a pod, 2026-11-05)
       id: "regionPersonDenoise", type: "number", label: "Person pass denoise", min: 0, max: 1, step: 0.05, default: 0.9, showWhen: REGIONS, advanced: true,
       note: "how much a cast person's head and shoulders are redrawn from their picture by Identity Edit, after the picture. 0 leaves each person as the boxes drew them, from their words and LoRA; below 0.9 the face hardly changed in Afflatus's test",
     },

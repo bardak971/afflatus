@@ -4,6 +4,7 @@ import { recipes } from "../src";
 import { PICTURE_DROPS } from "../src/shared/pictureForm";
 import { REGIONS_NOT_YET, REGIONS_WHY } from "../src/shared/regions";
 import { DETECTOR_FILES } from "../src/shared/adetail";
+import { passStart } from "../src/krea2/regions";
 
 // Regions on the Stage (card #271): one input on every txt2img that can read it, the reason greyed on those that cannot
 const recipe = (id: string) => recipes.find((r) => r.id === id)!;
@@ -224,7 +225,8 @@ describe("Krea 2's regions: every box in one pass (ComfyUI-Krea2-Regional), each
     expect(nodes(b, "AfflatusFaceCrop").map(([, n]) => n.inputs.factor)).toEqual([2, 2]);
     expect(nodes(b, "AfflatusFaceBackdrop").map(([, n]) => n.inputs.backdrop)).toEqual(["grey", "grey"]);
     for (const [, n] of patches) expect(n.inputs).toMatchObject({ ref_position: "beside (right of target)", ref_position_a: "aligned (trained)" });
-    expect(nodes(b, "KSampler").slice(1).map(([, n]) => n.inputs.denoise)).toEqual([0.9, 0.9]);
+    // 0.9 skips the first step of 9: KSampler's own int(8 / 0.9) gave a pass from pure noise, which copied the picture whole
+    expect(nodes(b, "KSamplerAdvanced").map(([, n]) => [n.inputs.steps, n.inputs.start_at_step, n.inputs.add_noise])).toEqual([[9, 1, "enable"], [9, 1, "enable"]]);
     // the square around the face in each box is the scene (at any shot's scale), and its head and shoulders alone go back
     const areas = nodes(b, "AfflatusFaceArea");
     expect(areas.map(([, n]) => [n.inputs.x, n.inputs.width, n.inputs.factor, n.inputs.size])).toEqual([[0, 448, 3, 1024], [448, 448, 3, 1024]]);
@@ -233,7 +235,10 @@ describe("Krea 2's regions: every box in one pass (ComfyUI-Krea2-Regional), each
     expect(pasted).toHaveLength(2);
     for (const [i, [, n]] of pasted.entries()) {
       const area = areas[i]![0];
-      expect(n.inputs).toMatchObject({ mask: [area, 1], x: [area, 2], y: [area, 3] });
+      expect(n.inputs).toMatchObject({ x: [area, 2], y: [area, 3] });
+      // the shoulders run past the square's bottom edge: faded there, never a hard line
+      const fade = b.graph[(n.inputs.mask as [string, number])[0]]!;
+      expect(fade).toMatchObject({ class_type: "FeatherMask", inputs: { mask: [area, 1], bottom: 128, top: 0 } });
       expect(b.graph[(n.inputs.source as [string, number])[0]]!.inputs).toMatchObject({ width: [area, 4], height: [area, 4] });
     }
     // the second person is redrawn on the picture the first was pasted into
@@ -251,6 +256,13 @@ describe("Krea 2's regions: every box in one pass (ComfyUI-Krea2-Regional), each
     // without their picture uploaded (a person with none), the box keeps what their words drew
     expect(nodes(built({ regions: people }, PERSON_FILES), "Krea2EditModelPatch")).toHaveLength(0);
     expect(nodes(built({ regions: people, regionPersonDenoise: 0 }, PERSON_FILES, uploads), "Krea2EditModelPatch")).toHaveLength(0);
+  });
+
+  it("starts a person pass where its denoise says, rounded to the nearest step", () => {
+    expect([1, 0.95, 0.9, 0.85, 0.8, 0.5].map((d) => passStart(8, d))).toEqual([
+      { total: 8, start: 0 }, { total: 8, start: 0 }, { total: 9, start: 1 }, { total: 9, start: 1 }, { total: 10, start: 2 }, { total: 16, start: 8 },
+    ]);
+    expect(passStart(25, 0.6)).toEqual({ total: 42, start: 17 });
   });
 
   it("with Detail: face on, leaves the cast's faces to the person pass: no Klein pass, no face redrawn from the prompt", () => {
