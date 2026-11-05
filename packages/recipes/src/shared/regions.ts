@@ -159,8 +159,8 @@ function hintClause(prompt: string): string {
 /**
  * Where a box is and how large, as one sentence of the base prompt ("in the left side of the image, prominent: a woman in a
  * red coat"), the way the pack's builder says it (_layout_hint): Krea 2's Qwen3-VL encoder reads such placements, which
- * steers where each subject is drawn, while the attention masks hold what each box's tokens read. Without them the base
- * prompt says nothing of where, and the masks fight whatever layout the model picks (the pack's README).
+ * steers where each subject is drawn, while the attention masks hold what each box's tokens read (the pack's README). Only
+ * with "Position hints" (KREA2_LAYOUTS).
  */
 function krea2Hint(r: RegionValue): string {
   const b = regionBox(r.box);
@@ -173,15 +173,30 @@ function krea2Hint(r: RegionValue): string {
   return `in the ${zone} of the image, ${scale}: ${short}`;
 }
 
-/** The whole picture's text as Krea 2 reads it with regions: the prompt, then where each box is (the builder's "position hints"). */
-export function krea2BaseText(prompt: string, regions: readonly RegionValue[]): string {
-  const sentences = [prompt.trim().replace(/\.+$/, ""), ...regions.map(krea2Hint)].filter(Boolean);
+/**
+ * What the base text says of the boxes (the pack builder's layout_in_base): nothing, the masks alone placing what each box
+ * holds, or where each box is and what it holds. Off by default: on a pod (2026-11-05), the prompt of two men side by side on
+ * a sidewalk, full body, came out as one street; with a sentence per man added (the hints, or two other wordings), as two
+ * photos side by side with a seam down the middle, with or without the boxes' masks.
+ */
+export const KREA2_LAYOUTS = ["Off", "Position hints"] as const;
+export type Krea2Layout = (typeof KREA2_LAYOUTS)[number];
+
+/** The Krea 2 row of the layout in the base text, shown with the regions. */
+export const KREA2_LAYOUT_INPUT: InputSpec = {
+  id: "regionLayout", type: "choice", label: "Layout in base prompt", options: [...KREA2_LAYOUTS], default: "Off", showWhen: REGIONS, advanced: true,
+  note: "the regional pack's layout_in_base. Off: the prompt as written, the boxes' masks place what each holds. Position hints: a sentence per box added to the prompt (\"in the left side of the image, prominent: …\"), which pulls each part into its box harder, but turned a full-body picture of two people into two photos side by side in Afflatus's test",
+};
+
+/** The whole picture's text as Krea 2 reads it with regions: the prompt, then, with the hints, where each box is (the builder's "position hints"). */
+export function krea2BaseText(prompt: string, regions: readonly RegionValue[], layout: Krea2Layout = "Off"): string {
+  const sentences = [prompt.trim().replace(/\.+$/, ""), ...(layout === "Position hints" ? regions.map(krea2Hint) : [])].filter(Boolean);
   return sentences.join(". ") || "an image";
 }
 
 /** What the form shows as the prompt as sent: the base text, then each box's own, as the model is given them. */
-export const krea2Layout = (prompt: string, regions: readonly RegionValue[]): string =>
-  [krea2BaseText(prompt, regions), ...regions.map((r, i) => `Region ${i + 1}: ${r.prompt.trim()}`)].join("\n");
+export const krea2Layout = (prompt: string, regions: readonly RegionValue[], layout: Krea2Layout = "Off"): string =>
+  [krea2BaseText(prompt, regions, layout), ...regions.map((r, i) => `Region ${i + 1}: ${r.prompt.trim()}`)].join("\n");
 
 /** The nodes Krea 2's regions bring in: a mask per box, its text, the pack's region chain, its LoRAs and its patch. */
 export function krea2RegionNodes(value: unknown): string[] {
@@ -198,7 +213,7 @@ export function krea2RegionNodes(value: unknown): string[] {
  * grow into each other, and "refine boxes", which snaps each mask to the subject the model draws inside its (grown) box
  * after the first two steps, so a LoRA follows the person rather than the rectangle.
  */
-export function krea2Regions(g: GraphBuilder, o: { model: Ref; clip: Ref; prompt: string; size: { width: number; height: number } }, value: unknown): { model: Ref; positive: Ref } {
+export function krea2Regions(g: GraphBuilder, o: { model: Ref; clip: Ref; prompt: string; size: { width: number; height: number }; layout?: Krea2Layout }, value: unknown): { model: Ref; positive: Ref } {
   const regions = regionsOf(value);
   let chain: Ref | null = null;
   for (const r of regions) {
@@ -210,7 +225,7 @@ export function krea2Regions(g: GraphBuilder, o: { model: Ref; clip: Ref; prompt
     });
   }
   const applied = g.add("Krea2ApplyRegional", {
-    model: o.model, conditioning: g.out("CLIPTextEncode", { text: krea2BaseText(o.prompt, regions), clip: o.clip }), regions: chain!,
+    model: o.model, conditioning: g.out("CLIPTextEncode", { text: krea2BaseText(o.prompt, regions, o.layout), clip: o.clip }), regions: chain!,
     restrict_img_attn: false, exclusive_masks: true, adaptive_masks: "refine boxes", adaptive_steps: 2, adaptive_threshold: 0.45,
     base_loras_exclude_regions: false, region_lock_strength: 0, region_lock_start: 0.35, region_lock_end: 0.85, restrict_end_percent: 1, unmaskable_layers: "skip",
   });

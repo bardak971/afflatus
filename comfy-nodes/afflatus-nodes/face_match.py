@@ -499,6 +499,83 @@ def _as_image(a, like):
     return torch.from_numpy(a).to(device=like.device, dtype=like.dtype)
 
 
+# The side of the square around a face in a picture made, in face heights, that a person's pass by box redraws (Krea 2's regions,
+# card #271): their head, hair, neck and shoulders, at about the scale of their picture cut to 2 face heights. Their whole box
+# redrawn from a close picture drew them close: a full-body man became a selfie's head and chest pasted over him (a pod,
+# 2026-11-05).
+AREA_SQUARE = 3.0
+
+
+def area_in_box(face, box, width: int, height: int, factor: float = AREA_SQUARE) -> tuple[int, int, int]:
+    """The square (left, top, side) redrawn around a face (x0, y0, x1, y1) found in a box (x, y, w, h) of a picture: `factor`
+    face heights a side, no larger than the box's short side (the box is the person's), centred on the face and moved inside
+    the box, then inside the picture."""
+    bx, by, bw, bh = box
+    x0, y0, x1, y1 = face
+    side = max(16, min(round((y1 - y0) * factor), bw, bh, width, height))
+    left = min(max(round((x0 + x1) / 2 - side / 2), bx), bx + bw - side)
+    top = min(max(round((y0 + y1) / 2 - side / 2), by), by + bh - side)
+    left = min(max(left, 0), width - side)
+    top = min(max(top, 0), height - side)
+    return int(left), int(top), int(side)
+
+
+class AfflatusFaceArea(io.ComfyNode):
+    """
+    The square around the largest face inside a box of a picture, brought to the size a pass redraws it at, with the mask of
+    that person's head and shoulders in it and where the square lies (Krea 2's person pass by box, card #271): the pass redraws
+    the head at the scale of the person's picture, whatever the shot, and pastes back the head alone, the rest of the box as
+    the picture drew it. Without a face found (a back, a box with no one), or when InsightFace fails, the mask is empty, and
+    the square, the box's top, is pasted back nowhere.
+    """
+
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="AfflatusFaceArea",
+            display_name="Afflatus: Face Area in a Box",
+            category="Afflatus",
+            description="The square around the largest face inside a box (InsightFace's detector, on the CPU), 3 face heights a side, brought to `size`, with a mask of the head and shoulders in it (empty without a face) and the square's place in the picture.",
+            inputs=[
+                io.Image.Input("image", tooltip="The picture: its first image is read."),
+                io.Int.Input("x", default=0, min=0, max=16384, tooltip="The box's left edge, in pixels."),
+                io.Int.Input("y", default=0, min=0, max=16384, tooltip="The box's top edge, in pixels."),
+                io.Int.Input("width", default=512, min=1, max=16384, tooltip="The box's width, in pixels."),
+                io.Int.Input("height", default=512, min=1, max=16384, tooltip="The box's height, in pixels."),
+                io.Float.Input("factor", default=AREA_SQUARE, min=1.5, max=8.0, step=0.1, optional=True, tooltip="The square's side, in face heights."),
+                io.Int.Input("size", default=1024, min=256, max=4096, step=16, optional=True, tooltip="The side the square is brought to."),
+            ],
+            outputs=[io.Image.Output("image"), io.Mask.Output("mask"), io.Int.Output("left"), io.Int.Output("top"), io.Int.Output("side")],
+        )
+
+    @classmethod
+    def execute(cls, image, x: int, y: int, width: int, height: int, factor: float = AREA_SQUARE, size: int = 1024) -> io.NodeOutput:
+        import numpy as np
+
+        pw, ph = int(image.shape[2]), int(image.shape[1])
+        bx, by = min(max(0, x), pw - 1), min(max(0, y), ph - 1)
+        bw, bh = max(1, min(width, pw - bx)), max(1, min(height, ph - by))
+        face = None
+        # a better person, never a failed render: whatever goes wrong here, nothing is pasted back
+        try:
+            face = AfflatusFaceCrop._largest(image[:, by : by + bh, bx : bx + bw, :])
+        except Exception as err:  # noqa: BLE001 — any error of InsightFace or of a picture it cannot read
+            print(f"[afflatus-nodes] Face Area: no face read, the box is left as it is ({str(err)[:200]})")
+        if face is None:
+            side = max(16, min(bw, bh))
+            left, top = bx, by
+            mask = np.zeros((1, size, size), dtype=np.float32)
+        else:
+            face = (face[0] + bx, face[1] + by, face[2] + bx, face[3] + by)
+            left, top, side = area_in_box(face, (bx, by, bw, bh), pw, ph, factor)
+            k = size / side
+            local = ((face[0] - left) * k, (face[1] - top) * k, (face[2] - left) * k, (face[3] - top) * k)
+            # the head and shoulders alone: the square lies inside the box, so a neighbour's box is never pasted over
+            mask = head_mask(local, size, size)[None]
+        cut = image[:, top : top + side, left : left + side, :]
+        return io.NodeOutput(cut if side == size else _scaled(cut, size, size), _as_image(mask, image), left, top, side)
+
+
 class AfflatusFaceBackdrop(io.ComfyNode):
     """
     A person's reference picture with what is around them blurred or made a plain grey, the head, hair, neck and shoulders

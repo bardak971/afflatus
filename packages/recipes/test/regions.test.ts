@@ -190,17 +190,20 @@ describe("Krea 2's regions: every box in one pass (ComfyUI-Krea2-Regional), each
   const built = (input: Record<string, unknown>, slots: Record<string, string> = KREA2_FILES, up: Record<string, string> = {}) =>
     krea2.build(parseInput(krea2, { prompt: "two friends in a park", ...input }), dryContext({ slots, uploads: up }));
 
-  it("reads each box's words alone, masked to its box, beside a base text that says where each box lies", () => {
+  it("reads each box's words alone, masked to its box, beside the prompt as written (or with where each box lies)", () => {
     const b = built({ regions: twoBoxes });
     expect(nodes(b, "Krea2RegionalPrompt")).toHaveLength(2);
     const applied = one(b, "Krea2ApplyRegional");
     expect(applied.inputs).toMatchObject({ exclusive_masks: true, adaptive_masks: "refine boxes", restrict_img_attn: false });
-    const base = b.graph[(applied.inputs.conditioning as [string, number])[0]]!;
-    expect(base.inputs.text).toBe("two friends in a park. in the left side of the image, prominent: red coat. in the right side of the image, prominent: blue coat");
+    const base = (x: typeof b) => x.graph[(one(x, "Krea2ApplyRegional").inputs.conditioning as [string, number])[0]]!.inputs.text;
+    // a sentence per box in the base text split a full-body picture of two people into two photos on a pod: off by default
+    expect(base(b)).toBe("two friends in a park");
+    expect(base(built({ regions: twoBoxes, regionLayout: "Position hints" }))).toBe("two friends in a park. in the left side of the image, prominent: red coat. in the right side of the image, prominent: blue coat");
     // the sampler samples the pack's patched model and its joined text
     const sampler = one(b, "KSampler");
     expect((sampler.inputs.positive as [string, number])).toEqual([nodes(b, "Krea2ApplyRegional")[0]![0], 1]);
-    expect(krea2.layoutOf!(parseInput(krea2, { prompt: "two friends in a park", regions: twoBoxes }) as never)).toContain("Region 2: blue coat");
+    expect(krea2.layoutOf!(parseInput(krea2, { prompt: "two friends in a park", regions: twoBoxes }) as never)).toBe("two friends in a park\nRegion 1: red coat\nRegion 2: blue coat");
+    expect(krea2.inputs.find((i) => i.id === "regionLayout")).toMatchObject({ default: "Off", showWhen: "regions", advanced: true });
   });
 
   it("holds a region's LoRA and its person's to its box with the pack's LoRA nodes, never on the whole model", () => {
@@ -210,39 +213,55 @@ describe("Krea 2's regions: every box in one pass (ComfyUI-Krea2-Regional), each
     expect(b.loads).toEqual(expect.arrayContaining(["loras/style.safetensors", "loras/fabien.safetensors"]));
   });
 
-  it("redraws each cast person's box from their own picture by Identity Edit, the scene pinned and the person beside", () => {
+  it("redraws each cast person's head from their own picture by Identity Edit, the scene pinned and the person beside", () => {
     const b = built({ regions: people }, PERSON_FILES, uploads);
     const patches = nodes(b, "Krea2EditModelPatch");
     expect(patches).toHaveLength(2);
-    // through Afflatus's Face Crop where the ComfyUI has it
+    // their picture cut to their face and greyed around their head and shoulders (Afflatus's Face Crop and Face Backdrop)
     const loaded = (id: string): unknown => (b.graph[id]!.class_type === "LoadImage" ? b.graph[id]!.inputs.image : loaded((b.graph[id]!.inputs.image as [string, number])[0]));
     const pictures = patches.map(([, n]) => loaded((n.inputs.source_image_b as [string, number])[0]));
     expect(pictures).toEqual(["fabien.png", "nicolas.png"]);
+    expect(nodes(b, "AfflatusFaceCrop").map(([, n]) => n.inputs.factor)).toEqual([2, 2]);
+    expect(nodes(b, "AfflatusFaceBackdrop").map(([, n]) => n.inputs.backdrop)).toEqual(["grey", "grey"]);
     for (const [, n] of patches) expect(n.inputs).toMatchObject({ ref_position: "beside (right of target)", ref_position_a: "aligned (trained)" });
     expect(nodes(b, "KSampler").slice(1).map(([, n]) => n.inputs.denoise)).toEqual([0.9, 0.9]);
-    expect(nodes(b, "ImageCompositeMasked")).toHaveLength(2);
-    // the box alone is pasted back, never the context around it (which held the next person on a pod)
-    const pasted = nodes(b, "ImageCompositeMasked").map(([, n]) => b.graph[(n.inputs.mask as [string, number])[0]]!);
-    for (const m of pasted) expect(m.class_type).toBe("MaskComposite");
-    // the person's picture cut to their head and shoulders where Afflatus's Face Crop is, whole (and said) where not
-    const cut = krea2.build(parseInput(krea2, { prompt: "a", regions: people }), dryContext({ slots: PERSON_FILES, uploads, has: () => true }));
-    expect(nodes(cut, "AfflatusFaceCrop")).toHaveLength(2);
-    const whole = krea2.build(parseInput(krea2, { prompt: "a", regions: people }), dryContext({ slots: PERSON_FILES, uploads, has: (n) => n !== "AfflatusFaceCrop" }));
+    // the square around the face in each box is the scene (at any shot's scale), and its head and shoulders alone go back
+    const areas = nodes(b, "AfflatusFaceArea");
+    expect(areas.map(([, n]) => [n.inputs.x, n.inputs.width, n.inputs.factor, n.inputs.size])).toEqual([[0, 448, 3, 1024], [448, 448, 3, 1024]]);
+    for (const [, n] of patches) expect(areas.map(([id]) => id)).toContain((n.inputs.source_image as [string, number])[0]);
+    const pasted = nodes(b, "ImageCompositeMasked");
+    expect(pasted).toHaveLength(2);
+    for (const [i, [, n]] of pasted.entries()) {
+      const area = areas[i]![0];
+      expect(n.inputs).toMatchObject({ mask: [area, 1], x: [area, 2], y: [area, 3] });
+      expect(b.graph[(n.inputs.source as [string, number])[0]]!.inputs).toMatchObject({ width: [area, 4], height: [area, 4] });
+    }
+    // the second person is redrawn on the picture the first was pasted into
+    expect(areas[1]![1].inputs.image).toEqual([pasted[0]![0], 0]);
+    expect(b.warnings ?? []).toEqual([]);
+    // a node pack before 0.49.8: the whole box redrawn and pasted back alone (never the context, which held the next person on
+    // a pod), and said; without InsightFace, the picture whole too
+    const older = krea2.build(parseInput(krea2, { prompt: "a", regions: people }), dryContext({ slots: PERSON_FILES, uploads, has: (n) => n !== "AfflatusFaceArea" }));
+    expect(nodes(older, "AfflatusFaceArea")).toHaveLength(0);
+    for (const [, n] of nodes(older, "ImageCompositeMasked")) expect(older.graph[(n.inputs.mask as [string, number])[0]]!.class_type).toBe("MaskComposite");
+    expect(older.warnings?.join(" ")).toContain("older than 0.49.8");
+    const whole = krea2.build(parseInput(krea2, { prompt: "a", regions: people }), dryContext({ slots: PERSON_FILES, uploads, has: (n) => !n.startsWith("AfflatusFace") }));
     expect(nodes(whole, "AfflatusFaceCrop")).toHaveLength(0);
-    expect(whole.warnings?.join(" ")).toContain("Face Crop");
+    expect(whole.warnings?.join(" ")).toContain("whole pictures");
     // without their picture uploaded (a person with none), the box keeps what their words drew
     expect(nodes(built({ regions: people }, PERSON_FILES), "Krea2EditModelPatch")).toHaveLength(0);
     expect(nodes(built({ regions: people, regionPersonDenoise: 0 }, PERSON_FILES, uploads), "Krea2EditModelPatch")).toHaveLength(0);
   });
 
-  it("with Detail: face on, redraws each person's face from their picture by Klein, in their box alone", () => {
+  it("with Detail: face on, leaves the cast's faces to the person pass: no Klein pass, no face redrawn from the prompt", () => {
     const b = built({ regions: people, detailFace: true }, FACE_FILES, uploads);
-    const detailers = nodes(b, "DetailerForEach");
-    expect(detailers).toHaveLength(2);
-    expect(nodes(b, "ImpactSEGSIntersectionFilter")).toHaveLength(2);
-    // Krea 2's own Detail: face is left out: the faces are the cast's
+    // Klein's face pass changed a full-body face a little on a pod, never into the person's: gone, its files not asked
+    expect(nodes(b, "DetailerForEach")).toHaveLength(0);
     expect(nodes(b, "FaceDetailer")).toHaveLength(0);
-    expect(krea2.needsWith!(parseInput(krea2, { prompt: "a", regions: people, detailFace: true }) as never)).toEqual(expect.arrayContaining(["identityEdit", "kleinUnet", "faceDetector"]));
+    expect(nodes(b, "AfflatusFaceArea")).toHaveLength(2);
+    const needs = krea2.needsWith!(parseInput(krea2, { prompt: "a", regions: people, detailFace: true }) as never);
+    expect(needs).toContain("identityEdit");
+    expect(needs).not.toContain("kleinUnet");
   });
 
   it("refuses regions with the form's person reference or style images, whose pictures the pack's masks do not cover", () => {
