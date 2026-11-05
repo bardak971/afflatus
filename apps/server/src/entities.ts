@@ -92,6 +92,12 @@ export async function regionCast(db: Db, recipe: Recipe<any>, input: Record<stri
   const loras: Composed["added"]["loras"] = [];
   const skipped: string[] = [];
   const out = regions.map((r) => {
+    // a text box (MOSS) draws letters, not a person: none is worked into its caption, nor their LoRA put on the picture
+    // (dropped on one before the Stage refused it, card #300)
+    if (r.kind === "text") {
+      const { castLora: _old, cast: _cast, ...rest } = r;
+      return rest;
+    }
     let row = r.cast ? byId.get(r.cast) : undefined;
     // "@Name" in the region's own words: that person, said by how they look rather than by the name
     const prompt = String(r.prompt ?? "").replace(/@([\p{L}\d_-]+)/gu, (all, name: string) => {
@@ -100,8 +106,10 @@ export async function regionCast(db: Db, recipe: Recipe<any>, input: Record<stri
       row ??= named;
       return named === row ? "" : all;
     }).replace(/\s{2,}/g, " ").replace(/^[,\s]+|[,\s]+$/g, "");
+    // nobody: a person deleted since they were cast here is no one's id, dropped with the rest of them, so that a box left
+    // with no words is no box (regionsOf) rather than a "character" with an empty caption (card #300)
     if (!row) {
-      const { castLora: _old, ...rest } = r;
+      const { castLora: _old, cast: _gone, ...rest } = r;
       return { ...rest, prompt };
     }
     const p = defs.person.parse(JSON.parse(row.def)) as PersonDef;

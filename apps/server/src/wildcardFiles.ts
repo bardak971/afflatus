@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { expandWildcards, FILE_CHOICE, MissingWildcard, seededRandom, typedSeed, type InputSpec, type Recipe, type WildcardFiles } from "@afflatus/core";
+import { expandWildcards, FILE_CHOICE, MissingWildcard, seededRandom, typedSeed, type InputSpec, type Recipe, type RegionValue, type WildcardFiles } from "@afflatus/core";
 import { httpError } from "./errors";
 import { isNetworkPath } from "./linked";
 
@@ -102,6 +102,18 @@ async function filesFor(texts: string[], folders: WildcardFolder[]): Promise<Wil
   return (name) => lines.get(name.toLowerCase());
 }
 
+/**
+ * The wildcard names a text holds that no file answers, as the prompt box says them before Render is pressed (card #318):
+ * a `__colors__` with no colors.txt was said only once the job was refused. Its own names alone: the files' lines are
+ * read when the job is queued.
+ */
+export async function missingWildcards(places: WildcardPlaces, text: string): Promise<string[]> {
+  const names = [...new Set([...text.matchAll(new RegExp(FILE_CHOICE.source, "gu"))].map((m) => m[1]!.toLowerCase()))];
+  if (!names.length) return [];
+  const index = await indexOf(await wildcardFolders(places.dataDir, await places.comfyDir()));
+  return names.filter((name) => !index.has(name) && ![...index.keys()].some((n) => n.endsWith(`/${name}`)));
+}
+
 /** What a server needs to read the files: its data folder (none in most tests) and the ComfyUI folder of its settings. */
 export interface WildcardPlaces {
   dataDir: string | null;
@@ -118,21 +130,32 @@ export const NO_WILDCARDS: WildcardPlaces = { dataDir: null, comfyDir: async () 
  */
 export async function settleTexts(places: WildcardPlaces, recipe: Recipe<any>, input: Record<string, unknown>): Promise<Record<string, unknown>> {
   const specs = (recipe.inputs as InputSpec[]).filter((s) => s.type === "prompt" && typeof input[s.id] === "string");
-  if (!specs.length) return input;
-  const texts = specs.map((s) => input[s.id] as string);
+  // a region's words and a text box's letters are prompts too (card #300): `{red|blue} coat` in a box reached the encoders
+  // as typed. Each is settled under a salt of its own, so that two boxes with the same choice may pick apart
+  const regionsSpec = (recipe.inputs as InputSpec[]).find((s) => s.type === "regions");
+  const regions = regionsSpec && Array.isArray(input[regionsSpec.id]) ? (input[regionsSpec.id] as RegionValue[]) : [];
+  const parts = regions.flatMap((r, i) => (["prompt", "text"] as const).filter((key) => typeof r[key] === "string" && r[key]).map((key) => ({ i, key, salt: `${regionsSpec!.id}.${i}.${key}`, label: `Region ${i + 1}${key === "text" ? "'s text" : ""}` })));
+  if (!specs.length && !parts.length) return input;
+  const texts = [...specs.map((s) => input[s.id] as string), ...parts.map((p) => regions[p.i]![p.key]!)];
   const named = texts.some((t) => FILE_CHOICE.test(t));
   const folders = named ? await wildcardFolders(places.dataDir, await places.comfyDir()) : [];
   const files = named ? await filesFor(texts, folders) : undefined;
   const seed = typedSeed(input.seed);
-  const out = { ...input };
-  for (const s of specs) {
+  const settle = (text: string, salt: string, label: string) => {
     try {
-      out[s.id] = expandWildcards(out[s.id] as string, seed === null ? Math.random : seededRandom(seed, s.id), files);
+      return expandWildcards(text, seed === null ? Math.random : seededRandom(seed, salt), files);
     } catch (err) {
-      if (!(err instanceof MissingWildcard)) throw httpError(`${s.label}: ${(err as Error).message}`);
+      if (!(err instanceof MissingWildcard)) throw httpError(`${label}: ${(err as Error).message}`);
       const where = folders.length ? `looked for in ${folders.map((f) => f.path).join(", ")}` : `put it in a "wildcards" folder of Afflatus's data folder${places.dataDir ? ` (${join(places.dataDir, "wildcards")})` : ""}`;
-      throw httpError(`${s.label}: ${err.message}, ${where}`);
+      throw httpError(`${label}: ${err.message}, ${where}`);
     }
+  };
+  const out = { ...input };
+  for (const s of specs) out[s.id] = settle(out[s.id] as string, s.id, s.label);
+  if (parts.length) {
+    const settled = regions.map((r) => ({ ...r }));
+    for (const p of parts) settled[p.i]![p.key] = settle(regions[p.i]![p.key]!, p.salt, p.label);
+    out[regionsSpec!.id] = settled;
   }
   return out;
 }

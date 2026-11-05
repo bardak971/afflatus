@@ -217,7 +217,7 @@ export const qwenEdit = pictureForm("edit", defineRecipe<QwenEdit>({
     { id: "source", type: "image", role: "source", label: "Image", note: "the picture it works on" },
     { id: "prompt", type: "prompt", label: "Instruction", style: "sentences", placeholder: "Change the sofa's leather to the fur of image 2, keep everything else the same." },
     {
-      id: "references", type: "references", label: "Additional images", max: EDIT_IMAGES - 1, roles: [...REFERENCE_ROLES],
+      id: "references", type: "references", label: "Reference images", max: EDIT_IMAGES - 1, roles: [...REFERENCE_ROLES],
       note: "something to take from: a person, a place, clothes, an object, a look. Call them \"image 2\" and \"image 3\" in the instruction",
     },
     // (Turbo's row in the LoRA list: the Lightning LoRA made for Edit, on an Edit model not made for a few steps, card #160)

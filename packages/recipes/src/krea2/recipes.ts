@@ -136,7 +136,7 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
     { id: "size", type: "size", label: "Size", default: "tall", grid: 16, min: 256, max: 2048, perModel: true, shapes: krea2Spec.shapes },
     regionsInput({
       lora: "scoped",
-      how: "Every box is drawn in the one pass (the ComfyUI-Krea2-Regional node pack): its words are read by its part of the picture alone, beside the prompt. Not with the person reference or style reference images above.",
+      how: "ComfyUI-Krea2-Regional, in one pass: each box's words read by its part of the picture, beside the prompt. Not with a person or style reference.",
     }),
     KREA2_LAYOUT_INPUT,
     ...adetailInputs("sentences", PERSON_FACE),
@@ -291,10 +291,12 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
     g.phase("decoding");
     const scale = input.hires ? input.hiresScale : 1;
     // the Detail rows: people and hands redrawn by Krea 2 from the prompt (the user's LoRAs on, not a reference's), each crop
-    // at the size it draws best; a face too when there is no person, whose face is theirs (below)
+    // at the size it draws best; a face too when there is no person, whose face is theirs (below). With regions, from the
+    // prompt alone too: the crops are sampled on the model without the pack's patch, and the regional text read there joins
+    // every box's words with no mask to keep each to its box, so two cast people's faces were each drawn from both (card #296)
     const d = adetail(g, ctx, input, image ?? g.out("VAEDecode", { samples: latent, vae: k.vae }), {
       model: () => shifted(g, plain, input, { width: 1024, height: 1024 }), clip: k.clip, vae: k.vae,
-      cond: (text) => (!text && !styled && !person ? cond : condOf(g, k, input, text ?? input.prompt)),
+      cond: (text) => (!text && !styled && !person && !regioned ? cond : condOf(g, k, input, text ?? input.prompt)),
       steps: k.steps, cfg: k.cfg, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed, scale, skip: { Face: person },
     });
     let result = d.image;

@@ -16,6 +16,17 @@ const MOSS_FILES = { unet: "moss_image_sft_int8_convrot.safetensors", clip: "qwe
 const build = (r: Recipe<any>, input: Record<string, unknown>, slots: Record<string, string> = {}): BuiltGraph => r.build(parseInput(r, input), dryContext({ slots }));
 const nodes = (b: BuiltGraph, type: string) => Object.entries(b.graph).filter(([, n]) => n.class_type === type);
 const one = (b: BuiltGraph, type: string) => nodes(b, type)[0]![1];
+/** Every node a link leads back to, by class: what an input was made from. */
+const upstream = (b: BuiltGraph, ref: unknown): string[] => {
+  const seen = new Set<string>();
+  const walk = (r: unknown) => {
+    if (!Array.isArray(r) || typeof r[0] !== "string" || seen.has(r[0]) || !b.graph[r[0]]) return;
+    seen.add(r[0]);
+    for (const v of Object.values(b.graph[r[0]]!.inputs)) walk(v);
+  };
+  walk(ref);
+  return [...seen].map((id) => b.graph[id]!.class_type);
+};
 
 const twoBoxes = [
   { id: "l", box: { x: 0, y: 0, w: 0.5, h: 1 }, prompt: "red coat" },
@@ -36,16 +47,16 @@ describe("the Regions row on every txt2img", () => {
     });
   });
 
-  it("says in its \"?\" that the result is guided, not exact, and what a region's LoRA does there", () => {
+  it("says in its \"?\", in a line or two, what a region's LoRA does there (the Guided \"?\" says it is not exact, card #318)", () => {
     const row = (r: Recipe<any>) => r.inputs.find((i) => i.id === "regions") as Extract<InputSpec, { type: "regions" }>;
-    for (const r of [sdxl, moss, krea2]) expect(row(r).note, r.id).toContain("guided, not exact");
+    for (const r of [sdxl, moss, krea2]) expect(row(r).note!.split(/\s+/).length, r.id).toBeLessThanOrEqual(40);
     expect(row(krea2)).toMatchObject({ lora: "scoped", max: 8 });
     // nothing promises a face from the person's picture, nor a face redrawn from a box's words: neither is done
     for (const r of [sdxl, moss, krea2]) expect(row(r).note, r.id).not.toMatch(/picture by|from their picture|face found in a person's box/);
     expect(row(sdxl)).toMatchObject({ lora: "scoped", max: 8 });
     expect(row(sdxl).kinds).toBeUndefined();
     expect(row(moss)).toMatchObject({ lora: "global", kinds: true });
-    expect(row(moss).note).toContain("put on the whole picture");
+    expect(row(moss).note).toContain("go on the whole picture");
   });
 
   it("is a row of txt2img alone: no other operation drops it", () => {
@@ -169,6 +180,36 @@ describe("MOSS-Image", () => {
     expect(needs({ fast: true, model: "moss_image_sft_turbo_int8.safetensors" })).toEqual([]);
   });
 
+  it("redraws Detail crops and hires tiles from the prompt alone, on the model as without regions (card #296)", () => {
+    const regions = [{ id: "a", box: { x: 0, y: 0, w: 0.5, h: 1 }, prompt: "a woman", cast: "p1" }, { id: "b", box: { x: 0.5, y: 0, w: 0.5, h: 1 }, prompt: "a man" }];
+    const b = build(moss, { prompt: "two people", size: { width: 1024, height: 1024 }, regions, detailFace: true, hires: true, hiresScale: 3, hiresUpscaler: "u.pth" }, { ...MOSS_FILES, ...DETECTOR_FILES });
+    const detailer = one(b, "DetailerForEach");
+    expect(upstream(b, detailer.inputs.positive)).not.toContain("MOSSImageLayoutPrompt");
+    expect(upstream(b, detailer.inputs.model)).not.toContain("SkipLayerGuidanceDiTSimple");
+    const tiles = nodes(b, "KSampler").slice(1);
+    expect(tiles.length).toBeGreaterThan(0);
+    for (const [, n] of tiles) {
+      expect(upstream(b, n.inputs.positive)).not.toContain("MOSSImageLayoutPrompt");
+      expect(upstream(b, n.inputs.model)).not.toContain("SkipLayerGuidanceDiTSimple");
+    }
+    // the first pass still reads the layout, with its guidance
+    const first = nodes(b, "KSampler")[0]![1];
+    expect(upstream(b, first.inputs.positive)).toContain("MOSSImageLayoutPrompt");
+    expect(upstream(b, first.inputs.model)).toContain("SkipLayerGuidanceDiTSimple");
+  });
+
+  it("says the layout again at the larger size for a hires pass over the whole frame: its boxes' edges are in pixels", () => {
+    const regions = [{ id: "a", box: { x: 0, y: 0, w: 0.5, h: 1 }, prompt: "a fox" }];
+    const b = build(moss, { prompt: "a", size: { width: 1024, height: 1024 }, regions, hires: true, hiresScale: 1.5, hiresUpscaler: "u.pth" }, MOSS_FILES);
+    const sizes = nodes(b, "MOSSImageLayoutPrompt").map(([, n]) => [n.inputs.width, n.inputs.height]);
+    expect(sizes).toEqual([[1024, 1024], [1536, 1536]]);
+    const second = nodes(b, "KSampler")[1]![1];
+    const read = upstream(b, second.inputs.positive);
+    expect(read).toContain("MOSSImageLayoutPrompt");
+    const canvas = nodes(b, "CreateBoundingBoxes").map(([, n]) => (n.inputs.editor_state as { __value__: Array<{ width: number }> }).__value__[0]!.width);
+    expect(canvas).toEqual([512, 768]);
+  });
+
   it("is txt2img alone: no template does the other operations yet", () => {
     expect(recipes.filter((r) => r.family === "moss").map((r) => r.id)).toEqual(["moss.text-to-picture"]);
   });
@@ -227,6 +268,16 @@ describe("Krea 2's regions: every box in one pass (ComfyUI-Krea2-Regional), each
     const values = { prompt: "a", regions: twoBoxes, person: [{ asset: "p", role: "person" }] };
     expect(() => built(values, PERSON_FILES, { "person.0": "p.png" })).toThrow(/regions without/);
     expect(krea2.refuses!.some((r) => r.why.includes("regions without"))).toBe(true);
+  });
+
+  it("redraws Detail faces from the prompt alone: the crops are sampled without the pack's patch (card #296)", () => {
+    const b = built({ regions: people, detailFace: true }, { ...KREA2_FILES, ...DETECTOR_FILES });
+    const detailer = one(b, "DetailerForEach");
+    const read = upstream(b, detailer.inputs.positive);
+    expect(read).not.toContain("Krea2ApplyRegional");
+    expect(read).not.toContain("Krea2RegionalPrompt");
+    expect(b.graph[(detailer.inputs.positive as [string, number])[0]]!.inputs.text).toBe("two friends in a park");
+    expect(upstream(b, detailer.inputs.model)).not.toContain("Krea2ApplyRegional");
   });
 
   it("redraws hires tiles from the prompt alone: the regions' masks are the whole picture's", () => {

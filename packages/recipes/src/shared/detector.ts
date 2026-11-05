@@ -41,7 +41,7 @@ export const DETECTOR_SLOTS = [
 export const detectorSlots = (onlyFor: string[]) => DETECTOR_SLOTS.map((slot) => ({ ...slot, optional: true, onlyFor }));
 
 /** What a detection model is known as a hand detector by: its file name. */
-export const HAND_DETECTOR = "hand";
+const HAND_DETECTOR = "hand";
 
 /**
  * Where the face detailer starts when it is given hands: a lighter denoise (0.4 redraws fingers into new ones), a

@@ -1,18 +1,10 @@
 import { defineRecipe, GraphBuilder, type Recipe } from "@afflatus/core";
 import { dropsFor, pictureForm } from "../shared/pictureForm";
-import { FACE_INPUTS, faceSteps, NO_FACE, type FaceSettings } from "../sdxl/common";
+import { FACE_INPUTS, faceStepsFor, NO_FACE, type FaceSettings } from "../sdxl/common";
 import { A_FACE, photo, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
 import { DETECTOR_INPUT } from "../shared/detector";
 
 export interface FlowFixFace extends FlowBase, FaceSettings { source: string; prompt: string; detector: string; strength: number }
-
-/**
- * The steps a distilled model's face pass takes (FlowSpec.distilled): its share of the model's own steps for the denoise,
- * rounded down, so that they are never closer together than the model was distilled for; two at least, for a pass to
- * correct its first. Qwen Image 2.1 Turbo at 0.4 on a pod (card #286): 3 steps gave clean skin, as the full model's 30 did;
- * 4 left a faint grain, 5 more, 8 (before) the most.
- */
-export const distilledFaceSteps = (steps: number, denoise: number) => Math.max(2, Math.floor(steps * denoise + 1e-9));
 
 /** The face detailer: the Impact Pack's FaceDetailer with this model, every face found, redrawn larger, and put back with a soft edge. */
 export function flowFixFace(spec: FlowSpec, kit: FlowKit): Recipe<FlowFixFace> {
@@ -45,8 +37,7 @@ export function flowFixFace(spec: FlowSpec, kit: FlowKit): Recipe<FlowFixFace> {
       const source = g.out("LoadImage", { image: ctx.uploads.source });
       const c = cond(g, k, input, input.prompt.trim() || A_FACE);
       const detector = g.out("UltralyticsDetectorProvider", { model_name: input.detector });
-      const unet = (input.model ?? ctx.slots.unet ?? "").split(/[\\/]/).pop() ?? "";
-      const steps = spec.distilled?.test(unet) ? distilledFaceSteps(k.steps, input.strength) : faceSteps(k.steps);
+      const steps = faceStepsFor(k.steps, input.strength, kit.distilledFile(input, ctx.slots));
       g.phase("detailing");
       const fixed = g.add("FaceDetailer", {
         image: source, model: shifted(g, k.model, input, { width: 1024, height: 1024 }), clip: k.clip, vae: k.vae, positive: c.positive, negative: c.negative, bbox_detector: detector,

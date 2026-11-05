@@ -6,6 +6,7 @@ import { qwen21Lint } from "../shared/lint";
 import { FACE_AT_NODE, FACE_NODE, faceScore } from "../shared/face";
 import { detectorSlots } from "../shared/detector";
 import { REGIONS_WHY } from "../shared/regions";
+import { outpaintAsk, withIntro } from "../shared/asks";
 
 const HF = "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main";
 
@@ -132,12 +133,8 @@ const QWEN21_DROPS = {
 };
 /** Qwen Image 2.1 Turbo's file (qwen_image_2.1_turbo_*): distilled to 8 steps at CFG 1. */
 const TURBO_FILE = /qwen.?image.?2\.1.*turbo/i;
-/**
- * What outpaint asks of the padded picture, before the user's words for the wider scene: Klein's ask (klein.change-shape),
- * the picture named as Qwen's edits name it, said positively (Qwen reads a "do not" as the thing it names). The grey is
- * called empty so that it is filled, not drawn as a grey wall.
- */
-const EXTEND = "The plain grey areas at the edges of <image1> are empty. Fill them by continuing the scene naturally beyond its edges: the same place, the same light, the same style and the same camera. Everything already in <image1> stays exactly the same.";
+/** What outpaint asks of the padded picture, the picture named as Qwen's edits name it. */
+const EXTEND = outpaintAsk("<image1>");
 const files = { unet: "qwen_image_2.1_int8_convrot.safetensors", clip: "qwen3vl_8b_int8_convrot.safetensors", vae: "qwen_image_2.1_vae_bf16.safetensors" };
 
 /**
@@ -147,7 +144,7 @@ const files = { unet: "qwen_image_2.1_int8_convrot.safetensors", clip: "qwen3vl_
  * an EmptyLatentImage on a grid of 32, up to the 2K sizes its authors list, no shift. Edit and the motion picture read
  * pictures with the encoder and stay written by hand below.
  */
-export const qwen21Spec: FlowSpec = {
+const qwen21Spec: FlowSpec = {
   family: "qwen21",
   model,
   encoder: {
@@ -167,7 +164,7 @@ export const qwen21Spec: FlowSpec = {
     nodes: ["TextEncodeQwenImage21"],
     read: (g, k, prompt, negative, canvas) => {
       // the canvas at its own size (resolution 0, on the grid of 32 the size is on already): the latent the encoder gives is its size
-      const read = g.add("TextEncodeQwenImage21", { clip: k.clip, prompt: [EXTEND, prompt.trim()].filter(Boolean).join(" "), negative_prompt: negative, resolution: 0, vae: k.vae, "images.image_1": canvas });
+      const read = g.add("TextEncodeQwenImage21", { clip: k.clip, prompt: withIntro(EXTEND, prompt), negative_prompt: negative, resolution: 0, vae: k.vae, "images.image_1": canvas });
       return { positive: [read, 0], negative: [read, 1], latent: [read, 2] };
     },
   },
@@ -264,6 +261,8 @@ export const qwen21Edit = pictureForm("edit", defineRecipe<Qwen21Edit>({
     },
     ...sampling,
   ],
+  // the family's start for its files, as its flow operations have it: Turbo's file at 8 steps (Edit in box inherits it)
+  presets: qwen21Spec.presets,
   nodes: (input) => [...NODES(input), "LoadImage"],
   optionalNodes: ["LoraLoaderModelOnly"],
   build(input, ctx) {
@@ -380,6 +379,7 @@ export const qwen21MotionPicture = pictureForm("own", defineRecipe<Qwen21MotionP
     { id: "resolution", type: "number", label: "Working size", min: 0, max: 2048, step: 32, default: 1024, unit: " px", advanced: true, note: "the pictures are brought to about this many pixels on a side before the model reads them" },
     ...sampling,
   ],
+  presets: qwen21Spec.presets,
   nodes: (input) => [...NODES(input), "LoadImage"],
   optionalNodes: ["LoraLoaderModelOnly", FACE_NODE, FACE_AT_NODE],
   build(input, ctx) {

@@ -153,7 +153,6 @@ export const SAME_PICTURE = "The same picture in high quality, with sharp, natur
 export const A_FACE = "A detailed, natural face with sharp eyes and realistic skin.";
 export const photo = { width: 1536, height: 2048 };
 
-/** What the recipes of one family share: its inputs, how its model is loaded, how it samples. */
 /** The nodes the inpaint patch brings in: ComfyUI's own, used only when the family's file is there. */
 export const INPAINT_PATCH_NODES = ["ModelPatchLoader", "ZImageFunControlnet"];
 
@@ -187,6 +186,7 @@ export const flowTurboRow = (spec: FlowSpec): AddedSpec | null => spec.turbo ? {
   when: { not: { name: { input: "model", slot: "unet" }, match: spec.turbo.named.source } },
 } : null;
 
+/** What the recipes of one family share: its inputs, how its model is loaded, how it samples. */
 export function flowKit(spec: FlowSpec) {
   const row = flowTurboRow(spec);
   /** How it samples: the values of ComfyUI's own template to begin with, each kept per model once saved. */
@@ -366,9 +366,12 @@ export function flowKit(spec: FlowSpec) {
     ...(spec.extras ?? []).filter((e) => (input as unknown as Record<string, unknown>)[e.toggle.id]).map((e) => e.row.file.slot),
   ];
 
+  /** Whether the model file a form picks is one distilled to a few steps (FlowSpec.distilled), read by every face pass's steps. */
+  const distilledFile = (input: FlowBase, slots: Record<string, string> = {}) => Boolean(spec.distilled?.test((input.model ?? slots.unet ?? "").split(/[\\/]/).pop() ?? ""));
+
   /** The family's files with a turbo LoRA among them, for each operation's "Turbo with its LoRA" variant; null without Turbo. */
   const turboFiles = spec.turbo ? { ...spec.files, [spec.turbo.slot]: "turbo.safetensors" } : null;
 
-  return { inputs, loadNodes, SOMETIMES, SECOND_PASS, load, shifted, condFrom, cond, sample, sizeOf, tuned, turboNeeds, turboFiles, samplingOf, startSigma, noiseWords, realDenoise };
+  return { inputs, loadNodes, SOMETIMES, SECOND_PASS, load, shifted, condFrom, cond, sample, sizeOf, tuned, turboNeeds, distilledFile, turboFiles, samplingOf, startSigma, noiseWords, realDenoise };
 }
 export type FlowKit = ReturnType<typeof flowKit>;

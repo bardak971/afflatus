@@ -1,4 +1,4 @@
-import { regionBox, regionsOf, type GraphBuilder, type InputSpec, type LoraValue, type Ref, type RegionValue } from "@afflatus/core";
+import { regionBox, regionsOf, withQuality, type GraphBuilder, type InputSpec, type LoraValue, type Ref, type RegionValue } from "@afflatus/core";
 
 /**
  * Regions on the Stage (card #271): boxes over a txt2img picture's frame, each with words of its own, a cast person and a
@@ -23,25 +23,21 @@ export const REGIONS_WHY = {
   zimage: "Z-Image has one small regional pack, untested: none are offered for now",
 } as const;
 
-/** The Regions row: `lora` says what a region's LoRA does on this model, `kinds` whether a box can be a text. */
-export function regionsInput(o: { lora?: "scoped" | "global"; kinds?: true; how: string }): InputSpec {
-  const lora = o.lora === "scoped"
-    ? "A region's LoRA, and its cast person's, act inside its box alone."
-    : o.lora === "global"
-      ? "A region's LoRA, and its cast person's, are put on the whole picture: this model reads every box in one text, so a LoRA cannot be held to one."
-      : "";
+/**
+ * The Regions row: `lora` says what a region's LoRA does on this model, `kinds` whether a box can be a text, `how` the model's
+ * way in a line. Its "?" is one or two lines (card #181's rule, card #318): that the result is guided, not exact, is the
+ * Guided "?" beside the boxes.
+ */
+export function regionsInput(o: { lora: "scoped" | "global"; kinds?: true; how: string }): InputSpec {
+  const lora = o.lora === "scoped" ? "A box's LoRA and its cast person's act inside it alone." : "A box's LoRA and its cast person's go on the whole picture.";
   return {
-    id: REGIONS, type: "regions", label: "Regions", max: MOST, ...(o.kinds ? { kinds: true } : {}), ...(o.lora ? { lora: o.lora } : {}),
-    note: [
-      `boxes drawn on the Stage, each with its own prompt, a cast person (their words and LoRA) and a LoRA. ${o.how}`,
-      lora,
-      "The result is guided, not exact: a box says where a thing should go, the model may still move it, shrink it or let it spill.",
-    ].filter(Boolean).join(" "),
+    id: REGIONS, type: "regions", label: "Regions", max: MOST, lora: o.lora, ...(o.kinds ? { kinds: true } : {}),
+    note: `boxes on the Stage. ${o.how} ${lora}`,
   };
 }
 
 /** A box in pixels of a picture of this size: whole pixels, at least one each way, within the picture. */
-export function boxPixels(box: RegionValue["box"], size: { width: number; height: number }) {
+function boxPixels(box: RegionValue["box"], size: { width: number; height: number }) {
   const b = regionBox(box);
   const x = Math.min(size.width - 1, Math.round(b.x * size.width));
   const y = Math.min(size.height - 1, Math.round(b.y * size.height));
@@ -49,25 +45,21 @@ export function boxPixels(box: RegionValue["box"], size: { width: number; height
 }
 
 /** A region's LoRAs: its own and its cast person's (put in by the server), those not at 0, each file once. */
-export const regionLoras = (r: RegionValue): LoraValue[] =>
+const regionLoras = (r: RegionValue): LoraValue[] =>
   [r.lora, r.castLora].filter((l): l is LoraValue => Boolean(l && l.weight !== 0)).filter((l, i, all) => all.findIndex((x) => x.file === l.file) === i);
 
 /** The LoRAs of every region, each file once: what a model that reads every box in one text puts on the whole picture. */
-export const allRegionLoras = (regions: readonly RegionValue[]): LoraValue[] =>
+const allRegionLoras = (regions: readonly RegionValue[]): LoraValue[] =>
   regions.flatMap(regionLoras).filter((l, i, all) => all.findIndex((x) => x.file === l.file) === i);
 
 /** The form's LoRAs with the regions' added (a file the list has already stays at the list's weight). */
 export const withRegionLoras = (loras: LoraValue[], regions: readonly RegionValue[]): LoraValue[] =>
   [...loras, ...allRegionLoras(regions).filter((l) => !loras.some((h) => h.file === l.file))];
 
-/** A mask of the picture's size, 1 inside each of these boxes and 0 elsewhere (ComfyUI's own SolidMask and MaskComposite). */
-export function boxMask(g: GraphBuilder, boxes: Array<RegionValue["box"]>, size: { width: number; height: number }): Ref {
-  let mask = g.out("SolidMask", { value: 0, width: size.width, height: size.height });
-  for (const box of boxes) {
-    const p = boxPixels(box, size);
-    mask = g.out("MaskComposite", { destination: mask, source: g.out("SolidMask", { value: 1, width: p.width, height: p.height }), x: p.x, y: p.y, operation: "add" });
-  }
-  return mask;
+/** A mask of the picture's size, 1 inside the box and 0 elsewhere (ComfyUI's own SolidMask and MaskComposite). */
+function boxMask(g: GraphBuilder, box: RegionValue["box"], size: { width: number; height: number }): Ref {
+  const p = boxPixels(box, size);
+  return g.out("MaskComposite", { destination: g.out("SolidMask", { value: 0, width: size.width, height: size.height }), source: g.out("SolidMask", { value: 1, width: p.width, height: p.height }), x: p.x, y: p.y, operation: "add" });
 }
 
 // ---- SDXL: the conditioning of each region, masked to its box
@@ -91,8 +83,8 @@ export function sdxlRegionNodes(value: unknown): string[] {
 export function sdxlRegions(g: GraphBuilder, o: { clip: Ref; positive: Ref; quality: string; size: { width: number; height: number } }, value: unknown): Ref {
   let positive = o.positive;
   for (const r of regionsOf(value)) {
-    const text = [o.quality.trim().replace(/,\s*$/, ""), r.prompt.trim()].filter(Boolean).join(", ");
-    const mask = boxMask(g, [r.box], o.size);
+    const text = withQuality(o.quality, r.prompt.trim());
+    const mask = boxMask(g, r.box, o.size);
     const loras = regionLoras(r);
     if (loras.length) {
       let hooks: Ref | null = null;
@@ -148,7 +140,7 @@ function krea2Hint(r: RegionValue): string {
  * a sidewalk, full body, came out as one street; with a sentence per man added (the hints, or two other wordings), as two
  * photos side by side with a seam down the middle, with or without the boxes' masks.
  */
-export const KREA2_LAYOUTS = ["Off", "Position hints"] as const;
+const KREA2_LAYOUTS = ["Off", "Position hints"] as const;
 export type Krea2Layout = (typeof KREA2_LAYOUTS)[number];
 
 /** The Krea 2 row of the layout in the base text, shown with the regions. */
@@ -158,7 +150,7 @@ export const KREA2_LAYOUT_INPUT: InputSpec = {
 };
 
 /** The whole picture's text as Krea 2 reads it with regions: the prompt, then, with the hints, where each box is (the builder's "position hints"). */
-export function krea2BaseText(prompt: string, regions: readonly RegionValue[], layout: Krea2Layout = "Off"): string {
+function krea2BaseText(prompt: string, regions: readonly RegionValue[], layout: Krea2Layout = "Off"): string {
   const sentences = [prompt.trim().replace(/\.+$/, ""), ...(layout === "Position hints" ? regions.map(krea2Hint) : [])].filter(Boolean);
   return sentences.join(". ") || "an image";
 }
@@ -189,7 +181,7 @@ export function krea2Regions(g: GraphBuilder, o: { model: Ref; clip: Ref; prompt
     let loras: Ref | null = null;
     for (const l of regionLoras(r)) loras = g.out("Krea2LoRA", { lora_name: l.file, strength: l.weight, ...(loras ? { prev_loras: loras } : {}) });
     chain = g.out("Krea2RegionalPrompt", {
-      conditioning: g.out("CLIPTextEncode", { text: r.prompt.trim(), clip: o.clip }), mask: boxMask(g, [r.box], o.size),
+      conditioning: g.out("CLIPTextEncode", { text: r.prompt.trim(), clip: o.clip }), mask: boxMask(g, r.box, o.size),
       ...(loras ? { loras } : {}), ...(chain ? { prev_regions: chain } : {}),
     });
   }
@@ -215,7 +207,7 @@ const pyRound = (v: number) => {
  * the picture, each an object or a text, its words (`desc`) and the text it draws. Background first, foreground last, as the
  * node asks: the order the form lists them in.
  */
-export function mossBoxes(regions: readonly RegionValue[], size: { width: number; height: number }) {
+function mossBoxes(regions: readonly RegionValue[], size: { width: number; height: number }) {
   return regions.map((r) => {
     const p = boxPixels(r.box, size);
     const text = r.kind === "text";
@@ -224,7 +216,7 @@ export function mossBoxes(regions: readonly RegionValue[], size: { width: number
 }
 
 /** The object boxes that are people ("1, 3"), counted among all boxes as the layout node counts them: a cast person's box. */
-export const mossCharacters = (regions: readonly RegionValue[]) => regions.flatMap((r, i) => (r.cast && r.kind !== "text" ? [String(i + 1)] : [])).join(", ");
+const mossCharacters = (regions: readonly RegionValue[]) => regions.flatMap((r, i) => (r.cast && r.kind !== "text" ? [String(i + 1)] : [])).join(", ");
 
 /**
  * The text MOSS-Image reads, as Create Bounding Boxes and MOSS-Image Layout Prompt write it from these boxes (ComfyUI 0.44's

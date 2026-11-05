@@ -11,6 +11,13 @@
 
 /** Tokens in one chunk: CLIP takes 77, the start and end tokens take two. */
 export const CLIP_CHUNK = 75;
+
+/**
+ * An SDXL text as its CLIPTextEncode is sent it: the checkpoint's quality tags in front, then the prompt (a settled wildcard
+ * can end in a separator: what is sent is what the record says). The recipes encode it and the form counts its tokens from
+ * it, so that "60/75" is the chunk the render fills, quality tags and all (card #300).
+ */
+export const withQuality = (quality: string, prompt: string) => [quality.trim().replace(/,\s*$/, ""), prompt].filter(Boolean).join(", ");
 /** A weighted part of this many tokens or more is cut at a chunk's end; a shorter one goes whole into the next chunk. */
 const LONG_PART = 8;
 /** The merges CLIP's tokenizer reads from its file (the first line is a header): 49152 − 256 − 2. */

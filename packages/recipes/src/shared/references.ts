@@ -12,7 +12,7 @@ export interface ReferenceSettings {
 }
 
 /** The two rows. `was`: the older single-picture row they replace (FLUX.1's Redux image), read into the first reference. */
-export const referenceInputs = (how: { max: number; roles: ReferenceRole[]; note: string; strength: number; strengthNote: string; noCast?: true; was?: { image: string; strength: string } }): InputSpec[] => [
+const referenceInputs = (how: { max: number; roles: ReferenceRole[]; note: string; strength: number; strengthNote: string; noCast?: true; was?: { image: string; strength: string } }): InputSpec[] => [
   { id: "references", type: "references", label: "Reference images", max: how.max, roles: how.roles, note: how.note, ...(how.noCast ? { noCast: true as const } : {}), ...(how.was ? { was: how.was.image } : {}) },
   { id: "referenceStrength", type: "number", label: "Reference strength", note: how.strengthNote, min: 0.05, max: 1.5, step: 0.05, default: how.strength, showWhen: "references", ...(how.was ? { was: how.was.strength } : {}) },
 ];

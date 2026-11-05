@@ -22,7 +22,7 @@ export interface FlowPicture extends FlowBase, HiresPass, DetailSettings, TileSe
 
 /** txt2img, with hires fix: an upscale, then a second pass over the larger picture (in tiles past about twice the model's size each side). */
 export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
-  const { inputs, loadNodes, SOMETIMES, load, shifted, cond, sample, tuned, noiseWords } = kit;
+  const { inputs, loadNodes, SOMETIMES, load, shifted, cond, sample, tuned, noiseWords, distilledFile } = kit;
   const files = spec.files;
   /** The area the model draws at, and the size a hires pass enlarges to. */
   const AREA = spec.megapixels * 1024 * 1024;
@@ -100,13 +100,21 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       // with regions, the skip-layer guidance the layout template samples with (its negative side skips a layer)
       const k = regions.length && layout ? { ...loaded, model: g.out("SkipLayerGuidanceDiTSimple", { model: loaded.model, double_layers: "", single_layers: layout.guidance.single, start_percent: 0, end_percent: layout.guidance.end }) } : loaded;
       const size = sizeOf(input);
-      let c = cond(g, k, input, regions.length ? mossLayoutText(g, input.prompt, regions, size) : input.prompt);
       const loads = [...k.loads];
-      if (spec.references) {
+      // the text as read, with the reference images' Redux over it (its files counted once)
+      const read = (text: string | Ref) => {
+        const c = cond(g, k, input, text);
+        if (!spec.references) return c;
         const r = withRedux(g, ctx, c.positive, input);
-        c = { ...c, positive: r.positive };
-        loads.push(...r.loads);
-      }
+        for (const l of r.loads) if (!loads.includes(l)) loads.push(l);
+        return { ...c, positive: r.positive };
+      };
+      const c = read(regions.length ? mossLayoutText(g, input.prompt, regions, size) : input.prompt);
+      // what a part of the picture is redrawn from (a hires tile, a Detail crop): the prompt alone, on the model as without
+      // regions. The layout says where every box lies in the whole frame, which a tile or a 1024² face crop is not: read
+      // there, each crop was asked to lay out all the boxes again (card #296). Read once, by the first pass that needs it
+      let plain: typeof c | null = null;
+      const part = { model: regions.length ? loaded.model : k.model, c: () => (regions.length ? (plain ??= read(input.prompt)) : c) };
       // the guide picture holds the shapes of the first pass, drawn whole at its size; the hires pass and the Detail rows
       // redraw from the text alone, as SDXL's tiles do
       const guided = spec.guide ? applyGuide(g, ctx, spec.guide, { model: k.model, ...c }, k.vae, size, input) : { model: k.model, ...c, loads: [] };
@@ -132,16 +140,18 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
         if (inTiles(input, large, AREA)) {
           // each tile is a picture the model's size to it: the shift for that size
           const tile = Math.min(input.tileSize, Math.max(large.width, large.height));
-          const tiled = shifted(g, k.model, input, { width: tile, height: tile });
+          const tiled = shifted(g, part.model, input, { width: tile, height: tile });
           image = redrawInTiles(g, ctx, scaled, k.vae, large, input, (l) => {
-            const second = sample(g, k, input, tiled, c, l, ctx.seed, pass, detail);
+            const second = sample(g, k, input, tiled, part.c(), l, ctx.seed, pass, detail);
             passes.push(tilePass(second.pass, large, input));
             return second.latent;
           });
           // each pass at its own size: the first at the picture's first, the tiles at a tile's
           passes[0] = { ...passes[0]!, pixels: size.width * size.height };
         } else {
-          const second = sample(g, k, input, shifted(g, k.model, input, large), c, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), ctx.seed, pass, detail);
+          // the whole frame again, larger: its layout said at that size, as the boxes' edges are in its pixels
+          const whole = regions.length ? read(mossLayoutText(g, input.prompt, regions, large)) : c;
+          const second = sample(g, k, input, shifted(g, k.model, input, large), whole, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), ctx.seed, pass, detail);
           latent = second.latent;
           passes.push(second.pass);
         }
@@ -151,8 +161,8 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       const drawn = image ?? g.out("VAEDecode", { samples: latent, vae: k.vae });
       // the Detail rows: faces, hands, people redrawn by the same model, each crop at the size it draws best
       const d = adetail(g, ctx, input, drawn, {
-        model: () => shifted(g, k.model, input, { width: 1024, height: 1024 }), clip: k.clip, vae: k.vae, cond: (text) => (text ? cond(g, k, input, text) : c),
-        steps: k.steps, cfg: k.cfg, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed, scale: input.hires ? input.hiresScale : 1,
+        model: () => shifted(g, part.model, input, { width: 1024, height: 1024 }), clip: k.clip, vae: k.vae, cond: (text) => (text ? cond(g, k, input, text) : part.c()),
+        steps: k.steps, distilled: distilledFile(input, ctx.slots), cfg: k.cfg, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed, scale: input.hires ? input.hiresScale : 1,
       });
       const out = g.add("PreviewImage", { images: d.image });
       const all = d.passes.length ? [...sized(passes, [size.width * size.height, largeOf(input).width * largeOf(input).height]), ...d.passes] : passes;
