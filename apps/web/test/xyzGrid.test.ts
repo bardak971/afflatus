@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { GridAxisValues } from "@afflatus/core";
-import type { Asset, GridView, MachineState } from "../src/api";
+import type { Asset, GridView } from "../src/api";
 import { boardDone, boardPage, boardWaits, lineOf, restOf } from "../src/grid/boardLayout";
-import { planOf } from "../src/grid/gridPlan";
 
-/** X/Y/Z grids on the web (card #21): the board's layout, what Keep and the bin take, and what the card says it costs. */
+/** X/Y/Z grids on the web (card #21): the board's layout, and what Keep and the bin take (what it costs is the server's plan: grids.ts planGrid). */
 const view: GridView = {
   id: "g1", draftId: "d1", recipe: "sdxl.text-to-picture", count: 12, createdAt: "2026-11-04T10:00:00Z",
   axes: [{ field: "sr", label: "Prompt S/R", labels: ["red coat", "blue coat", "green coat"] }, { field: "seed", label: "Seed", labels: ["1", "2"] }, { field: "steps", label: "Steps", labels: ["20", "30"] }],
@@ -52,39 +50,5 @@ describe("the board", () => {
     const items = [cell("a", 0, 0, 0), cell("b", 1, 0, 0, { kept: true }), cell("c", 2, 0, 1), cell("d", 0, 1, 1, { inBin: true })];
     expect(restOf(items, new Set(["a"]))).toEqual(["c"]);
     expect(restOf(items, new Set())).toEqual(["a", "c"]);
-  });
-});
-
-describe("what a grid will take, said before it is queued", () => {
-  const axes = (n: number[]): GridAxisValues[] => n.map((k, i) => ({ field: ["cfg", "steps", "seed"][i]!, label: "", values: Array.from({ length: k }, (_, v) => (i === 1 ? [20, 30, 40][v] : v)), labels: [] }));
-  const estimate = { ms: 12_000, loadMs: 2_000, on: null, loadOn: null, auto: null };
-  const pod = { id: "pod-1", pace: 1, rented: { rate: 0.9 } } as unknown as MachineState;
-  const pc = { id: "pc", pace: 1, rented: null } as unknown as MachineState;
-
-  it("counts every combination and its time on this PC: one model load, then each render", () => {
-    expect(planOf(axes([3, 3]).map((a, i) => (i === 1 ? { ...a, field: "x" } : a)), estimate, { machines: [] })).toMatchObject({ count: 9, said: "3 × 3 = 9 renders", ms: 2_000 + 9 * 10_000, pod: null });
-  });
-
-  it("scales the sampling by a steps axis against the form's steps", () => {
-    // 20, 30, 40 against 30: the mean is the form's own, the time unchanged; against 15, twice the sampling
-    expect(planOf(axes([1, 3]), estimate, { machines: [], steps: { id: "steps", base: 30 } }).ms).toBe(2_000 + 3 * 10_000);
-    expect(planOf(axes([1, 3]), estimate, { machines: [], steps: { id: "steps", base: 15 } }).ms).toBe(2_000 + 3 * 20_000);
-  });
-
-  it("loads each model of a model axis once more", () => {
-    expect(planOf([{ field: "ckpt", label: "", values: ["a", "b", "c"], labels: [] }], estimate, { machines: [], models: ["ckpt"] }).ms).toBe(3 * 2_000 + 3 * 10_000);
-  });
-
-  it("on a pod: its time and the money at its rate; at worst when Auto may give it to a pod", () => {
-    const picked = planOf(axes([4]), estimate, { picked: pod, machines: [pc, pod] });
-    expect(picked.pod).toEqual({ ms: 42_000, usd: (42_000 / 3_600_000) * 0.9 });
-    expect(planOf(axes([4]), { ...estimate, auto: ["pc"] }, { machines: [pc, pod] }).pod).toBeNull();
-    expect(planOf(axes([4]), { ...estimate, auto: ["pc", "pod-1"] }, { machines: [pc, pod] }).pod?.usd).toBeCloseTo(0.0105);
-  });
-
-  it("says the money cannot be told without the pod's rate or a forecast, never nothing", () => {
-    const noRate = { ...pod, rented: { rate: null } } as unknown as MachineState;
-    expect(planOf(axes([2]), estimate, { picked: noRate, machines: [noRate] }).pod).toEqual({ ms: 22_000, usd: null });
-    expect(planOf(axes([2]), null, { picked: pod, machines: [pod] }).pod).toEqual({ ms: null, usd: null });
   });
 });

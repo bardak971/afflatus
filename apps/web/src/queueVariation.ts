@@ -54,16 +54,28 @@ export const VERSION_WORDS = "It comes back as a version under the picture, not 
  * the recipe's defaults under what is given, trimmed to what it takes; one that cannot run here is refused with the reason.
  */
 export function useSendJob(into?: { draft?: string; folder?: string }) {
+  const inputOf = useJobInput();
   const setup = useSetup();
-  const modelSettings = useModelSettings();
-  return async (job: QueuedJob) => {
+  const send = async (job: QueuedJob) => {
     const status = setup.data?.recipes.find((x) => x.id === job.recipe.id);
     const why = setup.isSuccess ? notReady(status, setup.data.comfy.online) : null;
     if (why) throw new Error(why);
+    const input = inputOf(job);
+    const queued = await api.enqueue(job.recipe.id, input, job.count ?? 1, null, job.versionOf ? { ...into, versionOf: job.versionOf } : into);
+    if (job.from) for (const id of queued.ids) passFrom.set(id, job.from);
+  };
+  return Object.assign(send, { inputOf });
+}
+
+/** The whole form a job is sent with (its recipe's inputs alone, what is not set left out): what is queued, and priced. */
+function useJobInput() {
+  const setup = useSetup();
+  const modelSettings = useModelSettings();
+  return (job: QueuedJob): Record<string, unknown> => {
+    const status = setup.data?.recipes.find((x) => x.id === job.recipe.id);
     const input = wholeForm(job.recipe, status, modelSettings.data?.items ?? [], job.stored);
     const has = new Set(job.recipe.inputs.map((i) => i.id));
     for (const id of Object.keys(input)) if (input[id] === undefined || !has.has(id)) delete input[id];
-    const queued = await api.enqueue(job.recipe.id, input, job.count ?? 1, null, job.versionOf ? { ...into, versionOf: job.versionOf } : into);
-    if (job.from) for (const id of queued.ids) passFrom.set(id, job.from);
+    return input;
   };
 }

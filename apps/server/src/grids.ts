@@ -1,4 +1,4 @@
-import { cellInput, cellSaid, GRID_AXES, gridAxes, gridCells, PROMPT_SR, SEED_RANGE, type GridAxisValues, type InputSpec } from "@afflatus/core";
+import { GRID_AXES, gridAxes, gridJobs, parseInput, PROMPT_SR, SEED_RANGE, usdFor, type GridAxisValues, type GridJob, type InputSpec, type Recipe } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { assetLookup } from "./assets-api";
@@ -6,6 +6,7 @@ import { newId, now, OWNER, type Db } from "./db";
 import { httpError, notFound } from "./errors";
 import { lookSchema } from "./entities";
 import { queueRender, type GridCellJob } from "./jobs-api";
+import { cellsTotal, cellTimes, podsOf, type Prices } from "./podPrices";
 import type { Services } from "./services";
 import { gridSheet, makeThumb, readPicture } from "./thumbs";
 
@@ -28,7 +29,12 @@ export const gridBody = z.strictObject({
   draft: z.string().max(64).optional(),
   folder: z.string().max(64).optional(),
   machine: z.string().min(1).max(40).optional(),
+  /** One per click of Queue grid: the same grid sent again (a request replayed) is answered as it was, not queued twice. */
+  key: z.string().min(8).max(64).optional(),
 });
+
+/** What the grid card asks to have priced: the grid as it would be queued, on the machine picked (none: Auto). */
+export const planBody = gridBody.pick({ recipe: true, input: true, axes: true, options: true, machine: true });
 
 /** A grid as the board reads it: its axes as said, where it came from, and each cell's job while the queue holds it. */
 export interface GridView {
@@ -42,21 +48,38 @@ export interface GridView {
   jobs: Record<string, { id: string; status: string; error: string | null }>;
 }
 
+/** A grid read on its form: its recipe, its axes worked out, and every cell's job (core gridJobs), with one seed for all. */
+export interface GridRead {
+  recipe: Recipe<any>;
+  axes: GridAxisValues[];
+  jobs: GridJob[];
+}
+
 /**
- * A grid queued: its axes read on the form, each cell's form made, the grid written and every cell queued, or none (a
- * refusal of one refuses the grid, and its row goes). A seed the form draws anew is drawn once here, for every cell.
+ * A grid's axes read on the form and its cells made, a seed the form draws anew drawn once here for every cell: what is
+ * priced (planGrid, MCP render_grid's cap) and what is queued are these same cells.
  */
-export async function queueGrid(s: Services, body: z.output<typeof gridBody>, by: { mcpToken?: string } = {}): Promise<{ id: string; count: number; jobs: string[] }> {
+export function readGrid(s: Services, body: Pick<z.output<typeof gridBody>, "recipe" | "input" | "axes" | "options">): GridRead {
   const recipe = s.registry.recipe(body.recipe);
   if (!recipe) throw notFound("this model");
   if (recipe.output !== "image") throw httpError("a grid is made of pictures: this model makes another kind of thing");
+  // the form as the queue will take it, before any cell is made of it: its prompts within their limit, its values readable
+  parseInput(recipe, body.input);
   const specs = recipe.inputs as InputSpec[];
   const read = gridAxes(specs, body.input, { axes: body.axes }, body.options);
   if ("error" in read) throw httpError(`${GRID_AXES[read.axis] ?? "X"}: ${read.error}`);
   if (!read.axes.length) throw httpError("a grid needs at least one axis with values");
+  return { recipe, axes: read.axes, jobs: gridJobs(specs, body.input, read.axes, Math.floor(Math.random() * SEED_RANGE)) };
+}
+
+/**
+ * A grid queued: its cells (readGrid, or those the caller priced), the grid written and every cell queued, or none (a
+ * refusal of one refuses the grid, and its row goes).
+ */
+export async function queueGrid(s: Services, body: z.output<typeof gridBody>, by: { mcpToken?: string } = {}, read: GridRead = readGrid(s, body)): Promise<{ id: string; count: number; jobs: string[] }> {
+  const { recipe } = read;
   const id = newId();
-  const seed = Math.floor(Math.random() * SEED_RANGE);
-  const cells: GridCellJob[] = gridCells(read.axes).map((c) => ({ input: cellInput(specs, body.input, read.axes, c, seed), label: cellSaid(read.axes, c), grid: { id, cell: `${c.x}.${c.y}.${c.z}` } }));
+  const cells: GridCellJob[] = read.jobs.map((j) => ({ input: j.input, label: j.label, grid: { id, cell: j.key } }));
   await s.db.insertInto("grids").values({ id, owner_id: OWNER, draft_id: body.draft ?? null, recipe_id: recipe.id, axes: JSON.stringify(read.axes.map(said)), count: cells.length, created_at: now() }).execute();
   try {
     const jobs = await queueRender(s, { recipe: body.recipe, input: body.input, count: 1, look: body.look, draft: body.draft, folder: body.folder, machine: body.machine }, by, cells);
@@ -65,6 +88,64 @@ export async function queueGrid(s: Services, body: z.output<typeof gridBody>, by
     await s.db.deleteFrom("grids").where("id", "=", id).execute();
     throw err;
   }
+}
+
+/** What a grid will take, as its card says it and its ask weighs it (planGrid). */
+export interface GridPlanView {
+  count: number;
+  /** All of it on the machine picked, else as the queue shares it between its machines (Auto); null when a cell is not known. */
+  ms: number | null;
+  /** On the rented pods it may go to, at worst (the dearest, the slowest): null when none may take it. */
+  pod: { ms: number | null; usd: number | null } | null;
+}
+
+/**
+ * What a grid will take before it is queued, each cell priced at its own settings (podPrices.ts cellTimes, the figure MCP's
+ * render_grid is held to): the time on the machine picked or on Auto, and on the rented pods it may go to, the money at
+ * their rates. On Auto every pod set up counts, a stopped one too: a grid queued while it is stopped runs there once it is
+ * started. A money path: a pod whose rate or a cell whose time is not known says null, which the card asks about.
+ */
+export async function planGrid(s: Services, body: z.output<typeof planBody>): Promise<GridPlanView> {
+  const read = readGrid(s, body);
+  const inputs = read.jobs.map((j) => j.input);
+  const machines = (await s.machines()).map((m) => m.machine);
+  const prices: Prices = new Map();
+  const picked = body.machine ? machines.find((m) => m.id === body.machine) : undefined;
+  const ms = picked
+    ? cellsTotal(await cellTimes(s, read.recipe.id, inputs, picked.id, prices))
+    : (await s.queue.total(inputs.map((input) => ({ recipe: read.recipe.id, input }))).catch(() => ({ ms: null }))).ms;
+  const pods = (picked ? [picked] : machines).filter((m) => m.rented);
+  if (!pods.length) return { count: read.jobs.length, ms, pod: null };
+  const rates = podsOf(s, pods);
+  const each = await Promise.all(pods.map(async (p) => {
+    const t = cellsTotal(await cellTimes(s, read.recipe.id, inputs, p.id, prices));
+    const rate = rates.get(p.id)?.rate;
+    return { ms: t, usd: t === null || rate === null || rate === undefined ? null : usdFor(t, rate) };
+  }));
+  // said at its worst: an amount not known on any of them is not known
+  const usd = each.some((e) => e.usd === null) ? null : Math.max(...each.map((e) => e.usd!));
+  const podMs = each.some((e) => e.ms === null) ? null : Math.max(...each.map((e) => e.ms!));
+  return { count: read.jobs.length, ms, pod: { ms: podMs, usd } };
+}
+
+/**
+ * The grids queued by key, a while: a request replayed (a network retry, a double send) gets the grid it queued rather
+ * than up to GRID_MOST renders more. Kept ten minutes, which outlasts any retry.
+ */
+const KEPT_MS = 10 * 60_000;
+type Queued = { id: string; count: number; jobs: string[] };
+const queuedByKey = new Map<string, { at: number; got: Promise<Queued> }>();
+function onceByKey(key: string | undefined, run: () => Promise<Queued>): Promise<Queued> {
+  if (!key) return run();
+  const at = Date.now();
+  for (const [k, v] of queuedByKey) if (at - v.at > KEPT_MS) queuedByKey.delete(k);
+  const had = queuedByKey.get(key);
+  if (had) return had.got;
+  const got = run();
+  queuedByKey.set(key, { at, got });
+  // a grid refused may be sent again once what refused it is fixed
+  got.catch(() => queuedByKey.delete(key));
+  return got;
 }
 
 /** An axis as the board says it: its setting, its name and its values' labels (not the values, which the cells keep). */
@@ -90,7 +171,13 @@ const SHEET_CELL = 1024;
 
 export function registerGrids(app: FastifyInstance, s: Services): void {
   const lookup = assetLookup(s);
-  app.post("/api/grids", async (req) => queueGrid(s, gridBody.parse(req.body)));
+  app.post("/api/grids", async (req) => {
+    const body = gridBody.parse(req.body);
+    return onceByKey(body.key, () => queueGrid(s, body));
+  });
+
+  /** What a grid will take before it is queued, each cell at its own settings (planGrid): the card's figure and its ask. */
+  app.post("/api/grids/plan", async (req) => planGrid(s, planBody.parse(req.body)));
 
   /** A draft's grids, the newest first: the board opens on the last one, and the draft column shows them. */
   app.get("/api/grids", async (req) => {

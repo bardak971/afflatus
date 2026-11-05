@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { InputSpec } from "../src/inputs";
-import { axisValues, cellInput, cellSaid, GRID_ASK_USD, GRID_MOST, gridAsks, gridAxes, gridCells, gridCount, gridCountSaid, gridFields, matchOption, parseNumbers, splitValues } from "../src/grid";
+import { capRoom } from "../src/money";
+import { axisValues, cellInput, cellSaid, GRID_ASK_USD, GRID_MOST, gridAsks, gridAxes, gridCells, gridCount, gridCountSaid, gridFields, gridJobs, matchOption, parseNumbers, splitValues } from "../src/grid";
 
 const specs: InputSpec[] = [
   { id: "ckpt", type: "model", label: "Checkpoint", folder: "checkpoints" },
@@ -77,6 +78,17 @@ describe("an axis's values", () => {
     expect(axisValues(specs, form, { field: "size", values: "square, 832x1216" })).toMatchObject({ axis: { values: [{ width: 1024, height: 1024 }, { width: 832, height: 1216 }] } });
     expect(axisValues(specs, form, { field: "size", values: "1000x1000" })).toHaveProperty("error");
   });
+  it("refuses a size past the model's pixels rather than label it as typed (it was sent smaller, two cells alike)", () => {
+    const budget = specs.map((s) => (s.type === "size" ? { ...s, maxPixels: 1024 * 1024 } : s));
+    const got = axisValues(budget, form, { field: "size", values: "1024x1024, 2048x2048" });
+    expect(got).toEqual({ error: expect.stringMatching(/2048×2048 is more than this model draws: it would be sent as 1024×1024/) });
+    expect(axisValues(budget, form, { field: "size", values: "1024x1024, 832x1216" })).toHaveProperty("axis");
+  });
+  it("refuses a fraction of a whole-number setting when typed, not at Queue grid", () => {
+    expect(axisValues(specs, form, { field: "steps", values: "20-30 (+2.5)" })).toEqual({ error: "22.5: Steps takes whole numbers" });
+    expect(axisValues(specs, form, { field: "steps", values: "20, 25.5" })).toHaveProperty("error");
+    expect(axisValues(specs, form, { field: "cfg", values: "4-5 (+0.5)" })).toHaveProperty("axis");
+  });
 
   it("a setting not on the form, or the same one twice, refuses the grid", () => {
     expect(gridAxes(specs, form, { axes: [{ field: "denoise", values: "0.5" }] })).toMatchObject({ axis: 0 });
@@ -148,11 +160,30 @@ describe("the money guard", () => {
     expect(gridAsks({ onPod: true, usd: GRID_ASK_USD + 1 }, spend)).toBe("About $4.00 on the pod.");
   });
   it("asks when it would reach a cap, a cap of 0 being none", () => {
-    expect(gridAsks({ onPod: true, usd: 1 }, { ...spend, today: 9.5 })).toMatch(/today's spending cap/);
-    expect(gridAsks({ onPod: true, usd: 1 }, { ...spend, month: 99.5 })).toMatch(/this month's spending cap/);
+    expect(gridAsks({ onPod: true, usd: 1 }, { ...spend, today: 9.5 })).toMatch(/today's cap is \$10\.00/);
+    expect(gridAsks({ onPod: true, usd: 1 }, { ...spend, month: 99.5 })).toMatch(/this month's cap is/);
     expect(gridAsks({ onPod: true, usd: 1 }, { today: 500, month: 500, caps: { day: 0, month: 0 } })).toBeNull();
+  });
+  it("asks at a cap reached exactly, the same rule as an MCP deploy's (core capRoom)", () => {
+    expect(gridAsks({ onPod: true, usd: 1 }, { ...spend, today: 9 })).toMatch(/today's cap/);
+    expect(capRoom({ ...spend, today: 9 }, 1)).toMatch(/makes \$10\.00/);
+    expect(capRoom({ ...spend, today: 8 }, 1)).toBeNull();
   });
   it("asks when the cost cannot be told", () => {
     expect(gridAsks({ onPod: true, usd: null }, spend)).toMatch(/cannot be told/);
+  });
+});
+
+describe("a grid's jobs", () => {
+  it("each cell with its own form and name, in queue order, one seed for all", () => {
+    const read = gridAxes(specs, form, { axes: [{ field: "steps", values: "20, 40" }, { field: "size", values: "square, 832x1216" }] });
+    if ("error" in read) throw new Error(read.error);
+    const jobs = gridJobs(specs, form, read.axes, 77);
+    expect(jobs.map((j) => [j.key, j.input.steps, j.input.size, j.input.seed, j.label])).toEqual([
+      ["0.0.0", 20, { width: 1024, height: 1024 }, 77, "20 · 1024×1024"],
+      ["1.0.0", 40, { width: 1024, height: 1024 }, 77, "40 · 1024×1024"],
+      ["0.1.0", 20, { width: 832, height: 1216 }, 77, "20 · 832×1216"],
+      ["1.1.0", 40, { width: 832, height: 1216 }, 77, "40 · 832×1216"],
+    ]);
   });
 });

@@ -1,5 +1,6 @@
-import { RANDOM_SEED, type InputSpec, type LoraValue } from "./inputs";
-import { usd } from "./money";
+import { PROMPT_MOST, RANDOM_SEED, type InputSpec, type LoraValue } from "./inputs";
+import { withinPixels } from "./frame";
+import { capRoom, usd, type CapsSpent } from "./money";
 import { modelStem } from "./modelFiles";
 import { SEED_RANGE } from "./seed";
 import { plural } from "./text";
@@ -184,6 +185,13 @@ export function axisValues(specs: readonly InputSpec[], values: Record<string, u
       // A1111's rule: the first value is what is searched, and it must be there, else every cell would be the same picture
       const texts = specs.filter((s) => s.type === "prompt").map((s) => String(values[s.id] ?? ""));
       if (!texts.some((t) => t.includes(typed[0]!))) return { error: `“${typed[0]}” is not in the prompt: the first value is what each value replaces` };
+      // each text as a cell would make it, measured before any cell is: a short value found in a long prompt, put in place
+      // a thousand times over a 100-seed axis, made gigabytes of cells before the queue's own limit was ever asked
+      const from = typed[0]!;
+      for (const v of typed) {
+        const long = texts.some((t) => t.length + (t.split(from).length - 1) * (v.length - from.length) > PROMPT_MOST);
+        if (long) return { error: `“${v.slice(0, 40)}”: put in place of each “${from.slice(0, 40)}”, the prompt would be past ${PROMPT_MOST.toLocaleString("en-US")} characters` };
+      }
       return done(typed, typed);
     }
     case "number":
@@ -192,6 +200,11 @@ export function axisValues(specs: readonly InputSpec[], values: Record<string, u
       const whole = field.kind === "seed" || (spec.type === "number" && Number.isInteger(spec.step) && Number.isInteger(spec.min));
       const read = parseNumbers(axis.values, whole);
       if ("error" in read) return read;
+      // a setting of whole numbers takes no fraction: "20-30 (+2.5)" said 5 values and their cost, then failed at Queue grid
+      if (whole) {
+        const part = read.values.find((n) => !Number.isInteger(n));
+        if (part !== undefined) return { error: `${part}: ${field.label} takes whole numbers` };
+      }
       if (field.kind === "seed") {
         const bad = read.values.find((n) => !Number.isInteger(n) || n < 0 || n >= SEED_RANGE);
         if (bad !== undefined) return { error: `seed ${bad}: a whole number from 0 to ${SEED_RANGE - 1}` };
@@ -237,6 +250,11 @@ export function axisValues(specs: readonly InputSpec[], values: Record<string, u
         if (!spec.ratioOnly && (size.width % spec.grid || size.height % spec.grid || Math.min(size.width, size.height) < spec.min || Math.max(size.width, size.height) > spec.max)) {
           return { error: `${size.width}×${size.height}: multiples of ${spec.grid}, ${spec.min} to ${spec.max}` };
         }
+        // past the pixels the model draws, the form sends it smaller (inputs.ts): a cell said 2048×2048 was rendered at
+        // 1024×1024, the same picture as its neighbour, and paid twice
+        const most = !spec.ratioOnly ? spec.maxPixels : undefined;
+        const sent = most ? withinPixels(size, { grid: spec.grid, maxPixels: most, min: spec.min }) : size;
+        if (sent.width !== size.width || sent.height !== size.height) return { error: `${size.width}×${size.height} is more than this model draws: it would be sent as ${sent.width}×${sent.height}` };
         vals.push(size);
       }
       return done(vals, vals.map((v) => `${v.width}×${v.height}`));
@@ -311,6 +329,23 @@ export function cellInput(specs: readonly InputSpec[], base: Record<string, unkn
   return input;
 }
 
+/** One cell of a grid as it is queued and priced: its place, the form it renders, and its name. */
+export interface GridJob {
+  cell: GridCell;
+  /** Its place as the board keys it: "x.y.z". */
+  key: string;
+  input: Record<string, unknown>;
+  label: string;
+}
+
+/**
+ * Every cell of the axes with the form it renders (cellInput) and its name (cellSaid), in the order they are queued: what
+ * is priced before queuing is what is queued (the cost of each cell's own steps, size and model), with the one seed
+ * drawn for the grid.
+ */
+export const gridJobs = (specs: readonly InputSpec[], base: Record<string, unknown>, axes: readonly GridAxisValues[], seed: number): GridJob[] =>
+  gridCells(axes).map((cell) => ({ cell, key: `${cell.x}.${cell.y}.${cell.z}`, input: cellInput(specs, base, axes, cell, seed), label: cellSaid(axes, cell) }));
+
 /** What one cell is said as, its axes' values in order ("30 · blue coat · 5678"): a cell's name in the library and its banners. */
 export const cellSaid = (axes: ReadonlyArray<{ labels: readonly string[] }>, cell: GridCell): string =>
   axes.map((a, i) => a.labels[[cell.x, cell.y, cell.z][i]!]).filter(Boolean).join(" · ");
@@ -324,11 +359,12 @@ export const GRID_ASK_USD = 3;
  * or when its cost cannot be told at all, which is never passed over in silence. Null: it is queued at once, its count and
  * cost having been said on the card.
  */
-export function gridAsks(cost: { onPod: boolean; usd: number | null }, spend: { today: number; month: number; caps: { day: number; month: number } } | null): string | null {
+export function gridAsks(cost: { onPod: boolean; usd: number | null }, spend: CapsSpent | null): string | null {
   if (!cost.onPod) return null;
   if (cost.usd === null) return "Its cost on the pod cannot be told yet (no render of this model there to go by).";
-  if (spend?.caps.day && spend.today + cost.usd >= spend.caps.day) return `It would reach today's spending cap (${usd(spend.today)} spent of ${usd(spend.caps.day)}, about ${usd(cost.usd)} more).`;
-  if (spend?.caps.month && spend.month + cost.usd >= spend.caps.month) return `It would reach this month's spending cap (${usd(spend.month)} spent of ${usd(spend.caps.month)}, about ${usd(cost.usd)} more).`;
+  // the caps' own rule, as an MCP token's deploy is held to it (rentedBilling.ts noRoomFor)
+  const full = spend ? capRoom(spend, cost.usd) : null;
+  if (full) return `It would reach a spending cap: ${full}.`;
   if (cost.usd > GRID_ASK_USD) return `About ${usd(cost.usd)} on the pod.`;
   return null;
 }

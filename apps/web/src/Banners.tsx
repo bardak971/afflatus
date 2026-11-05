@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check } from "lucide-react";
-import { api, type Download, type Job } from "./api";
+import { api, type Download, type GridView, type Job } from "./api";
 import { useQueue, useSettings } from "./data";
 import { plural } from "./format";
 import { useDownloads } from "./useGetFile";
@@ -12,6 +12,7 @@ import { OUT_MS } from "./motion";
 import { useBanners, useHandover, useNotify, type Banner } from "./store";
 import { CloseButton, cx } from "./ui";
 import { askViewer, passFrom } from "./viewer/ask";
+import { useGridBoard } from "./grid/boardLayout";
 import { machineName, NO_ROOM, volumeHref, volumeOf } from "./machines";
 import { queryKeys } from "./queryKeys";
 import { settingHref } from "./screens/settings/settingsIndex";
@@ -112,6 +113,8 @@ export function Banners() {
   const seenJobs = useRef<Set<string> | null>(null);
   const seenDownloads = useRef<Map<string, string> | null>(null);
   const folds = useRef({ done: noFold(), failed: noFold() });
+  // a grid's cells as they end, by grid: said once, as its last one ends, rather than a banner per cell over its board
+  const grids = useRef(new Map<string, { done: number; failed: number; draft: string | null }>());
 
   useEffect(() => {
     const recent = queue.data?.recent;
@@ -129,8 +132,17 @@ export function Banners() {
         if (j.kind === "export") f.exports++;
         f.of = f.of === undefined || f.of === (j.versionOf ?? null) ? (j.versionOf ?? null) : null;
       };
+      const gridsEnded = new Set<string>();
       for (const j of over) {
         if (seenJobs.current.has(j.id)) continue;
+        // a cell of a grid: its board shows it land or fail in its place; the grid is said whole below
+        if (j.grid) {
+          const g = grids.current.get(j.grid.id) ?? { done: 0, failed: 0, draft: j.draftId };
+          g[j.status === "failed" ? "failed" : "done"]++;
+          grids.current.set(j.grid.id, g);
+          gridsEnded.add(j.grid.id);
+          continue;
+        }
         if (j.status === "failed") {
           const f = folds.current.failed;
           add(f, j);
@@ -165,6 +177,22 @@ export function Banners() {
           } } } : {};
           push({ id: "jobs:done", tone: "good", title: foldTitle(f, "done"), text: foldText(f), ...compare, ...version, ...(there || compare.action || version.action ? {} : allExports ? { href: "/timelines", go: "Open the Timelines" } : { href: "/", go: "Open the library" }) });
         }
+      }
+      const q = queue.data;
+      for (const id of gridsEnded) {
+        // still cells of it waiting or running: the board says how far it is
+        if (q && [...q.waiting, q.running, ...(q.machines ?? []).map((m) => m.running)].some((x) => x?.grid?.id === id)) continue;
+        const g = grids.current.get(id)!;
+        grids.current.delete(id);
+        if (!g.failed && (showsResults(path) || !useNotify.getState().banner)) continue;
+        const count = client.getQueryData<GridView>(queryKeys.grids.one(id))?.count ?? g.done + g.failed;
+        const draft = g.draft;
+        // in the place of its "Grid queued" banner (useQueueGrid): one per grid, a failure in it said there and not apart
+        push({
+          id: `grid:${id}`, tone: g.failed ? "bad" : "good", title: g.failed ? `Grid done · ${g.failed} of ${plural(count, "render")} failed` : `Grid done · ${plural(count, "render")}`,
+          // on the Studio, its draft open, the board is put back up; elsewhere the library holds its cells
+          ...(draft && (path === "/" || path === "/create") ? { action: { label: "Open the board", run: () => useGridBoard.getState().show(draft, id) } } : { href: "/", go: "Open the library" }),
+        });
       }
     }
     seenJobs.current = new Set(over.map((j) => j.id));

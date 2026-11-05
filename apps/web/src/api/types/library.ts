@@ -196,6 +196,23 @@ export interface GridView {
   /** By cell ("x.y.z"): its job while the queue holds it; a cell with none was dismissed from the queue, or is still to be read. */
   jobs: Record<string, { id: string; status: string; error: string | null }>;
 }
+/**
+ * What a grid will take before it is queued (POST /api/grids/plan), each cell priced at its own settings on the server:
+ * the time on the machine picked or on Auto, and on the rented pods it may go to, at worst. Null where it cannot be told.
+ */
+export interface GridPlanView {
+  count: number;
+  ms: number | null;
+  pod: { ms: number | null; usd: number | null } | null;
+}
+/** A grid as it is sent to be priced and queued: the whole form, its axes as typed, the lists a value is found in. */
+export interface GridAsk {
+  recipe: string;
+  input: Record<string, unknown>;
+  axes: Array<{ field: string; values: string }>;
+  options?: Record<string, string[]>;
+  machine?: string;
+}
 /** One of a draft's grids, as its column lists them. */
 export interface GridBrief {
   id: string;

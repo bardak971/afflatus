@@ -34,6 +34,27 @@ export function usd(n: number, fine = false): string {
   return n < 100 ? `$${n.toFixed(2)}` : `$${Math.round(n)}`;
 }
 
+/** The app's spending caps (USD; 0: no cap) and what is spent against them, today's and this month's. */
+export interface CapsSpent {
+  caps: { day: number; month: number };
+  today: number;
+  month: number;
+}
+
+/**
+ * Why the spending caps have no room for `more` dollars, today's first, said whole (the cap, what is spent, what more,
+ * where that comes to); null when both have room. One rule for every "may this be spent" question: an MCP token's deploy
+ * or Start (rentedBilling.ts noRoomFor) and the ask before a grid or a selection's passes (grid.ts gridAsks). Reaching
+ * the cap exactly counts as no room, the stricter side: the pod is stopped once a cap is reached.
+ */
+export function capRoom(s: CapsSpent, more: number): string | null {
+  // a cheap amount to a tenth of a cent, where cents read "$0.00 more" for something that does reach the cap
+  const said = (n: number) => usd(n, n < 0.01);
+  if (s.caps.day > 0 && s.today + more >= s.caps.day) return `today's cap is ${usd(s.caps.day)}, ${usd(s.today)} is spent today, and ${said(more)} more makes ${usd(s.today + more)}`;
+  if (s.caps.month > 0 && s.month + more >= s.caps.month) return `this month's cap is ${usd(s.caps.month)}, ${usd(s.month)} is spent this month, and ${said(more)} more makes ${usd(s.month + more)}`;
+  return null;
+}
+
 /** The start of the user's day holding `at` (ms, local time): what "today" counts from. */
 export function dayStart(at: number): number {
   const d = new Date(at);

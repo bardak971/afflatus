@@ -61,7 +61,10 @@ const RULES: Array<{ test: RegExp; why: string; except?: RegExp }> = [
   },
   // money (card #259): an hour's rate times a time, and the start of a month or a day, were each written a dozen times,
   // and a month boundary written two ways is how a cap counts the wrong days
-  { test: /\/ ?(?:3_600_000|HOUR(?:_MS)?)\) ?\* ?[\w.!?]*(?:rate|price|Rate|Price)\b/, why: "a time priced by hand: use usdFor(ms, rate) (core's money.ts)", except: /packages[\\/]core[\\/]src[\\/]money\.ts$/ },
+  // either way round, and in hours, minutes or seconds: `(price * ms) / 3_600_000`, `(minutes / 60) * rate` and
+  // `(price * seconds) / 3600` each priced a GPU's time past a rule that knew only `(ms / 3_600_000) * rate` (2026-11-05)
+  { test: /\/ ?(?:3_?600_?000|3_?600|60|HOUR(?:_MS)?)\) ?\* ?[\w.!?]*(?:rate|price|Rate|Price)\b/, why: "a time priced by hand: use usdFor(ms, rate) (core's money.ts)", except: /packages[\\/]core[\\/]src[\\/]money\.ts$/ },
+  { test: /\b[\w.!?]*(?:rate|price|Rate|Price) ?\* ?\(?[\w.!?]+\)? ?\/ ?(?:3_?600_?000|3_?600|60|HOUR(?:_MS)?)\b/, why: "a time priced by hand: use usdFor(ms, rate) (core's money.ts)", except: /packages[\\/]core[\\/]src[\\/]money\.ts$/ },
   {
     test: /new Date\([\w.]+getFullYear\(\), [\w.]+getMonth\(\)(?: \+ \d)?, (?:1|[\w.]+getDate\(\))\)/,
     why: "the start of a month or a day made by hand: use monthStart or dayStart (core's money.ts)",

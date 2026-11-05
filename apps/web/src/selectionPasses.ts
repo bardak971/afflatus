@@ -5,6 +5,7 @@ import { plural } from "./format";
 import { ACTIONS, PASS_KEYS, SELECTION_PASSES, VERSION_PASSES, type ActionId, type SelectionPass, type TuneAt } from "./itemActions";
 import { TUNED_ROWS, tunedJob, useTune } from "./passTune";
 import { useSendJob, type QueuedJob } from "./queueVariation";
+import { askBeforeMany } from "./podAsk";
 import { queryKeys } from "./queryKeys";
 import { failedBanner } from "./sayFailed";
 import { useBanners } from "./store";
@@ -84,8 +85,21 @@ export function useSelectionPasses() {
     mutationFn: async ({ pass, items, changed = {}, count = 1 }: { pass: SelectionPass; items: Asset[]; changed?: Record<string, unknown>; count?: number }) => {
       let queued = 0;
       const failed: unknown[] = [];
+      const all = pictures(items);
+      // asked first where a pod may take them, as a grid is: priced on the first picture's job, times every picture and copy
+      for (const a of all) {
+        let job: QueuedJob;
+        try {
+          job = tunedJob(passJob(pass, await read(a), place), changed, count);
+        } catch {
+          continue;
+        }
+        const total = all.length * count;
+        if (!(await askBeforeMany(client, { recipe: job.recipe, input: send.inputOf(job), total, what: `${ACTIONS[pass].label}${count > 1 ? ` ×${count}` : ""} on ${plural(all.length, "picture")}` }))) return null;
+        break;
+      }
       // one after the other: each picture's parameters are read, then its job sent, as its own button would
-      for (const a of pictures(items)) {
+      for (const a of all) {
         try {
           await send(tunedJob(passJob(pass, await read(a), place), changed, count));
           queued++;
@@ -95,7 +109,10 @@ export function useSelectionPasses() {
       }
       return { pass, queued, failed, count };
     },
-    onSuccess: ({ pass, queued, failed, count }) => {
+    onSuccess: (done) => {
+      // not asked to go on (the ask before queuing on a pod): nothing was sent, nothing to say
+      if (!done) return;
+      const { pass, queued, failed, count } = done;
       const label = ACTIONS[pass].label;
       if (queued) {
         void client.invalidateQueries({ queryKey: queryKeys.queue() });

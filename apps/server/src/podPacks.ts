@@ -38,6 +38,13 @@ interface Entry extends PodPackView {
   lacks?: string[];
   /** Manager's words of an install whose script failed, the pack put on the disk anyway: its error if ComfyUI does not load it. */
   said?: string;
+  /**
+   * Its install queued, Manager's queue still to be started (startQueue): not before when, and how many times it was asked.
+   * Kept here and asked again at a later pass, never waited for inside one: the pass is every pod's, and a pod's proxy
+   * blipping held every other pod's next downloads for up to a minute, billed (the 2026-11-05 review, M5).
+   */
+  startAt?: number;
+  startTries?: number;
 }
 
 /**
@@ -329,6 +336,7 @@ export class PodPacks {
     if (this.restarting.has(machine)) return this.followRestart(machine, comfy, all);
     let changed = this.forgetDisk(machine, comfy, all);
     changed = (await this.followInstalls(comfy, all)) || changed;
+    changed = (await this.startQueue(comfy, all)) || changed;
     changed = (await this.startInstalls(comfy, all)) || changed;
     changed = (await this.restartWhenIn(machine, comfy, all)) || changed;
     return { changed, loaded: false };
@@ -482,21 +490,34 @@ export class PodPacks {
       else if (res.status === 404) Object.assign(e, { state: "failed", failedAt: Date.now(), error: "its ComfyUI has no ComfyUI-Manager" });
       else if (!res.ok) Object.assign(e, { state: "failed", failedAt: Date.now(), error: `ComfyUI-Manager refused it (${res.status})` });
       else {
-        Object.assign(e, { state: "installing", task, askedAt: Date.now() });
+        Object.assign(e, { state: "installing", task, askedAt: Date.now(), startAt: Date.now(), startTries: 0 });
         asked.push(e);
       }
     }
-    if (asked.length) {
-      // the pod's proxy answering in Manager's place for a moment (an empty 404, a 502–504) or no answer is asked again: on
-      // 2026-11-04 one such 404 failed comfyui_ipadapter_plus on a pod whose image had installed it fine hours before, and
-      // its jobs could never run there (card #282). Manager's own refusal, with its words, is not
-      let started: Response | null = null;
-      for (let i = 0; i < START_TRIES; i++) {
-        if (i) await new Promise((r) => setTimeout(r, this.startRetryMs));
-        started = await comfy.client.raw("/v2/manager/queue/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", signal: AbortSignal.timeout(15_000) }).catch(() => null);
-        if (started && (started.ok || !(await fromProxy(started)))) break;
-      }
-      if (!started?.ok) for (const e of asked) Object.assign(e, { state: "failed", failedAt: Date.now(), error: `ComfyUI-Manager did not start its installs (${started?.status ?? "no answer"})` });
+    if (asked.length) await this.startQueue(comfy, asked);
+    return true;
+  }
+
+  /**
+   * Manager's queue started for the installs queued in it, once this pass: the pod's proxy answering in Manager's place for
+   * a moment (an empty 404, a 502–504) or no answer is asked again at a later pass, START_TRIES times `startRetryMs` apart.
+   * On 2026-11-04 one such 404 failed comfyui_ipadapter_plus on a pod whose image had installed it fine hours before, and
+   * its jobs could never run there (card #282). Manager's own refusal, with its words, is not asked again.
+   */
+  private async startQueue(comfy: Comfy, all: Entry[]): Promise<boolean> {
+    const queued = all.filter((e) => e.state === "installing" && e.startAt !== undefined);
+    if (!queued.length || queued.some((e) => e.startAt! > Date.now())) return false;
+    const started = await comfy.client.raw("/v2/manager/queue/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", signal: AbortSignal.timeout(15_000) }).catch(() => null);
+    const away = !started || (!started.ok && (await fromProxy(started)));
+    const tries = Math.max(...queued.map((e) => e.startTries ?? 0)) + 1;
+    for (const e of queued) {
+      if (started?.ok) {
+        // its install timed from the start Manager took (INSTALL_MS), not from the first ask
+        Object.assign(e, { askedAt: Date.now() });
+        delete e.startAt;
+        delete e.startTries;
+      } else if (away && tries < START_TRIES) Object.assign(e, { startTries: tries, startAt: Date.now() + this.startRetryMs });
+      else Object.assign(e, { state: "failed", failedAt: Date.now(), error: `ComfyUI-Manager did not start its installs (${started?.status ?? "no answer"})` });
     }
     return true;
   }
