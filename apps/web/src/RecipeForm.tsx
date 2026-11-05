@@ -407,10 +407,11 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
     ...(regionsHit ? [{ id: "regions", label: "Regions" }] : []),
     ...(hasFrames || hasRefs ? [{ id: "inputs", label: "Inputs" }] : []),
     ...chapters.filter((ch) => (ch.id === "advanced" ? rare.length > 0 : ch.id === "prompt" ? promptHit : !q || sought(ch.items).length)).map((ch) => ({ id: ch.id, label: ch.label, ...(ch.under ? { under: ch.under } : {}) })),
-    ...(grid && !q ? [{ id: grid.id, label: grid.title }] : []),
     ...(sampling.length || afterSampling.length ? [{ id: "sampling", label: "Sampling" }] : []),
     ...(out.length || encoding.length || upscaling.length ? [{ id: "output", label: "Output" }] : []),
     ...(rare.length && !advancedMoved ? [{ id: "advanced", label: "Advanced" }] : []),
+    // the grid varies the settings above it (A1111's X/Y/Z plot is a script under them): it comes after all of them
+    ...(grid && !q ? [{ id: grid.id, label: grid.title }] : []),
   ];
   // the chapters the recipe asks for first, in that order; the rest keep theirs (a stable sort)
   const firstIds = recipe.first;
@@ -497,7 +498,6 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
             </Part>
           )];
         }),
-        [grid?.id ?? "grid", grid && !q && <Part key={grid.id} id={grid.id} title={grid.title} help={grid.help} summary={grid.summary}>{grid.node}</Part>],
         ["sampling", (sampling.length > 0 || afterSampling.length > 0) && (
           <Part key="sampling" id="sampling" title="Sampling" summary={<>{said.samplingSaid}{changedMark([...sampling, ...afterSampling])}</>} needs={Boolean(q)}>
             {!q && <ModelDefaults recipe={recipe} setup={setup} file={file} hasSaved={hasSaved} values={values} defaults={defaults} onClear={onClear} />}
@@ -515,6 +515,7 @@ function FormOf({ recipe, status, stored, given, onChange, onClear, made, madeSu
           />
         )],
         ["advanced", !advancedMoved && <div key="advanced-part" className="contents">{advancedPart}</div>],
+        [grid?.id ?? "grid", grid && !q && <Part key={grid.id} id={grid.id} title={grid.title} help={grid.help} summary={grid.summary}>{grid.node}</Part>],
       ], ([id]) => id), ([id]) => id, ["pinned", (
         <PinnedPart
           key="pinned"
