@@ -8,7 +8,7 @@ import { Button, cx } from "../ui";
 import { AudioPlayer } from "../AudioPlayer";
 import { VideoPlayer } from "../VideoPlayer";
 import { useRoomSize, useZoomGestures, ZoomPicture, ZoomReadout } from "./ZoomPicture";
-import { FIT, fitted, held, placed, shownPercent, type Size, type Zoom } from "./zoom";
+import { FIT, fitted, held, placed, placedStyle, shownPercent, type Size, type Zoom } from "./zoom";
 
 /** Keeps the second video in step with the first: play, pause, seeks and the rate follow it; a drift past a frame or two is corrected. */
 function useInStep(master: RefObject<HTMLVideoElement | null>, other: RefObject<HTMLVideoElement | null>, key: string) {
@@ -81,7 +81,7 @@ function Wipe({ pinned, other, at, onAt, said, view, onView }: { pinned: Asset; 
   const label = "absolute bottom-2.5 max-w-[45%] truncate rounded-md bg-shade/60 px-1.5 py-0.5 font-mono text-meta text-ink-strong";
   // each picture drawn at the view in the box; the second cut at the line by a layer that does not move with it
   const layer = (a: Asset, onLoad?: (img: HTMLImageElement) => void) => (
-    <div style={shown && fit ? { width: fit.w, height: fit.h, transformOrigin: "0 0", transform: `translate(${shown.left}px, ${shown.top}px) scale(${shown.scale})` } : undefined} className="absolute top-0 left-0">
+    <div style={shown && fit ? placedStyle(shown, fit) : undefined} className="absolute top-0 left-0">
       <img src={fileUrl(a.id)} alt="" draggable={false} onLoad={onLoad && ((e) => onLoad(e.currentTarget))} style={{ imageRendering: percent > 100 ? "pixelated" : undefined }} className="block h-full w-full object-contain" />
     </div>
   );

@@ -3,14 +3,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Asset, type AssetVersions, type QueueStatus, type RunningJob } from "../api";
 import { queryKeys } from "../queryKeys";
 import { useSayFailed } from "../sayFailed";
-import { useQueueOf } from "../screens/studio/queueOf";
+import { allRunning, useQueueOf } from "../screens/studio/queueOf";
 
 /** The jobs of a stack, running (each machine's) and waiting, by the root they land under. */
-export function versionJobs(q: QueueStatus, root: string): { running: RunningJob[]; waiting: number } {
-  const running = (q.machines ?? []).flatMap((m) => (m.running && m.running.versionOf === root ? [m.running] : []));
-  // the first running job is in `running` too, and on a queue of one machine only there
-  if (q.running && q.running.versionOf === root && !running.some((j) => j.id === q.running!.id)) running.unshift(q.running);
-  return { running, waiting: q.waiting.filter((j) => j.versionOf === root).length };
+function versionJobs(q: QueueStatus, root: string): { running: RunningJob[]; waiting: number } {
+  return { running: allRunning(q).filter((j) => j.versionOf === root), waiting: q.waiting.filter((j) => j.versionOf === root).length };
 }
 
 /**
@@ -18,7 +15,7 @@ export function versionJobs(q: QueueStatus, root: string): { running: RunningJob
  * strip under the picture shows, with the jobs still making more. Asked with any id of the stack, it answers the root's.
  * A server without versions (or a picture with none) answers an empty stack: nothing is shown.
  */
-export function useVersions(asset: Asset | null, { onKept }: {
+export function useVersions(asset: Pick<Asset, "id" | "kind" | "inBin"> | null, { onKept }: {
   /** A version kept in the original's place (K, the strip's Keep): the place showing the original shows it instead. */
   onKept?(head: Asset): void;
 } = {}) {
@@ -75,11 +72,20 @@ export function useVersions(asset: Asset | null, { onKept }: {
     onError: failed("The versions could not be kept"),
   });
 
+  /** How many versions are made, the original left out. */
+  const made = Math.max(0, all.length - 1);
   return {
     root,
     all,
+    made,
     /** Versions made or on their way: the strip is shown. */
-    has: all.length > 1 || running !== "" || waiting !== "0",
+    has: made > 0 || running !== "" || waiting !== "0",
+    /** Whether this id is the stack's: its original or one of its versions. */
+    holds: (id: string) => all.some((v) => v.id === id),
+    /** K can keep now: there are versions, and no keep is on its way (else the key is not taken). */
+    canKeep: made > 0 && !keep.isPending,
+    /** K: the one shown kept (the original included), the others counting down to the bin. */
+    keepShown: (id: string) => keep.mutate(id),
     running: running ? running.split(",") : [],
     waiting: Number(waiting),
     keep,

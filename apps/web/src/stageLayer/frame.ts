@@ -1,5 +1,5 @@
 import type { Size } from "../viewer/zoom";
-import { clamp, snap, snapUp, type Frame } from "./geometry";
+import { clamp, snap, snapUp, type Frame, type Handle } from "./geometry";
 
 /**
  * The outpaint frame dragged out around a picture: what each side adds, kept on the model's step and under the recipes'
@@ -14,10 +14,6 @@ export interface Pads {
 }
 
 export const NO_PADS: Pads = { padLeft: 0, padTop: 0, padRight: 0, padBottom: 0 };
-
-/** The frame's eight handles, by the compass: the sides they move. */
-export type Handle = "n" | "s" | "e" | "w" | "nw" | "ne" | "sw" | "se";
-export const HANDLES: readonly Handle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 
 /** The shapes the frame can be held to, the mock's: the outpaint forms' own (OUTPAINT_SHAPES) and a few more. */
 export const FRAME_ASPECTS = ["Free", "1:1", "4:5", "2:3", "3:2", "16:9", "9:16", "21:9"] as const;

@@ -1,14 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Settings2, Wand2 } from "lucide-react";
 import type { RegionValue } from "@afflatus/core";
 import { Kbd } from "../Keys";
-import { tuneAt, useTune } from "../passTune";
 import type { QueuedJob } from "../queueVariation";
 import { Select } from "../Select";
 import { plural } from "../format";
-import { Button, Chip, cx, fieldClass, Help, IconButton } from "../ui";
+import { Button, Chip, Help, IconButton } from "../ui";
 import type { BoxEditor } from "./boxEditors";
-import { FIX_ROWS, MASK_OR_BOX, useCtrlEnter } from "./FixBar";
+import { BarInput, FIX_ROWS, MASK_OR_BOX, useTunedBar } from "./FixBar";
 
 /** The box whose instruction the bar's field holds: the one picked, else the first that says nothing yet, else the last drawn. */
 export function boxInHand(boxes: readonly RegionValue[], selected: string | null): RegionValue | undefined {
@@ -41,29 +40,21 @@ export function BoxBar({ boxes, selected, onSelect, onPrompt, editors, editor, o
 }) {
   const box = boxInHand(boxes, selected);
   const n = box ? boxes.indexOf(box) + 1 : 0;
-  // ⚙'s rows as last set: the next edit is sent with them too
-  const [tuned, setTuned] = useState<Record<string, unknown>>({});
-  const openTune = useTune((t) => t.open);
   const why = busy ? "Sending…" : boxesWhy(boxes);
-  const go = (more: Record<string, unknown> = {}) => {
-    if (!why) onEdit({ ...tuned, ...more });
-  };
-  const root = useRef<HTMLDivElement>(null);
-  useCtrlEnter(go, root);
+  const bar = useTunedBar((tuned) => {
+    if (!why) onEdit(tuned);
+  });
+  const go = () => bar.go();
   // the model is the select's beside it: the button says what it does and how many boxes
   const words = `Edit in box · ${plural(boxes.length, "box", "boxes")}`;
   const tune = (gear: Element) =>
-    openTune(tuneAt(gear), {
+    bar.tune(gear, {
       action: "edit",
       title: "Edit in box",
       sub: `${editor.name}, ${boxes.length === 1 ? "one box" : `${boxes.length} boxes one after another`}`,
       rows: FIX_ROWS,
       go: words,
-      job: { ...job, stored: { ...job.stored, ...tuned } },
-      queue: (changed) => {
-        setTuned((t) => ({ ...t, ...changed }));
-        go(changed);
-      },
+      job,
     });
   // a box just drawn is said what to do at once: the field takes the keys (the bar comes with the first box drawn, so it
   // counts from none)
@@ -74,7 +65,7 @@ export function BoxBar({ boxes, selected, onSelect, onPrompt, editors, editor, o
     drawn.current = boxes.length;
   }, [boxes.length]);
   return (
-    <div ref={root} className="flex w-full max-w-[1040px] shrink-0 flex-col items-center gap-1.5">
+    <div ref={bar.root} className="flex w-full max-w-[1040px] shrink-0 flex-col items-center gap-1.5">
       {/* on a narrow stage the instruction keeps a row of its own, the model and the button wrapping under it */}
       <div role="group" aria-label="Edit in box" className="flex w-full flex-wrap items-center justify-end gap-2">
         <Chip
@@ -84,26 +75,19 @@ export function BoxBar({ boxes, selected, onSelect, onPrompt, editors, editor, o
         >
           Box {n} of {boxes.length}
         </Chip>
-        <input
+        <BarInput
           ref={field}
           aria-label={`What to do in box ${n}`}
           value={box?.prompt ?? ""}
           placeholder={`What to do in box ${n}: "a deer drinking at the stream"`}
           data-tip="The instruction for this box alone: what to add, change or remove there. The rest of the picture is kept"
           onChange={(e) => box && onPrompt(box.id, e.target.value)}
-          onKeyDown={(e) => {
-            // the layer's keys (B, V, Del…) are not the field's: it keeps every key typed in it
-            e.stopPropagation();
-            if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
-              e.preventDefault();
-              // Enter on a box with more to say steps to the next one; on the last, it edits
-              const next = boxes.find((b, i) => i >= n && !b.prompt.trim()) ?? boxes.find((b) => !b.prompt.trim());
-              if (next && next.id !== box?.id) onSelect(next.id);
-              else go();
-            }
-            if (e.key === "Escape") (e.target as HTMLInputElement).blur();
+          onEnter={() => {
+            // Enter on a box with more to say steps to the next one; on the last, it edits
+            const next = boxes.find((b, i) => i >= n && !b.prompt.trim()) ?? boxes.find((b) => !b.prompt.trim());
+            if (next && next.id !== box?.id) onSelect(next.id);
+            else go();
           }}
-          className={cx(fieldClass, "h-9 min-w-60 grow basis-60")}
         />
         <Select
           label="Edit model for the boxes"

@@ -4,7 +4,7 @@ import { plural } from "../format";
 import { Kbd } from "../Keys";
 import { Thumb } from "../Thumb";
 import { Button, cx } from "../ui";
-import { useQueueOf } from "../screens/studio/queueOf";
+import { allRunning, useQueueOf } from "../screens/studio/queueOf";
 import { LiveTile } from "../screens/studio/LiveTile";
 import type { Versions } from "./useVersions";
 
@@ -20,7 +20,7 @@ export function stepVersion(all: readonly Asset[], shown: string, by: -1 | 1): A
 }
 
 /** What Keep says for the one shown: the original by name, a version by its number. */
-export const keepLabel = (all: readonly Asset[], shown: string) => {
+const keepLabel = (all: readonly Asset[], shown: string) => {
   const at = all.findIndex((a) => a.id === shown);
   return at <= 0 ? "Keep the original" : `Keep ${at}`;
 };
@@ -38,9 +38,8 @@ export function VersionStrip({ versions, shown, onShow, onCompare }: {
   /** The one shown and the one Ctrl- or Shift-clicked, side by side. */
   onCompare(other: Asset): void;
 }) {
-  const { all, running, waiting, keep, keepAll } = versions;
+  const { all, made, running, waiting, keep, keepAll } = versions;
   const busy = keep.isPending || keepAll.isPending;
-  const made = all.length - 1;
   return (
     <div role="group" aria-label="Versions" className="flex max-w-full shrink-0 flex-wrap items-center justify-center gap-2 px-1">
       <span className="shrink-0 text-xs text-ink-2">Versions</span>
@@ -81,6 +80,6 @@ export function VersionStrip({ versions, shown, onShow, onCompare }: {
 
 /** A version on its way: its live preview and its Stop, at the strip's size. */
 function RunningVersion({ id }: { id: string }) {
-  const job = useQueueOf((q) => [q.running, ...(q.machines ?? []).map((m) => m.running)].find((j) => j?.id === id) ?? null);
+  const job = useQueueOf((q) => allRunning(q).find((j) => j.id === id) ?? null);
   return job ? <div style={{ height: TILE_H, width: TILE_H }} className="shrink-0"><LiveTile fill job={job} title="A version on its way" /></div> : null;
 }

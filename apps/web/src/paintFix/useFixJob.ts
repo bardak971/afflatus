@@ -1,11 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { RegionValue } from "@afflatus/core";
-import { api, type RecipeInfo } from "../api";
-import { nameFor } from "../maskName";
-import { useSendJob } from "../queueVariation";
+import type { RecipeInfo } from "../api";
+import { uploadMask } from "../maskName";
+import { useSendJob, type QueuedJob } from "../queueVariation";
 import { queryKeys } from "../queryKeys";
 import { useSayFailed } from "../sayFailed";
 import { outpaintsByFrame, useVersionDrafts } from "./useStageMode";
+import type { FrameSides } from "../stageLayer/useFrameTool";
 import type { ViewerActions } from "../viewer/useViewerActions";
 
 /** What the fix bar sends besides the mask: the prompt, the denoise, the grow, how many, and the ⚙ popover's rows. */
@@ -20,42 +21,36 @@ export interface FixAsk {
   tuned: Record<string, unknown>;
 }
 
+/** Whether the recipe has a row of this id (a family's form may not take a grow, a prompt or a denoise). */
+const takes = (tool: RecipeInfo, id: string) => tool.inputs.some((i) => i.id === id);
+
+/** The prompt as the bar sends it: an empty one keeps the picture's own (carried with it), only what is written replaces it. */
+const promptOf = (tool: RecipeInfo, prompt: string) => (prompt.trim() && takes(tool, "prompt") ? { prompt: prompt.trim() } : {});
+
 /** The inpaint recipe's own slots: its mask's, and whether it takes a grow and a prompt (a family's form may not). */
 export function fixInputs(tool: RecipeInfo, ask: Omit<FixAsk, "count">, mask: string): Record<string, unknown> {
-  const has = (id: string) => tool.inputs.some((i) => i.id === id);
   const slot = tool.inputs.find((i) => i.type === "image" && i.role === "mask")!;
   return {
     [slot.id]: mask,
-    // an empty prompt keeps the picture's own (carried with it): only what is written replaces it
-    ...(ask.prompt.trim() && has("prompt") ? { prompt: ask.prompt.trim() } : {}),
-    ...(has("strength") ? { strength: ask.strength } : {}),
-    ...(has("maskGrow") ? { maskGrow: ask.grow } : {}),
+    ...promptOf(tool, ask.prompt),
+    ...(takes(tool, "strength") ? { strength: ask.strength } : {}),
+    ...(takes(tool, "maskGrow") ? { maskGrow: ask.grow } : {}),
     // its 0 means "picked from the size of the part", a blur over the whole mask again: with a feathered mask the feather is the edge
-    ...(ask.soft && has("maskBlur") ? { maskBlur: 1 } : {}),
+    ...(ask.soft && takes(tool, "maskBlur") ? { maskBlur: 1 } : {}),
     ...ask.tuned,
   };
 }
 
-/** The frame's sides as the outpaint rows take them. */
-export interface Sides {
-  shape: "Custom";
-  padLeft: number;
-  padTop: number;
-  padRight: number;
-  padBottom: number;
-}
-export type OutpaintAsk = Omit<FixAsk, "strength" | "grow"> & { sides: Sides };
+type OutpaintAsk = Omit<FixAsk, "strength" | "grow"> & { sides: FrameSides };
 
 /** The outpaint's inputs: the sides, what the added parts show when written, the ⚙ rows. */
-export function outInputs(tool: RecipeInfo, ask: Pick<FixAsk, "prompt" | "tuned">, sides: Sides): Record<string, unknown> {
-  const has = (id: string) => tool.inputs.some((i) => i.id === id);
-  return { ...sides, ...(ask.prompt.trim() && has("prompt") ? { prompt: ask.prompt.trim() } : {}), ...ask.tuned };
+export function outInputs(tool: RecipeInfo, ask: Pick<FixAsk, "prompt" | "tuned">, sides: FrameSides): Record<string, unknown> {
+  return { ...sides, ...promptOf(tool, ask.prompt), ...ask.tuned };
 }
 
 /** An edit's inputs: the instruction when written, img2img's denoise when it takes one, the ⚙ rows. */
-export function editInputs(tool: RecipeInfo, ask: Pick<FixAsk, "prompt" | "strength" | "tuned">): Record<string, unknown> {
-  const has = (id: string) => tool.inputs.some((i) => i.id === id);
-  return { ...(ask.prompt.trim() && has("prompt") ? { prompt: ask.prompt.trim() } : {}), ...(has("strength") ? { strength: ask.strength } : {}), ...ask.tuned };
+function editInputs(tool: RecipeInfo, ask: Pick<FixAsk, "prompt" | "strength" | "tuned">): Record<string, unknown> {
+  return { ...promptOf(tool, ask.prompt), ...(takes(tool, "strength") ? { strength: ask.strength } : {}), ...ask.tuned };
 }
 
 /**
@@ -66,10 +61,16 @@ export function boxInputs(boxes: readonly RegionValue[], tuned: Record<string, u
   return { boxes: boxes.map((b) => ({ id: b.id, box: b.box, prompt: b.prompt.trim() })), ...tuned };
 }
 
+/** The recipe a job needs, or why there is none to queue. */
+function need<T>(recipe: T | undefined, what: string): T {
+  if (!recipe) throw new Error(`No ${what} model is installed.`);
+  return recipe;
+}
+
 /**
  * Paint and fix's Fix: the mask painted on the Stage uploaded (named after its picture, kept out of the library), then the
  * picture's inpaint queued with it as versions of the picture, ×N on new seeds. "Open the full form" makes the same job a
- * draft instead, whose renders come back as versions too (useVersionDrafts).
+ * draft instead, whose renders come back as versions too (useVersionDrafts). Outpaint, Edit and Edit in box the same way.
  */
 export function useFixJob(acts: ViewerActions) {
   const { a, toolFor, toolInput, openTool } = acts;
@@ -82,69 +83,77 @@ export function useFixJob(acts: ViewerActions) {
   const send = useSendJob();
   const client = useQueryClient();
   const failed = useSayFailed({ here: true });
-  const upload = async (png: Blob) => (await api.upload(new File([png], nameFor(a.id), { type: "image/png" }), { mask: true })).id;
+  /** The job a bar queues, as ⚙'s rows start on it: the recipe's stored inputs, as a version of the picture shown. */
+  const jobFor = (recipe: RecipeInfo, label: string): QueuedJob => ({ recipe, stored: toolInput(recipe), label, from: a.id, versionOf: a.id });
+  /** The job queued with the bar's inputs over the stored ones, ×`count`, its versions under the picture. */
+  const queueVersion = (recipe: RecipeInfo, label: string, inputs: Record<string, unknown>, count?: number) => {
+    const job = jobFor(recipe, label);
+    return send({ ...job, stored: { ...job.stored, ...inputs }, ...(count ? { count } : {}) });
+  };
+  /**
+   * The full form opened with the bar's inputs: its renders are versions of the picture, marked as the draft opens, before
+   * the viewer (and this hook) goes.
+   */
+  const openVersionForm = (recipe: RecipeInfo, inputs: Record<string, unknown>) => {
+    const picture = a.id;
+    return openTool.mutateAsync({ id: recipe.id, with: inputs, opened: (d) => useVersionDrafts.getState().mark(d.id, picture) });
+  };
+  /** A queued job's ends: the queue read again, or why it failed in a banner. */
+  const queued = (title: string) => ({ onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.queue() }), onError: failed(title) });
+  const upload = async (png: Blob) => (await uploadMask(a.id, png)).id;
+
   const fix = useMutation({
     mutationFn: async ({ png, ...ask }: FixAsk & { png: Blob }) => {
-      if (!tool) throw new Error("No inpaint model is installed.");
-      const mask = await upload(png);
-      await send({ recipe: tool, stored: { ...toolInput(tool), ...fixInputs(tool, ask, mask) }, label: "Inpaint", from: a.id, versionOf: a.id, count: ask.count });
+      const t = need(tool, "inpaint");
+      await queueVersion(t, "Inpaint", fixInputs(t, ask, await upload(png)), ask.count);
     },
-    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.queue() }),
-    onError: failed("The fix could not be queued"),
+    ...queued("The fix could not be queued"),
+  });
+  const fullForm = useMutation({
+    mutationFn: async ({ png, ...ask }: Omit<FixAsk, "count"> & { png: Blob | null }) => {
+      const t = need(tool, "inpaint");
+      // an empty mask goes as none: the form's painter opens on the picture
+      const mask = png ? await upload(png) : null;
+      await openVersionForm(t, mask ? fixInputs(t, ask, mask) : {});
+    },
+    onError: failed("The full form could not be opened"),
   });
   /** Outpaint by the frame dragged out: the sides as the recipe's Custom shape, versions of the picture like a fix. */
   const outpaint = useMutation({
     mutationFn: async ({ sides, ...ask }: OutpaintAsk) => {
-      if (!out) throw new Error("No outpaint model is installed.");
-      await send({ recipe: out, stored: { ...toolInput(out), ...outInputs(out, ask, sides) }, label: "Outpaint", from: a.id, versionOf: a.id, count: ask.count });
+      const t = need(out, "outpaint");
+      await queueVersion(t, "Outpaint", outInputs(t, ask, sides), ask.count);
     },
-    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.queue() }),
-    onError: failed("The outpaint could not be queued"),
+    ...queued("The outpaint could not be queued"),
   });
   const outForm = useMutation({
     mutationFn: async ({ sides, ...ask }: Omit<OutpaintAsk, "count">) => {
-      if (!out) throw new Error("No outpaint model is installed.");
-      const picture = a.id;
-      await openTool.mutateAsync({ id: out.id, with: outInputs(out, ask, sides), opened: (d) => useVersionDrafts.getState().mark(d.id, picture) });
+      const t = need(out, "outpaint");
+      await openVersionForm(t, outInputs(t, ask, sides));
     },
     onError: failed("The full form could not be opened"),
   });
   /** Edit from the bar: the instruction (or img2img's prompt and denoise) on the whole picture, as versions of it. */
   const edit = useMutation({
     mutationFn: async (ask: FixAsk) => {
-      if (!editTool) throw new Error("No edit model is installed.");
-      await send({ recipe: editTool, stored: { ...toolInput(editTool), ...editInputs(editTool, ask) }, label: "Edit", from: a.id, versionOf: a.id, count: ask.count });
+      const t = need(editTool, "edit");
+      await queueVersion(t, "Edit", editInputs(t, ask), ask.count);
     },
-    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.queue() }),
-    onError: failed("The edit could not be queued"),
+    ...queued("The edit could not be queued"),
   });
   const editForm = useMutation({
     mutationFn: async (ask: Omit<FixAsk, "count">) => {
-      if (!editTool) throw new Error("No edit model is installed.");
-      const picture = a.id;
-      await openTool.mutateAsync({ id: editTool.id, with: editInputs(editTool, ask), opened: (d) => useVersionDrafts.getState().mark(d.id, picture) });
-    },
-    onError: failed("The full form could not be opened"),
-  });
-  const fullForm = useMutation({
-    mutationFn: async ({ png, ...ask }: Omit<FixAsk, "count"> & { png: Blob | null }) => {
-      if (!tool) throw new Error("No inpaint model is installed.");
-      // an empty mask goes as none: the form's painter opens on the picture
-      const mask = png ? await upload(png) : null;
-      const over = mask ? fixInputs(tool, ask, mask) : {};
-      const picture = a.id;
-      // its renders are versions of the picture: marked as the draft opens, before the viewer (and this hook) goes
-      await openTool.mutateAsync({ id: tool.id, with: over, opened: (d) => useVersionDrafts.getState().mark(d.id, picture) });
+      const t = need(editTool, "edit");
+      await openVersionForm(t, editInputs(t, ask));
     },
     onError: failed("The full form could not be opened"),
   });
   /** Edit in box: each box's instruction done there by the editor picked, one after another, into one version of the picture. */
   const boxEdit = useMutation({
     mutationFn: async ({ recipe, boxes, tuned }: { recipe: RecipeInfo; boxes: RegionValue[]; tuned: Record<string, unknown> }) => {
-      await send({ recipe, stored: { ...toolInput(recipe), ...boxInputs(boxes, tuned) }, label: "Edit in box", from: a.id, versionOf: a.id });
+      await queueVersion(recipe, "Edit in box", boxInputs(boxes, tuned));
     },
-    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.queue() }),
-    onError: failed("The edit in box could not be queued"),
+    ...queued("The edit in box could not be queued"),
   });
-  return { tool, fix, fullForm, out, outpaint, outForm, editTool, edit, editForm, boxEdit };
+  return { tool, fix, fullForm, out, outpaint, outForm, editTool, edit, editForm, boxEdit, jobFor };
 }

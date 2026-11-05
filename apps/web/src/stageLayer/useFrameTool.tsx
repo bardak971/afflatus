@@ -1,10 +1,12 @@
 import { useRef, useState } from "react";
 import { Frame as FrameIcon } from "lucide-react";
 import { cx } from "../cx";
+import { useLiveValue } from "../hooks";
 import type { Size } from "../viewer/zoom";
 import type { LayerPlace } from "../viewer/ZoomPicture";
-import { percentOf, ratioOf, type Frame } from "./geometry";
-import { dragFrame, FRAME_RULES, HANDLES, NO_PADS, paddedFrame, padsForRatio, type FrameRules, type Handle, type Pads } from "./frame";
+import { BoxHandles } from "./BoxHandles";
+import { frameOf, handleOn, perScreen, percentOf, ratioOf, type Frame, type Handle } from "./geometry";
+import { dragFrame, FRAME_RULES, NO_PADS, paddedFrame, padsForRatio, type Pads } from "./frame";
 import type { LayerPointer, LayerTool } from "./tools";
 
 /** How near a handle or an edge a press takes it, in screen pixels. */
@@ -19,30 +21,13 @@ export interface FrameSides extends Pads {
   shape: "Custom";
 }
 
-/** Where each handle sits on the frame, as a part of its width and height. */
-const AT: Record<Handle, [number, number]> = { nw: [0, 0], n: [0.5, 0], ne: [1, 0], e: [1, 0.5], se: [1, 1], s: [0.5, 1], sw: [0, 1], w: [0, 0.5] };
-const CURSOR: Record<Handle, string> = { nw: "nwse-resize", se: "nwse-resize", ne: "nesw-resize", sw: "nesw-resize", n: "ns-resize", s: "ns-resize", e: "ew-resize", w: "ew-resize" };
-
 /**
  * The handle or edge a press at `p` (picture pixels) takes, within `grab` picture pixels: a corner before a side, a side
  * anywhere along its length.
  */
 export function handleAt(p: { x: number; y: number }, natural: Size, pads: Pads, grab: number): Handle | null {
   const f = paddedFrame(natural, pads);
-  const x0 = -f.x;
-  const y0 = -f.y;
-  const x1 = x0 + f.w;
-  const y1 = y0 + f.h;
-  const near = (a: number, b: number) => Math.abs(a - b) <= grab;
-  const within = (v: number, lo: number, hi: number) => v >= lo - grab && v <= hi + grab;
-  const west = near(p.x, x0);
-  const east = !west && near(p.x, x1);
-  const north = near(p.y, y0);
-  const south = !north && near(p.y, y1);
-  if ((west || east) && (north || south)) return `${north ? "n" : "s"}${west ? "w" : "e"}` as Handle;
-  if ((west || east) && within(p.y, y0, y1)) return west ? "w" : "e";
-  if ((north || south) && within(p.x, x0, x1)) return north ? "n" : "s";
-  return null;
+  return handleOn(p, { x: -f.x, y: -f.y, w: f.w, h: f.h }, grab);
 }
 
 /** The frame the Stage fits for a frame of pads: the frame and a margin round it, the picture where it sits in both. */
@@ -69,23 +54,18 @@ export interface FrameTool {
 
 /**
  * The outpaint frame (R): its eight handles and its edges dragged out round the picture, snapped so the frame's size stays
- * on the model's step (`rules.step`; Alt held, not snapped), each side under the recipes' most, optionally held to an
+ * on the model's step (FRAME_RULES; Alt held, not snapped), each side under the recipes' most, optionally held to an
  * aspect. `onSides` hears the sides when a drag ends or a chip is picked, as the outpaint rows take them.
- *
  */
-export function useFrameTool({ natural, rules = FRAME_RULES, start = NO_PADS, onSides }: {
+export function useFrameTool({ natural, onSides }: {
   natural: Size | null;
-  rules?: Pick<FrameRules, "step" | "most">;
-  start?: Pads;
   onSides?(sides: FrameSides): void;
 }): FrameTool {
-  const [pads, setPadsState] = useState<Pads>(start);
-  // held in a ref too: the release can come in the same frame as the last move, before a render
-  const now = useRef(pads);
-  const setPads = (p: Pads) => {
-    now.current = p;
-    setPadsState(p);
-  };
+  const rules = FRAME_RULES;
+  const [now, setPads] = useLiveValue<Pads>();
+  const pads = now.current ?? NO_PADS;
+  // the handlers read the ref: the release can come in the same frame as the last move, before a render
+  const padsNow = () => now.current ?? NO_PADS;
   const [aspect, setAspectState] = useState("Free");
   // the Stage's frame is held while dragging: fitted again at every move, the picture would slide from under the pointer
   const [held, setHeld] = useState<Pads | null>(null);
@@ -96,17 +76,16 @@ export function useFrameTool({ natural, rules = FRAME_RULES, start = NO_PADS, on
 
   const tool: LayerTool = {
     id: "frame", key: "R", label: "Outpaint frame", icon: FrameIcon, cursor: "default",
-    tip: "Drag the frame's edges out: what is added round the picture is painted. Snaps to 64 px (Alt: free)",
+    tip: `Drag the frame's edges out: what is added round the picture is painted. Snaps to ${rules.step} px (Alt: free)`,
     disabled: natural ? undefined : "The picture is not loaded yet",
     down: (p: LayerPointer) => {
       const at = place.current;
       if (!natural || !at) return;
       // the grab in picture pixels: so many screen pixels whatever the zoom
-      const perScreen = at.frame.w / (at.fit.w * at.shown.scale);
-      const handle = handleAt(p, natural, now.current, GRAB_PX * perScreen);
+      const handle = handleAt(p, natural, padsNow(), GRAB_PX * perScreen(at.frame, at.fit, at.shown));
       if (!handle) return;
-      drag.current = { handle, from: { x: p.x, y: p.y }, start: now.current };
-      setHeld(now.current);
+      drag.current = { handle, from: { x: p.x, y: p.y }, start: padsNow() };
+      setHeld(padsNow());
     },
     move: (p: LayerPointer) => {
       const d = drag.current;
@@ -117,7 +96,7 @@ export function useFrameTool({ natural, rules = FRAME_RULES, start = NO_PADS, on
       if (!drag.current) return;
       drag.current = null;
       setHeld(null);
-      said(now.current);
+      said(padsNow());
     },
     cancel: () => {
       const d = drag.current;
@@ -131,7 +110,6 @@ export function useFrameTool({ natural, rules = FRAME_RULES, start = NO_PADS, on
       const f = paddedFrame(natural, pads);
       const box = { x: -f.x, y: -f.y, w: f.w, h: f.h };
       const line = 1 / at.shown.scale;
-      const side = HANDLE_PX / at.shown.scale;
       // what a side adds, in the middle of what it adds (on the edge itself when it adds nothing)
       const edge = (text: number, x: number, y: number) => (
         <span
@@ -153,18 +131,11 @@ export function useFrameTool({ natural, rules = FRAME_RULES, start = NO_PADS, on
             <div
               key={i}
               className="absolute bg-[repeating-conic-gradient(var(--color-raised)_0_25%,var(--color-panel)_0_50%)] bg-size-[24px_24px]"
-              style={{ left: `${(b.x / f.w) * 100}%`, top: `${(b.y / f.h) * 100}%`, width: `${(b.w / f.w) * 100}%`, height: `${(b.h / f.h) * 100}%` }}
+              style={percentOf(b, frameOf(f))}
             />
           ))}
           <div className="absolute inset-0 border-dashed border-accent" style={{ borderWidth: line * 2 }} />
-          {HANDLES.map((h) => (
-            <i
-              key={h}
-              data-handle={h}
-              className="pointer-events-auto absolute rounded-key border-accent bg-panel"
-              style={{ left: `calc(${AT[h][0] * 100}% - ${side / 2}px)`, top: `calc(${AT[h][1] * 100}% - ${side / 2}px)`, width: side, height: side, borderWidth: line * 1.5, cursor: CURSOR[h] }}
-            />
-          ))}
+          <BoxHandles scale={at.shown.scale} px={HANDLE_PX} grabbable />
           {edge(pads.padLeft, pads.padLeft / 2, f.h / 2)}
           {edge(pads.padRight, f.w - pads.padRight / 2, f.h / 2)}
           {edge(pads.padTop, f.w / 2, pads.padTop / 2)}
