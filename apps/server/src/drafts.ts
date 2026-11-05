@@ -157,6 +157,18 @@ async function madeFrom(db: Db, ids: string[]): Promise<Set<string>> {
   return new Set([...outputs, ...jobs].map((r) => r.draft_id).filter((id): id is string => id !== null));
 }
 
+/**
+ * Drafts deleted with the grids sent from them, in one transaction: a grid's record (its axes, its count) is only opened
+ * from its draft's board, so it would stay behind unread. Its cells are library items like any other and stay where they are.
+ */
+async function dropDrafts(db: Db, ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  await db.transaction().execute(async (tx) => {
+    await tx.deleteFrom("grids").where("draft_id", "in", ids).execute();
+    await tx.deleteFrom("drafts").where("id", "in", ids).execute();
+  });
+}
+
 /** The drafts not worth keeping and nobody touched for `IDLE_DRAFT_MS`, deleted. Run by the hourly sweep (services.ts): a listing only reads. */
 export async function sweepIdleDrafts(db: Db, registry: Services["registry"], at = Date.now()): Promise<number> {
   const before = new Date(at - IDLE_DRAFT_MS).toISOString();
@@ -166,7 +178,7 @@ export async function sweepIdleDrafts(db: Db, registry: Services["registry"], at
   if (!old.length) return 0;
   const made = await madeFrom(db, old.map((d) => d.id));
   const idle = old.filter((d) => !made.has(d.id)).map((d) => d.id);
-  if (idle.length) await db.deleteFrom("drafts").where("id", "in", idle).execute();
+  await dropDrafts(db, idle);
   return idle.length;
 }
 
@@ -188,7 +200,7 @@ export async function unusedDrafts(db: Db, project?: string, keep?: string): Pro
 /** The unused drafts of a project deleted, but `keep` (POST /api/drafts/clear-unused, MCP's clear_unused_drafts): how many went. */
 export async function clearUnused(db: Db, project?: string, keep?: string): Promise<number> {
   const gone = (await unusedDrafts(db, project, keep)).map((d) => d.id);
-  if (gone.length) await db.deleteFrom("drafts").where("id", "in", gone).execute();
+  await dropDrafts(db, gone);
   return gone.length;
 }
 
@@ -400,6 +412,6 @@ export function deleteDraft(s: Services, id: string, unlessMade = false): Promis
     if (!(await findDraft(s.db, id))) throw draftNotFound();
     if (unlessMade && (await madeFrom(s.db, [id])).has(id)) throw httpError("Something was made from this draft (in the library, the bin or the queue): only the user deletes it, in Studio.", 409);
     unwrittenOf(s.db).delete(id);
-    await s.db.deleteFrom("drafts").where("id", "=", id).execute();
+    await dropDrafts(s.db, [id]);
   });
 }
