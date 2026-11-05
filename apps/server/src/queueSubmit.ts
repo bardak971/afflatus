@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { openAsBlob } from "node:fs";
-import { baseModels, checkGraph, choicesOf, graphFiles, clockFits, exactSoundPart, FRAME_SLACK_MS, isChunkStart, latentClockOf, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, neededSlots, onGrid, packOfNode, parseInput, pickChoice, pickedFiles, RANDOM_SEED, randomSeed, relocateFiles, soundPartOf, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue, type SetFinding } from "@afflatus/core";
+import { baseModels, checkGraph, choicesOf, graphFiles, clockFits, exactSoundPart, FRAME_SLACK_MS, folderOfFileInput, isChunkStart, latentClockOf, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, neededSlots, onGrid, packOfNode, parseInput, pickChoice, pickedFiles, RANDOM_SEED, randomSeed, relocateFiles, soundPartOf, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type Family, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue, type SetFinding } from "@afflatus/core";
 import { catalogKey, ComfyCancelled, ComfyError, ComfyUnreachable, filesIn } from "@afflatus/comfy";
 import { Kept } from "./kept";
 import { chunksOf, forecast, fromRates, sizedFrom, workOf, type Forecast } from "./forecast";
@@ -96,17 +96,79 @@ export function standIns(recipe: Recipe<any>, input: Record<string, unknown>): {
   return { uploads, media };
 }
 
-/** A file choice left on its default, when this ComfyUI does not have that file: the best one it has. */
-function settled(recipe: Recipe<any>, input: Record<string, unknown>, catalog: Awaited<ReturnType<Comfy["catalog"]>>): Record<string, unknown> {
+/**
+ * A file choice left on its default, when this ComfyUI does not have that file: the best one it has. On a rented pod
+ * (`pod`: one up, or one to come, with the families whose downloads it fetches) a default a family slot downloads
+ * (Upscale's 4xNomos8kSC) is kept, and fetched there as any file of the job: settled on what the pod listed, what Upscale
+ * 2x ran there was whatever upscaler an earlier job of the series had fetched (RealESRGAN for a MOSS hires fix, card #319).
+ * This PC's ComfyUI, and a default with no download, still take the best one there.
+ */
+function settled(recipe: Recipe<any>, input: Record<string, unknown>, catalog: Awaited<ReturnType<Comfy["catalog"]>>, pod: readonly Family[] | null = null): Record<string, unknown> {
   const chosen: Record<string, unknown> = { ...input };
   for (const spec of recipe.inputs as InputSpec[]) {
     if (spec.type !== "choice" || Array.isArray(spec.options)) continue;
+    if (pod && chosen[spec.id] === spec.default && pinnedDefault(pod, spec.options, String(spec.default))) continue;
     const def = catalog[spec.options.node];
     const offered = choicesOf(def?.input.required?.[spec.options.input] ?? def?.input.optional?.[spec.options.input]) ?? [];
     const all = [...(spec.extra ?? []), ...offered];
     if (all.length && !all.includes(String(chosen[spec.id])) && chosen[spec.id] === spec.default) chosen[spec.id] = pickChoice(spec, all);
   }
   return chosen;
+}
+
+/** The families whose downloads a rented pod fetches a default from (settled); null on a machine of the user's own. */
+const podFamilies = (core: Pick<QueueCore, "registry">, pod: boolean): readonly Family[] | null => (pod ? core.registry.families() : null);
+
+/** The download a family slot gives for `file` in the folder the choice's loader reads (podSources.ts podSource: a pod fetches it from there); null when none does. */
+function pinnedDefault(families: readonly Family[], from: { node: string; input: string }, file: string): { file: string; folder: string; url: string } | null {
+  const folder = folderOfFileInput(from.node, from.input);
+  const name = file.toLowerCase();
+  for (const f of folder ? families : []) {
+    const slot = f.slots.find((s) => s.folder === folder && s.get?.file.toLowerCase() === name);
+    if (slot?.get) return { file: slot.get.file, folder: folder!, url: slot.get.url };
+  }
+  return null;
+}
+
+/**
+ * The defaults settled kept on a rented pod for it to fetch, that its ComfyUI does not list yet, as podHeld waits for a
+ * family's files: asked for first, for this job, and the job back in line with no attempt spent while they come; had
+ * whole there but not listed, back in line with an attempt spent, to be read again. One the pod says is not coming, or
+ * that failed there, is settled on the best file it has after all, as on this PC, and the job says so: sent with the
+ * default it lacks, its prompt was refused. Only a default its graph reads (`dry`, built as it is sent): SDXL's hires
+ * upscaler with the hires fix off is no file to wait for, and the fetch plan, which reads the graph, never asks for it.
+ */
+async function podDefaults(
+  core: QueueCore, recipe: Recipe<any>, chosen: Record<string, unknown>, catalog: Awaited<ReturnType<Comfy["catalog"]>>, row: Pick<JobRow, "id">,
+  dry: () => Promise<BuiltGraph["graph"] | null>,
+): Promise<{ chosen: Record<string, unknown>; said: string[] }> {
+  const pod = core.podFiles?.();
+  if (!pod) return { chosen, said: [] };
+  const families = core.registry.families();
+  const kept = (recipe.inputs as InputSpec[]).flatMap((spec) => {
+    if (spec.type !== "choice" || Array.isArray(spec.options) || chosen[spec.id] !== spec.default) return [];
+    const def = catalog[spec.options.node];
+    const all = [...(spec.extra ?? []), ...(choicesOf(def?.input.required?.[spec.options.input] ?? def?.input.optional?.[spec.options.input]) ?? [])];
+    const get = all.includes(String(spec.default)) ? null : pinnedDefault(families, spec.options, String(spec.default));
+    return get ? [{ spec, all, get, on: pod.state(get) }] : [];
+  });
+  // (a graph that cannot be built here is refused at its build below, in its own words)
+  const graph = kept.length ? await dry() : null;
+  const read = graph ? new Set(Object.values(graph).flatMap((n) => Object.values(n.inputs))) : new Set();
+  const lacking = kept.filter((l) => read.has(l.get.file));
+  const whole = lacking.find((l) => l.on?.state === "ready");
+  if (whole) throw new SlotComing(`${whole.get.file} came to its pod, and its ComfyUI did not list it`, true);
+  const coming = lacking.filter((l) => l.on?.state !== "failed");
+  const why = coming.length ? pod.need(coming.map((l) => l.get), row.id) : null;
+  if (coming.length && !why) throw new SlotComing(`waits for ${coming.map((l) => l.get.file).join(", ")}, still coming to its pod`, false);
+  const out = { ...chosen };
+  const said: string[] = [];
+  for (const l of lacking) {
+    if (!l.all.length) continue;
+    out[l.spec.id] = pickChoice(l.spec, l.all);
+    said.push(`${l.spec.label}: ${l.get.file} could not be had on its pod (${l.on?.state === "failed" ? (l.on.error ?? "its fetch failed") : why}), ${String(out[l.spec.id])} was used.`);
+  }
+  return { chosen: out, said };
 }
 
 /** What the files of a form become on their way up: the names ComfyUI has them under, what is known of each, and what was sent otherwise than asked. */
@@ -202,7 +264,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   // a timeline clip: what it joins onto is settled now, when the clips around it have their takes
   const plan = row.clip_id && core.clips ? await core.clips.plan(row.clip_id, recipe, raw, Boolean(row.clip_fit), row.finished_from, false, readJson<string[]>(row.clip_mirror, [])) : null;
   const input = plan ? (parseInput(recipe, plan.input) as Record<string, unknown>) : raw;
-  const chosen = settled(recipe, input, catalog);
+  const settledChosen = settled(recipe, input, catalog, podFamilies(core, Boolean(core.podFiles?.())));
   // what the options are given here, and why one is done without (its pack cannot come, the row said Run without)
   const facts = (await core.packFacts?.().catch(() => null)) ?? ANY_PACKS;
   const missing = recipe.nodes(input).filter((n: string) => !(n in catalog));
@@ -213,7 +275,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
     const kept = await comfy.scanKept()?.catch(() => null);
     throw new Error(`${missingNodesSaid(missing, kept?.comfy.online ? kept.comfy.version : null)}${cannot.length ? ` Not installed by Afflatus: ${cannot.join("; ")}.` : ""}`);
   }
-  const dryOf = async (files: Record<string, string>) => (await builtOf(core, recipe.id, plan ? plan.input : raw, { finishedFrom: row.finished_from, canvas: plan?.canvas, slots: files, catalog, comfy }).catch(() => null))?.graph ?? null;
+  const dryOf = async (files: Record<string, string>) => (await builtOf(core, recipe.id, plan ? plan.input : raw, { finishedFrom: row.finished_from, canvas: plan?.canvas, slots: files, catalog, comfy, pod: Boolean(core.podFiles?.()) }).catch(() => null))?.graph ?? null;
   // a family file its pod is getting is waited for, not refused (podHeld)
   const { files: slotFiles, gaps } = await timedPart("scan", async () => podHeld(core, comfy, recipe, input, row, await slots(core, comfy, recipe), dryOf));
   // a family file not here is refused only when this job's graph reads it, seen before anything goes up when it can be
@@ -221,6 +283,8 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
     const dry = await dryOf(slotFiles);
     if (dry) refuseGap(dry, gaps);
   }
+  // a default a rented pod fetches is waited for while it comes, when its graph reads it (podDefaults)
+  const { chosen, said: unfetched } = await podDefaults(core, recipe, settledChosen, catalog, row, () => dryOf(slotFiles));
 
   // pictures, videos and sounds the recipe takes are uploaded to ComfyUI's temp folder under names their content gives. They
   // go up at once: the time any of them is on its way is /metrics' "uploads"
@@ -250,7 +314,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   const again: Again = [];
   const upload: Up["upload"] = (bytes, ext, opts = {}) => sentOnce(comfy, bytes, ext, send, again, opts);
   const resend: Up["resend"] = [];
-  const up: Up = { recipe, db, storage, comfy, input, catalog, finishedFrom: row.finished_from, mirror: plan?.mirror ?? [], sent: { uploads: {}, media: {}, warnings: [] }, signal, upload, send, resend };
+  const up: Up = { recipe, db, storage, comfy, input, catalog, finishedFrom: row.finished_from, mirror: plan?.mirror ?? [], sent: { uploads: {}, media: {}, warnings: [...unfetched] }, signal, upload, send, resend };
   // what the media cost beside sending them (cutting a clip's frames, reading a picture): /metrics' "cuts"
   const media0 = performance.now();
   // every input's files are made and sent at once; what each says is kept in the form's order, and of the inputs that
@@ -1046,7 +1110,7 @@ export async function builtOf(core: QueueCore, recipeId: string, rawInput: unkno
   // a finish that re-samples the draft's own latent is built on it, as submit builds it: else it is built as the draft and its finish both
   if (opts.finishedFrom && recipe.finishing?.(input)?.latent === "own") uploads["self.latent"] = "stand-in";
   const own = opts.slots ? null : await slots(core, comfy, recipe);
-  const built = recipe.build(settled(recipe, input, catalog), { seed: opts.seed ?? 1, slots: opts.slots ?? own!.files, uploads, media, canvas: opts.canvas, has: opts.has ?? ((cls: string) => cls in catalog), options: optionsIn(catalog), inputs: inputsIn(catalog), ...(opts.wants ? { wants: opts.wants } : {}) });
+  const built = recipe.build(settled(recipe, input, catalog, podFamilies(core, opts.pod ?? false)), { seed: opts.seed ?? 1, slots: opts.slots ?? own!.files, uploads, media, canvas: opts.canvas, has: opts.has ?? ((cls: string) => cls in catalog), options: optionsIn(catalog), inputs: inputsIn(catalog), ...(opts.wants ? { wants: opts.wants } : {}) });
   // with this ComfyUI's own files (a forecast, Open in ComfyUI), a graph reading one it does not have is refused as before:
   // it named afflatus-missing-slot.… in ComfyUI's editor, and a forecast was keyed on it
   if (own) refuseGap(built.graph, own.gaps);
@@ -1068,6 +1132,8 @@ export interface BuildOn {
   wants?: BuildContext["wants"];
   /** Which node types the build takes as there; left out, those of `catalog` (a pod to come built with every node: jobFiles.ts freshGraph). */
   has?: BuildContext["has"];
+  /** A rented pod, up or to come: a file choice left on a default a family downloads is fetched there, not settled on another (settled). */
+  pod?: boolean;
 }
 
 /** A library picture's size, as uploadImage sends it; null when it is not known (the stand-in's square is used). */
@@ -1183,11 +1249,11 @@ export async function forecastOf(
   // the first machine's node list, waited for CATALOG_WAIT_MS at most: one that accepts and never answers held every forecast
   // a minute (H-3); unread, the form is not built, and is priced from its recipe's usual times
   const catalog = await within((await core.comfy()).catalog(), CATALOG_WAIT_MS);
-  const build = () => (catalog ? builtOf(core, recipeId, plan ? plan.input : rawInput, { finishedFrom: opts.finishedFrom ?? null, canvas: plan?.canvas, catalog }).catch(() => null) : Promise.resolve(null));
+  const build = () => (catalog ? builtOf(core, recipeId, plan ? plan.input : rawInput, { finishedFrom: opts.finishedFrom ?? null, canvas: plan?.canvas, catalog, pod: Boolean(core.podFiles?.()) }).catch(() => null) : Promise.resolve(null));
   // kept by its form and that node list: one that cannot be built on it is not built again at each pass either
   const built = await (catalog && opts.builds && !opts.clip ? opts.builds.get([recipeId, opts.finishedFrom ?? "", catalogKey(catalog) ?? "", JSON.stringify(rawInput)].join("\u0001"), build) : build());
   // its settings as submit files them: a file left on its default that this ComfyUI does not have is its best one (the time key)
-  if (built) chosen = settled(recipe, chosen, catalog!);
+  if (built) chosen = settled(recipe, chosen, catalog!, podFamilies(core, Boolean(core.podFiles?.())));
   const shape = built ? workOf(built) : null;
   const model = built ? modelFileOf(recipe, chosen, built) : (modelOf(recipe.inputs, chosen) ?? "");
   const paces = opts.machine || opts.machines?.length ? await core.paces() : undefined;
