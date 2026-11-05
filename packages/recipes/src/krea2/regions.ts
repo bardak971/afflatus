@@ -22,6 +22,12 @@ const CROP_PX = 1024;
 const AREA_SIDE = 3;
 const FACE_AREA = "AfflatusFaceArea";
 /**
+ * The head and shoulders' mask faded out over its square's last rows, a share of CROP_PX (the mask is made at that size and
+ * stretched with the redrawn square): the shoulders run on past the square's bottom edge, and pasted as they were they left
+ * a hard line across a man's arm (a pod, 2026-11-05).
+ */
+const AREA_FADE = Math.round(CROP_PX / 8);
+/**
  * The person's picture cut to a square around their face, this many face heights a side (Afflatus's Face Crop), and all but
  * their head and shoulders made a plain grey (Afflatus's Face Backdrop). Given the whole photo, Identity Edit at a denoise of
  * 0.9 and more redrew the photo's own setting into the box (a mirror selfie's salon in a park, on a pod, 2026-11-04); cut to
@@ -39,16 +45,26 @@ const FACE_BACKDROP = "AfflatusFaceBackdrop";
 const CONTEXT = 0.15;
 const FEATHER = 0.06;
 
+/**
+ * Where a pass at this denoise starts: the scheduler's sigmas over round(steps / denoise) steps, its last `steps` run.
+ * ComfyUI's KSampler takes int(steps / denoise), and at Krea 2 Turbo's 8 steps that made 0.9 a pass from pure noise: the
+ * scene was dropped and the person's greyed picture copied whole into it, the same bytes as at 1 (a pod, 2026-11-05).
+ */
+export function passStart(steps: number, denoise: number): { total: number; start: number } {
+  const total = Math.max(steps, Math.round(steps / denoise));
+  return { total, start: total - steps };
+}
+
 /** The regions with a person's picture: the boxes whose person is redrawn from it. */
 export const pictured = (value: unknown): RegionValue[] => regionsOf(value).filter((r) => r.castPicture);
 
 /** The nodes the person pass by box adds, beside the person reference's own (Krea2Edit's patch and grounded encode). */
-export const PERSON_BOX_NODES = ["LoadImage", "ImageScale", "VAEEncode", "VAEDecode", "KSampler", "ConditioningZeroOut", "ImageCompositeMasked", "LoraLoaderModelOnly", "Krea2EditModelPatch", "Krea2EditGroundedEncode"];
+export const PERSON_BOX_NODES = ["LoadImage", "ImageScale", "VAEEncode", "VAEDecode", "KSamplerAdvanced", "ConditioningZeroOut", "ImageCompositeMasked", "FeatherMask", "LoraLoaderModelOnly", "Krea2EditModelPatch", "Krea2EditGroundedEncode"];
 /**
  * Afflatus's own nodes the pass uses when the ComfyUI has them (afflatus-nodes with InsightFace), and ComfyUI's own the whole
  * box is cut and pasted back with where they are not.
  */
-export const PERSON_BOX_OPTIONAL = [FACE_AREA, FACE_CROP, FACE_BACKDROP, "ImageCrop", "SolidMask", "MaskComposite", "FeatherMask"];
+export const PERSON_BOX_OPTIONAL = [FACE_AREA, FACE_CROP, FACE_BACKDROP, "ImageCrop", "SolidMask", "MaskComposite"];
 
 /** A box grown by its context, in pixels of a picture of this size, and the size it is redrawn at (on Krea 2's grid of 16). */
 function personCrop(box: RegionValue["box"], size: { width: number; height: number }) {
@@ -119,11 +135,13 @@ export function personBoxes(g: GraphBuilder, people: readonly RegionValue[], o: 
       target_latent: latent, ref_position: "beside (right of target)", ref_position_a: "aligned (trained)",
     });
     const positive = g.out("Krea2EditGroundedEncode", { clip: o.clip, prompt: r.prompt.trim(), image: area.scene, image_b: person, grounding_px: CROP_PX, system_prompt: "" });
-    const sampled = g.add("KSampler", {
+    const at = passStart(o.steps, o.denoise);
+    const sampled = g.add("KSamplerAdvanced", {
       model: o.shifted(model, area.drawn), positive, negative: g.out("ConditioningZeroOut", { conditioning: positive }), latent_image: latent,
-      seed: o.seed, steps: o.steps, cfg: 1, sampler_name: o.sampler, scheduler: o.scheduler, denoise: o.denoise,
+      add_noise: "enable", noise_seed: o.seed, steps: at.total, start_at_step: at.start, end_at_step: 10000, return_with_leftover_noise: "disable",
+      cfg: 1, sampler_name: o.sampler, scheduler: o.scheduler,
     });
-    // ComfyUI's KSampler runs all its steps at a denoise below 1, over the end of a longer schedule
+    // all the pass's steps are run, over the end of a longer schedule
     passes.push({ node: sampled, steps: o.steps, pixels: area.drawn.width * area.drawn.height });
     image = area.paste(g.out("VAEDecode", { samples: [sampled, 0], vae: o.vae }));
   }
@@ -142,7 +160,7 @@ function headArea(g: GraphBuilder, image: Ref, r: RegionValue, o: PersonBoxPass)
     drawn: { width: CROP_PX, height: CROP_PX },
     paste: (redrawn) => g.out("ImageCompositeMasked", {
       destination: image, source: g.out("ImageScale", { image: redrawn, upscale_method: "lanczos", width: [area, 4], height: [area, 4], crop: "disabled" }),
-      x: [area, 2], y: [area, 3], resize_source: false, mask: [area, 1],
+      x: [area, 2], y: [area, 3], resize_source: false, mask: g.out("FeatherMask", { mask: [area, 1], left: 0, top: 0, right: 0, bottom: AREA_FADE }),
     }),
   };
 }
