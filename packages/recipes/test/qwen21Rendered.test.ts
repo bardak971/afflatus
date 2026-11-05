@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { dryContext, parseInput, type Recipe } from "@afflatus/core";
 import { recipeById } from "../src";
-import { DETECTOR_FILES } from "../src/shared/adetail";
+import { ALL_DETAIL, DETECTOR_FILES } from "../src/shared/adetail";
 
 type Graph = Record<string, { class_type: string; inputs: Record<string, unknown> }>;
 const of = (g: Graph, cls: string) => Object.entries(g).filter(([, n]) => n.class_type === cls);
@@ -110,6 +110,23 @@ describe("one rule for every form of Qwen Image 2.1 (card #303)", () => {
     expect(of(g, "DetailerForEach")[0]![1].inputs.steps).toBe(3);
     // the full model as before: the form's steps, 8 to 30
     expect(of(built("qwen21.text-to-picture", { steps: 40, detailFace: true }, undefined, DETECTOR_FILES), "DetailerForEach")[0]![1].inputs.steps).toBe(30);
+  });
+
+  it("txt2img's Detail rows are given the colours alone: its VAE decodes an alpha, which the Impact Pack's detailer refused", () => {
+    // the pod test of 2026-11-05: "DetailerForEach: 'Tensor' object has no attribute 'copy'" on the decode's fourth channel
+    for (const [change, last] of [[{}, "VAEDecode"], [{ hires: true, hiresScale: 3, hiresUpscaler: "u.pth", tiles: "Tiles" }, "ImageMergeTileList"]] as const) {
+      const g = built("qwen21.text-to-picture", { model: turbo, ...ALL_DETAIL, ...change }, undefined, DETECTOR_FILES);
+      const detailers = of(g, "DetailerForEach");
+      expect(detailers, last).toHaveLength(3);
+      const [first] = detailers[0]![1].inputs.image as [string, number];
+      expect(g[first]!.class_type, last).toBe("SplitImageWithAlpha");
+      expect(g[(g[first]!.inputs.image as [string, number])[0]]!.class_type, last).toBe(last);
+      // split once: the next rows take the detailer's picture before them
+      expect(of(g, "SplitImageWithAlpha"), last).toHaveLength(1);
+    }
+    // without a Detail row, or on a family whose VAE gives colours alone, the graph is as it was
+    expect(of(built("qwen21.text-to-picture", { model: turbo }), "SplitImageWithAlpha")).toEqual([]);
+    expect(of(built("zimage.text-to-picture", { detailFace: true }, undefined, DETECTOR_FILES), "SplitImageWithAlpha")).toEqual([]);
   });
 
   it("Edit, the motion picture and Edit in box start the Turbo file on 8 steps too: at 40 it came out overcooked", () => {
