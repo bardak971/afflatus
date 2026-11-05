@@ -4,6 +4,15 @@ import { appendTo, nudgeWeight, removeFrom, replaceTag, wordsIn } from "../src/p
 describe("the weight of a tag", () => {
   const at = (text: string, find: string) => text.indexOf(find) + 1;
 
+  // card #311: ".5" was not read as a weight, and the tag was given a second one ("(sky:.5:1.1)")
+  it("reads any weight ComfyUI reads: no leading digit, a sign", () => {
+    expect(nudgeWeight("a, (sky:.5), b", 4, 4, 0.1)!.text).toBe("a, (sky:0.6), b");
+    expect(nudgeWeight("a, (sea:-1), b", 4, 4, 0.1)!.text).toBe("a, (sea:-0.9), b");
+    // a part selected inside its weight
+    const text = "a, (sky:.5), b";
+    expect(nudgeWeight(text, text.indexOf("sky"), text.indexOf("sky") + 3, -0.1)!.text).toBe("a, (sky:0.4), b");
+  });
+
   it("goes up and down on the tag the cursor is in", () => {
     const text = "1girl, red dress, smile";
     const up = nudgeWeight(text, at(text, "red"), at(text, "red"), 0.1)!;
@@ -45,6 +54,8 @@ describe("a tag swapped for another", () => {
   it("keeps its weight and the layout, between commas and inside choices", () => {
     expect(replaceTag("1girl, (grinning:1.2),  long hair", "(grinning:1.2)", "grin")).toBe("1girl, (grin:1.2),  long hair");
     expect(replaceTag("{red dress|grinning}, 1girl", "grinning", "grin")).toBe("{red dress|grin}, 1girl");
+    // a weight of any number ComfyUI reads (card #311: ".5" was not read as one)
+    expect(replaceTag("1girl, (grinning:.5)", "(grinning:.5)", "grin")).toBe("1girl, (grin:.5)");
     // only the whole tag, not a part of another
     expect(replaceTag("grinning girl, grinning", "grinning", "grin")).toBe("grinning girl, grin");
   });

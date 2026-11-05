@@ -51,8 +51,15 @@ function groups(text: string): string[] {
   return out;
 }
 
-/** Python's float() on a weight: digits with a point or an exponent, spaces around allowed. */
-const WEIGHT = /^\s*[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?\s*$/;
+/**
+ * A weight's number as ComfyUI reads it, Python's float(): digits with a point or an exponent, a sign ("1.2", ".5", "-1",
+ * "1e-1"). The one pattern behind every weight read: a prompt's "(red dress:1.2)" as ComfyUI weighs it (here), as the
+ * form's weight keys change it (web promptText.ts) and as the linter spots it (WEIGHT_SYNTAX), and an A1111 text's
+ * "<lora:name:0.8>" (server embedded.ts). Each read its own way, they parted on ".5", a sign and an exponent.
+ */
+export const WEIGHT_NUMBER = String.raw`[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?`;
+/** A weight as token_weights takes it, spaces around allowed. */
+const WEIGHT = new RegExp(String.raw`^\s*${WEIGHT_NUMBER}\s*$`);
 
 /** The parts of a prompt as ComfyUI weighs them, their brackets and weights taken out (token_weights). */
 function weightedParts(text: string): string[] {

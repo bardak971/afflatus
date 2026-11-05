@@ -1,3 +1,5 @@
+import { WEIGHT_NUMBER } from "./clipTokens";
+
 /**
  * The words a family's `lint` holds a written prompt to (Family.lint, read by the server's outputChecks.ts):
  * what each model reads or ignores is the family's; these are only the shared ways of spotting it.
@@ -22,8 +24,8 @@ export interface LintInput {
 export const wordCount = (s: string) => s.trim().split(/\s+/).filter(Boolean).length;
 /** Comma-separated tags, as a tag model reads them. */
 export const tagList = (s: string) => s.split(",").map((t) => t.trim()).filter(Boolean);
-/** A "(word:1.2)" weight. */
-export const WEIGHT_SYNTAX = /\([^()]{1,80}:\s*\d+(\.\d+)?\)/;
+/** A "(word:1.2)" weight, of any number ComfyUI reads as one ("(word:-1)", "(word:.5)"). */
+export const WEIGHT_SYNTAX = new RegExp(String.raw`\([^()]{1,80}:\s*${WEIGHT_NUMBER}\)`);
 /** Quality words some models are trained to ignore. */
 export const QUALITY_WORDS = /\b(masterpiece|best quality|8k|4k uhd|ultra[- ]detailed|highly detailed|award[- ]winning|trending on artstation)\b/i;
 /** A line of a list. */
