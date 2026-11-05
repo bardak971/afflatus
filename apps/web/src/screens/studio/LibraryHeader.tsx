@@ -258,7 +258,7 @@ function SelectionBar({ place, count, onSelectAll, selection, compact, onCompare
       {picked.length < count && <button type="button" data-tip={compact ? `Select all ${count}` : undefined} onClick={onSelectAll} className="text-xs whitespace-nowrap text-ink-2 underline hover:text-ink">{compact ? "all" : `select all ${count}`}</button>}
       <Button size="sm" aria-label={compact ? zip.label : undefined} data-tip={zip.tip} disabled={zip.disabled} onClick={zip.run}><Download size={13} />{!compact && ` ${zip.label}`}</Button>
       {passList.length > 0 && <Button size="sm" aria-haspopup="menu" aria-label={compact ? "Passes" : undefined} disabled={passes.run.isPending} data-tip="A pass on each ticked picture, one job each, with each one's own generation parameters" onClick={(e) => passesMenu.open(e, true)}><Wand2 size={13} />{!compact && (passes.run.isPending ? " Queuing…" : " Passes ▾")}</Button>}
-      {compare && <Button size="sm" aria-label={compact ? compare.label : undefined} data-tip={compare.tip} onClick={compare.run}><Columns2 size={13} />{!compact && ` ${compare.label}`}</Button>}
+      {compare && <Button size="sm" aria-label={compact ? compare.label : undefined} data-tip={compare.tip} disabled={compare.disabled} onClick={compare.run}><Columns2 size={13} />{!compact && ` ${compare.label}`}</Button>}
       {place.type === "bin" ? (
         <>
           <Button size="sm" onClick={() => bulk("restore")}><Undo2 size={13} /> Put back</Button>

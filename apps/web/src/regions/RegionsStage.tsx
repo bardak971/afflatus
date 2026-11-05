@@ -1,17 +1,18 @@
-import { useEffect, useRef, useState, type DragEvent } from "react";
+import { useRef, useState, type DragEvent } from "react";
 import { Users } from "lucide-react";
-import { dialogOver, OVER } from "../Dialog";
-import { Keys, typing } from "../Keys";
+import { Keys } from "../Keys";
 import { useKeysHere } from "../keys/here";
 import { LayerStrip } from "../stageLayer/LayerStrip";
 import { LayerToolbar } from "../stageLayer/LayerToolbar";
 import { StageLayer, useLayerKeys } from "../stageLayer/StageLayer";
 import { HAND_TOOL, type LayerTool, type ToolbarItem } from "../stageLayer/tools";
+import { useBoxKeys } from "../stageLayer/useBoxKeys";
+import { useKeepBannersAside } from "../store";
 import { Button, Help } from "../ui";
 import type { Size } from "../viewer/zoom";
 import { ZoomPicture, type LayerPlace } from "../viewer/ZoomPicture";
 import { CastStrip, DRAG_PERSON, useDraggedPerson, usePeople } from "./CastStrip";
-import { droppedBox, newRegionId, regionAt, unitPoint } from "./geometry";
+import { droppedBox, newRegion, regionAt, unitPoint } from "./geometry";
 import { useRegionTool } from "./useRegionTool";
 import { GUIDED } from "./types";
 import { useRegionsStage, type RegionsHere } from "./useRegionsStage";
@@ -30,6 +31,8 @@ export function RegionsStage({ here, picture, onLeave }: {
 }) {
   const { spec, off, regions, set, size, family } = here;
   useKeysHere("regions");
+  // the strip along the top holds Done: the banners keep off it
+  useKeepBannersAside();
   const selected = useRegionsStage((s) => s.selected);
   const select = useRegionsStage((s) => s.select);
   const toolId = useRegionsStage((s) => s.tool);
@@ -51,27 +54,8 @@ export function RegionsStage({ here, picture, onLeave }: {
   const room = useRef<HTMLDivElement>(null);
   useLayerKeys({ items, onPick: setTool, root: room });
 
-  // Del removes the box picked; Esc lets it go, then leaves the picture (a draft's frame has nothing to leave to). Not while
-  // a list or a popover is open over the Stage, whose Esc is its own (Paint and fix's rule): it dropped the box or left
-  const now = useRef({ selected, regions, set, onLeave, select });
-  now.current = { selected, regions, set, onLeave, select };
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || typing(e) || dialogOver(room.current) || document.querySelector(OVER) || e.ctrlKey || e.metaKey || e.altKey) return;
-      const n = now.current;
-      if ((e.key === "Delete" || e.key === "Backspace") && n.selected && !why) {
-        e.preventDefault();
-        n.set(n.regions.filter((r) => r.id !== n.selected));
-        n.select(null);
-      } else if (e.key === "Escape" && (n.selected || n.onLeave)) {
-        e.preventDefault();
-        if (n.selected) n.select(null);
-        else n.onLeave?.();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [why]);
+  // Del removes the box picked; Esc lets it go, then leaves the picture (a draft's frame has nothing to leave to)
+  useBoxKeys({ selected, remove: (id) => set(regions.filter((r) => r.id !== id)), select, onLeave, root: room, off: Boolean(why) });
 
   // a person held over the frame: the box they would land in, or none (a new box where they are let go)
   const place = useRef<LayerPlace | null>(null);
@@ -83,7 +67,7 @@ export function RegionsStage({ here, picture, onLeave }: {
   };
   const inside = (u: { x: number; y: number } | null) => Boolean(u && u.x >= 0 && u.y >= 0 && u.x <= 1 && u.y <= 1);
   const takes = (e: DragEvent) => !why && e.dataTransfer.types.includes(DRAG_PERSON);
-  const full = Boolean(spec && regions.length >= spec.max);
+  const full = Boolean(tools.full);
   // the boxes a person can be cast in: a text box (MOSS) draws letters, not a person; dropped there, they make a box of
   // their own (their words went into its caption and their LoRA on the whole picture, with no chip to see it, card #300)
   const castable = regions.filter((r) => r.kind !== "text");
@@ -135,9 +119,9 @@ export function RegionsStage({ here, picture, onLeave }: {
                 set(regions.map((x) => (x.id === r.id ? { ...x, cast: person } : x)));
                 select(r.id);
               } else if (!full && spec) {
-                const id = newRegionId(regions);
-                set([...regions, { id, box: droppedBox(u!), prompt: "", cast: person, ...(spec.kinds ? { kind: "object" as const } : {}) }]);
-                select(id);
+                const made = newRegion(regions, droppedBox(u!), { kinds: Boolean(spec.kinds), cast: person });
+                set([...regions, made]);
+                select(made.id);
               }
             }}
           >
@@ -150,10 +134,11 @@ export function RegionsStage({ here, picture, onLeave }: {
                 place.current = at;
                 return (
                   <StageLayer place={at} tool={tool}>
-                    {/* the empty frame: what the render fills, at the form's size, with its size in a corner */}
+                    {/* the empty frame: what the render fills, at the form's size, with its size in the bottom left corner (the
+                        bottom right one is the zoom's chip, which covered it) */}
                     {!picture && (
                       <div data-empty-frame className="pointer-events-none absolute inset-0 border border-line-strong bg-[linear-gradient(var(--color-line)_1px,transparent_1px),linear-gradient(90deg,var(--color-line)_1px,transparent_1px)] bg-panel" style={{ backgroundSize: `${size.w / 12}px ${size.w / 12}px`, borderWidth: 1 / at.shown.scale }}>
-                        <span className="absolute right-0 bottom-0 font-mono text-ink-3" style={{ fontSize: 11 / at.shown.scale, padding: 6 / at.shown.scale }}>{size.w} × {size.h}</span>
+                        <span className="absolute bottom-0 left-0 font-mono text-ink-3" style={{ fontSize: 11 / at.shown.scale, padding: 6 / at.shown.scale }}>{size.w} × {size.h}</span>
                       </div>
                     )}
                     {tools.view(at)}

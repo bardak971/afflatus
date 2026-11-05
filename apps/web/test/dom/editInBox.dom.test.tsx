@@ -3,6 +3,7 @@ import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import type { Asset } from "../../src/api";
 import { boxesSaid } from "../../src/paintFix/PaintAndFix";
 import { useStageMode } from "../../src/paintFix/useStageMode";
+import { useBanners } from "../../src/store";
 import { Viewer } from "../../src/Viewer";
 import { fakeApi } from "./fakeApi";
 import { draw } from "./render";
@@ -172,5 +173,22 @@ describe("Edit in box on Paint and fix", () => {
     await painting([INPAINT]);
     expect(screen.queryByRole("button", { name: /^Edit box/ })).toBeNull();
     expect(screen.getByRole("button", { name: /Rectangle mask/ })).toBeTruthy();
+  });
+});
+
+describe("a bar's job that could not be queued", () => {
+  // card #317: two "could not be queued" banners stayed up over the Stage, covering the strip's Size, Feather and Grow
+  it("is said under the bar it came from, not in a banner over the Stage", async () => {
+    const { layer } = await painting();
+    fakeApi.on("POST /jobs", () => new Response(JSON.stringify({ error: "ComfyUI is not answering" }), { status: 503, headers: { "Content-Type": "application/json" } }));
+    key("b");
+    drag(layer, [10, 10], [40, 30]);
+    await screen.findByRole("group", { name: "Edit in box" });
+    fireEvent.change(screen.getByRole("textbox", { name: "What to do in box 1" }), { target: { value: "a deer drinking at the stream" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Edit in box · 1 box/ }));
+    const said = await screen.findByRole("alert");
+    expect(said.textContent).toContain("The edit in box could not be queued");
+    expect(said.textContent).toContain("ComfyUI is not answering");
+    expect(useBanners.getState().items.filter((b) => b.tone === "bad")).toEqual([]);
   });
 });

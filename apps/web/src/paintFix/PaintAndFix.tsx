@@ -1,21 +1,22 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { SquarePen } from "lucide-react";
 import { MAX_BOXES, type RegionValue } from "@afflatus/core";
 import { fileUrl } from "../api";
 import { plural } from "../format";
-import { dialogOver, OVER } from "../Dialog";
-import { Keys, typing } from "../Keys";
+import { Keys } from "../Keys";
 import { useKeysHere } from "../keys/here";
 import { useRegionTool } from "../regions/useRegionTool";
 import { padded } from "../stageLayer/frame";
-import { ClickOptions, DetectOptions, FrameOptions, LayerStrip, MaskOptions, WandOptions } from "../stageLayer/LayerStrip";
+import { FrameOptions, LayerStrip, MaskOptions } from "../stageLayer/LayerStrip";
 import { LayerToolbar } from "../stageLayer/LayerToolbar";
 import type { Rect } from "../stageLayer/raster";
 import { StageLayer, useLayerKeys } from "../stageLayer/StageLayer";
 import { HAND_TOOL, type LayerTool, type ToolbarItem } from "../stageLayer/tools";
-import { useClickTool, useDetectTool, useWandTool } from "../stageLayer/useFindTools";
+import { useBoxKeys } from "../stageLayer/useBoxKeys";
 import { useFrameTool, type FrameSides } from "../stageLayer/useFrameTool";
 import { useMaskLayer } from "../stageLayer/useMaskLayer";
+import { useMaskTools } from "../stageLayer/useMaskTools";
+import { useKeepBannersAside } from "../store";
 import { ErrorNote } from "../ui";
 import type { ViewerActions } from "../viewer/useViewerActions";
 import { ZoomPicture } from "../viewer/ZoomPicture";
@@ -27,7 +28,7 @@ import { useFixJob } from "./useFixJob";
 import type { StageMode } from "./useStageMode";
 
 /** What the mask chip says of what is painted: nothing (null), or its size and whether its edge is soft. */
-export const maskSaid = (area: Rect | null, soft: boolean): string | null => (area ? `${Math.round(area.w)}×${Math.round(area.h)}${soft ? ", soft" : ""}` : null);
+const maskSaid = (area: Rect | null, soft: boolean): string | null => (area ? `${Math.round(area.w)}×${Math.round(area.h)}${soft ? ", soft" : ""}` : null);
 
 /** What the frame chip says of what the frame adds: nothing (null), or each side added ("+192 left · +128 top"). */
 export function frameSaid(s: FrameSides): string | null {
@@ -70,24 +71,24 @@ export function PaintAndFix({ acts, mode, strip, overlay }: {
 }) {
   const { a } = acts;
   useKeysHere("paint", true, { over: overlay });
+  // the strip along the top is the tools' settings: the banners keep off it
+  useKeepBannersAside();
   const natural = useMemo(() => (a.width && a.height ? { w: a.width, h: a.height } : null), [a.width, a.height]);
   const mask = useMaskLayer({ natural });
-  const { tool: inpaint, fix, fullForm, out, outpaint, outForm, editTool, edit, editForm, boxEdit } = useFixJob(acts);
+  const { tool: inpaint, fix, fullForm, out, outpaint, outForm, editTool, edit, editForm, boxEdit, jobFor, failure } = useFixJob(acts);
   // Edit in box (card #284): boxes drawn with B, each with its instruction, done by an instruction editor
   const { editors, start } = useBoxEditors(acts.madeWith?.family);
   const [picked, setPicked] = useState<string | null>(null);
   const editor = editors.find((e) => e.family === picked) ?? start;
   const [boxes, setBoxes] = useState<RegionValue[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
-  const boxTools = useRegionTool({ spec: { max: MAX_BOXES }, regions: boxes, natural, selected, onSelect: setSelected, onChange: setBoxes, nameOf: () => undefined });
+  const boxTools = useRegionTool({ spec: { max: MAX_BOXES }, regions: boxes, natural, selected, onSelect: setSelected, onChange: setBoxes, nameOf: () => undefined, noun: "box" });
   const [toolId, setToolId] = useState(mode === "outpaint" && out ? "frame" : mode === "edit" && editor ? "box" : "brush");
   // the finds run on the picture shown (a version is a picture of its own)
   const find = useMemo(() => findOn(a.id), [a.id]);
-  const click = useClickTool({ mask, natural, find, active: toolId === "click" });
-  const detect = useDetectTool({ mask, natural, find, active: toolId === "detect" });
-  const wand = useWandTool({ mask, natural, src: fileUrl(a.id) });
-  const [sides, setSides] = useState<FrameSides>({ shape: "Custom", padLeft: 0, padTop: 0, padRight: 0, padBottom: 0 });
-  const frame = useFrameTool({ natural, onSides: setSides });
+  const frame = useFrameTool({ natural });
+  // what the frame adds, as the outpaint rows take it
+  const sides: FrameSides = { shape: "Custom", ...frame.pads };
   const { tools } = mask;
   // with an editor, B draws an edit's box (V picks and moves one) and the mask's box is O; without one, B is the mask's box.
   // The edit box has a pen in its square, so it does not read as the rectangle mask's dashed square below it
@@ -97,7 +98,8 @@ export function PaintAndFix({ acts, mode, strip, overlay }: {
     "rule",
   ] : [];
   const maskBox = editor ? { ...tools.box, id: "maskBox", key: "O" } : tools.box;
-  const items: ToolbarItem[] = [...boxing, tools.brush, tools.eraser, maskBox, tools.lasso, wand.tool, click.tool, detect.tool, "rule", tools.invert, ...(out ? [frame.tool] : []), HAND_TOOL];
+  const maskTools = useMaskTools({ mask, natural, src: fileUrl(a.id), find, toolId, box: maskBox });
+  const items: ToolbarItem[] = [...boxing, ...maskTools.items, "rule", tools.invert, ...(out ? [frame.tool] : []), HAND_TOOL];
   const tool = items.find((t): t is LayerTool => t !== "rule" && t.id === toolId) ?? null;
   const room = useRef<HTMLDivElement>(null);
   useLayerKeys({ items, onPick: setToolId, mask, root: room });
@@ -106,9 +108,7 @@ export function PaintAndFix({ acts, mode, strip, overlay }: {
   const outpainting = Boolean(out) && padded(frame.pads) && (toolId === "frame" || !mask.area);
   const options =
     toolId === "frame" ? <FrameOptions frame={frame} natural={natural} />
-    : toolId === "wand" ? <WandOptions wand={wand} />
-    : toolId === "click" ? <ClickOptions click={click} />
-    : toolId === "detect" ? <DetectOptions detect={detect} />
+    : maskTools.options ? maskTools.options
     // "box" is the edit box with an editor; without one it is the rectangle mask, whose options are the mask's
     : (toolId === "box" && editor) || toolId === "select" ? <BoxOptions count={boxes.length} />
     : <MaskOptions mask={mask} grow={grow} onGrow={setGrow} />;
@@ -116,22 +116,8 @@ export function PaintAndFix({ acts, mode, strip, overlay }: {
   const inBoxes = Boolean(editor) && boxes.length > 0 && !outpainting && !mask.area;
   // Edit (E) works on the whole picture until a part is painted, which is then the fix asked for
   const editing = !outpainting && mode === "edit" && Boolean(editTool) && !mask.area;
-  // Del removes the box picked, Esc lets it go (then, the next Esc, leaves Paint and fix): before the viewer hears it; not
-  // while a list or a popover is open over the Stage, whose Esc is its own
-  const keys = useRef({ selected, boxes });
-  keys.current = { selected, boxes };
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const k = keys.current;
-      if (!k.selected || e.defaultPrevented || typing(e) || e.ctrlKey || e.metaKey || e.altKey || dialogOver(room.current) || document.querySelector(OVER)) return;
-      if (e.key === "Delete" || e.key === "Backspace") setBoxes(k.boxes.filter((b) => b.id !== k.selected));
-      else if (e.key !== "Escape") return;
-      e.preventDefault();
-      setSelected(null);
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, []);
+  // Del removes the box picked, Esc lets it go (then, the next Esc, leaves Paint and fix): before the viewer hears it
+  useBoxKeys({ selected, remove: (id) => setBoxes((list) => list.filter((b) => b.id !== id)), select: setSelected, root: room, capture: true });
   const verb = outpainting ? "Outpaint" : editing ? "Edit" : "Fix";
   const job = outpainting ? out! : editing ? editTool! : inpaint;
   if (!job || !natural) return null;
@@ -165,8 +151,9 @@ export function PaintAndFix({ acts, mode, strip, overlay }: {
           editors={editors}
           editor={editor}
           onEditor={setPicked}
-          job={{ recipe: editor.recipe, stored: acts.toolInput(editor.recipe), label: "Edit in box", from: a.id, versionOf: a.id }}
+          job={jobFor(editor.recipe, "Edit in box")}
           busy={boxEdit.isPending}
+          failure={failure}
           onEdit={(tuned) => boxEdit.mutate({ recipe: editor.recipe, boxes, tuned })}
         />
       ) : (
@@ -175,13 +162,14 @@ export function PaintAndFix({ acts, mode, strip, overlay }: {
         key={verb}
         verb={verb}
         tool={job}
-        job={{ recipe: job, stored: acts.toolInput(job), label: verb === "Fix" ? "Inpaint" : verb, from: a.id, versionOf: a.id }}
+        job={jobFor(job, verb === "Fix" ? "Inpaint" : verb)}
         mask={outpainting ? frameSaid(sides) : maskSaid(mask.area, mask.soft)}
         grow={grow}
         // the boxes are this picture's own (this component is keyed by its stack): a mask painted over them takes the bar
         boxes={editor ? { count: boxes.length, onClearMask: mask.clear } : undefined}
         note={mode === "edit" && !editTool ? "No edit model for this picture: paint the part to change, and Fix redoes it" : undefined}
         busy={fix.isPending || fullForm.isPending || outpaint.isPending || outForm.isPending || edit.isPending || editForm.isPending}
+        failure={failure}
         onFix={(ask) => (outpainting ? outpaint.mutate({ ...ask, sides }) : editing ? edit.mutate(ask) : void mask.png().then((png) => fix.mutate({ ...ask, soft: mask.soft, png })))}
         onFullForm={(ask) => (outpainting ? outForm.mutate({ ...ask, sides }) : editing ? editForm.mutate(ask) : void (mask.area ? mask.png() : Promise.resolve(null)).then((png) => fullForm.mutate({ ...ask, soft: mask.soft, png })))}
       />

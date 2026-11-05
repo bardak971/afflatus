@@ -9,10 +9,11 @@ import { useDownloads } from "./useGetFile";
 import { moves } from "./leave";
 import { Kbd } from "./Keys";
 import { OUT_MS } from "./motion";
-import { useBanners, useHandover, useNotify, type Banner } from "./store";
+import { useBanners, useBannersAsideNow, useHandover, useNotify, type Banner } from "./store";
 import { CloseButton, cx } from "./ui";
 import { askViewer, passFrom } from "./viewer/ask";
 import { useGridBoard } from "./grid/boardLayout";
+import { allRunning } from "./screens/studio/queueOf";
 import { machineName, NO_ROOM, volumeHref, volumeOf } from "./machines";
 import { queryKeys } from "./queryKeys";
 import { settingHref } from "./screens/settings/settingsIndex";
@@ -29,8 +30,6 @@ interface Fold {
   labels: Set<string>;
   exports: number;
   last: string | null;
-  /** The picture every job of the fold made versions of; null once one made anything else (undefined: none yet). */
-  of?: string | null;
 }
 const noFold = (): Fold => ({ count: 0, labels: new Set(), exports: 0, last: null });
 /** "Portrait done", "8 done", "8 done · Portrait" (one name for the whole batch). */
@@ -115,6 +114,10 @@ export function Banners() {
   const folds = useRef({ done: noFold(), failed: noFold() });
   // a grid's cells as they end, by grid: said once, as its last one ends, rather than a banner per cell over its board
   const grids = useRef(new Map<string, { done: number; failed: number; draft: string | null }>());
+  // a picture's versions as they end, by the picture: said once, as the last of those on their way ends (Fix ×3 is one
+  // banner, not three over the Paint and fix strip); the versions strip shows each one land
+  const versions = useRef(new Map<string, Fold>());
+  const aside = useBannersAsideNow();
 
   useEffect(() => {
     const recent = queue.data?.recent;
@@ -130,7 +133,6 @@ export function Banners() {
         f.labels.add(j.label);
         f.last = j.label;
         if (j.kind === "export") f.exports++;
-        f.of = f.of === undefined || f.of === (j.versionOf ?? null) ? (j.versionOf ?? null) : null;
       };
       const gridsEnded = new Set<string>();
       for (const j of over) {
@@ -158,6 +160,12 @@ export function Banners() {
           if (showsResults(path)) continue;
           // switched off in Settings › Notifications: what finished is not announced (a failure still is, below)
           if (!useNotify.getState().banner) continue;
+          if (j.versionOf) {
+            const v = versions.current.get(j.versionOf) ?? noFold();
+            add(v, j);
+            versions.current.set(j.versionOf, v);
+            continue;
+          }
           const f = folds.current.done;
           add(f, j);
           const allExports = f.exports === f.count;
@@ -169,19 +177,29 @@ export function Banners() {
             useHandover.getState().set({ show: from });
             if (path !== "/" && path !== "/create") go("/");
           } } } : {};
-          // a version is under its picture, not in the library: Open shows the picture, its versions in the strip under it
-          const of = f.of;
-          const version = of ? { text: f.count === 1 ? VERSION_DONE : `${plural(f.count, "version")} under its picture: Open shows them, K keeps one.`, action: { label: "Open", run: () => {
-            useHandover.getState().set({ show: of });
-            if (path !== "/" && path !== "/create") go("/");
-          } } } : {};
-          push({ id: "jobs:done", tone: "good", title: foldTitle(f, "done"), text: foldText(f), ...compare, ...version, ...(there || compare.action || version.action ? {} : allExports ? { href: "/timelines", go: "Open the Timelines" } : { href: "/", go: "Open the library" }) });
+          push({ id: "jobs:done", tone: "good", title: foldTitle(f, "done"), text: foldText(f), ...compare, ...(there || compare.action ? {} : allExports ? { href: "/timelines", go: "Open the Timelines" } : { href: "/", go: "Open the library" }) });
         }
       }
       const q = queue.data;
+      const onTheirWay = q ? [...q.waiting, ...allRunning(q)] : [];
+      for (const [of, v] of versions.current) {
+        // still versions of it waiting or running: the strip under the picture shows them coming
+        if (onTheirWay.some((x) => x.versionOf === of)) continue;
+        versions.current.delete(of);
+        const label = v.labels.size === 1 ? [...v.labels][0] : null;
+        push({
+          id: `versions:${of}`, tone: "good",
+          title: v.count === 1 ? `${label} done` : label ? `${label} done · ${plural(v.count, "version")}` : `${plural(v.count, "version")} done`,
+          text: v.count === 1 ? VERSION_DONE : `${plural(v.count, "version")} under its picture: Open shows them, K keeps one.`,
+          action: { label: "Open", run: () => {
+            useHandover.getState().set({ show: of });
+            if (path !== "/" && path !== "/create") go("/");
+          } },
+        });
+      }
       for (const id of gridsEnded) {
         // still cells of it waiting or running: the board says how far it is
-        if (q && [...q.waiting, q.running, ...(q.machines ?? []).map((m) => m.running)].some((x) => x?.grid?.id === id)) continue;
+        if (onTheirWay.some((x) => x.grid?.id === id)) continue;
         const g = grids.current.get(id)!;
         grids.current.delete(id);
         if (!g.failed && (showsResults(path) || !useNotify.getState().banner)) continue;
@@ -264,8 +282,10 @@ export function Banners() {
   if (!drawn.length) return null;
   return (
     // top centre, under the screens' headers: over the stage's or the player's empty top, never over a header's
-    // controls (as it was at the very top) nor the stage's action bar and the status bar at the foot
-    <div className="pointer-events-none fixed top-16 left-1/2 z-banner flex w-[440px] max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col gap-2">
+    // controls (as it was at the very top) nor the stage's action bar and the status bar at the foot. With a board or a
+    // drawing layer up, whose top is its own controls (the grid's column labels, Paint and fix's strip), down the right
+    // side instead, over the library's column, under the Stage's strip
+    <div className={cx("pointer-events-none fixed z-banner flex max-w-[calc(100vw-2rem)] flex-col gap-2", aside ? "top-36 right-3 w-[340px]" : "top-16 left-1/2 w-[440px] -translate-x-1/2")}>
       {drawn.map(({ b, leaving }) => {
         const said = (
           <>

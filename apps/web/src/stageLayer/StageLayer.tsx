@@ -123,17 +123,15 @@ export function StageLayer({ place, tool, mask, children }: {
  * nor under a dialog opened over the layer (`root`: what the layer is in). [ and ] are also read by where they sit (a
  * French keyboard has them under AltGr), as every paint program does.
  */
-export function useLayerKeys({ items, onPick, mask, root, on = true }: {
+export function useLayerKeys({ items, onPick, mask, root }: {
   items: readonly ToolbarItem[];
   onPick(id: string): void;
   mask?: MaskLayer;
   root?: RefObject<HTMLElement | null>;
-  on?: boolean;
 }) {
   const now = useRef({ items, onPick, mask });
   now.current = { items, onPick, mask };
   useEffect(() => {
-    if (!on) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || typing(e) || dialogOver(root?.current)) return;
       const { items: list, onPick: pick, mask: m } = now.current;
@@ -167,5 +165,5 @@ export function useLayerKeys({ items, onPick, mask, root, on = true }: {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [on, root]);
+  }, [root]);
 }

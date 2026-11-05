@@ -10,7 +10,7 @@ import { VersionStrip } from "./VersionStrip";
  * versions and those on their way (VersionStrip); a click opens the picture with that version shown, Keep works here too.
  */
 export function VersionsOfDraft({ picture }: { picture: string }) {
-  const versions = useVersions({ id: picture, kind: "image", inBin: false } as Asset);
+  const versions = useVersions({ id: picture, kind: "image", inBin: false });
   const head = versions.all[0];
   const show = (a: Asset) => useHandover.getState().set({ show: a.id });
   return (

@@ -5,8 +5,8 @@ import type { Rect } from "./raster";
 
 /**
  * The tools of the Stage's drawing layer, one shape for all: the mask's brush, rubber, box, lasso and invert, the
- * outpaint frame, the click and the detector; later the regions' select and box (#271), MOSS's boxes, Klein's edit by
- * box. A tool is what it does with the pointer and what it draws over the picture; the layer (StageLayer) hands it the
+ * outpaint frame, the click, the detector and the wand, the regions' select and boxes (MOSS's text boxes too), and Edit in
+ * box's boxes. A tool is what it does with the pointer and what it draws over the picture; the layer (StageLayer) hands it the
  * pointer in the picture's own pixels, the toolbar shows it, its key picks it. Nothing here knows what the tool is for.
  */
 
@@ -47,8 +47,8 @@ export interface LayerTool {
 }
 
 /**
- * A shape a tool leaves on the layer and keeps, for more than a mask: a detector's face to click, later a region's box
- * with its prompt, cast and LoRA (#271). `payload` is the user's own (what the shape is for).
+ * A shape a tool leaves on the layer and keeps, for more than a mask: a detector's face to click, with what it found.
+ * `payload` is the user's own (what the shape is for).
  */
 export interface LayerShape<P> {
   id: string;

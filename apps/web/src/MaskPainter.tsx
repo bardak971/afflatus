@@ -1,18 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { api, fileUrl } from "./api";
+import { fileUrl } from "./api";
 import { dialogOver } from "./Dialog";
 import { useKeysHere } from "./keys/here";
 import { useLeave } from "./leave";
-import { nameFor } from "./maskName";
+import { uploadMask } from "./maskName";
 import { PainterToolbar } from "./maskPainter/PainterToolbar";
-import { ClickOptions, DetectOptions, LayerStrip, MaskOptions, WandOptions } from "./stageLayer/LayerStrip";
+import { LayerStrip, MaskOptions } from "./stageLayer/LayerStrip";
 import { LayerToolbar } from "./stageLayer/LayerToolbar";
 import { loadImage } from "./stageLayer/maskImage";
 import { StageLayer, useLayerKeys } from "./stageLayer/StageLayer";
 import { HAND_TOOL, type LayerTool, type ToolbarItem } from "./stageLayer/tools";
-import { useClickTool, useDetectTool, useWandTool, type Find } from "./stageLayer/useFindTools";
+import type { Find } from "./stageLayer/useFindTools";
 import { useMaskLayer } from "./stageLayer/useMaskLayer";
+import { useMaskTools } from "./stageLayer/useMaskTools";
 import { ErrorNote } from "./ui";
 import type { Size } from "./viewer/zoom";
 import { ZoomPicture } from "./viewer/ZoomPicture";
@@ -43,12 +44,8 @@ export function MaskPainter({ picture, mask, find, onDone, onClose }: { picture:
   const layer = useMaskLayer({ natural, from: mask });
   const { tools } = layer;
   const [toolId, setToolId] = useState("brush");
-  const wand = useWandTool({ mask: layer, natural, src: fileUrl(picture) });
-  // without a way to run their jobs they are not shown; the hooks are called all the same, as hooks must be
-  const noFind: Find = async () => [];
-  const click = useClickTool({ mask: layer, natural, find: find ?? noFind, active: toolId === "click" });
-  const detect = useDetectTool({ mask: layer, natural, find: find ?? noFind, active: Boolean(find) && toolId === "detect" });
-  const items: ToolbarItem[] = [tools.brush, tools.eraser, tools.box, tools.lasso, wand.tool, ...(find ? [click.tool, detect.tool] : []), "rule", tools.invert, HAND_TOOL];
+  const maskTools = useMaskTools({ mask: layer, natural, src: fileUrl(picture), find, toolId });
+  const items: ToolbarItem[] = [...maskTools.items, "rule", tools.invert, HAND_TOOL];
   const tool = items.find((t): t is LayerTool => t !== "rule" && t.id === toolId) ?? null;
   const room = useRef<HTMLDivElement>(null);
   useLayerKeys({ items, onPick: setToolId, mask: layer, root: room });
@@ -63,7 +60,7 @@ export function MaskPainter({ picture, mask, find, onDone, onClose }: { picture:
   }, []);
 
   const save = useMutation({
-    mutationFn: async () => api.upload(new File([await layer.png()], nameFor(picture), { type: "image/png" }), { mask: true }),
+    mutationFn: async () => uploadMask(picture, await layer.png()),
     onSuccess: (a) => onDone(a.id),
   });
 
@@ -74,7 +71,7 @@ export function MaskPainter({ picture, mask, find, onDone, onClose }: { picture:
         error={save.isError ? save.error.message : null} saving={save.isPending} canSave={layer.ready} onSave={() => save.mutate()} onClose={onClose}
       />
       <LayerStrip title="Mask" className="border-b border-line bg-panel px-5 py-1">
-        {toolId === "wand" ? <WandOptions wand={wand} /> : toolId === "click" ? <ClickOptions click={click} /> : toolId === "detect" ? <DetectOptions detect={detect} /> : <MaskOptions mask={layer} />}
+        {maskTools.options ?? <MaskOptions mask={layer} />}
       </LayerStrip>
       <div ref={room} className="flex min-h-0 grow gap-4 p-6">
         <LayerToolbar items={items} active={toolId} onPick={setToolId} className="self-start" />

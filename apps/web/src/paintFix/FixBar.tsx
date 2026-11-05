@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type InputHTMLAttributes, type Ref, type RefObject } from "react";
 import { Settings2, Wand2 } from "lucide-react";
 import type { InputSpec } from "@afflatus/core";
 import type { RecipeInfo } from "../api";
 import { plural } from "../format";
 import { dialogOver, OVER } from "../Dialog";
 import { Kbd } from "../Keys";
-import { MAX_COUNT, tuneAt, useTune } from "../passTune";
+import { MAX_COUNT, tuneAt, useTune, type TuneAsk } from "../passTune";
 import type { QueuedJob } from "../queueVariation";
-import { Button, Chip, cx, fieldClass, Help, IconButton, NumberBox } from "../ui";
+import { Button, Chip, cx, Failed, fieldClass, Help, IconButton, NumberBox } from "../ui";
 import type { FixAsk } from "./useFixJob";
 
 /**
@@ -18,14 +18,14 @@ import type { FixAsk } from "./useFixJob";
 export const FIX_ROWS = ["feathering", "steps", "cfg", "sampler", "scheduler"] as const;
 
 /** How many versions a Fix makes when nothing else was asked (the mock's ×3). */
-export const FIX_COUNT = 3;
+const FIX_COUNT = 3;
 
 /**
  * The denoise a Fix starts on, whatever the family: the bar asks what the painted part becomes, and under the soft brush the
  * Inpaint form's own start (0.75, 0.8) kept what was there. On a pod, SDXL's red umbrella stayed red up to 0.9 and turned at
  * 0.95; Z-Image's black basket stayed at 0.8 on four seeds of four and became the wicker one asked for at 0.9 (card #281).
  */
-export const FIX_DENOISE = 0.95;
+const FIX_DENOISE = 0.95;
 
 /**
  * Ctrl+Enter runs the bar's job while the bar shows: taken on the capture phase, before the draft's Generate hears it (that
@@ -48,6 +48,55 @@ export function useCtrlEnter(run: () => void, root: RefObject<HTMLElement | null
   }, [root]);
 }
 
+/**
+ * What both of Paint and fix's bars share: the rows set in ⚙, kept for the next run; `go` runs the bar with them (and with
+ * rows just changed); Ctrl+Enter runs it while the bar shows (`root` is the bar's element); `tune` opens ⚙ on the job with
+ * the rows as last set, its Queue keeping what it changed and running the bar.
+ */
+export function useTunedBar(run: (tuned: Record<string, unknown>) => void) {
+  // ⚙'s rows as last set: the next run is sent with them too
+  const [tuned, setTuned] = useState<Record<string, unknown>>({});
+  const openTune = useTune((t) => t.open);
+  const go = (more: Record<string, unknown> = {}) => run({ ...tuned, ...more });
+  const root = useRef<HTMLDivElement>(null);
+  useCtrlEnter(go, root);
+  const tune = (gear: Element, ask: Omit<TuneAsk, "queue">) =>
+    openTune(tuneAt(gear), {
+      ...ask,
+      job: { ...ask.job, stored: { ...ask.job.stored, ...tuned } },
+      queue: (changed) => {
+        setTuned((t) => ({ ...t, ...changed }));
+        go(changed);
+      },
+    });
+  return { tuned, go, tune, root };
+}
+
+/**
+ * A bar's text field: it keeps every key typed in it (the layer's P, E, B, V, Del… are not the field's), Enter runs
+ * `onEnter` (Ctrl+Enter is the bar's own), Esc gives the focus back to the Stage.
+ */
+export function BarInput({ onEnter, ref, ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, "onKeyDown" | "className"> & { onEnter(): void; ref?: Ref<HTMLInputElement> }) {
+  return (
+    <input
+      ref={ref}
+      {...props}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          onEnter();
+        }
+        if (e.key === "Escape") (e.target as HTMLInputElement).blur();
+      }}
+      className={cx(fieldClass, "h-9 min-w-60 grow basis-60")}
+    />
+  );
+}
+
+/** Why a bar's last try failed, as useFixJob says it. */
+export type BarFailure = { what: string; error: Error };
+
 /** The "?" on both of Paint and fix's bars: what a mask does and what a box does, since both are drawn on the same picture. */
 export const MASK_OR_BOX = "Mask: those pixels are inpainted again from a description of what they become (Fix). Box: an edit model follows an instruction there, the rest kept (Edit in box). A mask painted takes the bar; clear it to edit in the boxes";
 
@@ -59,7 +108,7 @@ export const boxesIgnored = (n: number) => `Fix uses the mask · ${n === 1 ? "th
  * versions, ⚙ for the rest (with the full Inpaint form one click away), and Fix. Enter in the prompt and Ctrl+Enter
  * anywhere fix; Ctrl+Enter is the bar's while it shows, not the draft's Generate.
  */
-export function FixBar({ verb, tool, job, mask, grow, busy, note, boxes, onFix, onFullForm }: {
+export function FixBar({ verb, tool, job, mask, grow, busy, failure, note, boxes, onFix, onFullForm }: {
   /** A fix of the painted part, an outpaint of the frame dragged out, or an edit of the whole picture: the bar's words, its job the same way. */
   verb: "Fix" | "Outpaint" | "Edit";
   tool: RecipeInfo;
@@ -69,6 +118,8 @@ export function FixBar({ verb, tool, job, mask, grow, busy, note, boxes, onFix, 
   mask: string | null;
   grow: number;
   busy: boolean;
+  /** Why the bar's last try failed (not queued, the form not opened): said under it until the next try. */
+  failure?: BarFailure | null;
   /** Said under the bar first: why it is not what was asked (Edit with no edit model for this picture). */
   note?: string;
   /**
@@ -85,36 +136,27 @@ export function FixBar({ verb, tool, job, mask, grow, busy, note, boxes, onFix, 
   // an Edit's img2img keeps its form's start: it redraws the whole picture
   const [strength, setStrength] = useState(fixing ? Math.min(FIX_DENOISE, denoise?.max ?? 1) : typeof denoise?.default === "number" ? denoise.default : 0.75);
   const [count, setCount] = useState(FIX_COUNT);
-  // ⚙'s rows as last set: the next Fix is sent with them too
-  const [tuned, setTuned] = useState<Record<string, unknown>>({});
-  const openTune = useTune((t) => t.open);
-  const ask = { prompt, strength, grow, tuned };
   const editing = verb === "Edit";
   // an instruction editor has nothing to go on without one; img2img (a denoise) redraws on the picture's own prompt
   const why = editing ? (!prompt.trim() && !denoise ? "Say what to change first" : busy ? "Sending…" : null)
     : !mask ? (fixing ? "Paint the part to redo first" : "Drag the frame's edges out first") : busy ? "Sending…" : null;
   const placeholder = editing ? ((tool.inputs.find((i) => i.id === "prompt") as { placeholder?: string } | undefined)?.placeholder ?? "What to change") : fixing ? "What the painted part becomes" : "What the added parts show";
-  const fix = (more: Record<string, unknown> = {}) => {
-    if (!why) onFix({ ...ask, tuned: { ...tuned, ...more }, count });
-  };
+  const bar = useTunedBar((tuned) => {
+    if (!why) onFix({ prompt, strength, grow, tuned, count });
+  });
+  const fix = () => bar.go();
   const tune = (gear: Element) =>
-    openTune(tuneAt(gear), {
+    bar.tune(gear, {
       action: fixing ? "inpaint" : editing ? "edit" : "outpaint",
       title: fixing ? "Inpaint" : verb,
       sub: plural(count, "version"),
       rows: FIX_ROWS,
       go: `${verb} ×${count}`,
-      job: { ...job, stored: { ...job.stored, ...tuned } },
-      queue: (changed) => {
-        setTuned((t) => ({ ...t, ...changed }));
-        fix(changed);
-      },
-      more: { label: "Open the full form", run: (changed) => onFullForm({ ...ask, tuned: { ...tuned, ...changed } }) },
+      job,
+      more: { label: "Open the full form", run: (changed) => onFullForm({ prompt, strength, grow, tuned: { ...bar.tuned, ...changed } }) },
     });
-  const root = useRef<HTMLDivElement>(null);
-  useCtrlEnter(fix, root);
   return (
-    <div ref={root} className="flex w-full max-w-[1040px] shrink-0 flex-col items-center gap-1.5">
+    <div ref={bar.root} className="flex w-full max-w-[1040px] shrink-0 flex-col items-center gap-1.5">
       {/* on a narrow stage the prompt keeps a row of its own, the numbers and Fix wrapping under it */}
       <div role="group" aria-label="Fix" className="flex w-full flex-wrap items-center justify-end gap-2">
         {editing ? (
@@ -124,22 +166,13 @@ export function FixBar({ verb, tool, job, mask, grow, busy, note, boxes, onFix, 
         ) : (
           <Chip tone={mask ? "accent" : "neutral"} tip="What the outpaint adds round the picture: the frame's edges dragged out (R)">Frame · {mask ?? "the picture's own edges"}</Chip>
         )}
-        <input
+        <BarInput
           aria-label={editing ? "What to change" : fixing ? "What the painted part becomes" : "What the added parts show"}
           value={prompt}
           placeholder={placeholder}
           data-tip={editing && !denoise ? "The instruction: what to change, the rest kept" : "Empty: the picture's own prompt"}
           onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={(e) => {
-            // the layer's keys (P, E, [ ]…) are not the prompt's: it keeps every key typed in it
-            e.stopPropagation();
-            if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
-              e.preventDefault();
-              fix();
-            }
-            if (e.key === "Escape") (e.target as HTMLInputElement).blur();
-          }}
-          className={cx(fieldClass, "h-9 min-w-60 grow basis-60")}
+          onEnter={fix}
         />
         {denoise && verb !== "Outpaint" && (
           <span className="flex items-center gap-1.5 text-xs text-ink-2">
@@ -157,6 +190,7 @@ export function FixBar({ verb, tool, job, mask, grow, busy, note, boxes, onFix, 
           <Wand2 size={14} /> {verb} · {plural(count, "version")} <Kbd>Ctrl+Enter</Kbd>
         </Button>
       </div>
+      {failure && <Failed inline what={failure.what} error={failure.error} />}
       {note && <span className="text-xs font-semibold text-attention-ink">{note}</span>}
       {fixing && mask && boxes && boxes.count > 0 && (
         <span role="status" className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs font-semibold text-attention-ink">

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { peopleFor, typedPerson, withoutTyped } from "../src/regions/castTyping";
-import { droppedBox, drawnBox, handleOn, isBox, keptInside, movedBox, newRegionId, pixelBox, regionAt, resizedBox, unitPoint, whereSaid } from "../src/regions/geometry";
+import { handleOn } from "../src/stageLayer/geometry";
+import { droppedBox, drawnBox, isBox, keptInside, movedBox, newRegionId, pixelBox, regionAt, resizedBox, unitPoint, whereSaid } from "../src/regions/geometry";
 import { regionsSummary } from "../src/regions/RegionsField";
 import { regionsAbsent, regionsHow, regionList, regionsSpecOf, type RegionValue } from "../src/regions/types";
 import { chipSaid } from "../src/regions/useRegionTool";

@@ -14,7 +14,7 @@ import { scrollInside } from "../scrollInside";
 import { AutoText, Button, Chip, CloseButton, cx, fieldClass, Help, Segmented } from "../ui";
 import { personBrings, PersonFace, usePeople, type Person } from "./CastStrip";
 import { peopleFor, typedPerson, withoutTyped } from "./castTyping";
-import { regionColour, whereSaid } from "./geometry";
+import { fullSaid, regionColour, whereSaid } from "./geometry";
 import { GUIDED, regionsHow, type Absent, type RegionsSpec, type RegionValue } from "./types";
 import { useRegionsStage } from "./useRegionsStage";
 
@@ -297,7 +297,7 @@ export function RegionsField({ spec, absent, value, onChange, family, model, lor
       </div>
     );
   }
-  const full = value.length >= spec.max;
+  const full = fullSaid(value.length, spec.max);
   return (
     <div className="flex flex-col gap-2">
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
@@ -305,11 +305,11 @@ export function RegionsField({ spec, absent, value, onChange, family, model, lor
           <span className="min-w-0">{regionsHow(spec)}</span>
           <Help title="Guided" text={GUIDED} />
         </span>
-        <Button size="sm" disabled={full} onClick={() => onDraw("box")} data-tip={full ? `${spec.max} regions already: the most this model takes` : "Draw a box on the Stage"}>
+        <Button size="sm" disabled={Boolean(full)} onClick={() => onDraw("box")} data-tip={full ?? "Draw a box on the Stage"}>
           <Square size={13} /> Box <Keys keys="B" size="sm" />
         </Button>
         {spec.kinds && (
-          <Button size="sm" disabled={full} onClick={() => onDraw("text")} data-tip="Draw a box of text on the Stage">
+          <Button size="sm" disabled={Boolean(full)} onClick={() => onDraw("text")} data-tip={full ?? "Draw a box of text on the Stage"}>
             <Type size={13} /> Text <Keys keys="T" size="sm" />
           </Button>
         )}

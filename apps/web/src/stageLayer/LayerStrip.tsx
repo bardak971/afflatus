@@ -4,7 +4,7 @@ import { cx } from "../cx";
 import { plural } from "../format";
 import { Slider } from "../Slider";
 import { Help, IconButton, Segmented, Toggle } from "../ui";
-import { FRAME_ASPECTS, padded } from "./frame";
+import { FRAME_ASPECTS, FRAME_RULES, padded } from "./frame";
 import type { ClickTool, DetectTool, FindWhat, WandTool } from "./useFindTools";
 import type { FrameTool } from "./useFrameTool";
 import { BRUSH_LIMITS, type MaskLayer } from "./useMaskLayer";
@@ -72,7 +72,8 @@ export function MaskOptions({ mask, grow, onGrow }: { mask: MaskLayer; grow?: nu
  * and back to the picture's own edges. `step` and `most`: the frame tool's rules, said in its ?.
  *
  */
-export function FrameOptions({ frame, natural, step = 64, most = 1024 }: { frame: FrameTool; natural: Size | null; step?: number; most?: number }) {
+export function FrameOptions({ frame, natural }: { frame: FrameTool; natural: Size | null }) {
+  const { step, most } = FRAME_RULES;
   return (
     <>
       <Segmented<string> label="Shape of the frame" size="sm" oneLine value={frame.aspect} options={FRAME_ASPECTS.map((a) => ({ value: a, label: a }))} onChange={frame.setAspect} />

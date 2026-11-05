@@ -59,6 +59,9 @@ export function placed(v: Zoom, fit: Size, room: Size): { left: number; top: num
   return { left: room.w / 2 - v.fx * fit.w * v.zoom, top: room.h / 2 - v.fy * fit.h * v.zoom, scale: v.zoom };
 }
 
+/** The style that draws the fitted picture where `placed` puts it: its fitted size, moved and scaled from its top left corner. */
+export const placedStyle = (shown: { left: number; top: number; scale: number }, fit: Size) => ({ width: fit.w, height: fit.h, transformOrigin: "0 0", transform: `translate(${shown.left}px, ${shown.top}px) scale(${shown.scale})` });
+
 /** Closer or further to `zoom`, the point of the room at `at` (from its top left corner) staying where it is. */
 export function zoomAround(v: Zoom, zoom: number, at: { x: number; y: number }, fit: Size, room: Size, most = 8): Zoom {
   if (fit.w <= 0 || fit.h <= 0) return v;

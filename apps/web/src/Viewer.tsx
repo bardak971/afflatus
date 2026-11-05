@@ -81,13 +81,13 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
   const showVersion = (v: Asset) => setVer({ of: base.id, id: v.id });
   /** ← → through the versions first: false past either end, where they go on to the item before or after. */
   const stepThrough = (by: -1 | 1) => {
-    const next = versions.all.length > 1 ? stepVersion(versions.all, asset.id, by) : null;
+    const next = versions.made > 0 ? stepVersion(versions.all, asset.id, by) : null;
     if (next) showVersion(next);
     return Boolean(next);
   };
   // Paint and fix (Inpaint I, Outpaint R): the Stage draws over the picture shown, any version of its stack; the keys are the layer's
   const stageOn = useStageMode((s) => s.on);
-  const inStack = (id: string) => id === asset.id || id === base.id || versions.all.some((v) => v.id === id);
+  const inStack = (id: string) => id === asset.id || id === base.id || versions.holds(id);
   const paintAsked = asset.kind === "image" && !asset.inBin && Boolean(stageOn) && inStack(stageOn!.asset);
   const paint = () => useStageMode.getState().set(asset.id, "paint");
   const outpaint = () => useStageMode.getState().set(asset.id, "outpaint");
@@ -115,7 +115,7 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
   // one of its versions now), so the mask, its undo and the boxes are not lost to a remount
   const [paintKey, setPaintKey] = useState(versions.root || asset.id);
   const rootNow = versions.root || asset.id;
-  const sameStack = paintKey === rootNow || versions.all.some((v) => v.id === paintKey);
+  const sameStack = paintKey === rootNow || versions.holds(paintKey);
   if (!sameStack) setPaintKey(rootNow);
   // Compare: one item pinned, the arrow keys move the other one beside it
   const [pinned, setPinned] = useState<Asset | null>(null);
@@ -246,7 +246,7 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
       }
       if (typing(e) || !plainKey(e, { over: "[data-keys-help]" })) return;
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") stepThrough(e.key === "ArrowLeft" ? -1 : 1);
-      else if (e.key.toLowerCase() === "k" && versions.all.length > 1 && !versions.keep.isPending) versions.keep.mutate(asset.id);
+      else if (e.key.toLowerCase() === "k" && versions.canKeep) versions.keepShown(asset.id);
       else return;
       e.preventDefault();
       return;
@@ -289,7 +289,7 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
     if (e.key === "ArrowLeft" && !inPlayer && !trim) stepThrough(-1) || move(-1);
     else if (e.key === "ArrowRight" && !inPlayer && !trim) stepThrough(1) || move(1);
     // K keeps the version shown (the original included): the others count down to the bin (VersionStrip)
-    else if (k === "k" && versions.all.length > 1 && !versions.keep.isPending) versions.keep.mutate(asset.id);
+    else if (k === "k" && versions.canKeep) versions.keepShown(asset.id);
     // drawn in place (the Studio's stage), N is the Studio's own (it folds the form): a timeline starts from the menus there
     else if (k === "n" && !inline && a.kind !== "audio" && !a.inBin) timeline.startFrom(a);
     else if (k === "a" && a.kind !== "audio" && !a.inBin && timeline.addToLast) timeline.addToLast(a);
@@ -315,7 +315,7 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
   const swap = () => {
     const was = pinned!;
     setPinned(asset);
-    if (versions.all.some((v) => v.id === was.id)) showVersion(was);
+    if (versions.holds(was.id)) showVersion(was);
     else onOpen?.(was);
   };
   const compare = comparing ? <Compare pinned={pinned!} other={asset} onSwap={swap} onClose={() => setPinned(null)} keys={compareKeys} /> : null;

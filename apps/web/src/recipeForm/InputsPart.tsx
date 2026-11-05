@@ -42,6 +42,17 @@ function AbsentRow({ label, why }: { label: string; why: string }) {
   );
 }
 
+/**
+ * What the first tab is called, from what it holds: a video's frames (start, end, a frame between) or a sound are Frames; a
+ * picture form's ControlNet images alone are its Guide; its source picture, mask or face are Pictures. "Frames" over a
+ * txt2img's control image was a video word in a picture form (card #318).
+ */
+export function framesTabLabel(frames: readonly InputSpec[], frameNode = false): "Frames" | "Guide" | "Pictures" {
+  const role = (i: InputSpec) => ("role" in i ? i.role : undefined);
+  if (frameNode || frames.some((i) => i.type !== "image" || ["start", "end", "mid"].includes(role(i) ?? ""))) return "Frames";
+  return frames.every((i) => role(i) === "guide") ? "Guide" : "Pictures";
+}
+
 export function InputsPart({ frames, refs, absent = [], framesChosen, refsCount, chosen, summary, missing, look, lookHit, lookWithFrames, frameExtra, q, render }: {
   /**
    * The cast is used by the frames alone (a Motion transfer: who goes into the picture made from the driving video), not by
@@ -111,6 +122,7 @@ export function InputsPart({ frames, refs, absent = [], framesChosen, refsCount,
     setStay(null);
   }, [stay, setPart]);
   const tabNow = stay ?? shownTab;
+  const framesWord = framesTabLabel(frames, Boolean(frameExtra?.node));
   if (!hasFrames && !hasRefs) return null;
   return (
     <Part id="inputs" title="Inputs" summary={summary} needs={opened || Boolean(stay) || Boolean(q)}>
@@ -121,7 +133,7 @@ export function InputsPart({ frames, refs, absent = [], framesChosen, refsCount,
             label="Which inputs"
             value={tabNow}
             options={[
-              { value: "frames", label: framesChosen ? `Frames · ${framesChosen}` : "Frames" },
+              { value: "frames", label: framesChosen ? `${framesWord} · ${framesChosen}` : framesWord },
               { value: "references", label: refsCount ? `References · ${refsCount}` : "References" },
             ]}
             onChange={(v) => {

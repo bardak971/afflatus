@@ -199,10 +199,11 @@ function Running({ run }: { run: RunningJob }) {
         {/* the first thing to go when the strip is short of room */}
         {of && <span className="max-w-48 min-w-0 truncate text-ink-2 max-[1440px]:hidden">{of}</span>}
         {run.join && <Chip size="xs" tone="accent" tip={JOIN_TIP[run.join]}>{JOIN_WORD[run.join]}</Chip>}
-        {/* the phase and the steps go on a narrow window, so that what renders keeps room for its name */}
+        {/* the phase and the steps go on a narrow window, so that what renders keeps room for its name; under 1600 the phase's
+            word goes first (at 1280 with the side panel open, "Queued on ComfyUI" pushed the time left out of the pill: "0:08 lef") */}
         <span className="contents max-sm:hidden">
           <Sep />
-          <span className="shrink-0 text-ink-2">{phaseLabel(run.phase)}</span>
+          <span className="shrink-0 text-ink-2 max-[1600px]:hidden">{phaseLabel(run.phase)}</span>
           {steps && <span className="shrink-0 font-mono whitespace-pre">{steps}</span>}
         </span>
         <span className="shrink-0 font-mono whitespace-pre text-ink-2">· {left}</span>
@@ -285,7 +286,8 @@ function Idle({ last, machines }: { last: Job | null; machines: MachineState[] }
       <button type="button" className={cx(stripGhost, "min-w-0")} disabled={show.isPending} onClick={() => show.mutate(last)} data-tip="Open the last finished render">
         <span className="shrink-0">last:</span>
         <span className="min-w-0 truncate font-semibold text-ink">{of ? `${of} · ${what}` : what}</span>
-        {last.finishedAt && <span className="shrink-0">· finished {when(last.finishedAt)}</span>}
+        {/* short of room, when it finished goes before its name (the Queue says it) */}
+        {last.finishedAt && <span className="shrink-0 max-[1600px]:hidden">· finished {when(last.finishedAt)}</span>}
       </button>
     );
   }

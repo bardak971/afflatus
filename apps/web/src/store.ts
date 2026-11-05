@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { NotifyKind, SystemLoad } from "./api";
@@ -113,6 +114,22 @@ export const useBanners = create<{ items: Banner[]; push(b: Banner): void; dismi
       return { items: s.items.filter((x) => x.id !== id) };
     }),
 }));
+
+/**
+ * How many tools are up on the Stage whose top is their own controls (the grid's board with its column labels, Paint and
+ * fix's strip, the Regions strip): while one is, the banners come down the right side rather than over the Stage's top.
+ */
+const useBannersAside = create<{ n: number }>(() => ({ n: 0 }));
+export const useBannersAsideNow = (): boolean => useBannersAside((s) => s.n > 0);
+
+/** A tool of the Stage with controls along its top, for as long as it is drawn: the banners keep off them. */
+export function useKeepBannersAside(on = true): void {
+  useEffect(() => {
+    if (!on) return;
+    useBannersAside.setState((s) => ({ n: s.n + 1 }));
+    return () => useBannersAside.setState((s) => ({ n: s.n - 1 }));
+  }, [on]);
+}
 
 /**
  * Things handed from one screen to another when a file is dropped: a workflow for the import screen

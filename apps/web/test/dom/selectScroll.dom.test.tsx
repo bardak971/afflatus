@@ -9,6 +9,11 @@ import { draw } from "./render";
  * still gliding from the wheel that brought Y into reach, and every Select closed on any scroll outside its list: the list
  * opened and the scroll's next event closed it at once. A scroll already going as a list opens now moves it along with its
  * button; a scroll begun once it is open still closes it, and a press outside still only closes it.
+ *
+ * Card #316 (2026-11-05): the same first click failed 2 times in 5 with the form standing still. Values typed in X, then a
+ * click on Y: the form glided on its own to its bottom (a part's height changing as X's values were taken), no wheel or key
+ * in it, and that scroll closed the list. A scroll the page does by itself now moves the list along; only one the user asks
+ * for (a wheel, a finger, a key, a press elsewhere) closes it.
  */
 
 const OPTIONS = [{ value: "", label: "None" }, { value: "cfg", label: "CFG scale" }, { value: "steps", label: "Steps" }];
@@ -80,7 +85,31 @@ describe("a Select's list", () => {
     act(() => scroll(0));
     expect(screen.getByRole("listbox", { name: "Y axis" })).toBeTruthy();
     await later();
-    act(() => scroll(40));
+    act(() => {
+      fireEvent.wheel(screen.getByTestId("form"), { deltaY: 40 });
+      scroll(40);
+    });
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("stays open through a scroll the page does by itself once it is open, and follows its button", async () => {
+    placed();
+    const { user } = draw(<Two />);
+    await user.type(screen.getByLabelText("X values"), "3, 5, 7");
+    await later();
+    await user.click(screen.getByRole("button", { name: "Y axis: None" }));
+    // the form glides to its bottom on its own, no wheel, finger or key: its events come one after another
+    await later();
+    for (let i = 0; i < 4; i++) act(() => scroll(15));
+    expect(screen.getByRole("listbox", { name: "Y axis" })).toBeTruthy();
+    // under the button where it is now: 200 - 60 scrolled + 32 tall + 4 apart
+    expect(screen.getByRole("listbox").closest<HTMLElement>("[data-floating]")!.style.top).toBe("176px");
+    // and the user's own scroll after it still closes it
+    await later();
+    act(() => {
+      fireEvent.keyDown(screen.getByTestId("form"), { key: "PageDown" });
+      scroll(40);
+    });
     expect(screen.queryByRole("listbox")).toBeNull();
   });
 

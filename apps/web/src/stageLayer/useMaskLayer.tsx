@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { Brush as BrushIcon, Contrast, Eraser, Lasso, SquareDashed } from "lucide-react";
 import { fileUrl } from "../api";
 import { cx } from "../cx";
+import { useLiveValue } from "../hooks";
 import type { Size } from "../viewer/zoom";
 import type { LayerPlace } from "../viewer/ZoomPicture";
 import { boxFrom, percentOf } from "./geometry";
@@ -209,8 +210,8 @@ export function useMaskLayer({ natural, from = null, start = { size: 64, feather
 
   // a box or a lasso being drawn, in the picture's pixels: drawn live over the picture, filled when let go
   // held in a ref as well as drawn: the release can come in the same frame as the last move, before a render
-  const [boxing, setBoxing] = useLive<{ a: { x: number; y: number }; b: { x: number; y: number }; square: boolean; ink: Ink }>();
-  const [lassoing, setLassoing] = useLive<{ points: Array<{ x: number; y: number }>; ink: Ink }>();
+  const [boxing, setBoxing] = useLiveValue<{ a: { x: number; y: number }; b: { x: number; y: number }; square: boolean; ink: Ink }>();
+  const [lassoing, setLassoing] = useLiveValue<{ points: Array<{ x: number; y: number }>; ink: Ink }>();
   const boxOf = (b: NonNullable<typeof boxing.current>) => boxFrom(b.a, b.b, b.square ? 1 : null);
   const scaled = (r: Rect, s: number): Rect => ({ x: r.x * s, y: r.y * s, w: r.w * s, h: r.h * s });
 
@@ -321,13 +322,3 @@ export function useMaskLayer({ natural, from = null, start = { size: 64, feather
   };
 }
 
-/** A value drawn on screen and read at once by the next event: state for the render, a ref for the handlers. */
-function useLive<T>(): [{ readonly current: T | null }, (next: T | null | ((was: T | null) => T | null)) => void] {
-  const ref = useRef<T | null>(null);
-  const [, setShown] = useState<T | null>(null);
-  const set = useCallback((next: T | null | ((was: T | null) => T | null)) => {
-    ref.current = typeof next === "function" ? (next as (was: T | null) => T | null)(ref.current) : next;
-    setShown(ref.current);
-  }, []);
-  return [ref, set];
-}

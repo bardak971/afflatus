@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type Dispatch, type ImgHTMLAttributes, type ReactNode, type RefObject, type SetStateAction } from "react";
 import { cx } from "../cx";
 import { typing } from "../Keys";
-import { frameOf, roomToPicture, type Frame, type Shown } from "../stageLayer/geometry";
-import { FIT, fitted, held, mostZoom, panBy, placed, shownPercent, toggled, wheelFactor, zoomAround, type Size, type Zoom } from "./zoom";
+import { frameOf, percentOf, roomToPicture, type Frame, type Shown } from "../stageLayer/geometry";
+import { FIT, fitted, held, mostZoom, panBy, placed, placedStyle, shownPercent, toggled, wheelFactor, zoomAround, type Size, type Zoom } from "./zoom";
 
 /** How far the pointer goes before a press on a zoomed picture is a drag rather than a click. */
 const DRAG_PX = 3;
@@ -252,7 +252,7 @@ export function ZoomPicture({ src, natural: known, view: given, onView: setGiven
     },
   } : null;
   // the picture inside a frame larger than it: where it sits, in parts of the frame
-  const inFrame = canvas && natural && src ? { left: `${(canvas.x / canvas.w) * 100}%`, top: `${(canvas.y / canvas.h) * 100}%`, width: `${(natural.w / canvas.w) * 100}%`, height: `${(natural.h / canvas.h) * 100}%` } : null;
+  const inFrame = canvas && natural && src ? percentOf({ x: 0, y: 0, w: natural.w, h: natural.h }, canvas) : null;
   const pick = layer ? undefined : onPick;
   return (
     <div
@@ -269,7 +269,7 @@ export function ZoomPicture({ src, natural: known, view: given, onView: setGiven
     >
       <div
         // until its size is known (read from the picture as it loads), drawn fitted by its own shape, unzoomed
-        style={shown && fit ? { width: fit.w, height: fit.h, transformOrigin: "0 0", transform: `translate(${shown.left}px, ${shown.top}px) scale(${shown.scale})` } : { width: "100%", height: "100%" }}
+        style={shown && fit ? placedStyle(shown, fit) : { width: "100%", height: "100%" }}
         className="absolute top-0 left-0"
       >
         {src && (

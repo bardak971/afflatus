@@ -64,6 +64,35 @@ export function boxFrom(a: { x: number; y: number }, b: { x: number; y: number }
   return { x: Math.min(a.x, a.x + w), y: Math.min(a.y, a.y + h), w: Math.abs(w), h: Math.abs(h) };
 }
 
+/** A box's eight handles, by the compass: the sides they move. */
+export type Handle = "n" | "s" | "e" | "w" | "nw" | "ne" | "sw" | "se";
+export const HANDLES: readonly Handle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+
+/** Where each handle sits on a box, as a part of its width and height, and the cursor it shows. */
+export const AT: Record<Handle, [number, number]> = { nw: [0, 0], n: [0.5, 0], ne: [1, 0], e: [1, 0.5], se: [1, 1], s: [0.5, 1], sw: [0, 1], w: [0, 0.5] };
+export const CURSOR: Record<Handle, string> = { nw: "nwse-resize", se: "nwse-resize", ne: "nesw-resize", sw: "nesw-resize", n: "ns-resize", s: "ns-resize", e: "ew-resize", w: "ew-resize" };
+
+/**
+ * The handle of a box a press at `p` takes (all in the picture's pixels), within `grab`: a corner before a side, a side
+ * anywhere along its length; none away from the box's edge. The outpaint frame and the region boxes both hit-test by it.
+ */
+export function handleOn(p: { x: number; y: number }, box: Rect, grab: number): Handle | null {
+  const near = (a: number, b: number) => Math.abs(a - b) <= grab;
+  const within = (v: number, lo: number, hi: number) => v >= lo - grab && v <= hi + grab;
+  if (!within(p.x, box.x, box.x + box.w) || !within(p.y, box.y, box.y + box.h)) return null;
+  const west = near(p.x, box.x);
+  const east = !west && near(p.x, box.x + box.w);
+  const north = near(p.y, box.y);
+  const south = !north && near(p.y, box.y + box.h);
+  if ((west || east) && (north || south)) return `${north ? "n" : "s"}${west ? "w" : "e"}` as Handle;
+  if (west || east) return west ? "w" : "e";
+  if (north || south) return north ? "n" : "s";
+  return null;
+}
+
+/** How many picture pixels one screen pixel is at this zoom: a grab or a click so many screen pixels wide whatever the zoom. */
+export const perScreen = (frame: Frame, fit: Size, shown: Shown): number => (fit.w > 0 && shown.scale > 0 ? frame.w / (fit.w * shown.scale) : 1);
+
 /** A rect in the picture as a part of it, for CSS (left, top, width, height in percent of the frame). */
 export function percentOf(r: Rect, frame: Frame): { left: string; top: string; width: string; height: string } {
   const pc = (v: number, of: number) => `${of > 0 ? (v / of) * 100 : 0}%`;

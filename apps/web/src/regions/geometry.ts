@@ -1,7 +1,7 @@
-import { clamp } from "../stageLayer/geometry";
-import type { Handle } from "../stageLayer/frame";
+import { clamp, type Handle } from "../stageLayer/geometry";
 import type { Size } from "../viewer/zoom";
-import type { RegionValue, UnitBox } from "./types";
+import { plural } from "../format";
+import type { RegionKind, RegionValue, UnitBox } from "./types";
 
 /**
  * Where the region boxes are: drawn, moved and resized in parts of the frame (0 to 1), so that the form's size changed, or
@@ -10,7 +10,7 @@ import type { RegionValue, UnitBox } from "./types";
  */
 
 /** The smallest a box is drawn or resized to, as a part of the frame's side: a click is not a box. */
-export const MIN_SIDE = 0.03;
+const MIN_SIDE = 0.03;
 
 /** A point of the picture in parts of it. */
 export const unitPoint = (p: { x: number; y: number }, size: Size): { x: number; y: number } => ({ x: size.w > 0 ? p.x / size.w : 0, y: size.h > 0 ? p.y / size.h : 0 });
@@ -56,24 +56,6 @@ export function resizedBox(start: UnitBox, handle: Handle, dx: number, dy: numbe
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
-/**
- * The handle of a box a press at `p` takes (all in the picture's pixels), within `grab`: a corner before a side, a side
- * anywhere along its length; none away from the box's edge.
- */
-export function handleOn(p: { x: number; y: number }, box: { x: number; y: number; w: number; h: number }, grab: number): Handle | null {
-  const near = (a: number, b: number) => Math.abs(a - b) <= grab;
-  const within = (v: number, lo: number, hi: number) => v >= lo - grab && v <= hi + grab;
-  if (!within(p.x, box.x, box.x + box.w) || !within(p.y, box.y, box.y + box.h)) return null;
-  const west = near(p.x, box.x);
-  const east = !west && near(p.x, box.x + box.w);
-  const north = near(p.y, box.y);
-  const south = !north && near(p.y, box.y + box.h);
-  if ((west || east) && (north || south)) return `${north ? "n" : "s"}${west ? "w" : "e"}` as Handle;
-  if (west || east) return west ? "w" : "e";
-  if (north || south) return north ? "n" : "s";
-  return null;
-}
-
 /** The region whose box holds a point (parts of the frame): the last drawn first, as it lies on top. */
 export function regionAt(regions: readonly RegionValue[], p: { x: number; y: number }): RegionValue | undefined {
   for (let i = regions.length - 1; i >= 0; i--) {
@@ -84,7 +66,7 @@ export function regionAt(regions: readonly RegionValue[], p: { x: number; y: num
 }
 
 /** The box a person dropped on empty canvas gets: this size, centred where they landed, held inside the frame. */
-export const DROP_BOX = { w: 0.3, h: 0.5 };
+const DROP_BOX = { w: 0.3, h: 0.5 };
 export const droppedBox = (at: { x: number; y: number }): UnitBox => keptInside({ x: at.x - DROP_BOX.w / 2, y: at.y - DROP_BOX.h / 2, ...DROP_BOX });
 
 /** A new region's id: one no region of the list has. */
@@ -93,6 +75,23 @@ export function newRegionId(regions: readonly RegionValue[]): string {
   let n = regions.length + 1;
   while (taken.has(`r${n}`)) n++;
   return `r${n}`;
+}
+
+/**
+ * A new region with its box, the next id, nothing said yet: of `kind` on a model whose regions have kinds (MOSS's object or
+ * text, an object when none is asked), with `cast` when a person was dropped to make it.
+ */
+export function newRegion(regions: readonly RegionValue[], box: UnitBox, { kinds, kind, cast }: { kinds?: boolean; kind?: RegionKind; cast?: string } = {}): RegionValue {
+  return { id: newRegionId(regions), box, prompt: "", ...(cast ? { cast } : {}), ...(kinds ? { kind: kind ?? "object" } : {}) };
+}
+
+/**
+ * Why no box can be added, or undefined: the list holds the most there may be. Said as regions on a form, as boxes on
+ * Edit in box (whose boxes are an edit's, not a model's regions).
+ */
+export function fullSaid(count: number, max: number, noun: "region" | "box" = "region"): string | undefined {
+  if (count < max) return undefined;
+  return noun === "box" ? `${plural(max, "box", "boxes")} already: the most one edit takes` : `${plural(max, "region")} already: the most this model takes`;
 }
 
 const pc = (v: number) => Math.round(v * 100);
@@ -113,5 +112,5 @@ export function whereSaid(b: UnitBox): string {
 }
 
 /** The colours the regions are told apart by, the same on the Stage and in the form: by their place in the list. */
-export const REGION_COLOURS = ["#ff8a65", "#86aeff", "#b9a2e0", "#5ad6bd", "#f48fb1", "#f5c451", "#9ccc65", "#4dd0e1"] as const;
+const REGION_COLOURS = ["#ff8a65", "#86aeff", "#b9a2e0", "#5ad6bd", "#f48fb1", "#f5c451", "#9ccc65", "#4dd0e1"] as const;
 export const regionColour = (index: number): string => REGION_COLOURS[index % REGION_COLOURS.length]!;

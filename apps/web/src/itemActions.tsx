@@ -326,7 +326,7 @@ export interface SelectionFacts {
 
 /**
  * What a library selection does together, beside a timeline of them, Move to, Keep and the bin: Download as one zip, each
- * quick pass queued on every picture ticked (one job each), Compare when exactly two are ticked. The same actions as an
+ * quick pass queued on every picture ticked (one job each), Compare (on when exactly two are ticked). The same actions as an
  * item's (their labels, icons and tips), said for many; in the bin only Download and Compare, as an item's list there.
  */
 export function selectionActions(f: SelectionFacts, runs: { zip?(): void; pass?(id: SelectionPass): void; tunes?: Partial<Record<SelectionPass, (at: TuneAt) => void>>; compare?(): void }): ItemAction[] {
@@ -349,8 +349,13 @@ export function selectionActions(f: SelectionFacts, runs: { zip?(): void; pass?(
       tune: runs.pass && !off ? runs.tunes?.[id] : undefined,
     });
   });
-  const compare = f.seen === 2 && f.count === 2 ? [of("compare", { tip: "The two ticked side by side, pictures also with a wipe, zoom and pan in step; videos play in step.", run: runs.compare, disabled: !runs.compare })] : [];
-  return [zip, ...passes, ...compare];
+  // always there, greyed with why unless two are ticked: shown only for two, it came and went as a third was ticked and
+  // the bar's buttons jumped (card #318), where the grid board's stays put
+  const two = f.seen === 2 && f.count === 2;
+  const compare = two
+    ? of("compare", { tip: "The two ticked side by side, pictures also with a wipe, zoom and pan in step; videos play in step.", run: runs.compare, disabled: !runs.compare })
+    : of("compare", { tip: "Tick exactly two pictures or videos to compare them", run: undefined, disabled: true });
+  return [zip, ...passes, compare];
 }
 
 /** Where a list is shown: each place's keys act or not. */

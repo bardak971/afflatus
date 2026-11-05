@@ -128,3 +128,17 @@ export function useSecond(on = true): number {
   const shared = useSyncExternalStore(on ? readSecond : unread, () => second);
   return on ? shared : Math.floor(Date.now() / 1000) * 1000;
 }
+
+/**
+ * A value drawn on screen and read at once by the next event: state for the render, a ref for the handlers. A drag's
+ * release can come in the same frame as its last move, before a render: read from the ref, it has the move's value.
+ */
+export function useLiveValue<T>(): [{ readonly current: T | null }, (next: T | null | ((was: T | null) => T | null)) => void] {
+  const ref = useRef<T | null>(null);
+  const [, setShown] = useState<T | null>(null);
+  const set = useCallback((next: T | null | ((was: T | null) => T | null)) => {
+    ref.current = typeof next === "function" ? (next as (was: T | null) => T | null)(ref.current) : next;
+    setShown(ref.current);
+  }, []);
+  return [ref, set];
+}
