@@ -329,7 +329,7 @@ async function graphOn(
   // form. Asked on its form alone, a Wan clip that carries on asked for no SVI LoRA, a pod was never sent them, and the
   // clip there failed at its submit for want of them (card #82, 2026-10-25)
   const planned = plan ? podSlotFiles(recipe, parseInput(recipe, plan.input) as Record<string, unknown>, family.slots, there, here, Boolean(on?.own)) : slots;
-  const built = await builtOf(core, recipe.id, plan ? plan.input : raw, { finishedFrom: row.finished_from, canvas: plan?.canvas, slots: planned, comfy, catalog, relocate: Boolean(on), wants: ahead.wants, has: podHas });
+  const built = await builtOf(core, recipe.id, plan ? plan.input : raw, { finishedFrom: row.finished_from, canvas: plan?.canvas, slots: planned, comfy, catalog, relocate: Boolean(on), wants: ahead.wants, has: podHas, pod: !on?.own });
   if (!built) throw new Error("its form could not be read");
   // a mix of files known to give black frames is refused at its submit: a pod, rented or to come, is sent none of its files,
   // and the job is kept off it with why. Such a job is refused before it is queued (Queue.enqueue): one that gets here was

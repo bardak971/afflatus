@@ -1,5 +1,6 @@
 import { lockMachine } from "./lock-api";
 import { Rented } from "./rented";
+import { KeepAwake } from "./keepAwake";
 import { Comfy, NO_COMFY_URL, type MachineComfy } from "./comfy";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
@@ -109,9 +110,10 @@ export async function createServices(
   /**
    * Where the shipped presets are read from: the repository's folder (or PRESETS_DIR) unless said otherwise; null for none. And
    * the data folder, where the downloads' state file is kept between runs. `firstSweepMs`: how long after this the start's
-   * sweep runs (the server's start, 5 s: see start.ts); left out, at once.
+   * sweep runs (the server's start, 5 s: see start.ts); left out, at once. `keepAwake`: this PC is really asked not to sleep
+   * while a pod works (keepAwake.ts), the server's start alone: a test or a script that makes services starts no OS process.
    */
-  dirs: { shippedPresets?: string | null; dataDir?: string; precompute?: PrecomputeOptions | false; firstSweepMs?: number } = {},
+  dirs: { shippedPresets?: string | null; dataDir?: string; precompute?: PrecomputeOptions | false; firstSweepMs?: number; keepAwake?: boolean } = {},
 ): Promise<Services> {
   // Afflatus's own files and the files of linked folders are read through the same door
   const storage = new RoutedStorage(own);
@@ -377,6 +379,7 @@ export async function createServices(
   // what pods are getting is followed every second, while any is
   const podFilesTimer = setInterval(() => void podFiles.tick().catch((err) => console.warn("[pod files]", (err as Error).message)), 1000);
   podFilesTimer.unref();
+  if (dirs.keepAwake) rented.awake = new KeepAwake();
   // RunPod read from now, once the pods' files Rented answers through are made
   rented.run();
   const services: Services = {

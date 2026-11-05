@@ -161,6 +161,7 @@ export class Rented extends RentedDeploy {
       idleLeftMs: status === "RUNNING" && !s?.stopping && (s?.answered || s?.busyRestored) && idleMs > 0 && s?.busyAt && !this.queue.busyOn(machine.id) && !this.queue.fetching(machine.id) ? Math.max(0, idleMs - (this.now() - s.busyAt)) : null,
       capped: s?.stopAfter ?? false,
       stopping: s?.stopping ?? false,
+      awake: this.podWorks(machine.id) ? (this.awake.held ? "held" : this.awake.failed ? "failed" : null) : null,
       stoppedBy: s?.stoppedBy ?? null,
       crash: s?.comfyDied && (s.stoppedBy === "crash" || s.answers === false) ? s.comfyDied.said : null,
       booting,

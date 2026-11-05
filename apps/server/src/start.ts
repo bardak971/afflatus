@@ -171,7 +171,7 @@ export async function start(config: Config, opts: StartOptions = {}): Promise<St
     }
     // the start's sweep runs once the server listens: run at once, its reading of every Undo step held the start 0.25 s
     // at a heavy user's scale, with nothing in it that cannot wait a few seconds
-    services = await createServices(db, kind, new LocalStorage(join(config.dataDir, "files")), opts.queueOptions, { dataDir: config.dataDir, firstSweepMs: FIRST_SWEEP_MS });
+    services = await createServices(db, kind, new LocalStorage(join(config.dataDir, "files")), opts.queueOptions, { dataDir: config.dataDir, firstSweepMs: FIRST_SWEEP_MS, keepAwake: true });
     updates = new AfflatusUpdates({ services, dataDir: config.dataDir, restart, ...opts.updates });
     await updates.init();
     app = buildApp(services, { webDir: opts.webDir, backup: { dataDir: config.dataDir, filesDir: join(config.dataDir, "files") }, updates });

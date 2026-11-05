@@ -57,7 +57,7 @@ async function notifySwitch(kind: NotifyKind, on: boolean) {
 
 export const pageLabel = (tab: Tab) => TABS.find((t) => t.id === tab)?.label ?? "Settings";
 
-const server = (key: "tagCheck" | "civitaiLookups" | "downloadModels" | "updateChecks" | "pngInfo", label: string, page: Tab, about: string, words?: string): SettingEntry => ({
+const server = (key: "tagCheck" | "civitaiLookups" | "downloadModels" | "updateChecks" | "pngInfo" | "keepAwake", label: string, page: Tab, about: string, words?: string): SettingEntry => ({
   id: `server.${key}`, label, page, about, words, scope: "Afflatus", kind: "switch",
   get: (c) => c.server?.[key],
   set: (c, v) => c.save({ [key]: Boolean(v) }),
@@ -148,6 +148,7 @@ export const SETTINGS: SettingEntry[] = [
   server("tagCheck", "Danbooru tag check", "prompts", "Tags written for an anime model are compared with danbooru's list: another name or a typo is pointed out under the prompt.", "typo tags anime"),
   server("civitaiLookups", "Search Hugging Face and Civitai", "models", "Missing model files, trigger words and model pages may be looked for on Hugging Face and Civitai (file hashes are sent).", "civitai lookups trigger words lora names"),
   server("downloadModels", "Download missing models", "models", "Missing model files may be fetched into ComfyUI's model folders: by Afflatus itself when it can write them, else by the Afflatus node pack or ComfyUI-Manager.", "download missing files into comfyui manager fetch node pack"),
+  { ...server("keepAwake", "Keep this PC awake while a rented GPU works", "rented", SETTING_HELP.keepAwake, "sleep awake standby suspend hibernate power computer pc rented runpod pod billed watchdog"), id: "rented.awake" },
   server("pngInfo", "Generation parameters in downloads", "storage", SETTING_HELP.pngInfo, "png info parameters metadata civitai hashes a1111 privacy prompt download export"),
   server("updateChecks", "Newer versions on Civitai: check once a day", "model-files", SETTING_HELP.updateChecks, "check for newer versions of your models update civitai version"),
   { id: "bar.learn", label: "Learn what I use", page: "interface", words: "command bar ranking recent frequency", scope: "this browser", kind: "switch", about: "What you open often and lately comes first in the bar. Kept in this browser.", get: () => useBar.getState().learn, set: (_c, v) => useBar.getState().setLearn(Boolean(v)) },

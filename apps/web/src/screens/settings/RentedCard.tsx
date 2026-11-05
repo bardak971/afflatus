@@ -218,6 +218,11 @@ function RunpodAccount() {
     onError: sayFailed("The boot logs' setting was not saved"),
   });
   const bootLogDays = settings.data?.bootLogDays ?? 0;
+  const saveAwake = useMutation({
+    mutationFn: (keepAwake: boolean) => api.saveSettings({ keepAwake }),
+    onSuccess: (saved) => client.setQueryData(queryKeys.settings(), saved),
+    onError: sayFailed("Keeping this PC awake was not saved"),
+  });
   const s = spending.data?.spending;
   const now = s ? runwayNowSaid({ spendPerHr: s.spendPerHr, runwayNowMs: s.runwayMs, perDay: s.perDay.pods + s.perDay.storage }) : null;
   const caps = settings.data?.rentCaps ?? s?.caps ?? { day: 0, month: 0 };
@@ -257,6 +262,10 @@ function RunpodAccount() {
       <S3Key />
       <Row setting="rented.unused" label="Unused volumes" help={SETTING_HELP.volumeUnusedDays}>
         <span className="w-[120px]"><Select size="sm" label="Flag a volume unused after" value={String(settings.data?.volumeUnusedDays ?? 7)} onChange={(v) => !saveUnused.isPending && saveUnused.mutate(Number(v))} options={UNUSED_DAYS.map((n) => ({ value: String(n), label: n ? `after ${plural(n, "day")}` : "never" }))} /></span>
+      </Row>
+      {/* asleep, this PC drives no pod: it bills until its watchdog stops it (card #320) */}
+      <Row setting="rented.awake" label="Sleep" help={SETTING_HELP.keepAwake}>
+        <Checkbox checked={settings.data?.keepAwake ?? true} onChange={(on) => !saveAwake.isPending && saveAwake.mutate(on)}>Keep this PC awake while a rented GPU works</Checkbox>
       </Row>
       <Row setting="rented.bootlogs" label="Boot logs" help={BOOT_LOGS_WHY}>
         <span className="flex items-center gap-2">

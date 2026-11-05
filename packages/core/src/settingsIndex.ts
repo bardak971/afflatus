@@ -34,6 +34,7 @@ export const SETTING_INDEX: SettingSpot[] = [
   { tab: "rented", label: "Next deploy", key: "rented.next", words: "rented runpod deploy again defaults next choices" },
   { tab: "rented", label: "S3 API key", key: "rented.s3", words: "rented runpod s3 key volume files viewer delete space" },
   { tab: "rented", label: "Unused volumes", key: "rented.unused", words: "rented runpod volume unused flag days storage" },
+  { tab: "rented", label: "Keep this PC awake while a rented GPU works", key: "rented.awake", words: "sleep awake standby suspend hibernate power computer pc rented runpod pod billed watchdog caffeinate systemd-inhibit" },
   { tab: "rented", label: "Boot logs", key: "rented.bootlogs", words: "rented runpod pod boot log pull system keep days image" },
   { tab: "comfyui", label: "ComfyUI token", key: "comfy.access", words: "access lock locked token password login security botnet listen exposed unlock renew" },
   { tab: "comfyui", label: "ComfyUI version and PyTorch", key: "comfy.version", near: "comfy.url", words: "update comfyui version too old core nodes git pull portable pytorch torch cuda cu130 cu128 int8 convrot nvfp4" },

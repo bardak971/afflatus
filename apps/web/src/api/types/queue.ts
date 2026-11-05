@@ -665,6 +665,8 @@ export interface RentedState {
   capped: boolean;
   /** Afflatus is stopping it now: it takes no new work. */
   stopping: boolean;
+  /** This PC is kept from sleeping while it works: "held"; "failed" when that could not be had (the OS's tool missing); null otherwise. */
+  awake: "held" | "failed" | null;
   /** Why Afflatus stopped or terminated it last: "boot" when its ComfyUI never answered. */
   stoppedBy: "idle" | "cap" | "you" | "boot" | "gpu" | "watchdog" | "filled" | "cut" | "start" | "crash" | null;
   /** Its ComfyUI died on it: why, as the pod said it (Seen.comfyDied), while that says what the pod is now; null otherwise. */

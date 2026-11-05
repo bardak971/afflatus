@@ -50,6 +50,12 @@ export interface RentedView {
   /** Afflatus is stopping it now (idle, a cap, or the user): it takes no new work. */
   stopping: boolean;
   /**
+   * This PC is kept from sleeping while it works (Settings › Rented GPUs, keepAwake.ts): "held"; "failed" when that was
+   * wanted and could not be had (the OS's tool missing), the PC sleeping on its own settings; null when it does not work, or
+   * the switch is off.
+   */
+  awake: "held" | "failed" | null;
+  /**
    * Why Afflatus stopped or terminated it last, when it did: "boot" when its ComfyUI never answered; "gpu" when the pod said its
    * GPU does not work; "watchdog" when its watchdog stopped it while Afflatus was away, and Afflatus terminated what was left;
    * "cut" when a fill of its volume was cut short (its files stuck, or past its time); "start" when its boot log said its start

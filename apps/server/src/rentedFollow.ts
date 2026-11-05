@@ -14,6 +14,7 @@ import { machinesSetAside, readSettings, updateSettings, type Machine, type Mach
 import { resetRun, type PodFilesLeft, type RentedView, type Seen } from "./rentedModel";
 import { capReached, HOUR, RentedBilling } from "./rentedBilling";
 import { overrunAllowed } from "./queueModel";
+import { KeepAwake } from "./keepAwake";
 
 /**
  * A deploy's name RunPod has not listed for this long is forgotten (settlePending): RunPod lists a pod it made within
@@ -172,6 +173,38 @@ export class RentedFollow extends RentedBilling {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    // Afflatus stopping: this PC may sleep again (its child ends with Afflatus anyway, keepAwake.ts)
+    this.awake.stop();
+  }
+
+  /**
+   * This PC asked not to sleep while a pod works (keepAwake.ts): one that holds nothing until the server's start gives the
+   * real one (services.ts `keepAwake`); a test gives a stand-in spawner.
+   */
+  awake = new KeepAwake({ command: null });
+
+  /**
+   * Whether a machine's pod works as far as this PC's sleep goes: billed (starting, booting, fetching, rendering, idle) or
+   * being stopped, a stop Afflatus has to see through; or not read from RunPod yet, its state not known (Afflatus just
+   * started, or RunPod not answering), when it may be. A pod stopped or gone bills no GPU: a job pinned to it waits for a
+   * Start nobody here gives on their own, so it keeps nothing awake.
+   */
+  protected podWorks(machine: string): boolean {
+    const s = this.seen.get(machine);
+    if (!s) return false;
+    return !s.read || s.stopping || BILLED.has(s.pod?.status ?? "GONE");
+  }
+
+  /**
+   * The ask to keep this PC awake held while a rented pod works or a deploy is under way, as Settings says (keepAwake);
+   * let go otherwise. Said again after each read of RunPod, at a deploy's start and end, and when the switch changes.
+   */
+  async syncAwake(): Promise<void> {
+    const s = await readSettings(this.db).catch(() => null);
+    // Afflatus stopping meanwhile: nothing is held again
+    if (this.stopped) return this.awake.set(false);
+    if (!s) return;
+    this.awake.set(s.keepAwake && (this.deploying || s.machines.some((m) => m.rented && this.podWorks(m.id))));
   }
 
   /** When each pod last listed its volume's folders (ms), by machine and volume: at most every VOLUME_LIST_MS, a new pod at its first answer. */
@@ -207,7 +240,8 @@ export class RentedFollow extends RentedBilling {
       });
       return this.pollAgain;
     }
-    this.polling = this.pollOnce().finally(() => {
+    // what was read says whether this PC is kept awake for the pods, whether the read went well or not
+    this.polling = this.pollOnce().finally(() => this.syncAwake().catch(() => {})).finally(() => {
       this.polling = null;
     });
     return this.polling;
