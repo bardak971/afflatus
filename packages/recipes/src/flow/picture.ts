@@ -82,7 +82,7 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       ...(regionsIn(input).length ? [...MOSS_LAYOUT_NODES, "SkipLayerGuidanceDiTSimple"] : []),
       ];
     },
-    optionalNodes: [...SOMETIMES, ...DETAIL_OPTIONAL, ...ADETAIL_OPTIONAL],
+    optionalNodes: [...SOMETIMES, ...DETAIL_OPTIONAL, ...ADETAIL_OPTIONAL, ...(spec.alpha ? ["SplitImageWithAlpha"] : [])],
     build(asked, ctx) {
       const g = new GraphBuilder();
       const input = withRegions(asked);
@@ -154,6 +154,7 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       const d = adetail(g, ctx, input, drawn, {
         model: () => shifted(g, part.model, input, { width: 1024, height: 1024 }), clip: k.clip, vae: k.vae, cond: (text) => (text ? cond(g, k, input, text) : part.c()),
         steps: k.steps, distilled: distilledFile(input, ctx.slots), cfg: k.cfg, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed, scale: input.hires ? input.hiresScale : 1,
+        alpha: spec.alpha,
       });
       const out = g.add("PreviewImage", { images: d.image });
       const all = d.passes.length ? [...sized(passes, [size.width * size.height, largeOf(input).width * largeOf(input).height]), ...d.passes] : passes;

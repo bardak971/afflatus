@@ -162,6 +162,8 @@ export interface DetailWith {
   scale: number;
   /** A pass the family does otherwise (Krea 2's person face, from their picture). */
   skip?: Partial<Record<Kind["key"], boolean>>;
+  /** Its VAE decodes an alpha too (FlowSpec.alpha): the detailer is given the colours alone. */
+  alpha?: boolean;
 }
 
 /** What the passes made: the picture, a pass of the job's progress for each, the detectors loaded, what the job says. */
@@ -195,6 +197,9 @@ export function adetail(g: GraphBuilder, ctx: BuildContext, input: AdetailSettin
     if (!wanted(ctx, { input: id, nodes: ["DetailerForEach"], without: `Detail: ${k.word}` })) continue;
     if (!wanted(ctx, { input: id, nodes: ["UltralyticsDetectorProvider"], without: `Detail: ${k.word}` })) continue;
     if (!made.passes.length) g.phase("detailing");
+    // the Impact Pack's detailer takes three channels: Qwen Image 2.1's fourth failed it on a pod ("'Tensor' object has no
+    // attribute 'copy'", 2026-11-05). Split once, before the first pass; the next ones take the picture it gives back
+    if (!made.passes.length && w.alpha) made.image = g.out("SplitImageWithAlpha", { image: made.image });
     let detector = detectors.get(file);
     if (!detector) {
       detector = g.add("UltralyticsDetectorProvider", { model_name: file });
