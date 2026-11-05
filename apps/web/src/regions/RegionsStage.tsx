@@ -7,6 +7,7 @@ import { LayerToolbar } from "../stageLayer/LayerToolbar";
 import { StageLayer, useLayerKeys } from "../stageLayer/StageLayer";
 import { HAND_TOOL, type LayerTool, type ToolbarItem } from "../stageLayer/tools";
 import { useBoxKeys } from "../stageLayer/useBoxKeys";
+import { useKeepBannersAside } from "../store";
 import { Button, Help } from "../ui";
 import type { Size } from "../viewer/zoom";
 import { ZoomPicture, type LayerPlace } from "../viewer/ZoomPicture";
@@ -30,6 +31,8 @@ export function RegionsStage({ here, picture, onLeave }: {
 }) {
   const { spec, off, regions, set, size, family } = here;
   useKeysHere("regions");
+  // the strip along the top holds Done: the banners keep off it
+  useKeepBannersAside();
   const selected = useRegionsStage((s) => s.selected);
   const select = useRegionsStage((s) => s.select);
   const toolId = useRegionsStage((s) => s.tool);
@@ -131,10 +134,11 @@ export function RegionsStage({ here, picture, onLeave }: {
                 place.current = at;
                 return (
                   <StageLayer place={at} tool={tool}>
-                    {/* the empty frame: what the render fills, at the form's size, with its size in a corner */}
+                    {/* the empty frame: what the render fills, at the form's size, with its size in the bottom left corner (the
+                        bottom right one is the zoom's chip, which covered it) */}
                     {!picture && (
                       <div data-empty-frame className="pointer-events-none absolute inset-0 border border-line-strong bg-[linear-gradient(var(--color-line)_1px,transparent_1px),linear-gradient(90deg,var(--color-line)_1px,transparent_1px)] bg-panel" style={{ backgroundSize: `${size.w / 12}px ${size.w / 12}px`, borderWidth: 1 / at.shown.scale }}>
-                        <span className="absolute right-0 bottom-0 font-mono text-ink-3" style={{ fontSize: 11 / at.shown.scale, padding: 6 / at.shown.scale }}>{size.w} × {size.h}</span>
+                        <span className="absolute bottom-0 left-0 font-mono text-ink-3" style={{ fontSize: 11 / at.shown.scale, padding: 6 / at.shown.scale }}>{size.w} × {size.h}</span>
                       </div>
                     )}
                     {tools.view(at)}

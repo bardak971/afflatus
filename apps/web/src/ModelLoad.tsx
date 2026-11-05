@@ -94,11 +94,12 @@ export function StripPlace() {
   if (!place) return null;
   return (
     <span
-      className={cx(stripGhost, "min-w-0 hover:bg-transparent")}
+      className={cx(stripGhost, "shrink-0 hover:bg-transparent")}
       data-tip={place === "unfiled" ? "Not in a project and no folder open: outputs land in the Inbox. Pick a project in the rail, or open a folder, to file them." : place.path ? `Outputs land in ${place.name}. Kept outputs become files in ${place.path}` : `Outputs land in ${place.name}: the folder that is open, or the project's root.`}
     >
       <Folder size={13} className="shrink-0" />
-      <span className="max-w-48 truncate font-semibold text-ink">{place === "unfiled" ? "Inbox" : place.name}</span>
+      {/* a folder's name is short: it keeps its room, the model's chip beside it gives way first */}
+      <span className="max-w-48 shrink-0 truncate font-semibold text-ink">{place === "unfiled" ? "Inbox" : place.name}</span>
     </span>
   );
 }
@@ -280,8 +281,9 @@ function OfForm({ recipe, input, look }: OpenForm) {
       ) : (
         <>
           <span className="flex min-w-0 items-center gap-1" data-tip={held ? `${held} is the model ComfyUI has loaded. This form renders with another model: Load swaps it in now.` : "ComfyUI has no model loaded by Afflatus."}>
-            {/* short of room the name goes, and the words say it alone */}
-            {held ? <><span className="shrink-0 max-xl:hidden">Loaded:</span><span className={cx("max-w-56", nameClass)}>{held}</span><span className="shrink-0 max-xl:hidden">· another model</span><span className="hidden shrink-0 max-xl:inline">Another model loaded</span></> : several.length ? "Not loaded" : "Model not loaded"}
+            {/* short of room the words around the name go first (at 1280 with the side panel open they stayed and the name
+                was cut to "de…", card #318): the name and "loaded"; on a narrow window the name goes, and the words say it */}
+            {held ? <><span className="shrink-0 max-[1600px]:hidden">Loaded:</span><span className={cx("max-w-56", nameClass)}>{held}</span><span className="shrink-0 max-[1600px]:hidden">· another model</span><span className="hidden shrink-0 max-[1600px]:inline max-xl:hidden">loaded</span><span className="hidden shrink-0 max-xl:inline">Another model loaded</span></> : several.length ? "Not loaded" : "Model not loaded"}
           </span>
           <button
             type="button"

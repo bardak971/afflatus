@@ -165,7 +165,8 @@ describe("while a job renders", () => {
     await until(() => submitted().length === 1);
     const promptId = submitted()[0]!;
     const sampler = Object.entries(fake.prompts.get(promptId)!).find(([, n]) => n.class_type === "KSampler")![0];
-    expect((await get(t.app, `/api/jobs/${id}/preview`)).statusCode).toBe(404);
+    // nothing to show yet: said with no content rather than as an error
+    expect((await get(t.app, `/api/jobs/${id}/preview`)).statusCode).toBe(204);
 
     fake.send("execution_start", { prompt_id: promptId });
     fake.send("progress", { prompt_id: promptId, node: sampler, value: 5, max: 20 });
@@ -179,6 +180,8 @@ describe("while a job renders", () => {
 
     complete(fake, promptId);
     await until(async () => (await statusOf(id)).status === "done");
+    // its last step's picture asked as it ended: no content, not a 404 in the page's console (card #317)
+    expect((await get(t.app, `/api/jobs/${id}/preview`)).statusCode).toBe(204);
   });
 
   it("says on the job a pass that ran and sampled nothing, and counts its steps only once it samples", async () => {

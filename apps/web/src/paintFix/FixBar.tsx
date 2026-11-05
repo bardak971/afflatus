@@ -7,7 +7,7 @@ import { dialogOver, OVER } from "../Dialog";
 import { Kbd } from "../Keys";
 import { MAX_COUNT, tuneAt, useTune, type TuneAsk } from "../passTune";
 import type { QueuedJob } from "../queueVariation";
-import { Button, Chip, cx, fieldClass, Help, IconButton, NumberBox } from "../ui";
+import { Button, Chip, cx, Failed, fieldClass, Help, IconButton, NumberBox } from "../ui";
 import type { FixAsk } from "./useFixJob";
 
 /**
@@ -94,6 +94,9 @@ export function BarInput({ onEnter, ref, ...props }: Omit<InputHTMLAttributes<HT
   );
 }
 
+/** Why a bar's last try failed, as useFixJob says it. */
+export type BarFailure = { what: string; error: Error };
+
 /** The "?" on both of Paint and fix's bars: what a mask does and what a box does, since both are drawn on the same picture. */
 export const MASK_OR_BOX = "Mask: those pixels are inpainted again from a description of what they become (Fix). Box: an edit model follows an instruction there, the rest kept (Edit in box). A mask painted takes the bar; clear it to edit in the boxes";
 
@@ -105,7 +108,7 @@ export const boxesIgnored = (n: number) => `Fix uses the mask · ${n === 1 ? "th
  * versions, ⚙ for the rest (with the full Inpaint form one click away), and Fix. Enter in the prompt and Ctrl+Enter
  * anywhere fix; Ctrl+Enter is the bar's while it shows, not the draft's Generate.
  */
-export function FixBar({ verb, tool, job, mask, grow, busy, note, boxes, onFix, onFullForm }: {
+export function FixBar({ verb, tool, job, mask, grow, busy, failure, note, boxes, onFix, onFullForm }: {
   /** A fix of the painted part, an outpaint of the frame dragged out, or an edit of the whole picture: the bar's words, its job the same way. */
   verb: "Fix" | "Outpaint" | "Edit";
   tool: RecipeInfo;
@@ -115,6 +118,8 @@ export function FixBar({ verb, tool, job, mask, grow, busy, note, boxes, onFix, 
   mask: string | null;
   grow: number;
   busy: boolean;
+  /** Why the bar's last try failed (not queued, the form not opened): said under it until the next try. */
+  failure?: BarFailure | null;
   /** Said under the bar first: why it is not what was asked (Edit with no edit model for this picture). */
   note?: string;
   /**
@@ -185,6 +190,7 @@ export function FixBar({ verb, tool, job, mask, grow, busy, note, boxes, onFix, 
           <Wand2 size={14} /> {verb} · {plural(count, "version")} <Kbd>Ctrl+Enter</Kbd>
         </Button>
       </div>
+      {failure && <Failed inline what={failure.what} error={failure.error} />}
       {note && <span className="text-xs font-semibold text-attention-ink">{note}</span>}
       {fixing && mask && boxes && boxes.count > 0 && (
         <span role="status" className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs font-semibold text-attention-ink">

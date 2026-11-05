@@ -16,6 +16,7 @@ import { useBoxKeys } from "../stageLayer/useBoxKeys";
 import { useFrameTool, type FrameSides } from "../stageLayer/useFrameTool";
 import { useMaskLayer } from "../stageLayer/useMaskLayer";
 import { useMaskTools } from "../stageLayer/useMaskTools";
+import { useKeepBannersAside } from "../store";
 import { ErrorNote } from "../ui";
 import type { ViewerActions } from "../viewer/useViewerActions";
 import { ZoomPicture } from "../viewer/ZoomPicture";
@@ -70,9 +71,11 @@ export function PaintAndFix({ acts, mode, strip, overlay }: {
 }) {
   const { a } = acts;
   useKeysHere("paint", true, { over: overlay });
+  // the strip along the top is the tools' settings: the banners keep off it
+  useKeepBannersAside();
   const natural = useMemo(() => (a.width && a.height ? { w: a.width, h: a.height } : null), [a.width, a.height]);
   const mask = useMaskLayer({ natural });
-  const { tool: inpaint, fix, fullForm, out, outpaint, outForm, editTool, edit, editForm, boxEdit, jobFor } = useFixJob(acts);
+  const { tool: inpaint, fix, fullForm, out, outpaint, outForm, editTool, edit, editForm, boxEdit, jobFor, failure } = useFixJob(acts);
   // Edit in box (card #284): boxes drawn with B, each with its instruction, done by an instruction editor
   const { editors, start } = useBoxEditors(acts.madeWith?.family);
   const [picked, setPicked] = useState<string | null>(null);
@@ -150,6 +153,7 @@ export function PaintAndFix({ acts, mode, strip, overlay }: {
           onEditor={setPicked}
           job={jobFor(editor.recipe, "Edit in box")}
           busy={boxEdit.isPending}
+          failure={failure}
           onEdit={(tuned) => boxEdit.mutate({ recipe: editor.recipe, boxes, tuned })}
         />
       ) : (
@@ -165,6 +169,7 @@ export function PaintAndFix({ acts, mode, strip, overlay }: {
         boxes={editor ? { count: boxes.length, onClearMask: mask.clear } : undefined}
         note={mode === "edit" && !editTool ? "No edit model for this picture: paint the part to change, and Fix redoes it" : undefined}
         busy={fix.isPending || fullForm.isPending || outpaint.isPending || outForm.isPending || edit.isPending || editForm.isPending}
+        failure={failure}
         onFix={(ask) => (outpainting ? outpaint.mutate({ ...ask, sides }) : editing ? edit.mutate(ask) : void mask.png().then((png) => fix.mutate({ ...ask, soft: mask.soft, png })))}
         onFullForm={(ask) => (outpainting ? outForm.mutate({ ...ask, sides }) : editing ? editForm.mutate(ask) : void (mask.area ? mask.png() : Promise.resolve(null)).then((png) => fullForm.mutate({ ...ask, soft: mask.soft, png })))}
       />

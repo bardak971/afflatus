@@ -239,7 +239,9 @@ export function registerJobs(app: FastifyInstance, s: Services): void {
 
   app.get<{ Params: { id: string } }>("/api/jobs/:id/preview", async (req, reply) => {
     const p = await s.queue.preview(req.params.id);
-    if (!p) throw notFound("a preview");
+    // nothing to show now: not sampling yet, or it ended as the page asked for its last step's picture (the live tiles of a
+    // grid's cells did, one 404 per cell in the console, card #317). Not an error: the tile keeps what it showed
+    if (!p) return reply.code(204).header("Cache-Control", "no-store").send();
     return reply.header("Content-Type", p.mime).header("Cache-Control", "no-store").send(Buffer.from(p.bytes));
   });
 }

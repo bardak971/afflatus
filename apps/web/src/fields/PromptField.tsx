@@ -174,6 +174,8 @@ export function PromptField({ spec, id, value, values, family, onChange, bare }:
   // the keys it takes, in its ? rather than over the text on every hover
   // a few words on one line (a swap's Track) take no weights and no choices: neither is said
   const keys = spec.line ? "" : `${weighs ? `Ctrl + ↑ or ↓: the weight of ${spec.style === "tags" ? "the tag the cursor is in, or of " : ""}what is selected. ` : ""}{a|b|c}, __name__ (a wildcard file): one is picked for each result.${remembers ? " ↑ in an empty prompt: the recent prompts." : ""}`;
+  /** Icons in the box's bottom corner: the recent prompts, and the main prompt's ? of keys. */
+  const corner = remembers || (bare && !spec.optional && Boolean(keys));
   return (
     <div className="flex flex-col gap-1.5">
       {/* bare: the head over it already names it (the Create panel's Prompt row) */}
@@ -203,7 +205,9 @@ export function PromptField({ spec, id, value, values, family, onChange, bare }:
           // once the new text is in the box, the tag is selected again: the next press goes on from it
           requestAnimationFrame(() => el.setSelectionRange(next.start, next.end));
         }}
-        className={cx(field, "py-2.5 leading-normal placeholder:italic", spec.optional && !spec.example ? "text-body" : "text-sm")}
+        // the history and ? sit in the box's bottom corner: the text keeps a line's room above them, so a long prompt's last
+        // line never runs under them (card #318)
+        className={cx(field, "pt-2.5 leading-normal placeholder:italic", corner ? "pb-8" : "pb-2.5", spec.optional && !spec.example ? "text-body" : "text-sm")}
       />
       {snippetKeys.list}
       {remembers && history.list}

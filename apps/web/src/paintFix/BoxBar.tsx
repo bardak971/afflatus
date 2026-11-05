@@ -5,9 +5,9 @@ import { Kbd } from "../Keys";
 import type { QueuedJob } from "../queueVariation";
 import { Select } from "../Select";
 import { plural } from "../format";
-import { Button, Chip, Help, IconButton } from "../ui";
+import { Button, Chip, Failed, Help, IconButton } from "../ui";
 import type { BoxEditor } from "./boxEditors";
-import { BarInput, FIX_ROWS, MASK_OR_BOX, useTunedBar } from "./FixBar";
+import { BarInput, FIX_ROWS, MASK_OR_BOX, useTunedBar, type BarFailure } from "./FixBar";
 
 /** The box whose instruction the bar's field holds: the one picked, else the first that says nothing yet, else the last drawn. */
 export function boxInHand(boxes: readonly RegionValue[], selected: string | null): RegionValue | undefined {
@@ -25,7 +25,7 @@ export function boxesWhy(boxes: readonly RegionValue[]): string | null {
  * what to do in it, the editor (the picture's own model's, else Settings' one, another for this edit), ⚙ for its sampling,
  * and Edit in box. Each box keeps its own instruction; they are done one after another into one version of the picture.
  */
-export function BoxBar({ boxes, selected, onSelect, onPrompt, editors, editor, onEditor, job, busy, onEdit }: {
+export function BoxBar({ boxes, selected, onSelect, onPrompt, editors, editor, onEditor, job, busy, failure, onEdit }: {
   boxes: RegionValue[];
   selected: string | null;
   onSelect(id: string): void;
@@ -36,6 +36,8 @@ export function BoxBar({ boxes, selected, onSelect, onPrompt, editors, editor, o
   /** The job as Edit in box would queue it, for ⚙'s rows to start on. */
   job: QueuedJob;
   busy: boolean;
+  /** Why the last Edit in box failed to queue: said under the bar until the next try. */
+  failure?: BarFailure | null;
   onEdit(tuned: Record<string, unknown>): void;
 }) {
   const box = boxInHand(boxes, selected);
@@ -105,6 +107,7 @@ export function BoxBar({ boxes, selected, onSelect, onPrompt, editors, editor, o
           <Wand2 size={14} /> {words} <Kbd>Ctrl+Enter</Kbd>
         </Button>
       </div>
+      {failure && <Failed inline what={failure.what} error={failure.error} />}
       {!editor.ready && <span className="text-xs font-semibold text-attention-ink">{editor.name}'s files are not all in ComfyUI: Settings › Models has them, or a pod fetches them</span>}
       <span className="flex flex-wrap items-center justify-center gap-x-1 text-xs text-ink-3">
         Each box its own instruction, done one after another into one version · <Kbd>Del</Kbd> removes the box picked · paint a part to fix it instead · <Kbd>Esc</Kbd> lets go of the box picked, again leaves Paint and fix

@@ -4,7 +4,7 @@ import type { RecipeInfo } from "../api";
 import { uploadMask } from "../maskName";
 import { useSendJob, type QueuedJob } from "../queueVariation";
 import { queryKeys } from "../queryKeys";
-import { useSayFailed } from "../sayFailed";
+import { latestFailure } from "../sayFailed";
 import { outpaintsByFrame, useVersionDrafts } from "./useStageMode";
 import type { FrameSides } from "../stageLayer/useFrameTool";
 import type { ViewerActions } from "../viewer/useViewerActions";
@@ -82,7 +82,6 @@ export function useFixJob(acts: ViewerActions) {
   const editTool = toolFor("e");
   const send = useSendJob();
   const client = useQueryClient();
-  const failed = useSayFailed({ here: true });
   /** The job a bar queues, as ⚙'s rows start on it: the recipe's stored inputs, as a version of the picture shown. */
   const jobFor = (recipe: RecipeInfo, label: string): QueuedJob => ({ recipe, stored: toolInput(recipe), label, from: a.id, versionOf: a.id });
   /** The job queued with the bar's inputs over the stored ones, ×`count`, its versions under the picture. */
@@ -98,8 +97,8 @@ export function useFixJob(acts: ViewerActions) {
     const picture = a.id;
     return openTool.mutateAsync({ id: recipe.id, with: inputs, opened: (d) => useVersionDrafts.getState().mark(d.id, picture) });
   };
-  /** A queued job's ends: the queue read again, or why it failed in a banner. */
-  const queued = (title: string) => ({ onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.queue() }), onError: failed(title) });
+  /** A queued job's end: the queue read again. Why one failed is said in the bar it came from (`failure`), not in a banner. */
+  const queued = { onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.queue() }) };
   const upload = async (png: Blob) => (await uploadMask(a.id, png)).id;
 
   const fix = useMutation({
@@ -107,7 +106,7 @@ export function useFixJob(acts: ViewerActions) {
       const t = need(tool, "inpaint");
       await queueVersion(t, "Inpaint", fixInputs(t, ask, await upload(png)), ask.count);
     },
-    ...queued("The fix could not be queued"),
+    ...queued,
   });
   const fullForm = useMutation({
     mutationFn: async ({ png, ...ask }: Omit<FixAsk, "count"> & { png: Blob | null }) => {
@@ -116,7 +115,6 @@ export function useFixJob(acts: ViewerActions) {
       const mask = png ? await upload(png) : null;
       await openVersionForm(t, mask ? fixInputs(t, ask, mask) : {});
     },
-    onError: failed("The full form could not be opened"),
   });
   /** Outpaint by the frame dragged out: the sides as the recipe's Custom shape, versions of the picture like a fix. */
   const outpaint = useMutation({
@@ -124,14 +122,13 @@ export function useFixJob(acts: ViewerActions) {
       const t = need(out, "outpaint");
       await queueVersion(t, "Outpaint", outInputs(t, ask, sides), ask.count);
     },
-    ...queued("The outpaint could not be queued"),
+    ...queued,
   });
   const outForm = useMutation({
     mutationFn: async ({ sides, ...ask }: Omit<OutpaintAsk, "count">) => {
       const t = need(out, "outpaint");
       await openVersionForm(t, outInputs(t, ask, sides));
     },
-    onError: failed("The full form could not be opened"),
   });
   /** Edit from the bar: the instruction (or img2img's prompt and denoise) on the whole picture, as versions of it. */
   const edit = useMutation({
@@ -139,21 +136,30 @@ export function useFixJob(acts: ViewerActions) {
       const t = need(editTool, "edit");
       await queueVersion(t, "Edit", editInputs(t, ask), ask.count);
     },
-    ...queued("The edit could not be queued"),
+    ...queued,
   });
   const editForm = useMutation({
     mutationFn: async (ask: Omit<FixAsk, "count">) => {
       const t = need(editTool, "edit");
       await openVersionForm(t, editInputs(t, ask));
     },
-    onError: failed("The full form could not be opened"),
   });
   /** Edit in box: each box's instruction done there by the editor picked, one after another, into one version of the picture. */
   const boxEdit = useMutation({
     mutationFn: async ({ recipe, boxes, tuned }: { recipe: RecipeInfo; boxes: RegionValue[]; tuned: Record<string, unknown> }) => {
       await queueVersion(recipe, "Edit in box", boxInputs(boxes, tuned));
     },
-    ...queued("The edit in box could not be queued"),
+    ...queued,
   });
-  return { tool, fix, fullForm, out, outpaint, outForm, editTool, edit, editForm, boxEdit, jobFor };
+  // the bar says what failed under it, in its place, until the next try: a banner over the Stage stayed until closed and
+  // covered the strip's Size, Feather and Grow (card #317). The newest try only: an older failure is no news
+  const tries = [
+    ["The fix could not be queued", fix], ["The full form could not be opened", fullForm], ["The outpaint could not be queued", outpaint],
+    ["The full form could not be opened", outForm], ["The edit could not be queued", edit], ["The full form could not be opened", editForm],
+    ["The edit in box could not be queued", boxEdit],
+  ] as const;
+  const newest = Math.max(0, ...tries.map(([, m]) => m.submittedAt));
+  const said = latestFailure(tries, newest);
+  const failure = said.error ? { what: said.what, error: said.error } : null;
+  return { tool, fix, fullForm, out, outpaint, outForm, editTool, edit, editForm, boxEdit, jobFor, failure };
 }

@@ -10,7 +10,7 @@ import { queryKeys } from "../queryKeys";
 import { allRunning, useQueueOf } from "../screens/studio/queueOf";
 import { LiveTile } from "../screens/studio/LiveTile";
 import { useSayFailed } from "../sayFailed";
-import { useBanners } from "../store";
+import { useBanners, useKeepBannersAside } from "../store";
 import { Button, CloseButton, cx, Failed, Help, IconButton } from "../ui";
 import { askViewer } from "../viewer/ask";
 import { Viewer } from "../viewer/LazyViewer";
@@ -29,6 +29,8 @@ const LEAST_CELL = 72;
  * the rest to the bin. The cells are normal library items under the 24 h rule unless kept.
  */
 export function GridBoard({ grid, draft, folder, onClose }: { grid: string; draft?: string; folder?: string; onClose(): void }) {
+  // its column labels are what a column is picked by: the banners keep off them
+  useKeepBannersAside();
   const client = useQueryClient();
   const view = useQuery({
     queryKey: queryKeys.grids.one(grid),
