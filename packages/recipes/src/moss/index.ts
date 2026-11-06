@@ -2,6 +2,7 @@ import { defineFamily, type PromptLine, QUALITY_WORDS, WEIGHT_SYNTAX, wordCount 
 import { flowRecipes, type FlowSpec } from "../flow/recipes";
 import { noGuide, noReferences } from "../shared/pictureForm";
 import { detectorSlots } from "../shared/detector";
+import { MOSS_REGIONS } from "./regions";
 
 /**
  * Comfy-Org's repack, pinned to the commit read on 2026-11-04 (the hashes are Hugging Face's own). Sizes: the SFT model 10.2 GB
@@ -127,10 +128,7 @@ const spec: FlowSpec = {
       weight: { id: "debandWeight", label: "DeBand weight", default: 1, note: "its strength_model: 1 is what its authors made it for" },
     },
   }],
-  layout: {
-    how: "MOSS-Image's own JSON layout: an object box by its prompt, a text box drawn word for word, a cast box as a character.",
-    guidance: { single: "22", end: 0.5 },
-  },
+  regions: MOSS_REGIONS,
   drops: {
     ...noReferences("MOSS-Image reads no reference image: its edit LoRA is experimental (ComfyUI ≥ 0.43) and not offered yet"),
     ...noGuide("MOSS-Image has no ControlNet: its colour and depth control LoRA is not offered yet"),

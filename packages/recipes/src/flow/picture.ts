@@ -7,7 +7,7 @@ import { ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FIL
 import { hiresFix, pictureOut, type PictureSampler } from "../shared/passes";
 import { applyGuide, FOLLOW_MAP, guideInputs, guideNeeds, guideNodes, type GuideSettings } from "../shared/guide";
 import { REDUX_NODES, reduxInputs, reduxNeeds, withRedux, type ReferenceSettings } from "../shared/references";
-import { MOSS_LAYOUT_NODES, mossLayout, mossLayoutText, regionsInput, withRegionLoras } from "../shared/regions";
+import { regionsInput, withWayLoras } from "../shared/regions";
 import type { FlowBase, FlowKit, FlowSpec } from "./kit";
 
 export interface FlowPicture extends FlowBase, HiresPass, DetailSettings, TileSettings, AdetailSettings, GuideSettings, ReferenceSettings {
@@ -37,10 +37,10 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
   const hiresDefault = { scale: spec.hires?.scale ?? 1.25, denoise: spec.hires?.denoise ?? 0.4, steps: spec.hires?.steps ?? Math.max(4, Math.round(spec.sampling.steps / 2)) };
   const hiresAt = { width: roundTo(shape.width * hiresDefault.scale, grid), height: roundTo(shape.height * hiresDefault.scale, grid) };
   const hiresNoise = noiseWords(hiresDefault.denoise, hiresDefault.steps, [{ size: hiresAt, where: `at ${hiresAt.width}×${hiresAt.height}` }]);
-  // the regions written as one layout (MOSS-Image): every box in one text, so their LoRAs go on the whole picture
-  const layout = spec.layout;
-  const regionsIn = (input: FlowPicture) => (layout ? regionsOf(input.regions) : []);
-  const withRegions = (input: FlowPicture): FlowPicture => (layout ? { ...input, loras: withRegionLoras(input.loras, regionsIn(input)) } : input);
+  // the family's way of reading regions (MOSS-Image's layout: every box in one text, so their LoRAs go on the whole picture)
+  const way = spec.regions;
+  const regionsIn = (input: FlowPicture) => (way ? regionsOf(input.regions) : []);
+  const withRegions = (input: FlowPicture): FlowPicture => (way ? { ...input, loras: withWayLoras(way, input.loras, input.regions) } : input);
   const sizeOf = (input: FlowPicture) => ({ width: roundTo(input.size.width, grid), height: roundTo(input.size.height, grid) });
   return pictureForm("txt2img", defineRecipe<FlowPicture>({
     id: `${spec.family}.text-to-picture`,
@@ -61,7 +61,7 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       ...(spec.references ? reduxInputs({ image: "look", strength: "lookStrength" }) : []),
       ...(spec.guide ? guideInputs(spec.guide) : []),
       { id: "size", type: "size", label: "Size", default: "tall", grid, min: 256, max: spec.maxSize ?? 2048, perModel: true, shapes: spec.shapes, ...(spec.maxPixels ? { maxPixels: spec.maxPixels } : {}) },
-      ...(layout ? [regionsInput({ lora: "global", kinds: true, how: layout.how })] : []),
+      ...(way ? [regionsInput(way)] : []),
       ...adetailInputs("sentences"),
       ...(spec.detail === "daemon" ? DAEMON_DETAIL_INPUTS : DETAIL_INPUTS),
       // the seed among them, which pictureForm puts last
@@ -69,9 +69,9 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       ...hiresInputs({ scale: hiresDefault.scale, denoise: hiresDefault.denoise, denoiseNote: ["how much the second pass may redraw", hiresNoise].filter(Boolean).join("; "), steps: hiresDefault.steps }),
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),
-    ...(layout ? { layoutOf: (input: FlowPicture) => (regionsIn(input).length ? mossLayout(input.prompt, regionsIn(input), sizeOf(input)) : null) } : {}),
+    ...(way?.layoutOf ? { layoutOf: (input: FlowPicture) => way.layoutOf!(input, sizeOf(input)) } : {}),
     nodes: (asked) => {
-      // the regions' LoRAs are on the model as the form's are (MOSS-Image's layout puts them on the whole picture)
+      // a global way's LoRAs are on the model as the form's are (MOSS-Image's layout puts them on the whole picture)
       const input = withRegions(asked);
       return [
       ...loadNodes(input).filter((n) => n !== "KSampler"), emptyLatent, ...detailNodes(detailOf(input)),
@@ -80,7 +80,7 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       ...(spec.guide ? guideNodes(input, spec.guide) : []),
       ...(input.hires ? ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode"] : []),
       ...tileNodes(input.hires && inTiles(input, largeOf(input), AREA)),
-      ...(regionsIn(input).length ? [...MOSS_LAYOUT_NODES, "SkipLayerGuidanceDiTSimple"] : []),
+      ...(way ? way.nodes(input.regions) : []),
       ];
     },
     optionalNodes: [...SOMETIMES, ...DETAIL_OPTIONAL, ...ADETAIL_OPTIONAL, ...(spec.alpha ? ["SplitImageWithAlpha", "JoinImageWithAlpha"] : [])],
@@ -89,10 +89,11 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       const input = withRegions(asked);
       const regions = regionsIn(input);
       const loaded = load(g, input, ctx);
-      // with regions, the skip-layer guidance the layout template samples with (its negative side skips a layer)
-      const k = regions.length && layout ? { ...loaded, model: g.out("SkipLayerGuidanceDiTSimple", { model: loaded.model, double_layers: "", single_layers: layout.guidance.single, start_percent: 0, end_percent: layout.guidance.end }) } : loaded;
+      // with regions, what the way puts on the model (MOSS-Image's skip-layer guidance) and the text each pass reads
+      const regioned = regions.length && way ? way.apply(g, { model: loaded.model, prompt: input.prompt }, input.regions) : null;
+      const k = regioned ? { ...loaded, model: regioned.model } : loaded;
       const size = sizeOf(input);
-      const loads = [...k.loads];
+      const loads = [...k.loads, ...(way ? way.loads(input.regions) : [])];
       // the text as read, with the reference images' Redux over it (its files counted once)
       const read = (text: string | Ref) => {
         const c = cond(g, k, input, text);
@@ -101,7 +102,7 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
         for (const l of r.loads) if (!loads.includes(l)) loads.push(l);
         return { ...c, positive: r.positive };
       };
-      const c = read(regions.length ? mossLayoutText(g, input.prompt, regions, size) : input.prompt);
+      const c = read(regioned ? regioned.text(size) : input.prompt);
       // what a part of the picture is redrawn from (a hires tile, a Detail crop): the prompt alone, on the model as without
       // regions. The layout says where every box lies in the whole frame, which a tile or a 1024² face crop is not: read
       // there, each crop was asked to lay out all the boxes again (card #296). Read once, by the first pass that needs it
@@ -122,7 +123,7 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
         vae: k.vae, area: AREA,
         // the whole frame again, larger: its layout said at that size, as the boxes' edges are in its pixels
         whole: (scaled, large) => {
-          const whole = regions.length ? read(mossLayoutText(g, input.prompt, regions, large)) : c;
+          const whole = regioned ? read(regioned.text(large)) : c;
           return sample(g, k, input, shifted(g, k.model, input, large), whole, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), ctx.seed, pass, detail);
         },
         // each tile is a picture the model's size to it: the shift for that size
@@ -164,7 +165,7 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       { name: "a GGUF model, in fp8 asked for (no effect on it)", input: { prompt: "a", model: `${spec.family}-Q4_K_M.gguf`, precision: "fp8_e4m3fn" } as Partial<FlowPicture>, slots: files },
       { name: "a fine-tune with a shift, a LoRA, a negative prompt and hires fix", input: { prompt: "a", ...tuned, hires: true, hiresUpscaler: "u.pth", size: { width: 1152, height: 1536 } } as Partial<FlowPicture>, slots: files },
       ...(spec.extras ?? []).map((e) => ({ name: `${e.toggle.label} with its LoRA, beside one of the user's`, input: { prompt: "a", [e.toggle.id]: true, loras: [{ file: "l.safetensors", weight: 0.8 }] } as Partial<FlowPicture>, slots: { ...files, [e.row.file.slot]: `${e.toggle.id}.safetensors` } })),
-      ...(layout
+      ...(way
         ? [
           { name: "regions: two objects and a text", input: { prompt: "a", regions: [{ id: "a", box: { x: 0, y: 0.3, w: 0.5, h: 0.7 }, prompt: "a red fox" }, { id: "b", box: { x: 0.5, y: 0.3, w: 0.5, h: 0.7 }, prompt: "a grey owl" }, { id: "c", box: { x: 0.1, y: 0, w: 0.8, h: 0.25 }, prompt: "big cream serif capitals", kind: "text", text: "FOREST" }] } as Partial<FlowPicture>, slots: files },
           {

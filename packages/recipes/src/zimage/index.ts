@@ -3,7 +3,6 @@ import { flowRecipes, type FlowSpec } from "../flow/recipes";
 import { noReferences } from "../shared/pictureForm";
 import type { GuideWay } from "../shared/guide";
 import { detectorSlots } from "../shared/detector";
-import { REGIONS_WHY } from "../shared/regions";
 
 const HF = "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files";
 
@@ -89,6 +88,9 @@ A photograph of an old bookbinder at a cluttered workbench, sleeves rolled up, p
   },
 });
 
+/** Why Z-Image's txt2img has no regions (its drop, card #271). */
+export const ZIMAGE_REGIONS_WHY = "Z-Image has one small regional pack, untested: none are offered for now";
+
 const spec: FlowSpec = {
   family: "zimage",
   model: {
@@ -110,7 +112,7 @@ const spec: FlowSpec = {
   hires: { scale: 1.5, denoise: 0.3 },
   inpaintPatch: { slot: "inpaintCn" },
   guide: ZIMAGE_GUIDE,
-  drops: { ...noReferences("Z-Image Turbo reads no reference image: no Redux or IP-Adapter is made for it"), regions: REGIONS_WHY.zimage },
+  drops: { ...noReferences("Z-Image Turbo reads no reference image: no Redux or IP-Adapter is made for it"), regions: ZIMAGE_REGIONS_WHY },
   shapes: [
     { id: "tall", label: "Portrait", width: 896, height: 1152 },
     { id: "square", label: "Square", width: 1024, height: 1024 },

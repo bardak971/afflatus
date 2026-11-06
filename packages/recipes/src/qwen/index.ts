@@ -8,7 +8,6 @@ import { addedLora, putAdded } from "../shared/model";
 import { loadUnet, unetNodes } from "../shared/unet";
 import { qwenLint } from "../shared/lint";
 import { detectorSlots } from "../shared/detector";
-import { REGIONS_WHY } from "../shared/regions";
 
 const HF = "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files";
 const HF_EDIT = "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_files";
@@ -113,6 +112,9 @@ const lightning = /lightning|turbo|distill|(^|[^a-z0-9])\d+[ _-]?steps?/i;
 /** Qwen Image's own negative prompt, as its authors and ComfyUI's template give it (low resolution, deformed hands, waxy skin, an "AI look", muddled composition, blurred text). */
 const QWEN_NEGATIVE = "低分辨率，低画质，肢体畸形，手指畸形，画面过饱和，蜡像感，人脸无细节，过度光滑，画面具有AI感。构图混乱。文字模糊，扭曲";
 
+/** Why Qwen Image's txt2img has no regions (its drop, card #271). */
+export const QWEN_REGIONS_WHY = "Qwen Image reads masked conditioning too weakly for regions to hold (its one pack, mask-based, was found weak): none are offered";
+
 const spec: FlowSpec = {
   family: "qwen",
   model: {
@@ -147,7 +149,7 @@ const spec: FlowSpec = {
   ],
   megapixels: 1.8,
   guide: QWEN_GUIDE,
-  drops: { ...noReferences("Qwen Image reads no reference image (no Redux or IP-Adapter is made for it): Edit, with Qwen Image Edit, takes them"), regions: REGIONS_WHY.qwen },
+  drops: { ...noReferences("Qwen Image reads no reference image (no Redux or IP-Adapter is made for it): Edit, with Qwen Image Edit, takes them"), regions: QWEN_REGIONS_WHY },
   placeholder: "A photograph of a small bakery at dawn, a chalkboard by the door that reads \"FRESH BREAD\", warm light from the windows on wet cobblestones.",
   files: { unet: "qwen_image_2512_fp8_e4m3fn.safetensors", clip: "qwen_2.5_vl_7b_fp8_scaled.safetensors", vae: "qwen_image_vae.safetensors" },
   fineTune: "Qwen\\someone_qwen_image_v1.safetensors",
