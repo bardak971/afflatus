@@ -73,7 +73,7 @@ export function useSelectionPasses() {
   };
   /** The recipe each pass would use at all (a picture's own model may have its own), by its title: what is off has none. */
   // a Vary's img2img is each picture's own model's: offered while any model on has one
-  const img2img = place.all.find((r) => r.output === "image" && r.id.endsWith(".redraw"));
+  const img2img = place.all.find((r) => r.output === "image" && r.op === "img2img");
   const passes = Object.fromEntries(SELECTION_PASSES.flatMap((id) => {
     const tool = VARY[id] ? img2img : toolOf(PASS_KEYS[id]!, place.all, place.families, undefined, place.ready);
     return tool ? [[id, tool.title]] : [];

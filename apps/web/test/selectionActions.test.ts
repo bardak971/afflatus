@@ -41,10 +41,10 @@ describe("a library selection's actions", () => {
 });
 
 const source = { id: "image", type: "image", role: "source", label: "Picture" };
-const recipe = (id: string, inputs: unknown[] = []): RecipeInfo => ({ id, family: id.split(".")[0], output: "image", title: id, inputs: [source, ...inputs] }) as unknown as RecipeInfo;
-const make = { id: "sdxl.text-to-picture", family: "sdxl", output: "image", title: "Text to picture", inputs: [{ id: "prompt", type: "prompt" }, { id: "checkpoint", type: "choice" }] } as unknown as RecipeInfo;
+const recipe = (id: string, op: string, inputs: unknown[] = []): RecipeInfo => ({ id, family: id.split(".")[0], output: "image", op, title: id, inputs: [source, ...inputs] }) as unknown as RecipeInfo;
+const make = { id: "sdxl.text-to-picture", family: "sdxl", output: "image", op: "txt2img", title: "Text to picture", inputs: [{ id: "prompt", type: "prompt" }, { id: "checkpoint", type: "choice" }] } as unknown as RecipeInfo;
 const detector = { id: "detector", type: "choice", whenChosen: [{ match: "hand_yolo", values: { denoise: 0.35, crop_factor: 2 } }] };
-const all = [make, recipe("sdxl.sharper"), recipe("sdxl.fix-face", [{ id: "prompt", type: "prompt" }, { id: "checkpoint", type: "choice" }, detector])];
+const all = [make, recipe("sdxl.sharper", "upscale"), recipe("sdxl.fix-face", "face", [{ id: "prompt", type: "prompt" }, { id: "checkpoint", type: "choice" }, detector])];
 const place = (options: Record<string, string[]> = { detector: ["bbox/face_yolov8m.pt", "bbox/hand_yolov8s.pt"] }): PassPlace => ({
   all, families: [{ id: "sdxl", name: "SDXL", summary: "" }], ready: () => true, options: () => options, online: true,
 });

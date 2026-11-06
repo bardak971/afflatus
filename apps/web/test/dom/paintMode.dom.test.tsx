@@ -19,8 +19,8 @@ const next = picture("zz-test-next");
 afterEach(() => act(() => useStageMode.getState().leave()));
 
 /** An inpaint the picture can be fixed with: Paint and fix is offered only with one. */
-const INPAINT = { id: "zz-test.paint-over", family: "zz-test", output: "image", title: "Inpaint", inputs: [{ id: "source", type: "image", role: "source" }, { id: "mask", type: "image", role: "mask" }, { id: "prompt", type: "prompt" }, { id: "strength", type: "number", min: 0.05, max: 1, step: 0.05, default: 0.75 }] };
-const EDIT = { id: "zz-test.edit", family: "zz-test", output: "image", title: "Edit", inputs: [{ id: "source", type: "image", role: "source" }, { id: "prompt", type: "prompt", placeholder: "Change the car to red" }] };
+const INPAINT = { id: "zz-test.paint-over", family: "zz-test", output: "image", op: "inpaint", title: "Inpaint", inputs: [{ id: "source", type: "image", role: "source" }, { id: "mask", type: "image", role: "mask" }, { id: "prompt", type: "prompt" }, { id: "strength", type: "number", min: 0.05, max: 1, step: 0.05, default: 0.75 }] };
+const EDIT = { id: "zz-test.edit", family: "zz-test", output: "image", op: "edit", title: "Edit", inputs: [{ id: "source", type: "image", role: "source" }, { id: "prompt", type: "prompt", placeholder: "Change the car to red" }] };
 const withInpaint = () => fakeApi.on("GET /recipes", { families: [{ id: "zz-test", name: "zz-test", summary: "" }], recipes: [INPAINT, EDIT] });
 
 /** The viewer in place on a picture with one version, Paint and fix on over it. */

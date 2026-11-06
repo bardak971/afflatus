@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { describeRecipe } from "@afflatus/core";
 import { families, recipes } from "@afflatus/recipes";
 import type { RecipeInfo } from "../src/api";
 import { toolOf } from "../src/viewer/shared";
 
-// the built-in recipes as /api/recipes lists them (only what toolOf reads)
-const all = recipes.map((r) => ({ id: r.id, family: r.family, version: r.version, title: r.title, summary: r.summary, output: r.output, inputs: r.inputs, traits: null }) as unknown as RecipeInfo);
+// the built-in recipes as /api/recipes lists them
+const all = recipes.map((r) => describeRecipe(r) as RecipeInfo);
 // what each operation's recipes are called, written out here (not read from OPS): a family whose recipe OPS does not know is a miss
 const OWN: Record<string, string[]> = { u: [".sharper"], f: [".fix-face"], i: [".paint-over"], e: [".edit", ".redraw"], r: [".outpaint", ".change-shape"] };
 const imageFamilies = families.filter((f) => all.some((r) => r.family === f.id && r.output === "image") && f.id !== "tools");
