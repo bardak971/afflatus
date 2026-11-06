@@ -14,8 +14,8 @@ const MODEL = ["model", "checkpoint"];
 /** How every picture form samples, in this order: the LoRAs, the negative, then the sampler's own rows. */
 const SAMPLING = ["loras", "negative", "steps", "cfg", "sampler", "scheduler", "shift", "precision"];
 const DETAIL = ["detail", "detailStrength", "detailMethod", "detailStart", "detailEnd"];
-/** ADetailer inside txt2img (card #272, shared/adetail.ts): a switch, a prompt, a denoise and a size gate for each detector. */
-const ADETAIL = ["Face", "Hands", "Person"].flatMap((k) => [`detail${k}`, `detail${k}Prompt`, `detail${k}Denoise`, `detail${k}Under`]);
+/** ADetailer inside txt2img (card #272, shared/adetail.ts): a switch, a prompt, a denoise, a size gate and a cap for each detector. */
+const ADETAIL = ["Face", "Hands", "Person"].flatMap((k) => [`detail${k}`, `detail${k}Prompt`, `detail${k}Denoise`, `detail${k}Under`, `detail${k}Most`]);
 const TILES = ["tiles", "tileSize", "tileOverlap"];
 const HIRES = ["hires", "hiresScale", "hiresUpscaler", "hiresDenoise", "hiresSteps", "hiresSampler", "hiresScheduler", ...TILES];
 const FACE = ["detector", "faceThreshold", "faceCrop", "faceGrow", "faceSize", "faceMax", "faceFeather"];

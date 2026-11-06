@@ -155,6 +155,47 @@ describe("txt2img's Detail rows", () => {
   });
 });
 
+describe("Detail's max faces (card #334): ADetailer's top k largest, a row for each detector", () => {
+  it("leaves a face's graph as it was at its default of 0, every face found redrawn", () => {
+    for (const r of txt2imgs) {
+      expect(r.inputs.find((i) => i.id === "detailFaceMost"), r.id).toMatchObject({ type: "number", label: "Face detail: max faces", default: 0, min: 0, showWhen: "detailFace", advanced: true, section: "out" });
+      const built = build(r, { detailFace: true });
+      expect(JSON.stringify(build(r, { detailFace: true, detailFaceMost: 0 }).graph), r.id).toBe(JSON.stringify(built.graph));
+      expect(of(built.graph, "ImpactSEGSOrderedFilter"), r.id).toHaveLength(0);
+    }
+  });
+
+  it("redraws only the N largest faces when set, after the size gate", () => {
+    for (const r of txt2imgs) {
+      const built = build(r, { detailFace: true, detailFaceMost: 3 });
+      const kept = node(built.graph, of(built.graph, "DetailerForEach")[0]!.inputs.segs);
+      expect(kept, r.id).toMatchObject({ class_type: "ImpactSEGSOrderedFilter", inputs: { target: "area(=w*h)", order: true, take_start: 0, take_count: 3 } });
+      expect(node(built.graph, kept.inputs.segs).class_type, r.id).toBe("ImpactSEGSRangeFilter");
+    }
+  });
+
+  it("start hands at 4 and people at 2, as before, and take another count or none", () => {
+    for (const r of txt2imgs) {
+      const row = (id: string) => r.inputs.find((i) => i.id === id) as { default: number; label: string };
+      expect([row("detailHandsMost").default, row("detailPersonMost").default], r.id).toEqual([4, 2]);
+      expect([row("detailHandsMost").label, row("detailPersonMost").label], r.id).toEqual(["Hands detail: max hands", "Person detail: max people"]);
+      const built = build(r, { detailHands: true, detailPerson: true, detailHandsMost: 6, detailPersonMost: 0 });
+      const [person, hands] = of(built.graph, "DetailerForEach");
+      expect(node(built.graph, hands!.inputs.segs).inputs.take_count, r.id).toBe(6);
+      // 0: every person under the size gate, no filter after it
+      expect(node(built.graph, person!.inputs.segs).class_type, r.id).toBe("ImpactSEGSRangeFilter");
+    }
+  });
+
+  it("leave a picture's time key as it was at their defaults", () => {
+    for (const r of txt2imgs) {
+      const input = parseInput(r, { ...r.variants[0]!.input, detailFace: true }) as Record<string, unknown>;
+      expect(timeKey(r.inputs, input), r.id).not.toMatch(/detailFaceMost/);
+      expect(timeKey(r.inputs, { ...input, detailFaceMost: 3 }), r.id).toMatch(/detailFaceMost=3/);
+    }
+  });
+});
+
 describe("Klein's and Krea 2's face passes on a distilled file keep its step spacing (card #330)", () => {
   const KLEIN = "flux-2-klein-4b.safetensors";
   const stepsOf = (id: string, over: Record<string, unknown>, slots: Record<string, string> = DETECTOR_FILES) => {
