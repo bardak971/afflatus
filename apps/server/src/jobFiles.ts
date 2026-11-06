@@ -1,5 +1,5 @@
 import { catalogKey, filesIn, type Scan } from "@afflatus/comfy";
-import { choicesOf, graphFiles, isBeyondPack, isMissingSlotFile, missingSlotFile, packOfNode, parseInput, podSlotFiles, sameFile, TOOLS_FAMILY, type Family, type GraphFile, type NodeCatalog, type Recipe, type Wanted } from "@afflatus/core";
+import { graphFiles, isBeyondPack, isMissingSlotFile, missingSlotFile, optionsIn, packOfNode, parseInput, podSlotFiles, sameFile, TOOLS_FAMILY, type Family, type GraphFile, type NodeCatalog, type Recipe, type Wanted } from "@afflatus/core";
 import { Kept, Recent } from "./kept";
 import { ANY_PACKS, cannotWhy, lookAhead, skipWhy, type PackFacts, type PacksSaid } from "./jobPacks";
 import type { Comfy } from "./comfy";
@@ -83,10 +83,7 @@ function listingOf(on: { id: string; comfy: Comfy; scan: Scan }, folder: string)
 }
 
 /** The files a node's input offers on a machine, as its node list says; null when it lists none. */
-function nodeChoices(catalog: NodeCatalog, f: GraphFile): string[] | null {
-  const def = catalog[f.classType];
-  return def ? choicesOf(def.input.required?.[f.input] ?? def.input.optional?.[f.input]) : null;
-}
+const nodeChoices = (catalog: NodeCatalog, f: GraphFile): string[] | null => optionsIn(catalog)(f.classType, f.input);
 
 /** The least room the kept graphs have, and the most: a key holds a job's inputs, and the line may hold thousands. */
 const KEPT_LEAST = 4096;

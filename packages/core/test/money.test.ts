@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cents, dayStart, diskPerHour, fetchTime, GB, monthStart, runCost, usd, usdFor, VOLUME_MAX_GB, VOLUME_MIN_GB, volumeSizeFor } from "../src";
+import { cents, dayStart, diskPerHour, fetchTime, GB, monthStart, runCost, usd, usdFor, VOLUME_MAX_GB, VOLUME_MIN_GB, volumeSizeFor, worstOf } from "../src";
 
 const HOUR = 3_600_000;
 
@@ -48,5 +48,14 @@ describe("money, one copy for the server and the web", () => {
       .toEqual({ fastMs: 20_000, slowMs: 40_000, guessed: true });
     // a source with no range at all (and a size known): not timed
     expect(fetchTime([{ bytes: 5, kind: "url" as const }], speeds)).toBeNull();
+  });
+});
+
+describe("the worst of amounts on each pod", () => {
+  it("is the largest, or not known when any one is not (or there are none)", () => {
+    expect(worstOf([0.4, 1.2, 0.9])).toBe(1.2);
+    expect(worstOf([0.4, null, 0.9])).toBeNull();
+    expect(worstOf([0.4, undefined])).toBeNull();
+    expect(worstOf([])).toBeNull();
   });
 });

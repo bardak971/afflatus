@@ -55,6 +55,16 @@ export function capRoom(s: CapsSpent, more: number): string | null {
   return null;
 }
 
+/**
+ * The worst of amounts each of which may not be known (a cost or a time on each pod): null when any is not, since an
+ * amount not known on one of them is not known, else the largest. Null of none. One rule for the grid's plan (the
+ * server's grids.ts planGrid) and the ask before many renders (the web's podAsk.ts).
+ */
+export function worstOf(values: ReadonlyArray<number | null | undefined>): number | null {
+  if (!values.length || values.some((v) => v === null || v === undefined)) return null;
+  return Math.max(...(values as number[]));
+}
+
 /** The start of the user's day holding `at` (ms, local time): what "today" counts from. */
 export function dayStart(at: number): number {
   const d = new Date(at);

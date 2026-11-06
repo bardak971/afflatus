@@ -3,6 +3,7 @@ import { endsIn, MODEL_EXTS, nameKey } from "./modelFiles";
 import { withinPixels } from "./frame";
 import { gridAtOrBefore, type FrameGrid } from "./frameGrid";
 import { sigmaOfOldDenoise } from "./sigmas";
+import { RANDOM_SEED, SEED_RANGE } from "./seed";
 import { plural, verb } from "./text";
 
 /**
@@ -593,8 +594,6 @@ export interface SizeValue {
   width: number;
   height: number;
 }
-/** -1 = draw a new seed for every render. */
-export const RANDOM_SEED = -1;
 
 /** A model input's value for "the clip's own model" (ModelInput.own): a choice, never a file to find, fetch or count. */
 export const OWN_MODEL = "Clip's own model";
@@ -616,6 +615,9 @@ const multipleOf = (n: number, grid: number) => Math.round(n / grid) * grid;
 
 /** The longest a prompt is taken (characters): a form's text past it is refused, and so is a grid cell's (grid.ts); a text is held to it before its wildcards are settled. */
 export const PROMPT_MOST = 20_000;
+/** The longest a region's words and a text box's letters are taken (characters), held to it too before their wildcards are settled. */
+export const REGION_PROMPT_MOST = 4000;
+export const REGION_TEXT_MOST = 2000;
 
 function schemaOf(spec: InputSpec): z.ZodType {
   switch (spec.type) {
@@ -659,7 +661,7 @@ function schemaOf(spec: InputSpec): z.ZodType {
         ? z.preprocess((v) => { const k = typeof v === "number" || typeof v === "boolean" ? String(v) : v; return typeof k === "string" && spec.renamed?.[k] ? spec.renamed[k] : v; }, z.enum([...(spec.extra ?? []), ...spec.options] as [string, ...string[]]).default(spec.default))
         : z.string().min(1).default(spec.default);
     case "seed":
-      return z.number().int().min(RANDOM_SEED).max(2 ** 32 - 1).default(RANDOM_SEED);
+      return z.number().int().min(RANDOM_SEED).max(SEED_RANGE - 1).default(RANDOM_SEED);
     case "image":
       return spec.optional || spec.opensOnly ? z.string().min(1).optional() : z.string().min(1);
     case "clip": {
@@ -681,10 +683,10 @@ function schemaOf(spec: InputSpec): z.ZodType {
       const share = z.number().min(0).max(1);
       const lora = z.strictObject({ file: z.string().min(1), weight: z.number().min(-4).max(4) });
       return z.array(z.strictObject({
-        id: z.string().min(1).max(64), box: z.strictObject({ x: share, y: share, w: share, h: share }), prompt: z.string().max(4000).default(""),
+        id: z.string().min(1).max(64), box: z.strictObject({ x: share, y: share, w: share, h: share }), prompt: z.string().max(REGION_PROMPT_MOST).default(""),
         cast: z.string().min(1).max(64).optional(), lora: lora.optional(), castLora: lora.optional(),
         // a text box only where the model draws text by box; elsewhere every box is an object
-        kind: (spec.kinds ? z.enum(["object", "text"]) : z.literal("object")).optional(), text: z.string().max(2000).optional(), mask: z.string().min(1).optional(),
+        kind: (spec.kinds ? z.enum(["object", "text"]) : z.literal("object")).optional(), text: z.string().max(REGION_TEXT_MOST).optional(), mask: z.string().min(1).optional(),
       })).max(spec.max).default([]);
     }
   }

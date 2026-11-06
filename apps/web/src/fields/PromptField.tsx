@@ -3,7 +3,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 import { CLIP_CHUNK, FILE_CHOICE, withQuality, type InputSpec } from "@afflatus/core";
 import { api, type FamilyInfo, type TagIssue } from "../api";
-import { useDebounced } from "../hooks";
+import { useSettled } from "../hooks";
 import { queryKeys } from "../queryKeys";
 import { useSettings } from "../data";
 import { Popover } from "../Popover";
@@ -115,7 +115,7 @@ const CLIP_FAMILIES = new Set(["sdxl"]);
  * this computer. Its tip says each chunk's tokens: a tag cut in two by a chunk's end loses some of its sense.
  */
 function TokenCount({ text }: { text: string }) {
-  const asked = useDebounced(text, 250, true, text);
+  const asked = useSettled(text);
   const count = useQuery({ queryKey: queryKeys.promptTokens(asked), queryFn: ({ signal }) => api.promptTokens(asked, { signal }), enabled: Boolean(asked.trim()), placeholderData: keepPreviousData, staleTime: Infinity });
   if (!text.trim() || !count.data) return null;
   const { chunks, exact } = count.data;
@@ -138,7 +138,7 @@ function TokenCount({ text }: { text: string }) {
  * Render said it, refused ("no wildcard file"). Asked a moment after the typing stops, and only of a text with a `__name__`.
  */
 function WildcardCheck({ text }: { text: string }) {
-  const asked = useDebounced(text, 400, true, text);
+  const asked = useSettled(text, 400);
   const named = FILE_CHOICE.test(asked);
   const check = useQuery({ queryKey: queryKeys.promptWildcards(asked), queryFn: ({ signal }) => api.promptWildcards(asked, { signal }), enabled: named, staleTime: 5_000 });
   const missing = named ? check.data?.missing ?? [] : [];
@@ -168,9 +168,11 @@ export function PromptField({ spec, id, value, values, family, onChange, bare }:
   const history = usePromptHistory({ value, onChange, label: spec.label });
   // one counter for what the main text is sent as, the checkpoint's quality tags in front of it (the recipe's withQuality):
   // counted alone, a Pony preset's 30 tokens and a 60-token prompt said "60/75" and filled 90, a tag cut at the chunk's end.
-  // The quality tags' own row counts nothing apart: they are in the prompt's count
+  // The quality tags' own row counts nothing apart: they are in the prompt's count, and in each Detail row's prompt, which
+  // SDXL sends after them too (sdxl/text-to-picture.ts's Detail cond; a Pony Detail prompt read 30 tokens short)
   const counted = !spec.line && spec.id !== "quality" && Boolean(family && CLIP_FAMILIES.has(family.id));
-  const sent = spec.id === "prompt" && typeof values?.quality === "string" ? withQuality(values.quality, value) : value;
+  const qualityFirst = spec.id === "prompt" || /^detail\w+Prompt$/.test(spec.id);
+  const sent = qualityFirst && typeof values?.quality === "string" ? withQuality(values.quality, value) : value;
   // the keys it takes, in its ? rather than over the text on every hover
   // a few words on one line (a swap's Track) take no weights and no choices: neither is said
   const keys = spec.line ? "" : `${weighs ? `Ctrl + ↑ or ↓: the weight of ${spec.style === "tags" ? "the tag the cursor is in, or of " : ""}what is selected. ` : ""}{a|b|c}, __name__ (a wildcard file): one is picked for each result.${remembers ? " ↑ in an empty prompt: the recent prompts." : ""}`;

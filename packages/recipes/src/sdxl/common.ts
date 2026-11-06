@@ -303,13 +303,13 @@ export function padsFor(width: number, height: number, shape: string) {
  * An outpaint's sides as it is built: those set (Custom, or a form saved before the shape row), or those that bring the
  * picture to the shape picked. A picture already of that shape gets none, which the build says.
  */
-export function outpaintSides<T extends Omit<OutpaintSettings, "feathering">>(input: T, of: { width?: number; height?: number } | undefined): T {
+function outpaintSides<T extends Omit<OutpaintSettings, "feathering">>(input: T, of: { width?: number; height?: number } | undefined): T {
   if (!input.shape || input.shape === CUSTOM_SHAPE) return input;
   const p = padsFor(of?.width || 1024, of?.height || 1024, input.shape);
   return { ...input, padLeft: p.left, padRight: p.right, padTop: p.top, padBottom: p.bottom };
 }
 /** What an outpaint says when there is nothing to extend. */
-export const nothingToExtend = (input: Pick<OutpaintSettings, "shape">) =>
+const nothingToExtend = (input: Pick<OutpaintSettings, "shape">) =>
   input.shape && input.shape !== CUSTOM_SHAPE ? `Nothing to extend: the picture is ${input.shape} already.` : "Nothing to extend: set how far the picture grows on at least one side.";
 /**
  * How every outpaint starts: its sides (outpaintSides), the picture's size (1024 square when it is not known) and the whole
@@ -413,6 +413,9 @@ export const UPSCALER_SLOTS = [
 
 /** Which upscale model a picture recipe starts on when its default is not there: Nomos8kSC (photos), else a general one, an anime one last. */
 export const UPSCALER_PREFER = ["nomos8ksc", "clearreality", "ultrasharp", "x4plus(?!.*anime)", "nomosuni", "remacri|nmkd|siax|foolhardy", "^(?!.*anime)", "."];
+
+/** The Upscaler row of every Upscale 2x (SDXL, FLUX and its kin, Klein): one row, one default. */
+export const UPSCALER_INPUT: InputSpec = { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: UPSCALER_DEFAULT, prefer: UPSCALER_PREFER, section: "out" };
 
 /**
  * What a checkpoint starts on the first time it is used, by its line: the settings its authors give.

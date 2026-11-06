@@ -1,6 +1,6 @@
 import { httpError } from "./errors";
 import type { BillRecord, VolumeBill } from "./runpod";
-import { capRoom, dayStart, gpuKey, HOURS_A_MONTH, LEARNED_RENDERS, monthStart, runCost, STOPPED_DISK_PER_GB_MONTH, usd, usdFor, volumePerMonth } from "@afflatus/core";
+import { capRoom, dayStart, gpuKey, HOUR_MS, HOURS_A_MONTH, LEARNED_RENDERS, monthStart, runCost, STOPPED_DISK_PER_GB_MONTH, usd, usdFor, volumePerMonth } from "@afflatus/core";
 import { gpuPaces } from "./forecast";
 import { keptHoldings, noticeVolumes, viewVolumes, type Storage } from "./rentedVolumes";
 import { readSettings, type Machine } from "./settings";
@@ -47,7 +47,6 @@ type Counted = { today: number; month: number; open: boolean; lastEnd: number; r
 const LOW_BALANCE = 5;
 /** The balance is told of as low under this at least (notify.ts), and under a day of the last week's spend when that is more. */
 const LOW_LINE = 2;
-export const HOUR = 3_600_000;
 /** How often RunPod's bill is read again: it is written some hours after the fact, nothing is lost reading it seldom. */
 const BILL_EVERY_MS = 5 * 60_000;
 /**
@@ -55,7 +54,7 @@ const BILL_EVERY_MS = 5 * 60_000;
  * bill and Afflatus's count (which counts from the deploy, and to the latest a pod could have run), so that a cap is never
  * reached late.
  */
-const BILL_SETTLED_MS = 6 * HOUR;
+const BILL_SETTLED_MS = 6 * HOUR_MS;
 
 /** What is kept back of the balance when a job's length is weighed against it: a render is not started into the last minutes. */
 const RUNWAY_MARGIN_MS = 10 * 60_000;
@@ -95,9 +94,9 @@ export function shareIn(r: { start: number; end: number }, from: number, to: num
   return Math.max(0, Math.min(to, r.end) - Math.max(from, r.start)) / (r.end - r.start);
 }
 
-/** Whether a cap is reached by what was spent: today's at the day's, this month's at the month's (0: no cap). */
+/** Whether a cap is reached by what was spent: today's at the day's, this month's at the month's (0: no cap). Core's one cap rule, with nothing more. */
 export const capReached = (caps: { day: number; month: number }, spent: { today: number; month: number }): boolean =>
-  (caps.day > 0 && spent.today >= caps.day) || (caps.month > 0 && spent.month >= caps.month);
+  capRoom({ caps, today: spent.today, month: spent.month }, 0) !== null;
 
 /**
  * What rented pods cost (rented.ts): RunPod's balance and bill, the spending of today and of the month against the caps,
@@ -126,7 +125,7 @@ export class RentedBilling extends RentedCore {
   runwayMs(): number | null {
     const b = this.balanceSeen;
     if (!b || b.value === null || !b.spendPerHr || b.spendPerHr <= 0) return null;
-    return Math.max(0, (b.value / b.spendPerHr) * HOUR - (this.now() - b.at));
+    return Math.max(0, (b.value / b.spendPerHr) * HOUR_MS - (this.now() - b.at));
   }
 
   private sureKept: { at: number; own: Map<string, number>; paced: Set<string> } | null = null;
@@ -200,7 +199,7 @@ export class RentedBilling extends RentedCore {
    */
   private async perDay(key: string): Promise<{ pods: number; storage: number }> {
     const now = this.now();
-    const pods = (await this.costBetween(now - 7 * 24 * HOUR, now)) / 7;
+    const pods = (await this.costBetween(now - 7 * 24 * HOUR_MS, now)) / 7;
     const storage = key ? await this.storage(key) : null;
     return { pods, storage: storage ? (storage.nowMonth * 24) / HOURS_A_MONTH : 0 };
   }

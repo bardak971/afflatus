@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { volumePerMonth } from "@afflatus/core";
+import { usdFor, volumePerMonth } from "@afflatus/core";
 import type { FakeComfy } from "../testing";
 
 /** A pod of the pretend RunPod, and the pretend ComfyUI inside it (it answers only while the pod runs). */
@@ -232,12 +232,12 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
       if (last && last.to === upTo && last.perHr === perHr) last.to = now;
       else stretches.push({ pod: p.id, from: upTo, to: now, perHr, diskPerHr: perHr - (BILLED.has(p.status) ? p.rate : 0) });
     }
-    volumesSpent += (fake.volumes.reduce((n, v) => n + volumePerMonth(v.size), 0) / MONTH_HOURS) * ((now - upTo) / 3_600_000);
+    volumesSpent += usdFor(now - upTo, fake.volumes.reduce((n, v) => n + volumePerMonth(v.size), 0) / MONTH_HOURS);
     upTo = now;
   };
   const spent = () => {
     settle();
-    return volumesSpent + stretches.reduce((n, x) => n + x.perHr * ((x.to - x.from) / 3_600_000), 0);
+    return volumesSpent + stretches.reduce((n, x) => n + usdFor(x.to - x.from, x.perHr), 0);
   };
   /** The bill as RunPod writes it: by pod and UTC hour, `billLagMs` behind now. */
   const autoBill = (from: number) => {
@@ -251,8 +251,8 @@ export async function startFakeRunpod(o: { key: string; pods: Array<Omit<FakePod
         if (b <= a || h + 3_600_000 <= from) continue;
         const key = `${x.pod}|${h}`;
         const r = hours.get(key) ?? { podId: x.pod, startTime: new Date(h).toISOString(), endTime: new Date(h + 3_600_000).toISOString(), totalAmount: 0, diskAmount: 0 };
-        r.totalAmount += x.perHr * ((b - a) / 3_600_000);
-        r.diskAmount += x.diskPerHr * ((b - a) / 3_600_000);
+        r.totalAmount += usdFor(b - a, x.perHr);
+        r.diskAmount += usdFor(b - a, x.diskPerHr);
         hours.set(key, r);
       }
     }

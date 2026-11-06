@@ -82,7 +82,7 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       ...(regionsIn(input).length ? [...MOSS_LAYOUT_NODES, "SkipLayerGuidanceDiTSimple"] : []),
       ];
     },
-    optionalNodes: [...SOMETIMES, ...DETAIL_OPTIONAL, ...ADETAIL_OPTIONAL, ...(spec.alpha ? ["SplitImageWithAlpha"] : [])],
+    optionalNodes: [...SOMETIMES, ...DETAIL_OPTIONAL, ...ADETAIL_OPTIONAL, ...(spec.alpha ? ["SplitImageWithAlpha", "JoinImageWithAlpha"] : [])],
     build(asked, ctx) {
       const g = new GraphBuilder();
       const input = withRegions(asked);

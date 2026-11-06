@@ -31,6 +31,24 @@ export function choicesOf(spec: unknown): string[] | null {
   return spec[0] === "COMBO" && Array.isArray(opts) ? opts.map(String) : null;
 }
 
+/** The files a node's input offers on a ComfyUI (BuildContext.options), null when the node is not there: what RTX VSR falls back on. */
+export const optionsIn = (catalog: NodeCatalog) => (node: string, input: string): string[] | null => {
+  const def = infoIn(catalog, node);
+  return def ? choicesOf(def.input.required?.[input] ?? def.input.optional?.[input]) : null;
+};
+
+/** The inputs a node takes on a ComfyUI (BuildContext.inputs): what a fork of a pack under the same node names asks for. */
+export const inputsIn = (catalog: NodeCatalog) => (node: string): string[] | null => {
+  const def = infoIn(catalog, node);
+  return def ? [...Object.keys(def.input.required ?? {}), ...Object.keys(def.input.optional ?? {})] : null;
+};
+
+/** What a choice offers on a ComfyUI: its own extras (Upscale's "latent") first, then the files its loader lists there (or its fixed list). */
+export function choiceFiles(spec: { options: readonly string[] | { node: string; input: string }; extra?: readonly string[] }, catalog: NodeCatalog): string[] {
+  const { options } = spec;
+  return [...(spec.extra ?? []), ...("node" in options ? optionsIn(catalog)(options.node, options.input) ?? [] : options)];
+}
+
 /**
  * The file among those a loader offers that is the one asked for: itself, or the same file kept in
  * another sub-folder ("wan_2.1_vae.safetensors" asked for, "Wan\\wan_2.1_vae.safetensors" there). People

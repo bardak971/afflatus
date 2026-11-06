@@ -1,4 +1,5 @@
-import { PROMPT_MOST, RANDOM_SEED, type InputSpec, type LoraValue } from "./inputs";
+import { PROMPT_MOST, type InputSpec, type LoraValue } from "./inputs";
+import { RANDOM_SEED } from "./seed";
 import { withinPixels } from "./frame";
 import { capRoom, usd, type CapsSpent } from "./money";
 import { modelStem } from "./modelFiles";

@@ -1,6 +1,6 @@
 """Afflatus nodes for ComfyUI.
 
-Ten nodes for continuing a MiniMax H3 clip from its own latent rather than from re-encoded pixels, and the nodes of
+Eleven nodes for continuing a MiniMax H3 clip from its own latent rather than from re-encoded pixels, and the nodes of
 Afflatus's other routes:
 
 - Afflatus: Save H3 Latent / Load H3 Latent — a MiniMax H3 video+audio latent as one safetensors file
@@ -10,7 +10,8 @@ Afflatus's other routes:
   17-frame chunks begins, for a clip that lands inside another; H3 Seam Latent — a continuation's new tokens after
   the clip before's own last ones, so that decoded, the join is the whole chain's decoded at once; H3 Run-up Match — a
   sampled window brought back to the clip before's contrast, its run-up matched per channel to the tail it copies (a chain
-  of exact latents otherwise widens a few per cent at every join).
+  of exact latents otherwise widens a few per cent at every join); H3 Run Anchor — a window held to its run's first clip, the
+  run's look carried on in its latent.
 - MiniMax H3 Guided Continuation Window, Latent Tail Guide — the native latent-tail
   continuation by ttulttul (MIT, see LICENSE-continuation), vendored with one change: the check for a recent
   enough ComfyUI says "update ComfyUI" when the module it reads is missing, instead of a bare ImportError.

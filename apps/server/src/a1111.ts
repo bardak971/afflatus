@@ -27,8 +27,6 @@ export const SCHEDULES = reverse(SCHEDULE_NAMES, { uniform: "normal", "align you
 
 /** The inputs that hold a picture, a sound or a clip of the library: their values are its ids, meaningless elsewhere. */
 export const MEDIA_TYPES = new Set(["image", "audio", "clip", "references", "cues", "video"]);
-/** A file a form names (a model, an upscaler) without the folders it sits in under ComfyUI's models. */
-export const bare = (v: string) => v.replace(/^.*[\\/]/, "");
 
 /** A form that starts from a picture of its own (img2img, inpaint, upscale, a face pass): it takes A1111's img2img strength, not a size. */
 export const takesPicture = (r: Recipe<any>) => r.output === "image" && r.inputs.some((i) => i.type === "image" && i.role === "source" && !i.optional);

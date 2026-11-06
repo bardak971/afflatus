@@ -14,7 +14,7 @@
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dryContext, parseInput, plural, type BuiltGraph, type NodeCatalog, type Recipe } from "@afflatus/core";
+import { dryContext, inputsIn, parseInput, plural, type BuiltGraph, type NodeCatalog, type Recipe } from "@afflatus/core";
 import { recipes } from "@afflatus/recipes";
 import { EXTRA_FILES, other, shown } from "../packages/recipes/test/rowValues";
 
@@ -32,10 +32,7 @@ if (mode !== "write" && mode !== "diff") {
 
 const catalog = JSON.parse(readFileSync(fileURLToPath(new URL("../reference/comfy-object-info.json", import.meta.url)), "utf-8")) as NodeCatalog;
 // the inputs each node takes, as check-graphs.ts hands them: a recipe that names an input only where the node has it builds the same
-const inputsOf = (node: string): string[] | null => {
-  const def = catalog[node];
-  return def ? [...Object.keys(def.input.required ?? {}), ...Object.keys(def.input.optional ?? {})] : null;
-};
+const inputsOf = inputsIn(catalog);
 
 /**
  * The graph with its node ids renumbered 1, 2… in the order they were made, and every link, phase, output and pass moved with

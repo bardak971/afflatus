@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ComfyCancelled, detect, waitForOutputs, type Measured, type OutputFile } from "@afflatus/comfy";
-import { choicesOf, GraphBuilder, OWN_MODEL, TOOLS_FAMILY, type BuildContext, type Ref } from "@afflatus/core";
+import { choicesOf, GraphBuilder, inputsIn, optionsIn, OWN_MODEL, randomSeed, TOOLS_FAMILY, type BuildContext, type Ref } from "@afflatus/core";
 import { AUDIO_LOCK, FACE_REFINE_NODES, faceModelOf, faceRefined, faceRefineNeeds, faceRefineSkipped, pixelUpscale, RTX_NODES, saveVideo, sharpened, UPSCALE, upscaleNodes } from "@afflatus/recipes";
 import type { Comfy } from "./comfy";
 import { slowSoundOnto } from "./cut";
@@ -14,7 +14,7 @@ import type { CutOptions, ExportOptions, Timelines } from "./timelines";
 import { CUT_JOB } from "./timelineModel";
 import { Died, GPU_AT_WORK, readJson, SHUTDOWN, Stuck, type JobRow, type QueueCore, type Running } from "./queueModel";
 import { rawFactsOf, resentFor, sentOnce, taken, type Again } from "./queueSubmit";
-import { ANY_PACKS, asBuilt, inputsIn, optionsIn, packsSaid, ranWithoutSaid } from "./jobPacks";
+import { ANY_PACKS, asBuilt, packsSaid, ranWithoutSaid } from "./jobPacks";
 
 /** The jobs that need no model of their own: a cut (a copy, a split, a slow-motion, a finish) and an export, done by ffmpeg, with ComfyUI only for RIFE and the upscale routes. */
 
@@ -307,7 +307,7 @@ async function runFinish(core: QueueCore, row: JobRow, run: Running, clips: Time
     const options = asBuilt(catalog, (await core.packFacts?.().catch(() => null)) ?? ANY_PACKS, packsSaid(row));
     // the card's memory: SeedVR2's window is the widest it holds
     const vram = await comfy.vram?.();
-    const ctx: BuildContext = { seed: Math.floor(Math.random() * 2 ** 31), slots, uploads: {}, media: {}, has: (n: string) => n in catalog, options: optionsIn(catalog), inputs: inputsIn(catalog), wants: options.wants, ...(vram ? { vram } : {}) };
+    const ctx: BuildContext = { seed: randomSeed(), slots, uploads: {}, media: {}, has: (n: string) => n in catalog, options: optionsIn(catalog), inputs: inputsIn(catalog), wants: options.wants, ...(vram ? { vram } : {}) };
     // a continuation's hidden run-up (hiddenRunUp) is not restored: its frames are enlarged plainly to the restored size and
     // put back in front, so that the file keeps every frame, its length and its joins' timing. Counted on the source's own frames
     const sourceFps = fromRaw ? rawFacts!.fps : video.fps ?? 24;
@@ -391,7 +391,7 @@ async function runFaceFinish(core: QueueCore, row: JobRow, run: Running, clips: 
     const fps = doubled ? rawFacts!.fps : video.fps ?? 24;
     const frames = Math.round(((doubled ? rawFacts!.durationMs : video.duration_ms ?? 0) / 1000) * fps);
     const options = asBuilt(catalog, (await core.packFacts?.().catch(() => null)) ?? ANY_PACKS, packsSaid(row));
-    const ctx: BuildContext = { seed: Math.floor(Math.random() * 2 ** 31), slots, uploads: {}, media: {}, has: (n: string) => n in catalog, options: optionsIn(catalog), inputs: inputsIn(catalog), wants: options.wants };
+    const ctx: BuildContext = { seed: randomSeed(), slots, uploads: {}, media: {}, has: (n: string) => n in catalog, options: optionsIn(catalog), inputs: inputsIn(catalog), wants: options.wants };
     // the H3 model picked in Finish (card #192: it was left out, the pass ran on the fused turbo whatever was picked), its
     // steps by that model (4 on a turbo, more on a full model) as an H3 clip's pass takes them; none picked, the fused turbo at 4.
     // The steps the clip's form typed go over both (faceSteps)

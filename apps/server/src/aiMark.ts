@@ -21,7 +21,8 @@ export const aiVideoArgs = ["-metadata", `comment=${AI_COMMENT}`];
 
 const XMP_KEY = "XML:com.adobe.xmp";
 
-const xmpPacket = () =>
+/** The XMP packet of the mark: IPTC's digital source type. A JPEG and a WebP carry it too (pictureWords.ts). */
+export const xmpPacket = () =>
   `<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">` +
   `<rdf:Description rdf:about="" xmlns:Iptc4xmpExt="http://iptc.org/std/Iptc4xmpExt/2008-02-29/" Iptc4xmpExt:DigitalSourceType="${AI_SOURCE_TYPE}"/>` +
   `</rdf:RDF></x:xmpmeta><?xpacket end="r"?>`;

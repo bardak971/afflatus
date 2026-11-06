@@ -1,7 +1,7 @@
 import { defineRecipe, GraphBuilder, roundTo, type InputSpec, type ReferenceValue, type Ref, type SizeValue } from "@afflatus/core";
 import { noGuide, noReferences, pictureForm, SOURCE_INPUT, strengthInput } from "../shared/pictureForm";
 import {
-  boxOf, FACE_INPUTS, faceSteps, FACTOR_INPUT, HIRES_PASS_INPUTS, hiresInputs, OUTPAINT_INPUTS, outpaintPad, outpaintPlan, SAME_PASS, shapeInput, MASK_INPUTS, NO_FACE, MASK_NODES, maskParts, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_DEFAULT, UPSCALER_PREFER,
+  boxOf, FACE_INPUTS, faceSteps, FACTOR_INPUT, HIRES_PASS_INPUTS, hiresInputs, OUTPAINT_INPUTS, outpaintPad, outpaintPlan, SAME_PASS, shapeInput, MASK_INPUTS, NO_FACE, MASK_NODES, maskParts, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_INPUT,
   type FaceSettings, type MaskSettings, type OutpaintSettings, type RefineColourMatch, type UpscaleSettings,
 } from "../sdxl/common";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
@@ -448,7 +448,7 @@ export const kleinSharper = pictureForm("upscale", defineRecipe<KleinSharper>({
   inputs: [
     kleinModel,
     SOURCE_INPUT,
-    { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: UPSCALER_DEFAULT, prefer: UPSCALER_PREFER, section: "out" },
+    UPSCALER_INPUT,
     FACTOR_INPUT,
     {
       id: "refine", type: "toggle", label: "img2img pass after upscale", default: true, section: "out",

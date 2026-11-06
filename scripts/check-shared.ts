@@ -65,8 +65,12 @@ const RULES: Array<{ test: RegExp; why: string; except?: RegExp }> = [
   // `(price * seconds) / 3600` each priced a GPU's time past a rule that knew only `(ms / 3_600_000) * rate` (2026-11-05)
   { test: /\/ ?(?:3_?600_?000|3_?600|60|HOUR(?:_MS)?)\) ?\* ?[\w.!?]*(?:rate|price|Rate|Price)\b/, why: "a time priced by hand: use usdFor(ms, rate) (core's money.ts)", except: /packages[\\/]core[\\/]src[\\/]money\.ts$/ },
   { test: /\b[\w.!?]*(?:rate|price|Rate|Price) ?\* ?\(?[\w.!?]+\)? ?\/ ?(?:3_?600_?000|3_?600|60|HOUR(?:_MS)?)\b/, why: "a time priced by hand: use usdFor(ms, rate) (core's money.ts)", except: /packages[\\/]core[\\/]src[\\/]money\.ts$/ },
+  // and whatever the rate is named, a stretch of milliseconds made hours inside the product: the demo's RunPod billed
+  // `perHr * ((b - a) / 3_600_000)` past the two above (2026-11-05b), as `((b - a) / 3_600_000) * perHr` would have
+  { test: /\* ?\(\(?[^()]*\)? ?\/ ?(?:3_?600_?000|HOUR(?:_MS)?)\)|\(\(?[^()]*\)? ?\/ ?(?:3_?600_?000|HOUR(?:_MS)?)\) ?\* ?(?!3_?600|HOUR)[A-Za-z_]/, why: "a time priced by hand: use usdFor(ms, rate) (core's money.ts)", except: /packages[\\/]core[\\/]src[\\/]money\.ts$/ },
   {
-    test: /new Date\([\w.]+getFullYear\(\), [\w.]+getMonth\(\)(?: \+ \d)?, (?:1|[\w.]+getDate\(\))\)/,
+    // any months away: `getMonth() - 5 + i` (a spark's months, 2026-11-05b) slipped past a rule that knew `+ 1` alone
+    test: /new Date\([\w.]+getFullYear\(\), [\w.]+getMonth\(\)(?: ?[-+] ?[^,()]+)?, (?:1|[\w.]+getDate\(\))\)/,
     why: "the start of a month or a day made by hand: use monthStart or dayStart (core's money.ts)",
     except: /packages[\\/]core[\\/]src[\\/]money\.ts$/,
   },
@@ -82,7 +86,8 @@ export function sharedFindings(file: string, text: string): Finding[] {
     // This file spells every pattern out in its rules and its header, so it would refuse itself.
     if (rule.except?.test(file) || /(^|[\\/])scripts[\\/]check-shared\.ts$/.test(file)) continue;
     lines.forEach((l, i) => {
-      if (rule.test.test(l)) found.push({ file, line: i + 1, text: l.trim().slice(0, 140), why: rule.why });
+      // a line two rules of one reason catch (the money shapes overlap) is said once
+      if (rule.test.test(l) && !found.some((f) => f.line === i + 1 && f.why === rule.why)) found.push({ file, line: i + 1, text: l.trim().slice(0, 140), why: rule.why });
     });
   }
   return found;

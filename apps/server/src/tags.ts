@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 import { gunzip, gunzipSync } from "node:zlib";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { CHOICE } from "@afflatus/core";
+import { CHOICE, PROMPT_MOST } from "@afflatus/core";
 
 /**
  * The danbooru tag list (assets/danbooru.csv.gz, about 140 000 tags with how often each is used and
@@ -240,7 +240,7 @@ export function registerTags(app: FastifyInstance): void {
   });
   /** Which tags of a prompt are not danbooru tags. Nothing leaves the machine: the list is a file of Afflatus's. */
   app.post("/api/tags/check", async (req) => {
-    const b = z.strictObject({ text: z.string().max(20_000), ignore: z.array(z.string().max(400)).max(200).default([]) }).parse(req.body);
+    const b = z.strictObject({ text: z.string().max(PROMPT_MOST), ignore: z.array(z.string().max(400)).max(200).default([]) }).parse(req.body);
     await loadTagsSoon();
     return { issues: checkPrompt(b.text, b.ignore) };
   });

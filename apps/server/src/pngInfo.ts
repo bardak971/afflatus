@@ -1,8 +1,8 @@
-import { dryContext, isModelFile, modelStem, parseInput, type InputSpec, type Recipe, type RegionValue } from "@afflatus/core";
-import { a1111Slots, bare, MEDIA_TYPES, SAMPLER_NAMES, SCHEDULE_NAMES } from "./a1111";
-import { markPng, withoutTexts } from "./aiMark";
+import { baseName, dryContext, isModelFile, modelStem, parseInput, type InputSpec, type Recipe, type RegionValue } from "@afflatus/core";
+import { a1111Slots, MEDIA_TYPES, SAMPLER_NAMES, SCHEDULE_NAMES } from "./a1111";
 import { VERSION } from "./config";
 import type { Tables } from "./db";
+import { pictureOut } from "./pictureWords";
 import type { Services } from "./services";
 import { readSettings } from "./settings";
 
@@ -116,7 +116,7 @@ const isPath = (v: string) => /^([a-zA-Z]:[\\/]|\\\\|\/)/.test(v);
  * what is on this computer, so they are left out: read back, the box keeps its words, which already hold the person's.
  */
 const ownRegion = ({ cast: _cast, castLora: _castLora, mask: _mask, lora, ...r }: RegionValue): Omit<RegionValue, "cast" | "castLora" | "mask"> =>
-  ({ ...r, ...(lora ? { lora: { file: bare(lora.file), weight: lora.weight } } : {}) });
+  ({ ...r, ...(lora ? { lora: { file: baseName(lora.file), weight: lora.weight } } : {}) });
 
 /**
  * The form as it goes into the "afflatus" text: every setting but the library's pictures, sounds and clips; a model file
@@ -127,11 +127,11 @@ function ownForm(recipe: Recipe<any>, input: Record<string, unknown>): Record<st
   for (const spec of recipe.inputs as InputSpec[]) {
     const v = input[spec.id];
     if (v === undefined || MEDIA_TYPES.has(spec.type)) continue;
-    if (spec.type === "loras" && Array.isArray(v)) out[spec.id] = (v as Array<{ file: string; weight: number }>).map((l) => ({ file: bare(l.file), weight: l.weight }));
+    if (spec.type === "loras" && Array.isArray(v)) out[spec.id] = (v as Array<{ file: string; weight: number }>).map((l) => ({ file: baseName(l.file), weight: l.weight }));
     else if (spec.type === "regions" && Array.isArray(v)) out[spec.id] = (v as RegionValue[]).map(ownRegion);
     else if (typeof v === "string") {
       if (isPath(v)) continue;
-      out[spec.id] = isModelFile(v) ? bare(v) : v;
+      out[spec.id] = isModelFile(v) ? baseName(v) : v;
     } else out[spec.id] = v;
   }
   return out;
@@ -206,7 +206,9 @@ async function infoTexts(s: Pick<Services, "db" | "registry">, a: Pick<Tables["a
 
   const num = (i: InputSpec | undefined) => (i && typeof input[i.id] === "number" ? (input[i.id] as number) : undefined);
   const str = (i: InputSpec | undefined) => (i && typeof input[i.id] === "string" ? (input[i.id] as string) : undefined);
-  const form = { steps: num(slot.steps), cfg: num(slot.cfg), sampler: str(slot.sampler), scheduler: str(slot.scheduler) };
+  // a Turbo render (FLUX, Qwen and the like) ran its own step count, not the form's Steps
+  const turbo = input.fast === true ? num(specs.find((i) => i.id === "turboSteps")) : undefined;
+  const form = { steps: turbo ?? num(slot.steps), cfg: num(slot.cfg), sampler: str(slot.sampler), scheduler: str(slot.scheduler) };
   // what the form does not set, its build does: read off the graph it makes, built dry (no ComfyUI asked, nothing sent)
   let graph: Pick<InfoFields, "steps" | "cfg" | "sampler" | "scheduler"> = {};
   if (Object.values(form).some((v) => v === undefined)) {
@@ -243,21 +245,23 @@ async function infoTexts(s: Pick<Services, "db" | "registry">, a: Pick<Tables["a
 }
 
 /**
- * A render's PNG as it leaves Afflatus: marked as made by a model (aiMark.ts), with how it was made when the switch is on.
+ * A render's picture as it leaves Afflatus: marked as made by a model (aiMark.ts), with how it was made when the switch is on.
  * The texts it came with are dropped first, the switch on or off: ComfyUI's own "prompt" and "workflow" hold the whole
  * graph, every model and LoRA with its sub-folder and an imported workflow's paths, which the switch's "?" promises never
- * leave; the "parameters" and "afflatus" written here say the same settings without them (review 2026-11-05 S1).
+ * leave; the "parameters" and "afflatus" written here say the same settings without them (review 2026-11-05 S1). A JPEG or
+ * a WebP gets the same, its "parameters" in EXIF as A1111 writes them (pictureWords.ts, review 2026-11-05b N3).
  * What cannot be read for it (a generation gone) leaves it with the mark alone: a download never fails for its text.
  */
-export async function outgoingPng(s: Pick<Services, "db" | "registry">, a: Pick<Tables["assets"], "generation_id" | "width" | "height">, bytes: Uint8Array, reads: OutgoingReads = {}): Promise<Uint8Array> {
+export async function outgoingRender(s: Pick<Services, "db" | "registry">, a: Pick<Tables["assets"], "generation_id" | "width" | "height">, bytes: Uint8Array, reads: OutgoingReads = {}): Promise<Uint8Array> {
   const texts = await infoTexts(s, a, reads).catch(() => ({}));
-  return markPng(withoutTexts(bytes), texts);
+  return pictureOut(bytes, { mark: true, texts });
 }
 
 /**
- * A PNG the user brought in, as it leaves: as it came with the switch on (its texts are the user's own, put there before
- * Afflatus had it), without them with the switch off, which says a download carries nothing of how a picture was made.
+ * A picture the user brought in, as it leaves: as it came with the switch on (its texts are the user's own, put there before
+ * Afflatus had it), without them with the switch off, which says a download carries nothing of how a picture was made:
+ * a JPEG's EXIF (A1111's "parameters", a phone's GPS) and XMP go as a PNG's texts do, its orientation kept.
  */
-export async function outgoingOwnPng(s: Pick<Services, "db">, bytes: Uint8Array): Promise<Uint8Array> {
-  return (await readSettings(s.db)).pngInfo ? bytes : withoutTexts(bytes);
+export async function outgoingOwn(s: Pick<Services, "db">, bytes: Uint8Array): Promise<Uint8Array> {
+  return (await readSettings(s.db)).pngInfo ? bytes : pictureOut(bytes, { mark: false });
 }

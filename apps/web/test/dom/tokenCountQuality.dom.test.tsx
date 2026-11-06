@@ -30,6 +30,15 @@ describe("the token count of an SDXL prompt", () => {
     expect(await screen.findByText("4/75")).toBeTruthy();
     expect(asked().every((t) => t === "score_9, score_8_up, 1girl, smile")).toBe(true);
   });
+
+  it("counts them in a Detail row's prompt too, which is sent after them (card #326)", async () => {
+    fakeApi.on("POST /prompt/tokens", ({ body }) => ({ chunks: [(body as { text: string }).text.split(",").length], exact: true }));
+    const face = { id: "detailFacePrompt", type: "prompt", label: "Face detail prompt", style: "tags", optional: true } as Extract<InputSpec, { type: "prompt" }>;
+    const values = { prompt: "1girl", quality: "score_9, score_8_up, ", detailFacePrompt: "green eyes" };
+    draw(<PromptField spec={face} id="f" value={values.detailFacePrompt} values={values} family={SDXL} onChange={() => {}} />);
+    await waitFor(() => expect(asked()).toContain("score_9, score_8_up, green eyes"));
+    expect(await screen.findByText("3/75")).toBeTruthy();
+  });
 });
 
 describe("a wildcard file named in a prompt", () => {

@@ -5,7 +5,7 @@
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { baseModels, checkGraph, dryContext, parseInput, plural, warmGraph, type NodeCatalog } from "@afflatus/core";
+import { baseModels, checkGraph, dryContext, inputsIn, parseInput, plural, warmGraph, type NodeCatalog } from "@afflatus/core";
 import { recipes } from "@afflatus/recipes";
 import { fileGaps } from "./fileGaps";
 
@@ -15,12 +15,9 @@ const raw = /^https?:/.test(arg)
   ? await (await fetch(`${arg.replace(/\/+$/, "")}/object_info`)).text()
   : readFileSync(arg, "utf-8");
 const catalog = JSON.parse(raw) as NodeCatalog;
-// the inputs each node takes, as the server tells a build of the ComfyUI it runs on (jobPacks.ts inputsIn): a recipe that
-// names an input only where the node has it (IP-Adapter's InsightFace model, card #282) is checked as it is built there
-const inputsOf = (node: string): string[] | null => {
-  const def = catalog[node];
-  return def ? [...Object.keys(def.input.required ?? {}), ...Object.keys(def.input.optional ?? {})] : null;
-};
+// the inputs each node takes, as the server tells a build of the ComfyUI it runs on (core's inputsIn): a recipe that names
+// an input only where the node has it (IP-Adapter's InsightFace model, card #282) is checked as it is built there
+const inputsOf = inputsIn(catalog);
 
 /**
  * LTX guides of several frames (a clip's, from LoadVideo) put anywhere but frame 0 off ComfyUI's grid: LTXVAddGuide moves one

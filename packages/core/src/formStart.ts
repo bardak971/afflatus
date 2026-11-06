@@ -1,5 +1,6 @@
-import { chosenDefaults, formModelInput, OWN_MODEL, pickChoice, RANDOM_SEED, ruledDefaults, withoutOldZeros, type InputSpec, type StartRule } from "./inputs";
+import { chosenDefaults, formModelInput, OWN_MODEL, pickChoice, ruledDefaults, withoutOldZeros, type InputSpec, type StartRule } from "./inputs";
 import { nameKey } from "./modelFiles";
+import { RANDOM_SEED } from "./seed";
 import { modelStart, type Preset } from "./recipe";
 
 /**

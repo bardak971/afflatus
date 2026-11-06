@@ -34,10 +34,16 @@ describe("the shared helpers' guard", () => {
     expect(why("packages/core/src/x.ts", "const cost = (o.price * seconds) / 3600;")).toEqual(["a time priced by hand"]);
     expect(why("apps/server/src/x.ts", "most = Math.max(most, (r.idleMinutes / 60) * rate);")).toEqual(["a time priced by hand"]);
     expect(why("apps/server/src/x.ts", "const usd = rate * (ms / 3_600_000);")).toEqual(["a time priced by hand"]);
+    // whatever the rate is named: the demo's RunPod billed so (card #328)
+    expect(why("packages/comfy/src/x.ts", "r.totalAmount += x.perHr * ((b - a) / 3_600_000);")).toEqual(["a time priced by hand"]);
+    expect(why("packages/comfy/src/x.ts", "spent += ((now - upTo) / HOUR_MS) * perMonth;")).toEqual(["a time priced by hand"]);
+    expect(why("packages/comfy/src/x.ts", "for (let h = Math.floor(x.from / 3_600_000) * 3_600_000; h < end; h += 3_600_000) {")).toEqual([]);
+    expect(why("apps/server/src/x.ts", "return { wh: (avgW * (to - from)) / 3_600_000, avgW };")).toEqual([]);
     expect(why("apps/server/src/x.ts", "most = Math.max(most, usdFor(r.idleMinutes * 60_000, rate));")).toEqual([]);
     expect(why("apps/web/src/x.tsx", "const frames = Math.round((ms / 1000) * fps);")).toEqual([]);
     expect(why("apps/server/src/x.ts", "const month = new Date(d.getFullYear(), d.getMonth(), 1).getTime();")).toEqual(["the start of a month or a day made by hand"]);
     expect(why("apps/server/src/x.ts", "const end = new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();")).toEqual(["the start of a month or a day made by hand"]);
+    expect(why("apps/web/src/x.tsx", "const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);")).toEqual(["the start of a month or a day made by hand"]);
     expect(why("apps/web/src/x.tsx", "return { from: new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() };")).toEqual(["the start of a month or a day made by hand"]);
     expect(why("packages/core/src/money.ts", "  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();")).toEqual([]);
   });

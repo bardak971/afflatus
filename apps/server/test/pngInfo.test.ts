@@ -1,4 +1,5 @@
 import { crc32 } from "node:zlib";
+import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makePng, startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { markPng } from "../src/aiMark";
@@ -153,7 +154,7 @@ describe("a render's picture downloaded, then dropped back", () => {
   let fake: FakeComfy;
   let t: TestApp;
   beforeEach(async () => {
-    fake = await startFakeComfy({ catalog: referenceCatalog(), models: { checkpoints: [CHECKPOINT], loras: ["styles\\Soft_Light-v2.safetensors"], upscale_models: [] } });
+    fake = await startFakeComfy({ catalog: referenceCatalog(), models: { checkpoints: [CHECKPOINT], loras: ["styles\\Soft_Light-v2.safetensors", "styles\\Coat.safetensors"], upscale_models: [] } });
     t = await makeApp({ comfyUrl: fake.url });
   });
   afterEach(async () => {
@@ -166,14 +167,14 @@ describe("a render's picture downloaded, then dropped back", () => {
     loras: [{ file: "styles\\Soft_Light-v2.safetensors", weight: 0.8 }], size: { width: 832, height: 1216 }, steps: 30, cfg: 6.5, sampler: "dpmpp_2m", scheduler: "karras", seed: -1,
   };
   /** A picture filed as a render of the SDXL form, its models hashed (and one matched on Civitai). */
-  const rendered = async (bytes: Uint8Array = makePng(8, 8, [1, 2, 3], [4, 5, 6]), form: Record<string, unknown> = FORM) => {
+  const rendered = async (bytes: Uint8Array = makePng(8, 8, [1, 2, 3], [4, 5, 6]), form: Record<string, unknown> = FORM, recipe = "sdxl.text-to-picture") => {
     const a = (await t.app.inject({ method: "POST", url: "/api/assets?name=zz-test", headers: { "content-type": "image/png" }, payload: Buffer.from(bytes) })).json() as { id: string };
     const g = newId();
-    await t.db.insertInto("generations").values({ id: g, owner_id: OWNER, recipe_id: "sdxl.text-to-picture", recipe_version: 1, family: "sdxl", inputs: JSON.stringify(form), resolved: JSON.stringify({ seed: 1234567 }), gen_ms: 1, draft_id: null, created_at: now() } as never).execute();
+    await t.db.insertInto("generations").values({ id: g, owner_id: OWNER, recipe_id: recipe, recipe_version: 1, family: recipe.split(".")[0]!, inputs: JSON.stringify(form), resolved: JSON.stringify({ seed: 1234567 }), gen_ms: 1, draft_id: null, created_at: now() } as never).execute();
     await t.db.updateTable("assets").set({ origin: "generated", generation_id: g }).where("id", "=", a.id).execute();
     const hashed = { size: 1, mtime: 1, hashed_at: now(), hf_url: null, matched_at: now() };
-    await t.db.insertInto("model_hashes").values({ folder: "checkpoints", file: CHECKPOINT, sha256: `ABCDEF0123${"0".repeat(54)}`, civitai_version: 11, ...hashed }).execute();
-    await t.db.insertInto("model_hashes").values({ folder: "loras", file: "styles/Soft_Light-v2.safetensors", sha256: `9876543210${"1".repeat(54)}`, civitai_version: 0, ...hashed }).execute();
+    await t.db.insertInto("model_hashes").values({ folder: "checkpoints", file: CHECKPOINT, sha256: `ABCDEF0123${"0".repeat(54)}`, civitai_version: 11, ...hashed }).onConflict((oc) => oc.doNothing()).execute();
+    await t.db.insertInto("model_hashes").values({ folder: "loras", file: "styles/Soft_Light-v2.safetensors", sha256: `9876543210${"1".repeat(54)}`, civitai_version: 0, ...hashed }).onConflict((oc) => oc.doNothing()).execute();
     return a.id;
   };
   const download = async (id: string) => new Uint8Array((await get(t.app, `/api/assets/${id}/file?download=1`)).rawPayload);
@@ -213,6 +214,15 @@ describe("a render's picture downloaded, then dropped back", () => {
     expect((await drop(png, "sdxl.redraw")).settings.input).toMatchObject({ prompt: "a cat", strength: 0.45, checkpoint: CHECKPOINT });
   });
 
+  it("says the steps a Turbo render ran, not the form's Steps", async () => {
+    const steps = async (fast: boolean) => {
+      const file = await download(await rendered(undefined, { prompt: "a lighthouse", fast, steps: 40, turboSteps: 8, seed: -1 }, "qwen.text-to-picture"));
+      return /Steps: (\d+)/.exec(chunks(file).find((c) => c.key === "parameters")!.text)?.[1];
+    };
+    expect(await steps(true)).toBe("8");
+    expect(await steps(false)).toBe("40");
+  });
+
   it("carries the mark alone with the switch off", async () => {
     const id = await rendered();
     await writeSettings(t.db, { pngInfo: false });
@@ -238,12 +248,46 @@ describe("a render's picture downloaded, then dropped back", () => {
     expect(Buffer.from(on).toString("latin1")).not.toMatch(/Mira|someone|styles|people|[A-Z]:\\/);
   });
 
+  it.each(["jpeg", "webp"] as const)("a %s follows the switch too: a render's marked with its parameters, one brought in stripped with it off", async (format) => {
+    const shot = () => sharp({ create: { width: 8, height: 8, channels: 3, background: { r: 9, g: 9, b: 9 } } })[format]().withExif({ IFD0: { Make: "PhoneCo" }, IFD3: { GPSLatitudeRef: "N", GPSLatitude: "48/1 51/1 2/1" } }).toBuffer();
+    const type = `image/${format}`;
+    const id = await rendered(await shot());
+    await t.db.updateTable("assets").set({ mime: type }).where("id", "=", id).execute();
+    const own = (await t.app.inject({ method: "POST", url: `/api/assets?name=zz-test-${format}`, headers: { "content-type": type }, payload: await shot() })).json() as { id: string };
+    await writeSettings(t.db, { pngInfo: true });
+    const on = Buffer.from(await download(id));
+    expect(on.toString("latin1")).toContain("trainedAlgorithmicMedia");
+    expect(on.toString("latin1")).not.toMatch(/PhoneCo|styles/);
+    expect((await drop(on)).settings.input).toMatchObject({ prompt: "masterpiece, 1girl, terrace at sunset", seed: 1234567, checkpoint: CHECKPOINT });
+    expect(Buffer.from(await download(own.id)).toString("latin1")).toContain("PhoneCo");
+
+    await writeSettings(t.db, { pngInfo: false });
+    const off = Buffer.from(await download(id));
+    expect(off.toString("latin1")).toContain("trainedAlgorithmicMedia");
+    expect((await drop(off)).settings).toBeNull();
+    const plain = Buffer.from(await download(own.id));
+    expect(plain.toString("latin1")).not.toMatch(/PhoneCo|trainedAlgorithmicMedia/);
+    expect((await sharp(plain).metadata()).exif).toBeUndefined();
+  });
+
   it("writes a region by its box and words: no cast person, no LoRA folder, no mask", async () => {
-    const regions = [{ id: "r1", box: { x: 0.1, y: 0.1, w: 0.4, h: 0.5 }, prompt: "a red coat", cast: "kit-person-1", castLora: { file: "people\\Mira.safetensors", weight: 0.9 }, lora: { file: "styles\\Coat.safetensors", weight: 0.5 }, mask: "upload-123.png" }];
+    const box = { x: 0.1, y: 0.1, w: 0.4, h: 0.5 };
+    const regions = [
+      { id: "r1", box, prompt: "a red coat", cast: "kit-person-1", castLora: { file: "people\\Mira.safetensors", weight: 0.9 }, lora: { file: "styles\\Coat.safetensors", weight: 0.5 }, mask: "upload-123.png" },
+      { id: "r2", box, prompt: "a hat", lora: { file: "hats\\Gone.safetensors", weight: 0.4 } },
+    ];
     const file = await download(await rendered(undefined, { ...FORM, regions }));
     const own = JSON.parse(chunks(file).find((c) => c.key === "afflatus")!.text) as { input: { regions: unknown[] } };
-    expect(own.input.regions).toEqual([{ id: "r1", box: regions[0]!.box, prompt: "a red coat", lora: { file: "Coat.safetensors", weight: 0.5 } }]);
-    expect(Buffer.from(file).toString("latin1")).not.toMatch(/kit-person|people|styles|upload-123/);
+    expect(own.input.regions).toEqual([{ id: "r1", box, prompt: "a red coat", lora: { file: "Coat.safetensors", weight: 0.5 } }, { id: "r2", box, prompt: "a hat", lora: { file: "Gone.safetensors", weight: 0.4 } }]);
+    expect(Buffer.from(file).toString("latin1")).not.toMatch(/kit-person|people|styles|hats|upload-123/);
+
+    // dropped back, the box's LoRA is this ComfyUI's file again, its sub-folder with it (card #326); one it has not goes, said
+    const back = await drop(file);
+    expect(back.settings.input.regions).toEqual([
+      { id: "r1", box, prompt: "a red coat", lora: { file: "styles\\Coat.safetensors", weight: 0.5 } },
+      { id: "r2", box, prompt: "a hat" },
+    ]);
+    expect(back.settings.notes).toContain("A region's LoRA (Gone) is not one ComfyUI has: its box goes without it.");
   });
 
   it("is read from Afflatus's own text alone, when it went out with no A1111 text", async () => {

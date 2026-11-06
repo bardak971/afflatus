@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { monthStart } from "@afflatus/core";
 import { api, thumbUrl, type ModelFile, type ModelLibrary } from "../../api";
 import { dayOf, plural, size, when } from "../../format";
 import { useCopied } from "../../hooks";
@@ -26,9 +27,9 @@ export function Picture({ f, small }: { f: ModelFile; small?: boolean }) {
 
 /** The last six months of a file's uses, as small bars. */
 function Spark({ months }: { months: Record<string, number> }) {
-  const now = new Date();
+  const now = Date.now();
   const keys = Array.from({ length: 6 }, (_, i) => {
-    const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
+    const d = new Date(monthStart(now, i - 5));
     return { key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`, label: d.toLocaleDateString("en-GB", { month: "short" }) };
   });
   const most = Math.max(1, ...keys.map((k) => months[k.key] ?? 0));

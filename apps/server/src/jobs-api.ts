@@ -1,4 +1,4 @@
-import { BATCH, movedSeed, PROMPT_MOST, typedSeed, type InputSpec, type Recipe } from "@afflatus/core";
+import { BATCH, movedSeed, PROMPT_MOST, REGION_PROMPT_MOST, REGION_TEXT_MOST, typedSeed, type InputSpec, type Recipe } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { compose, lookSchema, withMentions, type Look } from "./entities";
@@ -91,12 +91,21 @@ export async function queueRender(s: Services, body: z.output<typeof jobBody>, b
 /**
  * A form's texts held to the prompt's bound before its wildcards are settled: settling copies a text on each of its turns,
  * and the form is parsed (with that bound) only as it is queued, after; a text of megabytes held the server for seconds
- * (review 2026-11-05 S4). Refused with the parser's own reason.
+ * (review 2026-11-05 S4); the regions' too. Refused with the parser's own reason.
  */
 function bounded(recipe: Recipe<any>, input: Record<string, unknown>): Record<string, unknown> {
   for (const spec of recipe.inputs as InputSpec[]) {
     const v = input[spec.id];
     if (spec.type === "prompt" && typeof v === "string" && v.length > PROMPT_MOST) throw httpError(`${spec.label}: at most ${PROMPT_MOST.toLocaleString("en")} characters`);
+    // the regions' words and letters are settled too (card #300), so they are held to their own bounds first, and so is
+    // their count, every box being settled (review 2026-11-05b N1: one box of megabytes held the server a second a copy)
+    if (spec.type !== "regions" || !Array.isArray(v)) continue;
+    if (v.length > spec.max) throw httpError(`${spec.label}: at most ${spec.max} regions`);
+    v.forEach((r: unknown, i) => {
+      const { prompt, text } = (r ?? {}) as { prompt?: unknown; text?: unknown };
+      if (typeof prompt === "string" && prompt.length > REGION_PROMPT_MOST) throw httpError(`Region ${i + 1}: at most ${REGION_PROMPT_MOST.toLocaleString("en")} characters`);
+      if (typeof text === "string" && text.length > REGION_TEXT_MOST) throw httpError(`Region ${i + 1}'s text: at most ${REGION_TEXT_MOST.toLocaleString("en")} characters`);
+    });
   }
   return input;
 }

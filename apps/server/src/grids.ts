@@ -1,4 +1,4 @@
-import { GRID_AXES, gridAxes, gridJobs, parseInput, PROMPT_SR, randomSeed, usdFor, type GridAxisValues, type GridJob, type InputSpec, type Recipe } from "@afflatus/core";
+import { GRID_AXES, gridAxes, gridJobs, parseInput, PROMPT_SR, randomSeed, usdFor, worstOf, type GridAxisValues, type GridJob, type InputSpec, type Recipe } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { assetLookup } from "./assets-api";
@@ -7,6 +7,7 @@ import { httpError, notFound } from "./errors";
 import { lookSchema } from "./entities";
 import { queueRender, type GridCellJob } from "./jobs-api";
 import { cellsTotal, cellTimes, podsOf, type Prices } from "./podPrices";
+import { runwayNeed } from "./rentedBilling";
 import type { Services } from "./services";
 import { gridSheet, makeThumb, readPicture } from "./thumbs";
 
@@ -95,8 +96,12 @@ export interface GridPlanView {
   count: number;
   /** All of it on the machine picked, else as the queue shares it between its machines (Auto); null when a cell is not known. */
   ms: number | null;
-  /** On the rented pods it may go to, at worst (the dearest, the slowest): null when none may take it. */
-  pod: { ms: number | null; usd: number | null } | null;
+  /**
+   * On the rented pods it may go to, at worst (the dearest, the slowest): null when none may take it. `usd` is the plain
+   * forecast, said on the card; `most` what it may cost with each unsure cell counted half again (rentedBilling.ts
+   * runwayNeed), the figure an MCP token's render_grid is held to (mcpRender.ts gridCostOn) and the one the card asks on.
+   */
+  pod: { ms: number | null; usd: number | null; most: number | null } | null;
 }
 
 /**
@@ -118,14 +123,15 @@ export async function planGrid(s: Services, body: z.output<typeof planBody>): Pr
   if (!pods.length) return { count: read.jobs.length, ms, pod: null };
   const rates = podsOf(s, pods);
   const each = await Promise.all(pods.map(async (p) => {
-    const t = cellsTotal(await cellTimes(s, read.recipe.id, inputs, p.id, prices));
+    const times = await cellTimes(s, read.recipe.id, inputs, p.id, prices);
+    const t = cellsTotal(times);
     const rate = rates.get(p.id)?.rate;
-    return { ms: t, usd: t === null || rate === null || rate === undefined ? null : usdFor(t, rate) };
+    if (t === null || rate === null || rate === undefined) return { ms: t, usd: null, most: null };
+    // a cell with no forecast at all leaves it unknown here (the card asks), where MCP prices it at runwayNeed's floor
+    return { ms: t, usd: usdFor(t, rate), most: usdFor(times.reduce((n, c) => n + runwayNeed({ renderMs: c.ms, fetchMs: 0, sure: c.sure }), 0), rate) };
   }));
   // said at its worst: an amount not known on any of them is not known
-  const usd = each.some((e) => e.usd === null) ? null : Math.max(...each.map((e) => e.usd!));
-  const podMs = each.some((e) => e.ms === null) ? null : Math.max(...each.map((e) => e.ms!));
-  return { count: read.jobs.length, ms, pod: { ms: podMs, usd } };
+  return { count: read.jobs.length, ms, pod: { ms: worstOf(each.map((e) => e.ms)), usd: worstOf(each.map((e) => e.usd)), most: worstOf(each.map((e) => e.most)) } };
 }
 
 /**

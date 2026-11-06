@@ -1,4 +1,4 @@
-import { nameKey, plural } from "@afflatus/core";
+import { nameKey, plural, PROMPT_MOST } from "@afflatus/core";
 import { z } from "zod";
 import { withoutPaths } from "./downloads";
 import { httpError, notFound } from "./errors";
@@ -280,7 +280,7 @@ const checkTags = tool({
   scope: "look",
   title: "Check Danbooru tags",
   description: "The prompt's tags that are not Danbooru tags, as the form's tag check underlines them (for the anime checkpoints, Illustrious, NoobAI, Pony): each said an alias (another name of a real tag) or unknown, with the tag to write instead when there is one. Run on this computer: nothing leaves it. `ignore`: tags to let through.",
-  input: { text: z.string().max(20_000), ignore: z.array(z.string().max(400)).max(200).default([]) },
+  input: { text: z.string().max(PROMPT_MOST), ignore: z.array(z.string().max(400)).max(200).default([]) },
   async run(a, ctx) {
     await loadTagsSoon();
     const issues = checkPrompt(a.text, a.ignore);

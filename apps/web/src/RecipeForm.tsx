@@ -83,7 +83,7 @@ export function Form(props: {
   helpers?: ReactNode;
   /** Chapters of the screen's own before every other (a timeline clip's Source and Takes): first in the strip too, in this order. */
   lead?: LeadPart | ReadonlyArray<LeadPart | undefined>;
-  /** The X/Y/Z grid's card (card #21): after the recipe's own chapters, before Sampling, as the mock lays it out. */
+  /** The X/Y/Z grid's card (card #21): last of all, after Advanced: it varies the settings above it. */
   grid?: LeadPart;
   /** What the screen puts at the top of one of the recipe's own chapters, by its id (a swap clip's Mask: who is replaced, Show the mask). */
   chapterExtra?: Record<string, ReactNode>;

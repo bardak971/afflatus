@@ -1,4 +1,4 @@
-import { RANDOM_SEED } from "@afflatus/core";
+import { RANDOM_SEED, SEED_RANGE } from "@afflatus/core";
 import { useSeedMode, type SeedMode } from "../seedMode";
 import { cx, Segmented } from "../ui";
 import { FieldRow } from "./FieldRow";
@@ -37,7 +37,7 @@ export function SeedField({ id, label, note, value, onChange }: { id: string; la
           spellCheck={false}
           value={value}
           data-tip={mode === "fixed" ? "This seed, every render" : mode === "up" ? "This seed, then one up after each render (a batch takes them in a row)" : "This seed, then one down after each render (a batch takes them in a row)"}
-          onChange={(e) => onChange(Math.min(4294967295, Number(e.target.value.replace(/\D/g, "")) || 0))}
+          onChange={(e) => onChange(Math.min(SEED_RANGE - 1, Number(e.target.value.replace(/\D/g, "")) || 0))}
           className={cx(field, "h-9 w-full font-mono")}
         />
       )}

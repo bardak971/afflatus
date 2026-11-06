@@ -23,8 +23,11 @@ export interface GridPlan {
   said: string;
   /** All of it, on the machine it goes to (on Auto, shared as the queue shares it); null without a forecast. */
   ms: number | null;
-  /** On a rented pod it may go to: the time there and the money, at worst (all of it on the dearest); null off pods. */
-  pod: { ms: number | null; usd: number | null } | null;
+  /**
+   * On a rented pod it may go to: the time there and the money, at worst (all of it on the dearest); null off pods. `most`
+   * counts each unsure forecast half again, as an MCP token is held to: what the ask before queuing is about.
+   */
+  pod: { ms: number | null; usd: number | null; most: number | null } | null;
 }
 
 /** The grid of the form as it stands, worked out and planned (see GridPlan). */

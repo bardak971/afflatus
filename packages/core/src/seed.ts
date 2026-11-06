@@ -1,5 +1,5 @@
-import { RANDOM_SEED } from "./inputs";
-
+/** -1 = draw a new seed for every render. */
+export const RANDOM_SEED = -1;
 /** How many seeds a model takes: 0 to 2³² − 1. */
 export const SEED_RANGE = 4294967296;
 /** A seed drawn at random, for a render asked with none (RANDOM_SEED) and a grid's cells. */

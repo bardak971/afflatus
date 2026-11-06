@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { ExpressionBuilder } from "kysely";
-import { monthStart, plural, runCost, usd, usdFor } from "@afflatus/core";
+import { HOUR_MS, monthStart, plural, runCost, usd, usdFor } from "@afflatus/core";
 import { sha256 } from "./access";
 import { csvOf, utc } from "./csv";
 import { newId, OWNER, type Db, type Tables } from "./db";
@@ -40,7 +40,6 @@ export const LIVE_MS = 5 * 60_000;
 const TOUCH_MS = 60_000;
 /** The token's look: "afl_mcp_" and 43 characters, some 256 bits. */
 export const TOKEN_PREFIX = "afl_mcp_";
-const HOUR = 3_600_000;
 const DAY = 86_400_000;
 /** A name, a client's name: as long as a line shows. */
 const NAME_MAX = 60;
@@ -158,9 +157,9 @@ export class McpTokens {
     const t = this.now();
     const ids = rows.map((r) => r.id);
     const hour = await this.db.selectFrom("jobs").select(["mcp_token_id"]).select((eb) => eb.fn.countAll<number>().as("n"))
-      .where("mcp_token_id", "in", ids).where("created_at", ">=", this.iso(t - HOUR)).groupBy("mcp_token_id").execute();
+      .where("mcp_token_id", "in", ids).where("created_at", ">=", this.iso(t - HOUR_MS)).groupBy("mcp_token_id").execute();
     const hourOff = await this.db.selectFrom("mcp_token_jobs").select(["mcp_token_id"]).select((eb) => eb.fn.countAll<number>().as("n"))
-      .where("mcp_token_id", "in", ids).where("created_at", ">=", this.iso(t - HOUR)).where(offTheList).groupBy("mcp_token_id").execute();
+      .where("mcp_token_id", "in", ids).where("created_at", ">=", this.iso(t - HOUR_MS)).where(offTheList).groupBy("mcp_token_id").execute();
     const working = await this.db.selectFrom("jobs").select(["mcp_token_id"]).select((eb) => eb.fn.countAll<number>().as("n"))
       .where("mcp_token_id", "in", ids).where("status", "in", ["queued", "running"]).groupBy("mcp_token_id").execute();
     const spent = await this.spentThisMonthOf(ids);
@@ -230,7 +229,7 @@ export class McpTokens {
       // its moment first, then a count of this run's: lines written in the same millisecond keep their order
       id: `${this.iso()}#${String(this.seq++ % 1e6).padStart(6, "0")}${newId().slice(0, 8)}`, token_id: line.tokenId, at: this.iso(), tool: cleanLine(line.tool).slice(0, 80), said: cleanLine(line.said).slice(0, 500), refused: line.failed ? 2 : line.refused ? 1 : 0, why: line.why ? cleanLine(line.why).slice(0, 500) : null,
     }).execute();
-    if (this.now() - this.prunedAt > HOUR) await this.prune();
+    if (this.now() - this.prunedAt > HOUR_MS) await this.prune();
   }
 
   /** The activity older than 30 days let go, and the revoked tokens whose last line went with it. */
@@ -263,7 +262,7 @@ export class McpTokens {
 
   /** Its renders sent in the last hour, its model loads among them (each holds a machine as a render does), dismissed ones too. */
   async rendersThisHour(id: string): Promise<number> {
-    const since = this.iso(this.now() - HOUR);
+    const since = this.iso(this.now() - HOUR_MS);
     const row = await this.db.selectFrom("jobs").select((eb) => eb.fn.countAll<number>().as("n"))
       .where("mcp_token_id", "=", id).where("created_at", ">=", since).executeTakeFirstOrThrow();
     const off = await this.db.selectFrom("mcp_token_jobs").select((eb) => eb.fn.countAll<number>().as("n"))
