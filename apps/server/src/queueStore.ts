@@ -16,6 +16,7 @@ import { readVideo, videoFacts, type VideoFacts } from "./video";
 import { readJson, type JobRow, type QueueCore, type Resume } from "./queueModel";
 import { linkUses } from "./modelUses";
 import { stackRoot } from "./versions";
+import { placementOf, type JobPlacement } from "./jobPlacement";
 
 /** What a finished render leaves behind: its files in storage, its rows in the library, and the record of how it was made. */
 
@@ -91,9 +92,11 @@ export const draftOf = (db: Db, asset: Tables["assets"]) => walkFinished(db, ass
 export async function store(
   core: QueueCore, comfy: Comfy, recipe: Recipe<any>, input: Record<string, unknown>, resume: Resume,
   outputs: Outputs,
-  row: Pick<JobRow, "id" | "draft_id" | "folder_id" | "look" | "asked"> & { clip_id?: string | null; label?: string | null; version_of?: string | null; grid_id?: string | null; grid_cell?: string | null },
+  row: Pick<JobRow, "id" | "look" | "asked"> & { label?: string | null } & Parameters<typeof placementOf>[0],
 ): Promise<{ id: string; measuring: Promise<number> | null }> {
   const { db, storage } = core;
+  // where they land: the job's draft, folder, clip, grid cell and the stack it renders versions of
+  const placed = placementOf(row);
   const files = collectOutputs(resume, outputs);
   if (!files.length) throw new Error("ComfyUI finished but returned no output");
   const sides = sideFiles(resume, outputs);
@@ -107,12 +110,12 @@ export async function store(
   // chosen while the renders run, and a job's own folder would file the takes that finish later where the timeline no longer
   // is (timelineFolder.ts). Anything else lands in the folder that was open when it was sent, when it is still there. Being in a
   // folder does not keep a result: it still goes to the bin after a day unless it is kept
-  const timeline = row.clip_id
-    ? await db.selectFrom("clips").innerJoin("timelines", "timelines.id", "clips.timeline_id").select(["timelines.folder_id", "timelines.project_id"]).where("clips.id", "=", row.clip_id).executeTakeFirst()
+  const timeline = placed.clip
+    ? await db.selectFrom("clips").innerJoin("timelines", "timelines.id", "clips.timeline_id").select(["timelines.folder_id", "timelines.project_id"]).where("clips.id", "=", placed.clip.id).executeTakeFirst()
     : undefined;
   const folder = timeline
     ? await folderOfTimeline(db, timeline)
-    : row.folder_id ? (await db.selectFrom("folders").select("id").where("id", "=", row.folder_id).executeTakeFirst())?.id ?? null : null;
+    : placed.folder ? (await db.selectFrom("folders").select("id").where("id", "=", placed.folder).executeTakeFirst())?.id ?? null : null;
   // every file comes down from ComfyUI and goes into storage first, with what is read off it; the rows are
   // then written together, so that a failure halfway leaves no generation without its files or the other way round.
   // What was put in storage before a failure is taken out again: no file is left that no row names
@@ -131,14 +134,14 @@ export async function store(
       const one = await fileOne(core, comfy, recipe, input, resume, { file, kind }, sides, written);
       if (one.measure) measure = { asset: one.row.id, work: one.measure };
       // a cell of an X/Y/Z grid carries its grid and its place on the board, however it is filed (card #21)
-      rows.push(newAssetRow({ ...one.row, ...(scratch ? { origin: "scratch" as const } : {}), ...(row.grid_id ? { grid_id: row.grid_id, grid_cell: row.grid_cell ?? null } : {}), folder_id: folder, generation_id: generationId, created_at: at }));
+      rows.push(newAssetRow({ ...one.row, ...(scratch ? { origin: "scratch" as const } : {}), ...(placed.grid ? { grid_id: placed.grid.id, grid_cell: placed.grid.cell } : {}), folder_id: folder, generation_id: generationId, created_at: at }));
     }
     // what a draft made is named after it, numbered on; a timeline clip's take is named once it is placed (autoName.ts)
     const prompts = recipe.inputs.filter((s) => s.type === "prompt" && !s.optional).map((s) => s.id);
-    if (row.draft_id && !row.clip_id) {
-      const names = await draftNames(db, row.draft_id, rows.length, { prompt: promptOf(input, prompts), recipe: recipe.title });
+    if (placed.draft && !placed.clip) {
+      const names = await draftNames(db, placed.draft, rows.length, { prompt: promptOf(input, prompts), recipe: recipe.title });
       names?.forEach((name, i) => (rows[i]!.name ||= name));
-    } else if (!row.draft_id && !row.clip_id) {
+    } else if (!placed.draft && !placed.clip) {
       // a pass of a named picture (sent with it as its source): named after the picture and the pass
       const sourceSpec = recipe.inputs.find((s) => s.type === "image" && s.role === "source");
       const sourceId = sourceSpec ? input[sourceSpec.id] : undefined;
@@ -151,7 +154,7 @@ export async function store(
         names.forEach((name, i) => (rows[i]!.name ||= name));
       }
     }
-    await writeRows(db, { id: generationId, recipe, input, resolved, genMs: Date.now() - resume.startedAt, at }, row, sourcesOf(recipe, input, resume), rows);
+    await writeRows(db, { id: generationId, recipe, input, resolved, genMs: Date.now() - resume.startedAt, at }, row, placed, sourcesOf(recipe, input, resume), rows);
     // the rows are there: the measure goes on from here, and lets the background measure go once it is done
     if (measure) measuring = measureLater(core, generationId, measure.asset, measure.work, faceFigures(resume, outputs), filed);
   } catch (err) {
@@ -406,14 +409,14 @@ function sourcesOf(recipe: Recipe<any>, input: Record<string, unknown>, resume: 
 /** The generation, its lineage and its assets, in one transaction; the job names its generation from then on. */
 async function writeRows(
   db: Db, g: { id: string; recipe: Recipe<any>; input: Record<string, unknown>; resolved: Record<string, unknown>; genMs: number; at: string },
-  row: Pick<JobRow, "id" | "draft_id" | "asked"> & { version_of?: string | null }, sources: Array<{ asset: string; role: string }>, rows: AssetRow[],
+  row: Pick<JobRow, "id" | "asked">, placed: JobPlacement, sources: Array<{ asset: string; role: string }>, rows: AssetRow[],
 ): Promise<void> {
   await db.transaction().execute(async (tx) => {
     await tx
       .insertInto("generations")
       .values({
         id: g.id, owner_id: OWNER, recipe_id: g.recipe.id, recipe_version: g.recipe.version, family: g.recipe.family,
-        inputs: JSON.stringify(g.input), resolved: JSON.stringify(g.resolved), measure: g.resolved.measure ? JSON.stringify(g.resolved.measure) : null, gen_ms: g.genMs, draft_id: row.draft_id, asked: row.asked ?? null, created_at: g.at,
+        inputs: JSON.stringify(g.input), resolved: JSON.stringify(g.resolved), measure: g.resolved.measure ? JSON.stringify(g.resolved.measure) : null, gen_ms: g.genMs, draft_id: placed.draft, asked: row.asked ?? null, created_at: g.at,
       })
       .execute();
     // the job names its generation from here on: found running again after a crash, it is not filed twice
@@ -432,7 +435,7 @@ async function writeRows(
     // sent as versions of a picture: they join its stack's root as it is now (a version kept meanwhile is the root), never
     // another version, so that a stack stays flat; the lineage keeps the picture each was made from. A stack with no head
     // left (erased, binned) gets none: what was made is a plain item. A working picture is never a version
-    const head = row.version_of ? await stackRoot(tx, row.version_of) : null;
+    const head = placed.versionOf ? await stackRoot(tx, placed.versionOf) : null;
     for (const r of rows) await tx.insertInto("assets").values(head && r.origin !== "scratch" ? { ...r, version_of: head } : r).execute();
   });
   // its files' uses name what it made (Settings › Model files' "Made with it"), past the job's own prune: after the

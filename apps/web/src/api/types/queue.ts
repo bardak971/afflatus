@@ -8,15 +8,8 @@ export interface SystemLoad {
   ram?: { used: number; total: number; percent: number };
   gpus: Array<{ name: string; load?: number; temperature?: number; vramUsed: number; vramTotal: number; vramPercent: number }>;
 }
-export interface Job {
-  id: string;
-  recipe: string;
-  label: string;
-  status: "queued" | "running" | "done" | "failed" | "cancelled";
-  error: string | null;
-  /** What went less well than asked, though the job finished: a latent that could not be read, a take that could not be placed. */
-  warning?: string | null;
-  generationId: string | null;
+/** Where a job's results land, as the queue's views say it (the server's jobPlacement.ts placementView). */
+export interface JobPlacement {
   /** The timeline clip it renders a take of, when it is one. */
   clipId: string | null;
   /** The draft it was sent from, when it was sent from one. */
@@ -25,6 +18,16 @@ export interface Job {
   versionOf?: string | null;
   /** Of a cell of an X/Y/Z grid: the grid, and the cell's place on its board ("x.y.z"); null otherwise. */
   grid?: { id: string; cell: string } | null;
+}
+export interface Job extends JobPlacement {
+  id: string;
+  recipe: string;
+  label: string;
+  status: "queued" | "running" | "done" | "failed" | "cancelled";
+  error: string | null;
+  /** What went less well than asked, though the job finished: a latent that could not be read, a take that could not be placed. */
+  warning?: string | null;
+  generationId: string | null;
   /** Of a waiting or running job: the MCP token whose call queued it, and how many of that token's renders wait or run now; null: the page queued it. */
   by?: { name: string; jobs: number } | null;
   /** Of a clip render, once its graph is built: how it joins the clip before (in the latent, or on pinned frames); null when it starts on its own. */

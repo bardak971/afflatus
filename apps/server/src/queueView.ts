@@ -12,6 +12,7 @@ import type { ToolPaces } from "./renders";
 import type { CutOptions } from "./timelines";
 import { CUT_JOB, EXPORT_JOB } from "./timelineModel";
 import { readJson, type JobRow, type QueueCore, type Resume } from "./queueModel";
+import { placementView } from "./jobPlacement";
 import type { Db } from "./db";
 import type { Machine } from "./settings";
 import type { RentedView } from "./rentedModel";
@@ -130,12 +131,8 @@ export async function status(
     return joinKindOf(readJson<Partial<Resume>>(r.resume, {}).overlap);
   };
   const plain = (r: JobRow) => ({
-    id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, warning: r.warning ?? null, generationId: r.generation_id, clipId: r.clip_id, draftId: r.draft_id, join: joinOf(r),
+    id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, warning: r.warning ?? null, generationId: r.generation_id, ...placementView(r), join: joinOf(r),
     kind: kindOf(r),
-    /** The picture whose versions it renders (the root of the stack: Keep moves it to the kept one); null: it makes new items. */
-    versionOf: r.version_of ?? null,
-    /** Of a cell of an X/Y/Z grid: the grid and the cell's place on its board ("x.y.z"), for its live tile there; null otherwise. */
-    grid: r.grid_id && r.grid_cell ? { id: r.grid_id, cell: r.grid_cell } : null,
     /** The MCP token whose call queued it, by name, and how many renders of that token wait or run now (the status bar's "Claude Code rendering 2 takes"); null: the page queued it. */
     by: r.mcp_token_id ? by.get(r.mcp_token_id) ?? null : null,
     upscaler: upscalerOf(r),
@@ -430,7 +427,7 @@ export async function history(core: QueueCore, opts: { status?: "done" | "failed
     const tookMs = r.started_at && r.finished_at ? new Date(r.finished_at).getTime() - new Date(r.started_at).getTime() : null;
     const kind = kindOf(r);
     return {
-      id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, warning: r.warning ?? null, generationId: r.generation_id, clipId: r.clip_id, draftId: r.draft_id, versionOf: r.version_of ?? null, grid: r.grid_id && r.grid_cell ? { id: r.grid_id, cell: r.grid_cell } : null,
+      id: r.id, recipe: r.recipe_id, label: r.label, status: r.status, error: r.error, warning: r.warning ?? null, generationId: r.generation_id, ...placementView(r),
       kind,
       upscaler: upscalerOf(r),
       input: r.status === "failed" && kind !== "export" && kind !== "cut" ? input : null,
