@@ -23,17 +23,15 @@ You keep ComfyUI, your models and your node packs; they do all the rendering. Af
 
 It is one small server and a folder of data, on your PC or in a container.
 
-## What's new in 0.9
+## What's new in 0.10
 
-- **0.9.1 · Seamless H3 chains that hold their look:** no more sharpening or colour drift clip after clip, no more yellowing with a person picture, the face carried on by Face refine; **Krea 2 with a person reference**; a cast person's clearest face sent first; big model downloads to this PC over several connections.
-- **Rented GPUs ranked by $ per render**, not by the hour: each GPU's time on the renders waiting, from your own renders, at its price, plus its share of the deploy. And big Civitai files reach a pod over 8 connections, a 21 GB model in about two minutes.
-- **The join panel says what a switch does before you click:** Seamless or Hard cut, and a seamless join that cut anyway flagged on the track with New take beside it.
-- **Upscale 2x keeps the person** on FLUX.1 and Klein: its denoise is now the real noise it starts from, where 0.25 used to redraw a face as someone else.
-- **The four MiniMax H3 forms on one skeleton**, every LoRA a render loads shown in its list (Turbo's too), and the Face refine and upscale models chosen per clip.
-- **Settings › Model files:** every model file on this PC with how Afflatus used it; Delete to the Recycle Bin, Put back, Empty.
-- **Settings in twelve tabs**, one per thing: Costs, Notifications, Sign-in and Agents (MCP) among them.
-- **Find models from the first launch**, a paid or Early Access Civitai version said as such.
-- **"ComfyUI isn't answering"** for a ComfyUI that is only swamped, its render followed on, apart from offline.
+- **Paint and fix on the Stage:** paint the mask over the picture with a soft brush, a lasso, click to mask, a face, hand or person detector or a colour wand, then Fix ×N; drag a frame out to outpaint. Each result comes back as a version of the picture: step through, K keeps one, compare two.
+- **Edit in a box:** draw boxes on the picture, an instruction in each, done one after another by Qwen Image Edit, Qwen Image 2.1, Klein or Kontext into one version.
+- **The X/Y/Z plot:** axes typed as in A1111, Prompt S/R, the count, time and pod cost said before it queues, the board on the Stage and a labelled sheet; `render_grid` for agents.
+- **Regions:** a prompt, a LoRA or a cast person per box, on SDXL, Krea 2 and the new **MOSS-Image**, whose boxes can hold text.
+- **The A1111 essentials:** ADetailer-style Detail passes for faces, hands and people inside every txt2img, ControlNet on SDXL, FLUX.1, Qwen Image and Z-Image, IP-Adapter and FaceID on SDXL, PNG info both ways (A1111's parameters out, any form filled back in), wildcards, weights and a CLIP token count.
+- **Zoom and Compare:** the wheel zooms round the pointer, Compare keeps both sides on the same spot; a library selection downloads as a zip, takes passes or compares two.
+- **Every picture form on one skeleton**, the same rows in the same order and words, with Vary subtle / strong and each pass's settings a Shift+click away.
 
 Since 0.8, agents drive the studio over MCP: see [docs/mcp.md](docs/mcp.md). Everything else is in the [changelog](CHANGELOG.md).
 
@@ -41,7 +39,7 @@ Since 0.8, agents drive the studio over MCP: see [docs/mcp.md](docs/mcp.md). Eve
 
 <p align="center"><img src="docs/media/make.webp" alt="A Krea 2 picture of a night market, and a frame of the MiniMax H3 video it became" width="820"><br><sub>A picture, then the video made from it.</sub></p>
 
-- **A form per model, on its authors' settings.** Prompt, size, steps, done. SDXL, FLUX, Krea 2, Qwen Image, Z-Image for pictures; MiniMax H3, LTX 2.3 and 2.5, Wan 2.2 for video; SCAIL-2 for motion. A `?` beside each model says what it is good and weak at.
+- **A form per model, on its authors' settings.** Prompt, size, steps, done. SDXL, FLUX, Krea 2, Qwen Image, Z-Image, MOSS-Image for pictures; MiniMax H3, LTX 2.3 and 2.5, Wan 2.2 for video; SCAIL-2 for motion. A `?` beside each model says what it is good and weak at.
 - **A designer that knows each model's grammar.** Point it at any OpenAI-style endpoint (LM Studio, Ollama, llama.cpp or a service) and it writes the prompt the way that model reads one: tags for SDXL, one flowing description with no quality words for Krea 2, each from a prompting guide you can read and edit. Your own system prompts shape it further, a photographer, a videomaker; it can plan a whole timeline as a series of clips; and what it writes is checked against the model's rules, each miss shown as a line for you to judge.
 - **A library you can keep tidy.** Projects, with folders inside them. Renders land in the folder you are working in; drag anything anywhere; and one search box finds anything across all of it, by what it is: `video: lantern`, `model:krea2 since:1m`, `in:"The Keeper" -kept`, `lora:` to list the LoRAs you have used, `prompt:` for the words you wrote. Open an item and the viewer shows everything that made it: model, seed, every setting, the pictures it was fed.
 - **Drafts that outlive the render.** A draft is a prompt and its inputs, kept until you delete it. Run the same one on Krea 2, then on Z-Image, then on FLUX, and compare any two results side by side with a wipe. Reuse a render's seed, or make a variation of it, in one click.
@@ -176,13 +174,14 @@ Each comes with a form on its authors' own settings; presets for the official re
 
 | Family | Models | What you can do |
 |---|---|---|
-| SDXL | any SDXL checkpoint: Illustrious, NoobAI, Pony, Juggernaut XL… | txt2img, img2img, inpaint, outpaint, upscale, face and hand refine, a ControlNet guide |
-| FLUX.2 Klein | 4B and 9B, and their fine-tunes | txt2img, edit by instruction, variation, inpaint, outpaint, upscale, face and hand refine |
-| FLUX.1 | dev, Krea dev, schnell, Kontext | txt2img, edit, img2img, inpaint, outpaint, upscale, face and hand refine |
-| Krea 2 | Turbo and its fine-tunes | txt2img, img2img, inpaint, upscale, face and hand refine |
-| Qwen Image | 2512, Qwen Image Edit | txt2img, edit, img2img, inpaint, outpaint, upscale, face and hand refine |
-| Qwen Image 2.1 | | txt2img, edit, the picture for a motion transfer |
-| Z-Image | Turbo and its fine-tunes | txt2img, img2img, inpaint, outpaint, upscale, face and hand refine |
+| SDXL | any SDXL checkpoint: Illustrious, NoobAI, Pony, Juggernaut XL… | txt2img, img2img, inpaint, outpaint, upscale, face and hand refine, a ControlNet guide, IP-Adapter and FaceID references, regions |
+| FLUX.2 Klein | 4B and 9B, and their fine-tunes | txt2img, edit by instruction, variation, img2img, inpaint, outpaint, upscale, face and hand refine |
+| FLUX.1 | dev, Krea dev, schnell, Kontext | txt2img, edit, img2img, inpaint, outpaint, upscale, face and hand refine, a ControlNet guide, Redux references |
+| Krea 2 | Turbo and its fine-tunes | txt2img, img2img, inpaint, outpaint, upscale, face and hand refine, regions |
+| Qwen Image | 2512, Qwen Image Edit | txt2img, edit, img2img, inpaint, outpaint, upscale, face and hand refine, a ControlNet guide |
+| Qwen Image 2.1 | | txt2img, edit, img2img, inpaint, outpaint, upscale, face refine, the picture for a motion transfer |
+| Z-Image | Turbo and its fine-tunes | txt2img, img2img, inpaint, outpaint, upscale, face and hand refine, a ControlNet guide |
+| MOSS-Image | and its Turbo LoRA | txt2img, regions with object and text boxes |
 | MiniMax H3 | video with sound | text, first and last frame, keyframe, references, continuation, lip sync, character swap, motion transfer, Face refine: the timeline's native model |
 | Wan 2.2 | | video from text, a first frame, or first and last frames |
 | LTX 2.3 | | video with sound: text, first and last frames, a keyframe in between, continuation |
@@ -192,7 +191,7 @@ Each comes with a form on its authors' own settings; presets for the official re
 
 **Your own workflows.** Have a graph you like in ComfyUI? **Workflows → Import** the file it saved. Afflatus reads most of them: the controls their author exposed become a form, switches become toggles, and it names the node packs and model files you are missing. Some graphs need a hand with their mapping before they render; the editor is there for that.
 
-**Model licences.** The models are other people's work under their own licences, which you accept when you download them; each preset shows its licence once. Several limit commercial use, Qwen Image 2.1's weights and the InsightFace models behind the face figures are for research only, Face refine's face finder comes with ultralytics (AGPL-3.0), and **MiniMax H3's licence does not grant its use in the European Union, the United Kingdom, South Korea or the United States**. What you download or export from a render is marked as AI-made: PNG pictures with IPTC's "trained algorithmic media", videos with a comment; what you brought in is never marked.
+**Model licences.** The models are other people's work under their own licences, which you accept when you download them; each preset shows its licence once. Several limit commercial use, Qwen Image 2.1's weights and the InsightFace models behind the face figures are for research only, Face refine's face finder comes with ultralytics (AGPL-3.0), and **MiniMax H3's licence does not grant its use in the European Union, the United Kingdom, South Korea or the United States**. What you download or export from a render is marked as AI-made: PNG, JPEG and WebP pictures with IPTC's "trained algorithmic media", videos with a comment; what you brought in is never marked.
 
 ## Yours, and private
 
