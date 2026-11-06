@@ -1,6 +1,6 @@
-import { axisValues, GRID_ASK_USD, GRID_AXES, gridFields, plural, splitValues, type GridAxis, type GridField, type GridSetup } from "@afflatus/core";
-import type { RecipeInfo, RecipeStatus } from "../api";
-import { aboutMs, usd } from "../format";
+import { axisValues, formModelInput, GRID_ASK_USD, GRID_AXES, gridFields, plural, splitValues, type GridAcross, type GridAxis, type GridField, type GridSetup } from "@afflatus/core";
+import type { GridPlanView, RecipeInfo, RecipeStatus } from "../api";
+import { aboutMs, size, usd } from "../format";
 import { Select, type Option } from "../Select";
 import { cx, fieldClass, Help } from "../ui";
 import { gridOptions, type GridPlan } from "./gridPlan";
@@ -51,9 +51,9 @@ export function GridCard({ recipe, whole, status, setup, plan, onChange }: {
         const field = fields.find((f) => f.id === axis.field);
         const error = plan.error?.axis === i ? plan.error.text : null;
         // how many values the axis makes, ranges read out ("4-8 (+2)" is three)
-        const read = field && axis.values.trim() ? axisValues(recipe.inputs, whole, axis, gridOptions(status)) : null;
+        const read = field && axis.values.trim() ? axisValues(recipe.inputs, whole, axis, gridOptions(status), plan.across) : null;
         const n = read && "axis" in read ? read.axis.values.length : 0;
-        const choices = field && (field.kind === "choice" || field.kind === "model") ? choicesOf(recipe, status, field) : [];
+        const choices = field && (field.kind === "choice" || field.kind === "model") ? choicesOf(recipe, status, field, plan.across) : [];
         return (
           <div key={GRID_AXES[i]} data-grid-axis={GRID_AXES[i]} className="grid grid-cols-[22px_minmax(0,9rem)_minmax(0,1fr)] items-center gap-x-2 gap-y-1 rounded-control border border-line bg-raised px-2.5 py-2">
             <span className="flex h-[22px] w-[22px] items-center justify-center rounded-md bg-line-strong text-xs font-extrabold text-ink">{GRID_AXES[i]}</span>
@@ -110,11 +110,18 @@ export function GridCost({ plan }: { plan: GridPlan }) {
         <span className="flex items-center gap-1 text-xs text-ink-2">
           On your pod: {plan.pod.ms !== null ? aboutMs(plan.pod.ms) : "time not known yet"} · {plan.pod.usd !== null ? `about ${usd(plan.pod.usd, true)}` : "cost not known yet"}
           {plan.pod.usd !== null && plan.pod.most !== null && plan.pod.most - plan.pod.usd >= 0.005 && <>, up to {usd(plan.pod.most, true)}</>}
-          <Help text={`From your own render times for this model, each cell at its own steps and size (render_stats), on the pod's hourly rate. "Up to" counts a cell whose time rests on fewer than 3 renders there half again, as an agent's cap does. Asked before queuing when that is above $${GRID_ASK_USD}, near a spending cap, or when it cannot be told.`} />
+          <Help text={`From your own render times for this model, each cell at its own steps and size (render_stats), on the pod's hourly rate, with the model files the pod fetches first. "Up to" counts a cell whose time rests on fewer than 3 renders there half again, as an agent's cap does. Asked before queuing when that is above $${GRID_ASK_USD}, near a spending cap, or when it cannot be told.`} />
         </span>
       )}
+      {plan.pod?.fetch && <span data-grid-fetch className="text-xs text-ink-2">{fetchSaid(plan.pod.fetch)}</span>}
+      {plan.refused && <span role="alert" className="text-xs text-warn-ink">{plan.refused}</span>}
     </div>
   );
+}
+
+/** The model files a pod fetches before the grid renders (each family's, each once), as a deploy says its files: "Fetches 3 model files first: 24.1 GB, about 9 min". */
+export function fetchSaid(f: NonNullable<NonNullable<GridPlanView["pod"]>["fetch"]>): string {
+  return `Fetches ${plural(f.files, "model file")} first: ${f.bytes !== null ? size(f.bytes) : "size not known"}, ${f.ms !== null ? aboutMs(f.ms) || "moments" : "time not known (no source for one)"}`;
 }
 
 /** A value with a comma in it, quoted as A1111 reads it. */
@@ -128,11 +135,17 @@ function startValues(field: GridField | undefined, whole: Record<string, unknown
   return "";
 }
 
-/** The options of a choice or a model field, as the form lists them: the machine's lists, else the recipe's own. */
-function choicesOf(recipe: RecipeInfo, status: RecipeStatus | undefined, field: GridField): Option[] {
+/**
+ * The options of a choice or a model field, as the form lists them: the machine's lists, else the recipe's own. The form's
+ * model, with other families' forms of its operation (card #294): its own files under its family, then each family's, a
+ * value of theirs written "Klein: file" as A1111 users type it.
+ */
+function choicesOf(recipe: RecipeInfo, status: RecipeStatus | undefined, field: GridField, across: GridAcross | undefined): Option[] {
   const spec = recipe.inputs.find((i) => i.id === field.input);
   const own = spec?.type === "choice" && Array.isArray(spec.options) ? [...(spec.extra ?? []), ...spec.options] : [];
   const list = status?.options[field.input]?.length ? status.options[field.input]! : own;
   const labels = spec?.type === "choice" ? spec.labels : undefined;
-  return list.map((v) => ({ value: v, label: labels?.[v] ?? v }));
+  const mine = list.map((v) => ({ value: v, label: labels?.[v] ?? v }));
+  if (!across || field.kind !== "model" || formModelInput(recipe)?.id !== field.input) return mine;
+  return [...mine.map((o) => ({ ...o, group: across.name })), ...across.families.flatMap((f) => f.files.map((file) => ({ value: `${f.name}: ${file}`, label: file, group: f.name })))];
 }

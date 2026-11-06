@@ -10,6 +10,7 @@ import { queryKeys } from "../queryKeys";
 import { localId } from "../secureContext";
 import { useBanners } from "../store";
 import { useGridBoard } from "./boardLayout";
+import { fetchSaid } from "./GridCard";
 import { gridAsk, type GridPlan } from "./gridPlan";
 
 /**
@@ -39,15 +40,17 @@ export function useQueueGrid({ recipe, draft, defaults, folder, status, plan }: 
       // the machine picked for this draft, as Render sends to it; one removed since is forgotten (Auto)
       const asked = useDraftMachine.getState().of[draft.id];
       const machine = asked && severalMachines(queue.data).some((m) => m.id === asked) ? asked : undefined;
-      const grid = gridAsk(recipe, input, draft.grid, status, machine);
+      const grid = gridAsk(recipe, input, draft.grid, status, machine, plan.lists);
       const priced = await api.gridPlan(grid);
+      // a cell on another family no machine can run is said now, not failed after (the server refuses it too)
+      if (priced.refused) throw new ApiError(priced.refused);
       if (priced.pod) {
         // the spending as it is now, not as a page left open an hour ago read it: a cap is money
         const spend = (await client.fetchQuery({ queryKey: queryKeys.rentedSpending(), queryFn: ({ signal }) => api.rentedSpending({ signal }), staleTime: 5_000 })).spending;
         // on what it may cost, unsure forecasts with their margin: the card's plain "about" read under the ask's line while
         // an agent's cap held the same grid to more (review 2026-11-05b, card #328)
         const why = gridAsks({ onPod: true, usd: priced.pod.most }, spend);
-        if (why && !(await ask({ title: `Queue ${plural(priced.count, "render")} on the pod?`, text: `${plan.said}. ${why}`, yes: `Queue ${plural(priced.count, "render")}`, help: `Asked only on a rented pod, above $${GRID_ASK_USD} or near a spending cap. The figure comes from your own render times on that pod, each cell at its own settings, and its hourly rate.` }))) return null;
+        if (why && !(await ask({ title: `Queue ${plural(priced.count, "render")} on the pod?`, text: `${plan.said}. ${why}${priced.pod.fetch ? ` ${fetchSaid(priced.pod.fetch)}.` : ""}`, yes: `Queue ${plural(priced.count, "render")}`, help: `Asked only on a rented pod, above $${GRID_ASK_USD} or near a spending cap. The figure comes from your own render times on that pod, each cell at its own settings, and its hourly rate.` }))) return null;
       }
       // one key per click: a request sent again on its way queues nothing more
       const queued = await api.queueGrid({ ...grid, look: draft.look, draft: draft.id, folder, key: localId() });

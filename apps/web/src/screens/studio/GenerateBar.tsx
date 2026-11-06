@@ -67,8 +67,8 @@ export function GenerateBar({ recipe, draft, whole, folder, blocked, missing, wa
         <Button
           data-queue-grid
           className="h-9 w-full min-w-0 text-sm"
-          disabled={!recipe || !draft || Boolean(blocked) || Boolean(missing) || Boolean(grid.plan.error) || grid.queue.isPending}
-          data-tip={grid.plan.error ? `${"XYZ"[grid.plan.error.axis]}: ${grid.plan.error.text}` : missing ?? "Queue every cell of the grid; they land on the Stage as one board"}
+          disabled={!recipe || !draft || Boolean(blocked) || Boolean(missing) || Boolean(grid.plan.error) || Boolean(grid.plan.refused) || grid.queue.isPending}
+          data-tip={grid.plan.error ? `${"XYZ"[grid.plan.error.axis]}: ${grid.plan.error.text}` : grid.plan.refused ?? missing ?? "Queue every cell of the grid; they land on the Stage as one board"}
           onClick={() => grid.queue.mutate()}
         >
           <span className="truncate">{grid.queue.isPending ? "Queuing the grid…" : `Queue grid · ${grid.plan.said}${grid.plan.ms !== null ? ` · ${aboutMs(grid.plan.ms)}` : ""}${grid.plan.pod?.usd != null ? ` · ${usd(grid.plan.pod.usd, true)}` : ""}`}</span>

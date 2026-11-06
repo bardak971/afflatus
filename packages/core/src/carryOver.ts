@@ -61,3 +61,34 @@ export function carryOver(from: { inputs: InputSpec[] }, to: { inputs: InputSpec
   }
   return out;
 }
+
+/**
+ * What goes along to another model's form: what the thing is made from and about. Its pictures, each
+ * to the place that is for the same thing there (a start image to the start image, whatever the two
+ * forms call it), and what is written, when both models are written to the same way. Never how the
+ * first model was run: its file, its LoRAs and its settings are its own. Nothing the other form
+ * already holds is replaced.
+ */
+export function carryAcross(from: { inputs: readonly InputSpec[] }, to: { inputs: readonly InputSpec[] }, stored: Record<string, unknown> | undefined, held: Record<string, unknown> | undefined): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (!stored) return out;
+  const empty = (v: unknown) => v === undefined || v === null || (typeof v === "string" && !v.trim());
+  for (const i of to.inputs) {
+    if (i.type !== "image" || !empty(held?.[i.id])) continue;
+    const was = from.inputs.find((o) => o.type === "image" && o.role === i.role);
+    if (was && !empty(stored[was.id])) out[i.id] = stored[was.id];
+  }
+  const said = (r: { inputs: readonly InputSpec[] }) => r.inputs.find((i) => i.type === "prompt" && !i.optional);
+  const a = said(from);
+  const b = said(to);
+  if (a?.type === "prompt" && b?.type === "prompt" && a.style === b.style && !empty(stored[a.id]) && empty(held?.[b.id])) out[b.id] = stored[a.id];
+  // the boxes drawn on the Stage (card #271), as the other model takes them: a text box only where boxes have kinds (MOSS),
+  // a LoRA only where a region takes one; never over boxes the other form holds already
+  const regionsTo = to.inputs.find((i) => i.type === "regions");
+  const regionsWere = from.inputs.find((i) => i.type === "regions");
+  if (regionsTo?.type === "regions" && regionsWere && Array.isArray(stored[regionsWere.id]) && !(held?.[regionsTo.id] as unknown[] | undefined)?.length) {
+    const carried = regionsFor(regionsTo, stored[regionsWere.id]);
+    if (carried.length) out[regionsTo.id] = carried;
+  }
+  return out;
+}

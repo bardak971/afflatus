@@ -178,7 +178,7 @@ describe("a grid's jobs", () => {
   it("each cell with its own form and name, in queue order, one seed for all", () => {
     const read = gridAxes(specs, form, { axes: [{ field: "steps", values: "20, 40" }, { field: "size", values: "square, 832x1216" }] });
     if ("error" in read) throw new Error(read.error);
-    const jobs = gridJobs(specs, form, read.axes, 77);
+    const jobs = gridJobs({ id: "t", inputs: specs }, form, read.axes, 77);
     expect(jobs.map((j) => [j.key, j.input.steps, j.input.size, j.input.seed, j.label])).toEqual([
       ["0.0.0", 20, { width: 1024, height: 1024 }, 77, "20 · 1024×1024"],
       ["1.0.0", 40, { width: 1024, height: 1024 }, 77, "40 · 1024×1024"],

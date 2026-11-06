@@ -1,10 +1,11 @@
-import { GRID_AXES, gridAxes, gridJobs, parseInput, PROMPT_SR, randomSeed, usdFor, worstOf, type GridAxisValues, type GridJob, type InputSpec, type Recipe } from "@afflatus/core";
+import { formModelInput, GRID_AXES, gridAxes, gridJobs, parseInput, PROMPT_SR, randomSeed, sameOpForms, usdFor, worstOf, type GridAcross, type GridAxisValues, type GridJob, type InputSpec, type Recipe } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { assetLookup } from "./assets-api";
 import { newId, now, OWNER, type Db } from "./db";
 import { httpError, notFound } from "./errors";
 import { lookSchema } from "./entities";
+import { gridFit, scansOf } from "./gridFiles";
 import { queueRender, type GridCellJob } from "./jobs-api";
 import { cellsTotal, cellTimes, podsOf, type Prices } from "./podPrices";
 import { runwayNeed } from "./rentedBilling";
@@ -26,6 +27,11 @@ export const gridBody = z.strictObject({
   axes: z.array(z.strictObject({ field: z.string().max(600), values: z.string().max(4000) })).min(1).max(GRID_AXES.length),
   /** The lists the form offers by input id (a model's files, a sampler's names), for a typed value to be found in. */
   options: z.record(z.string(), z.array(z.string().max(600)).max(5000)).optional(),
+  /**
+   * By recipe id, the files of another family's form of the same operation (its model input's list on the machines): where
+   * a Model axis value of that family is found (card #294). Left out, a value says its family and is taken as typed.
+   */
+  across: z.record(z.string().max(200), z.array(z.string().max(600)).max(5000)).optional(),
   look: lookSchema.optional(),
   draft: z.string().max(64).optional(),
   folder: z.string().max(64).optional(),
@@ -35,7 +41,7 @@ export const gridBody = z.strictObject({
 });
 
 /** What the grid card asks to have priced: the grid as it would be queued, on the machine picked (none: Auto). */
-export const planBody = gridBody.pick({ recipe: true, input: true, axes: true, options: true, machine: true });
+export const planBody = gridBody.pick({ recipe: true, input: true, axes: true, options: true, across: true, machine: true });
 
 /** A grid as the board reads it: its axes as said, where it came from, and each cell's job while the queue holds it. */
 export interface GridView {
@@ -57,20 +63,51 @@ export interface GridRead {
 }
 
 /**
+ * What a form's Model axis may run across (card #294): the other families' forms of its operation (core sameOpForms), each
+ * with its model input's files from `lists` (by recipe id). Undefined when there is none.
+ */
+function acrossFor(s: Services, recipe: Recipe<any>, lists: Record<string, readonly string[]> = {}): GridAcross | undefined {
+  const forms = sameOpForms(recipe, s.registry.recipes()).filter((r) => r.output === "image");
+  if (!forms.length) return undefined;
+  const name = (family: string) => s.registry.family(family)?.name ?? family;
+  return { name: name(recipe.family), families: forms.map((r) => ({ recipe: r, name: name(r.family), files: lists[r.id] ?? [] })) };
+}
+
+/** The files each other family's form offers in the machines' lists, by recipe id: where MCP's render_grid finds a typed model. */
+export function acrossLists(s: Services, recipe: Recipe<any>, optionsOf: (id: string) => Record<string, string[]> | undefined): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const r of sameOpForms(recipe, s.registry.recipes())) {
+    const model = formModelInput(r);
+    const list = model ? optionsOf(r.id)?.[model.id] : undefined;
+    if (list) out[r.id] = list;
+  }
+  return out;
+}
+
+/**
  * A grid's axes read on the form and its cells made, a seed the form draws anew drawn once here for every cell: what is
  * priced (planGrid, MCP render_grid's cap) and what is queued are these same cells.
  */
-export function readGrid(s: Services, body: Pick<z.output<typeof gridBody>, "recipe" | "input" | "axes" | "options">): GridRead {
+export function readGrid(s: Services, body: Pick<z.output<typeof gridBody>, "recipe" | "input" | "axes" | "options" | "across">): GridRead {
   const recipe = s.registry.recipe(body.recipe);
   if (!recipe) throw notFound("this model");
   if (recipe.output !== "image") throw httpError("a grid is made of pictures: this model makes another kind of thing");
   // the form as the queue will take it, before any cell is made of it: its prompts within their limit, its values readable
   parseInput(recipe, body.input);
   const specs = recipe.inputs as InputSpec[];
-  const read = gridAxes(specs, body.input, { axes: body.axes }, body.options);
+  const across = acrossFor(s, recipe, body.across);
+  const read = gridAxes(specs, body.input, { axes: body.axes }, body.options, across);
   if ("error" in read) throw httpError(`${GRID_AXES[read.axis] ?? "X"}: ${read.error}`);
   if (!read.axes.length) throw httpError("a grid needs at least one axis with values");
-  return { recipe, axes: read.axes, jobs: gridJobs(specs, body.input, read.axes, randomSeed()) };
+  const jobs = gridJobs(recipe, body.input, read.axes, randomSeed(), across);
+  // a cell on another family is that form's to take as the queue will: its prompts within their limit, its values readable
+  const checked = new Set<string>();
+  for (const j of jobs) {
+    if (j.recipe === recipe.id || checked.has(j.recipe)) continue;
+    checked.add(j.recipe);
+    parseInput(s.registry.recipe(j.recipe)!, j.input);
+  }
+  return { recipe, axes: read.axes, jobs };
 }
 
 /**
@@ -79,8 +116,11 @@ export function readGrid(s: Services, body: Pick<z.output<typeof gridBody>, "rec
  */
 export async function queueGrid(s: Services, body: z.output<typeof gridBody>, by: { mcpToken?: string } = {}, read: GridRead = readGrid(s, body)): Promise<{ id: string; count: number; jobs: string[] }> {
   const { recipe } = read;
+  // a cell on another family that no machine it may go to can run is refused here, before any is queued
+  const fit = await gridFit(s, read.jobs, recipe.id, await scansOf(s, await mayGoTo(s, body.machine)));
+  if (fit.refused) throw httpError(fit.refused);
   const id = newId();
-  const cells: GridCellJob[] = read.jobs.map((j) => ({ input: j.input, label: j.label, grid: { id, cell: j.key } }));
+  const cells: GridCellJob[] = read.jobs.map((j) => ({ ...(j.recipe !== recipe.id ? { recipe: j.recipe } : {}), input: j.input, label: j.label, grid: { id, cell: j.key } }));
   await s.db.insertInto("grids").values({ id, owner_id: OWNER, draft_id: body.draft ?? null, recipe_id: recipe.id, axes: JSON.stringify(read.axes.map(said)), count: cells.length, created_at: now() }).execute();
   try {
     const jobs = await queueRender(s, { recipe: body.recipe, input: body.input, count: 1, look: body.look, draft: body.draft, folder: body.folder, machine: body.machine }, by, cells);
@@ -101,7 +141,26 @@ export interface GridPlanView {
    * forecast, said on the card; `most` what it may cost with each unsure cell counted half again (rentedBilling.ts
    * runwayNeed), the figure an MCP token's render_grid is held to (mcpRender.ts gridCostOn) and the one the card asks on.
    */
-  pod: { ms: number | null; usd: number | null; most: number | null } | null;
+  pod: { ms: number | null; usd: number | null; most: number | null; fetch: GridFetchSaid | null } | null;
+  /** A cell on another family no machine it may go to can run, and why (card #294): the grid is refused at Queue grid. */
+  refused: string | null;
+}
+
+/**
+ * The model files a pod would fetch for the grid before its cells render (card #294: each family's files, each once), at
+ * worst over the pods it may go to: how many, their bytes (null: a size not known) and their time (null: one has no source).
+ * Counted in the pod's time and money above.
+ */
+interface GridFetchSaid {
+  files: number;
+  bytes: number | null;
+  ms: number | null;
+}
+
+/** The machines a grid may go to: the one picked, else every one set up. */
+async function mayGoTo(s: Services, machine: string | undefined) {
+  const all = await s.machines();
+  return machine ? all.filter((m) => m.machine.id === machine) : all;
 }
 
 /**
@@ -112,26 +171,34 @@ export interface GridPlanView {
  */
 export async function planGrid(s: Services, body: z.output<typeof planBody>): Promise<GridPlanView> {
   const read = readGrid(s, body);
-  const inputs = read.jobs.map((j) => j.input);
-  const machines = (await s.machines()).map((m) => m.machine);
+  const cells = read.jobs.map((j) => ({ recipe: j.recipe, input: j.input }));
+  const all = await mayGoTo(s, body.machine);
+  const machines = all.map((m) => m.machine);
   const prices: Prices = new Map();
-  const picked = body.machine ? machines.find((m) => m.id === body.machine) : undefined;
+  const picked = body.machine ? machines[0] : undefined;
+  const fit = await gridFit(s, read.jobs, read.recipe.id, await scansOf(s, all));
   const ms = picked
-    ? cellsTotal(await cellTimes(s, read.recipe.id, inputs, picked.id, prices))
-    : (await s.queue.total(inputs.map((input) => ({ recipe: read.recipe.id, input }))).catch(() => ({ ms: null }))).ms;
-  const pods = (picked ? [picked] : machines).filter((m) => m.rented);
-  if (!pods.length) return { count: read.jobs.length, ms, pod: null };
+    ? cellsTotal(await cellTimes(s, cells, picked.id, prices))
+    : (await s.queue.total(cells).catch(() => ({ ms: null }))).ms;
+  const pods = machines.filter((m) => m.rented);
+  if (!pods.length) return { count: read.jobs.length, ms, pod: null, refused: fit.refused };
   const rates = podsOf(s, pods);
   const each = await Promise.all(pods.map(async (p) => {
-    const times = await cellTimes(s, read.recipe.id, inputs, p.id, prices);
+    const times = await cellTimes(s, cells, p.id, prices);
     const t = cellsTotal(times);
     const rate = rates.get(p.id)?.rate;
-    if (t === null || rate === null || rate === undefined) return { ms: t, usd: null, most: null };
+    // the model files it would fetch first are billed time too, each once (gridFit); one with no source leaves it unknown
+    const fetch = fit.fetch.get(p.id);
+    const fetchMs = !fetch ? 0 : Number.isFinite(fetch.ms) ? fetch.ms : null;
+    const said = fetch?.files.length ? { files: fetch.files.length, bytes: fetch.bytes, ms: fetchMs } : null;
+    const whole = t === null || fetchMs === null ? null : t + fetchMs;
+    if (whole === null || rate === null || rate === undefined) return { ms: whole, usd: null, most: null, fetch: said };
     // a cell with no forecast at all leaves it unknown here (the card asks), where MCP prices it at runwayNeed's floor
-    return { ms: t, usd: usdFor(t, rate), most: usdFor(times.reduce((n, c) => n + runwayNeed({ renderMs: c.ms, fetchMs: 0, sure: c.sure }), 0), rate) };
+    return { ms: whole, usd: usdFor(whole, rate), most: usdFor(fetchMs! + times.reduce((n, c) => n + runwayNeed({ renderMs: c.ms, fetchMs: 0, sure: c.sure }), 0), rate), fetch: said };
   }));
-  // said at its worst: an amount not known on any of them is not known
-  return { count: read.jobs.length, ms, pod: { ms: worstOf(each.map((e) => e.ms)), usd: worstOf(each.map((e) => e.usd)), most: worstOf(each.map((e) => e.most)) } };
+  // said at its worst: an amount not known on any of them is not known; the fetch said is the longest of them
+  const fetch = each.map((e) => e.fetch).filter((f): f is GridFetchSaid => Boolean(f)).sort((a, b) => (b.ms ?? Infinity) - (a.ms ?? Infinity) || b.files - a.files)[0] ?? null;
+  return { count: read.jobs.length, ms, pod: { ms: worstOf(each.map((e) => e.ms)), usd: worstOf(each.map((e) => e.usd)), most: worstOf(each.map((e) => e.most)), fetch }, refused: fit.refused };
 }
 
 /**

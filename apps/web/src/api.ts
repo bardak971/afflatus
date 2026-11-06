@@ -625,7 +625,7 @@ export const api = {
   /** An X/Y/Z grid queued (card #21): one job per cell, all or none; its id, for the board. `options`: the form's lists, for typed values to be found in. */
   /** What a grid will take, each cell at its own settings: the card's figure and the ask before queuing. */
   gridPlan: (body: GridAsk, o?: Asked) => call<GridPlanView>("POST", "/grids/plan", body, o?.signal),
-  queueGrid: (body: { recipe: string; input: Record<string, unknown>; axes: GridSetup["axes"]; options?: Record<string, string[]>; look?: Look | null; draft?: string; folder?: string; machine?: string; key?: string }) =>
+  queueGrid: (body: { recipe: string; input: Record<string, unknown>; axes: GridSetup["axes"]; options?: Record<string, string[]>; across?: Record<string, string[]>; look?: Look | null; draft?: string; folder?: string; machine?: string; key?: string }) =>
     call<{ id: string; count: number; jobs: string[] }>("POST", "/grids", { ...body, look: lookAdds(body.look ?? null) ? body.look : undefined }),
   grid: (id: string, o?: Asked) => call<GridView>("GET", `/grids/${id}`, undefined, o?.signal),
   /** A draft's grids, the newest first. */

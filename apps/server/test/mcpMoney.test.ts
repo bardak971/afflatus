@@ -471,3 +471,80 @@ describe("a grid on a pod", () => {
     expect(plan.pod.most / plan.pod.usd).toBeCloseTo(110 / 80, 6);
   });
 });
+
+/**
+ * A grid whose Model axis runs across families (card #294) on a pod that has none of their files: the pod fetches every
+ * family's model files before the cells render, billed time like the renders. The plan, the card's line and the ask count
+ * them, each file once however many cells use it; render_grid's hold too. A family no machine can run is said before queuing.
+ */
+describe("a grid across families on a pod", () => {
+  const KLEIN = "flux-2-klein-4b.safetensors";
+  const KREA = "krea2-dev.safetensors";
+  const across = { "klein.picture": [KLEIN], "krea2.text-to-picture": [KREA] };
+  const axes = (seeds: string) => [{ field: "checkpoint", values: `${CHECKPOINT}, Klein: ${KLEIN}, Krea 2: ${KREA}` }, { field: "seed", values: seeds }];
+  // a minute a cell on every machine, sure; each file 2 GB and two minutes to fetch on the pod
+  const priced = () => {
+    vi.spyOn(t.services.queue, "forecastToPrice").mockImplementation(async () => {
+      const f = { ms: 60_000, loadMs: 0, samples: 5, pace: "usual" as const, fitsUpTo: 0 };
+      return { forecast: f, shape: { pixels: 1024 * 1024, frames: 1 }, model: CHECKPOINT, on: { [pod]: f, m1: f } };
+    });
+    vi.spyOn(t.services.podFiles, "about").mockResolvedValue({ via: "hf", size: 2 * 1024 ** 3 });
+    return vi.spyOn(t.services.podFiles, "untilThere").mockImplementation(async (_machine, files) => files.length * 120_000);
+  };
+
+  it("prices a 3-family grid with each family's files once, in the time, the money and the card's line", async () => {
+    const fetched = priced();
+    const body = { recipe: RECIPE, input: FORM.values, axes: axes("1, 2"), across, machine: pod };
+    const plan = (await post(t.app, "/api/grids/plan", body)).json() as { count: number; refused: string | null; pod: { ms: number; usd: number; most: number; fetch: { files: number; bytes: number; ms: number } } };
+    expect(plan.count).toBe(6);
+    expect(plan.refused).toBeNull();
+    // the files asked once for the whole grid: Klein's and Krea 2's models among them, none twice
+    const files = fetched.mock.calls.find(([m]) => m === pod)![1];
+    const keys = files.map((f) => `${f.folder}|${f.file.toLowerCase()}`);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(files.map((f) => f.file)).toEqual(expect.arrayContaining([KLEIN, KREA]));
+    expect(files.some((f) => f.file === CHECKPOINT)).toBe(false);
+    expect(plan.pod.fetch).toEqual({ files: files.length, bytes: files.length * 2 * 1024 ** 3, ms: files.length * 120_000 });
+    // six minutes of cells and the fetch before them, at the pod's rate; the same in what it may cost (all sure)
+    expect(plan.pod.ms).toBe(6 * 60_000 + files.length * 120_000);
+    expect(plan.pod.most).toBeCloseTo(plan.pod.usd, 6);
+    // twice the seeds is twice the cells, the same files: a family's files are fetched once, not once a cell
+    fetched.mockClear();
+    const more = (await post(t.app, "/api/grids/plan", { ...body, axes: axes("1-4") })).json() as typeof plan;
+    expect(more.count).toBe(12);
+    expect(more.pod.fetch.files).toBe(files.length);
+    expect(more.pod.ms).toBe(12 * 60_000 + files.length * 120_000);
+  });
+
+  it("queues each cell on its family's form; render_grid holds a token to the files' time too", async () => {
+    const fetched = priced();
+    await pause();
+    const res = await post(t.app, "/api/grids", { recipe: RECIPE, input: FORM.values, axes: axes("1"), across });
+    expect(res.statusCode, res.body).toBe(200);
+    const cells = await t.db.selectFrom("jobs").select(["recipe_id", "inputs", "grid_cell"]).where("grid_id", "=", res.json().id).orderBy("grid_cell").execute();
+    expect(cells.map((c) => c.recipe_id)).toEqual([RECIPE, "klein.picture", "krea2.text-to-picture"]);
+    expect(JSON.parse(cells[1]!.inputs)).toMatchObject({ model: KLEIN, prompt: FORM.values.prompt, seed: 1 });
+    // with a cap under the cells and their files, the token is refused; the six cells and the pod's idle time after them
+    // alone (about $0.19) are under it, and pass once the files are on the pod
+    const { token, id } = await made("spend", { spendCapUsd: 0.2 });
+    const c = await connect(token);
+    await refusedWith(c, "render_grid", { ...FORM, axes: axes("1, 2") }, /cap is \$0\.20 a month/);
+    expect(await jobsOf(id)).toEqual([]);
+    fetched.mockResolvedValue(0);
+    const ok = await call(c, "render_grid", { ...FORM, axes: axes("1, 2") });
+    expect(ok.isError, textOf(ok)).toBeFalsy();
+    expect(JSON.parse(textOf(ok)).count).toBe(6);
+    await c.close();
+  });
+
+  it("says before queuing a cell whose family no machine can run", async () => {
+    priced();
+    await updateSettings(t.db, (s) => ({ families: { ...s.families, klein: false } }));
+    const body = { recipe: RECIPE, input: FORM.values, axes: axes("1"), across };
+    const plan = (await post(t.app, "/api/grids/plan", body)).json() as { refused: string | null };
+    expect(plan.refused).toMatch(/FLUX\.2 Klein: flux-2-klein-4b · 1: FLUX\.2 Klein is switched off/);
+    const res = await post(t.app, "/api/grids", body);
+    expect(res.statusCode).toBe(400);
+    expect(await t.db.selectFrom("grids").select("id").execute()).toEqual([]);
+  });
+});

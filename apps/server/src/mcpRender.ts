@@ -5,7 +5,8 @@ import type { Tables } from "./db";
 import { compose, lookSchema, withMentions, type Look } from "./entities";
 import { httpError } from "./errors";
 import { jobBody, queueRender } from "./jobs-api";
-import { queueGrid, readGrid } from "./grids";
+import { gridFit, type GridFit } from "./gridFiles";
+import { acrossLists, queueGrid, readGrid } from "./grids";
 import { oneAtATime } from "./keyedLock";
 import { scrubbed, secretsOf } from "./logScrub";
 import { readJson } from "./queueModel";
@@ -257,9 +258,10 @@ export async function mayQueue(s: Services, ctx: ToolCtx, at: Seen, o: { recipe:
  * The same for several jobs sent together (a timeline's clips, a finish): each `takes` times, `renders` of them counted
  * against the renders an hour, their costs on rented pods added up before the cap is asked. What they may cost (USD).
  * `grid`: the jobs are one grid's cells in the order they are queued, each priced at its own settings (podPrices.ts
- * cellTimes, as the grid card prices them), a model loaded once for a run of cells with it.
+ * cellTimes, as the grid card prices them), a model loaded once for a run of cells with it; with the model files each pod
+ * would fetch for them first (gridFiles.ts gridFit, by pod id), billed there too.
  */
-export async function mayQueueAll(s: Services, ctx: ToolCtx, at: Seen, jobs: ReadonlyArray<{ recipe: string; input: unknown; takes: number; warm?: boolean }>, o: { machine?: Machine; renders: number; grid?: boolean }): Promise<number> {
+export async function mayQueueAll(s: Services, ctx: ToolCtx, at: Seen, jobs: ReadonlyArray<{ recipe: string; input: unknown; takes: number; warm?: boolean }>, o: { machine?: Machine; renders: number; grid?: GridFit["fetch"] }): Promise<number> {
   if (o.renders) await ctx.mayRender(o.renders);
   const rates = podsOf(s, at.machines.map((m) => m.machine));
   // the pods the queue may send it to: those up now (a stopped pod takes nothing until it is started)
@@ -271,7 +273,7 @@ export async function mayQueueAll(s: Services, ctx: ToolCtx, at: Seen, jobs: Rea
   }
   const may = o.machine ? (o.machine.rented ? [o.machine] : []) : pods;
   if (!may.length) return 0;
-  let usd = o.grid ? await gridCostOn(s, jobs, may, rates) : 0;
+  let usd = o.grid ? await gridCostOn(s, jobs, may, rates, o.grid) : 0;
   if (!o.grid) for (const j of jobs) usd += (await mayCostEach(s, j.recipe, j.input, may, rates, j.warm)) * j.takes;
   // the pod's idle time once this work ends, on a pod this token did not start (its own run is counted whole as it goes)
   const tail = idleTail(may, rates, ctx.token.id);
@@ -285,18 +287,21 @@ export async function mayQueueAll(s: Services, ctx: ToolCtx, at: Seen, jobs: Rea
 
 /**
  * What a grid's cells may cost on the dearest of these pods (USD): each cell at its own forecast there, a cell with none at
- * the queue's floor (rentedBilling.ts runwayNeed) and an unsure one with its margin, as a single render is held to.
+ * the queue's floor (rentedBilling.ts runwayNeed) and an unsure one with its margin, as a single render is held to; and
+ * the model files that pod would fetch for them first (`fetch`, each once: card #294's families), a file no source can
+ * give refusing the grid there rather than counting nothing for it.
  */
-async function gridCostOn(s: Services, cells: ReadonlyArray<{ recipe: string; input: unknown }>, pods: readonly Machine[], rates: ReadonlyMap<string, { rate: number | null }>): Promise<number> {
-  const recipe = cells[0]?.recipe;
-  if (!recipe) return 0;
+async function gridCostOn(s: Services, cells: ReadonlyArray<{ recipe: string; input: unknown }>, pods: readonly Machine[], rates: ReadonlyMap<string, { rate: number | null }>, fetch: GridFit["fetch"]): Promise<number> {
+  if (!cells.length) return 0;
   const prices: Prices = new Map();
   let most = 0;
   for (const pod of pods) {
     const rate = rates.get(pod.id)?.rate;
     if (rate === null || rate === undefined) throw refusal(`${unpriced(pod)}: pin the render to another machine, or wait until the pod is up.`);
-    const times = await cellTimes(s, recipe, cells.map((c) => c.input), pod.id, prices);
-    const ms = times.reduce((n, t) => n + runwayNeed({ renderMs: t.ms, fetchMs: 0, sure: t.sure }), 0);
+    const files = fetch.get(pod.id);
+    if (files && !Number.isFinite(files.ms)) throw refusal(`${machineName(pod)} would need ${plural(files.files.length, "model file")} for this grid, one of which no source is known for: pin the grid to another machine.`);
+    const times = await cellTimes(s, cells, pod.id, prices);
+    const ms = (files?.ms ?? 0) + times.reduce((n, t) => n + runwayNeed({ renderMs: t.ms, fetchMs: 0, sure: t.sure }), 0);
     most = Math.max(most, usdFor(ms, rate));
   }
   return most;
@@ -425,12 +430,18 @@ const renderGrid = tool({
     if (!axes?.some((a) => a.field)) throw httpError(`${form.name}: no axes, and the draft has no Grid of its own: give axes`);
     // the machines' own lists, as the grid card finds a typed model or sampler in them ("juggernaut" for its file)
     const machine = args.machine ? machineOf(at, args.machine) : undefined;
-    const body = { recipe: form.recipe.id, input: form.input, axes, options: statusOf(at, form.recipe.id)?.options ?? {}, look: form.look, draft: form.draft?.id, machine: machine?.id };
+    // and the other families' lists, for a Model axis that runs across families (card #294)
+    const across = acrossLists(s, form.recipe, (id) => statusOf(at, id)?.options);
+    const body = { recipe: form.recipe.id, input: form.input, axes, options: statusOf(at, form.recipe.id)?.options ?? {}, across, look: form.look, draft: form.draft?.id, machine: machine?.id };
     const read = readGrid(s, body);
+    // a cell on another family no machine it may go to can run is refused before anything; the files each pod would
+    // fetch for the cells (every family's, each once) are part of what they may cost there
+    const fit = await gridFit(s, read.jobs, form.recipe.id, machine ? at.machines.filter((m) => m.machine.id === machine.id) : at.machines);
+    if (fit.refused) throw refusal(`${fit.refused}.`);
     return oneAtATime(s.db, `mcp-render:${token.id}`, async () => {
       // every cell is a render: counted against the renders an hour, and each cell's own cost on a pod asked before any is
       // queued; the cells priced are the cells queued, with the same seed
-      const usd = await mayQueueAll(s, ctx, at, read.jobs.map((j) => ({ recipe: form.recipe.id, input: j.input, takes: 1 })), { machine, renders: read.jobs.length, grid: true });
+      const usd = await mayQueueAll(s, ctx, at, read.jobs.map((j) => ({ recipe: j.recipe, input: j.input, takes: 1 })), { machine, renders: read.jobs.length, grid: fit.fetch });
       const grid = await queueGrid(s, body, { mcpToken: token.id }, read);
       ctx.said(`Rendered a grid of ${plural(grid.count, "cell")} of ${quoted(form.name)}${machine ? ` on ${quoted(machineName(machine))}` : ""}`);
       return { grid: grid.id, jobs: grid.jobs, count: grid.count, ...(usd ? { mayCostUsd: cents(usd) } : {}) };
