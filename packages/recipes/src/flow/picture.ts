@@ -2,8 +2,9 @@ import { defineRecipe, GraphBuilder, regionsOf, roundTo, type Recipe, type Ref, 
 import { dropsFor, pictureForm } from "../shared/pictureForm";
 import { hiresInputs, hiresPass, type HiresPass } from "../shared/hires";
 import { asDaemon, DAEMON_DETAIL_INPUTS, DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
-import { redrawInTiles, tileNodes, tilePass, inTiles, type TileSettings } from "../shared/tiles";
-import { adetail, ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FILES, sized, type AdetailSettings } from "../shared/adetail";
+import { tileNodes, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
+import { ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FILES, type AdetailSettings } from "../shared/adetail";
+import { hiresFix, pictureOut, type PictureSampler } from "../shared/passes";
 import { applyGuide, FOLLOW_MAP, guideInputs, guideNeeds, guideNodes, type GuideSettings } from "../shared/guide";
 import { REDUX_NODES, reduxInputs, reduxNeeds, withRedux, type ReferenceSettings } from "../shared/references";
 import { MOSS_LAYOUT_NODES, mossLayout, mossLayoutText, regionsInput, withRegionLoras } from "../shared/regions";
@@ -114,54 +115,32 @@ export function flowPicture(spec: FlowSpec, kit: FlowKit): Recipe<FlowPicture> {
       g.phase("sampling");
       const detail = { input: detailOf(input), ctx };
       const first = sample(g, k, input, shifted(g, guided.model, input, size), guided, empty, ctx.seed, {}, detail);
-      let latent = first.latent;
-      const passes: Array<typeof first.pass & { pixels?: number }> = [first.pass];
-      let image: Ref | null = null;
-      if (input.hires) {
-        const large = largeOf(input);
-        g.phase("upscaling");
-        // upscale models enlarge by their own factor (usually 4×): the result is scaled to the size asked for
-        const pixels = g.out("VAEDecode", { samples: latent, vae: k.vae });
-        const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.hiresUpscaler }), image: pixels });
-        const scaled = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: large.width, height: large.height, crop: "disabled" });
-        g.phase("refining");
-        // a model run for a few steps (Turbo, or a file made for it) redraws in as many as it was made for at most:
-        // the full model's half (25 steps for Qwen Image) is not what it was distilled for, and takes six times as long
-        const pass = { steps: k.turbo ? Math.min(input.hiresSteps, k.steps) : input.hiresSteps, denoise: input.hiresDenoise, ...hiresPass(input) };
-        if (inTiles(input, large, AREA)) {
-          // each tile is a picture the model's size to it: the shift for that size
-          const tile = Math.min(input.tileSize, Math.max(large.width, large.height));
-          const tiled = shifted(g, part.model, input, { width: tile, height: tile });
-          image = redrawInTiles(g, ctx, scaled, k.vae, large, input, (l) => {
-            const second = sample(g, k, input, tiled, part.c(), l, ctx.seed, pass, detail);
-            passes.push(tilePass(second.pass, large, input));
-            return second.latent;
-          });
-          // each pass at its own size: the first at the picture's first, the tiles at a tile's
-          passes[0] = { ...passes[0]!, pixels: size.width * size.height };
-        } else {
-          // the whole frame again, larger: its layout said at that size, as the boxes' edges are in its pixels
+      // a model run for a few steps (Turbo, or a file made for it) redraws in as many as it was made for at most: the full
+      // model's half (25 steps for Qwen Image) is not what it was distilled for, and takes six times as long
+      const pass = { steps: k.turbo ? Math.min(input.hiresSteps, k.steps) : input.hiresSteps, denoise: input.hiresDenoise, ...hiresPass(input) };
+      const sampler: PictureSampler = {
+        vae: k.vae, area: AREA,
+        // the whole frame again, larger: its layout said at that size, as the boxes' edges are in its pixels
+        whole: (scaled, large) => {
           const whole = regions.length ? read(mossLayoutText(g, input.prompt, regions, large)) : c;
-          const second = sample(g, k, input, shifted(g, k.model, input, large), whole, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), ctx.seed, pass, detail);
-          latent = second.latent;
-          passes.push(second.pass);
-        }
-        loads.push(`upscale_models/${input.hiresUpscaler}`);
-      }
-      g.phase("decoding");
-      const drawn = image ?? g.out("VAEDecode", { samples: latent, vae: k.vae });
-      // the Detail rows: faces, hands, people redrawn by the same model, each crop at the size it draws best
-      const d = adetail(g, ctx, input, drawn, {
-        model: () => shifted(g, part.model, input, { width: 1024, height: 1024 }), clip: k.clip, vae: k.vae, cond: (text) => (text ? cond(g, k, input, text) : part.c()),
-        steps: k.steps, distilled: distilledFile(input, ctx.slots), cfg: k.cfg, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed, scale: input.hires ? input.hiresScale : 1,
-        alpha: spec.alpha,
-      });
-      const out = g.add("PreviewImage", { images: d.image });
-      const all = d.passes.length ? [...sized(passes, [size.width * size.height, largeOf(input).width * largeOf(input).height]), ...d.passes] : passes;
-      return {
-        graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: all.reduce((n, p) => n + p.steps, 0), passes: all, loads: [...loads, ...d.loads],
-        ...(d.warnings.length ? { warnings: d.warnings } : {}),
+          return sample(g, k, input, shifted(g, k.model, input, large), whole, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), ctx.seed, pass, detail);
+        },
+        // each tile is a picture the model's size to it: the shift for that size
+        tiles: (large) => {
+          const { tile } = tilesOf(large, input);
+          const tiled = shifted(g, part.model, input, { width: tile, height: tile });
+          return (l) => sample(g, k, input, tiled, part.c(), l, ctx.seed, pass, detail);
+        },
       };
+      const large = largeOf(input);
+      const hired = hiresFix(g, ctx, input, sampler, first, size, large);
+      loads.push(...hired.loads);
+      // the Detail rows: faces, hands, people redrawn by the same model, each crop at the size it draws best
+      return pictureOut(g, ctx, input, sampler, hired, { size, large }, {
+        model: () => shifted(g, part.model, input, { width: 1024, height: 1024 }), clip: k.clip, vae: k.vae, cond: (text) => (text ? cond(g, k, input, text) : part.c()),
+        steps: k.steps, distilled: distilledFile(input, ctx.slots), cfg: k.cfg, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed,
+        alpha: spec.alpha,
+      }, loads);
     },
     variants: [
       { name: "from words, as ComfyUI's template", input: { prompt: "a" } as Partial<FlowPicture>, slots: files },
