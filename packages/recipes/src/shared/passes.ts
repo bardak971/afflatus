@@ -20,14 +20,18 @@ export interface Drawn {
   pass: Pass;
 }
 
-/** How a family samples the hires fix's second pass. Its texts, model, shift and step rule are in its closures. */
+/**
+ * How a family samples a second pass over an enlarged picture: the hires fix's, and Upscale 2x's light pass (upscale2x). Its
+ * texts, model, shift and step rule (flow's Turbo cap, Klein's schedule cut at the strength) are in its closures, each
+ * family's as it was: a rule folded here would move some family's steps.
+ */
 export interface PictureSampler {
   vae: Ref;
   /** The pixels the model draws at: Auto redraws the hires pass in tiles past four times them (2× each side). */
   area: number;
   /** Its passes give pictures and set their own phases (Klein's sampler decodes): the output is not put in "decoding". */
   decodes?: boolean;
-  /** The enlarged picture as the second pass starts from it, encoded before the pass's "refining" phase (SDXL's); else `whole` encodes it. */
+  /** The enlarged picture as the pass starts from it, encoded before the "refining" phase (SDXL's); else `whole` encodes it. */
   encode?: (pixels: Ref) => Ref;
   /**
    * The second pass over the whole enlarged picture at `large`: from `start`, what `encode` made of its `pixels` (else they;
