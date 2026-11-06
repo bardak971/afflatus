@@ -1,6 +1,5 @@
 import { wanted, type BuildContext, type GraphBuilder, type InputSpec, type Ref } from "@afflatus/core";
-import { faceStepsFor } from "../sdxl/common";
-import { SMALL_FACE_PX } from "../klein/facePass";
+import { faceStepsFor } from "./face";
 import { DETECTOR_SLOTS, HAND_THRESHOLD, HAND_VALUES } from "./detector";
 
 /**
@@ -10,6 +9,12 @@ import { DETECTOR_SLOTS, HAND_THRESHOLD, HAND_VALUES } from "./detector";
  * Impact Pack's detailer, as Krea 2's Face refine runs it (klein/facePass.ts), each found area kept or dropped by its height
  * first: a face already large has pixels enough of its own, and Krea 2's pod test found the redraw made close-ups worse.
  */
+
+/**
+ * The tallest face redrawn, in pixels of the picture as it is drawn (before a hires fix): between the gain and the rest (Krea 2's
+ * pod test, klein/facePass.ts). Detail's face and Face refine's FLUX.2 Klein pass both stop there.
+ */
+export const SMALL_FACE_PX = 150;
 
 /** What each detector redraws: its word, its family slot, how much around it is redrawn and where it starts. */
 interface Kind {

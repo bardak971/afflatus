@@ -1,6 +1,6 @@
 import { defineRecipe, GraphBuilder, type Recipe, type Ref } from "@afflatus/core";
 import { dropsFor, pictureForm, SOURCE_INPUT } from "../shared/pictureForm";
-import { OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintPad, outpaintPlan, PASTE_BACK_NODES, pasteBack, stretchedFill, type OutpaintSettings } from "../sdxl/common";
+import { OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintPad, outpaintPlan, PASTE_BACK_NODES, pasteBack, stretchedFill, type OutpaintSettings } from "../shared/outpaint";
 import { INPAINT_PATCH_NODES, inpaintPatched, inpaintPatchNeeds, photo, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
 
 export interface FlowOutpaint extends FlowBase, OutpaintSettings { source: string; prompt: string }

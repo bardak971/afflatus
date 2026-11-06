@@ -1,11 +1,12 @@
-import { defineRecipe, GraphBuilder, roundTo, type InputSpec, type ReferenceValue, type Ref, type SizeValue } from "@afflatus/core";
+import { defineRecipe, GraphBuilder, roundTo, type InputSpec, type ReferenceValue, type SizeValue } from "@afflatus/core";
 import { noGuide, noReferences, pictureForm, SOURCE_INPUT, strengthInput } from "../shared/pictureForm";
-import {
-  boxOf, FACE_INPUTS, faceSteps, FACTOR_INPUT, HIRES_PASS_INPUTS, hiresInputs, OUTPAINT_INPUTS, outpaintPad, outpaintPlan, SAME_PASS, shapeInput, MASK_INPUTS, NO_FACE, MASK_NODES, maskParts, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_INPUT,
-  type FaceSettings, type MaskSettings, type OutpaintSettings, type RefineColourMatch, type UpscaleSettings,
-} from "../sdxl/common";
+import { boxOf, MASK_INPUTS, MASK_NODES, maskParts, type MaskSettings } from "../shared/mask";
+import { FACE_INPUTS, faceSteps, NO_FACE, type FaceSettings } from "../shared/face";
+import { FACTOR_INPUT, REFINE_COLOUR_MATCH_INPUT, upscale2x, UPSCALER_INPUT, type RefineColourMatch, type UpscaleSettings } from "../shared/upscale";
+import { HIRES_PASS_INPUTS, hiresInputs, SAME_PASS } from "../shared/hires";
+import { OUTPAINT_INPUTS, outpaintPad, outpaintPlan, shapeInput, type OutpaintSettings } from "../shared/outpaint";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
-import { redrawInTiles, tileInputs, tileNodes, TILE_NODES, tilePass, inTiles, type TileSettings } from "../shared/tiles";
+import { tileInputs, tileNodes, TILE_NODES, inTiles, type TileSettings } from "../shared/tiles";
 import {
   introduce, KLEIN_PRESETS, kleinCond, kleinInputs, kleinModel, kleinNeeds, kleinNoise, kleinRealPass, kleinSample, kleinSampleLatent, kleinSize, KLEIN_FACE_DENOISE, LOAD_NODES, loadKlein, REFERENCE_NODES, SAMPLE_NODES,
   type KleinBase,
@@ -14,7 +15,8 @@ import { outpaintAsk, withIntro } from "../shared/asks";
 import { DETECTOR_INPUT } from "../shared/detector";
 import { SAME_FACE } from "./facePass";
 import { REGIONS_WHY } from "../shared/regions";
-import { adetail, ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FILES, sized, type AdetailSettings } from "../shared/adetail";
+import { hiresFix, pictureOut, type PictureSampler } from "../shared/passes";
+import { ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FILES, type AdetailSettings } from "../shared/adetail";
 
 const files = { unet: "flux-2-klein-base-4b.safetensors", clip: "qwen_3_4b.safetensors", vae: "flux2-vae.safetensors" };
 const photo = { width: 1536, height: 2048 };
@@ -106,47 +108,25 @@ export const kleinPicture = pictureForm("txt2img", defineRecipe<KleinPicture>({
     // the person's pictures (a cast person's go there): a face or a person found is redrawn from them, as Face refine does,
     // so that it stays them; hands from the words alone
     const people = pictures.filter((_, i) => input.references[i]!.role === "person");
-    /** The picture with the Detail rows gone over it, and the passes and files they add (see shared/adetail.ts). */
-    const detailed = (image: Ref, passes: Array<{ node: string; steps: number; pixels?: number }>, large: { width: number; height: number } | null, loads: string[]) => {
-      const d = adetail(g, ctx, input, image, {
-        model: () => k.model, clip: k.clip, vae: k.vae,
-        cond: (text, kind) => (kind !== "Hands" && people.length ? kleinCond(g, k, text ?? (kind === "Face" ? SAME_FACE : input.prompt), people) : kleinCond(g, k, text ?? input.prompt, [])),
-        steps: input.steps, cfg: input.cfg, sampler: input.sampler, scheduler: "simple", seed: ctx.seed, scale: large ? input.hiresScale : 1,
-      });
-      const all = d.passes.length ? [...sized(passes, [size.width * size.height, ...(large ? [large.width * large.height] : [])]), ...d.passes] : passes;
-      const out = g.add("PreviewImage", { images: d.image });
-      return {
-        graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image" as const, role: "result" as const }], totalSteps: all.reduce((n, p) => n + p.steps, 0), passes: all, loads: [...loads, ...d.loads],
-        ...(d.warnings.length ? { warnings: d.warnings } : {}),
-      };
-    };
-    if (!input.hires) return detailed(first.image, [first.pass], null, k.loads);
-    // Hires fix: the picture enlarged with an upscale model, then a light second pass. Klein's schedule is cut
-    // at the denoising strength, so it is laid out over hiresSteps ÷ strength steps to run hiresSteps of them.
-    const large = kleinLarge(input);
-    g.phase("upscaling");
-    const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.hiresUpscaler }), image: first.image });
-    const scaled = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: large.width, height: large.height, crop: "disabled" });
+    // Hires fix: the picture enlarged with an upscale model, then a light second pass. Klein's schedule is cut at the
+    // denoising strength, so it is laid out over hiresSteps ÷ strength steps to run hiresSteps of them.
     const second = { steps: Math.max(input.hiresSteps, Math.round(input.hiresSteps / input.hiresDenoise)), strength: input.hiresDenoise, ...(input.hiresSampler !== SAME_PASS ? { sampler: input.hiresSampler } : {}) };
-    let image: Ref;
-    let pass: { node: string; steps: number; pixels?: number } = { node: "", steps: 0 };
-    if (inTiles(input, large, REFINE_WHOLE_PIXELS / 4)) {
-      g.phase("refining");
+    const klein: PictureSampler = {
+      vae: k.vae, area: REFINE_WHOLE_PIXELS / 4, decodes: true,
+      whole: (scaled, large) => kleinSample(g, k, cond, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), large, ctx.seed, { ...second, detail }),
       // each tile is shown its own piece of the picture as the reference it keeps, as Upscale 2× does
-      image = redrawInTiles(g, ctx, scaled, k.vae, large, input, (latent, tiles, tile) => {
+      tiles: () => (latent, tiles, tile) => {
         const done = kleinSampleLatent(g, k, kleinCond(g, k, SAME, [tiles]), latent, { width: tile, height: tile }, ctx.seed, { ...second, phase: "refining" });
-        pass = tilePass(done.pass, large, input);
-        return done.sampled;
-      });
-    } else {
-      g.phase("refining");
-      const done = kleinSample(g, k, cond, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), large, ctx.seed, { ...second, detail });
-      image = done.image;
-      pass = done.pass;
-    }
-    // in tiles, each pass at its own size: the first at the picture's first, the tiles at a tile's
-    const passes = [pass.pixels ? { ...first.pass, pixels: size.width * size.height } : first.pass, pass];
-    return detailed(image, passes, large, [...k.loads, `upscale_models/${input.hiresUpscaler}`]);
+        return { latent: done.sampled, pass: done.pass };
+      },
+    };
+    const large = kleinLarge(input);
+    const hired = hiresFix(g, ctx, input, klein, first, size, large);
+    return pictureOut(g, ctx, input, klein, hired, { size, large }, {
+      model: () => k.model, clip: k.clip, vae: k.vae,
+      cond: (text, kind) => (kind !== "Hands" && people.length ? kleinCond(g, k, text ?? (kind === "Face" ? SAME_FACE : input.prompt), people) : kleinCond(g, k, text ?? input.prompt, [])),
+      steps: input.steps, cfg: input.cfg, sampler: input.sampler, scheduler: "simple", seed: ctx.seed,
+    }, [...k.loads, ...hired.loads]);
   },
   variants: [
     { name: "from words", input: { prompt: "a" }, slots: files },
@@ -471,40 +451,21 @@ export const kleinSharper = pictureForm("upscale", defineRecipe<KleinSharper>({
     const g = new GraphBuilder();
     const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
     const size = { width: roundTo(from.width * input.factor, 16), height: roundTo(from.height * input.factor, 16) };
-    const source = g.out("LoadImage", { image: ctx.uploads.source });
-    g.phase("upscaling");
-    const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.upscaler }), image: source });
-    const sized = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
-    const loads = [`upscale_models/${input.upscaler}`];
-    const tiled = input.refine && inTiles(input, size, REFINE_WHOLE_PIXELS / 4);
-    if (!input.refine) {
-      const out = g.add("PreviewImage", { images: sized });
-      return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: 1, loads };
-    }
-    g.phase("loading");
-    // the pass runs the strength's share of the form's Steps (at 0.25, 5 of the base model's 20, 1 of a distilled model's 4),
-    // from that much real noise (kleinRealPass)
-    const k = loadKlein(g, input, ctx);
-    let image: Ref;
-    let pass: { node: string; steps: number; pixels?: number } = { node: "", steps: 0 };
-    if (tiled) {
-      g.phase("refining");
-      // each tile is shown its own piece of the picture as the reference it keeps
-      image = redrawInTiles(g, ctx, sized, k.vae, size, input, (latent, tiles, tile) => {
-        const done = kleinSampleLatent(g, k, kleinCond(g, k, SAME, [tiles]), latent, { width: tile, height: tile }, ctx.seed, { ...kleinRealPass({ width: tile, height: tile }, input.steps, input.strength), phase: "refining" });
-        pass = tilePass(done.pass, size, input);
-        return done.sampled;
-      });
-    } else {
-      const cond = kleinCond(g, k, SAME, [source]);
-      g.phase("refining");
-      const done = kleinSample(g, k, cond, g.out("VAEEncode", { pixels: sized, vae: k.vae }), size, ctx.seed, kleinRealPass(size, input.steps, input.strength));
-      image = done.image;
-      pass = done.pass;
-    }
-    g.phase("decoding");
-    const out = g.add("PreviewImage", { images: refineColourMatched(g, ctx, image, sized, input) });
-    return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: pass.steps, passes: [pass], loads: [...loads, ...k.loads] };
+    return upscale2x(g, ctx, input, size, REFINE_WHOLE_PIXELS / 4, (tiled, source) => {
+      // the pass runs the strength's share of the form's Steps (at 0.25, 5 of the base model's 20, 1 of a distilled model's 4),
+      // from that much real noise (kleinRealPass)
+      const k = loadKlein(g, input, ctx);
+      // the whole picture is shown the source as the reference it keeps; each tile its own piece of the picture
+      const cond = tiled ? null : kleinCond(g, k, SAME, [source]);
+      return {
+        vae: k.vae, loads: k.loads,
+        whole: (pixels, at) => kleinSample(g, k, cond!, g.out("VAEEncode", { pixels, vae: k.vae }), at, ctx.seed, kleinRealPass(at, input.steps, input.strength)),
+        tiles: () => (latent, tiles, tile) => {
+          const done = kleinSampleLatent(g, k, kleinCond(g, k, SAME, [tiles]), latent, { width: tile, height: tile }, ctx.seed, { ...kleinRealPass({ width: tile, height: tile }, input.steps, input.strength), phase: "refining" });
+          return { latent: done.sampled, pass: done.pass };
+        },
+      };
+    });
   },
   variants: [
     { name: "enlarged and gone over", input: { source: "p", upscaler: "u.pth" }, slots: files, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } },

@@ -55,7 +55,7 @@ export const HAND_VALUES = { strength: 0.35, faceCrop: 2, prompt: "natural hands
  */
 export const HAND_THRESHOLD = 0.25;
 
-/** The face detectors of the Impact Pack, best first (here, not in sdxl/common: every picture family's slots come from this file). */
+/** The face detectors of the Impact Pack, best first (here, not in a family file: every picture family's slots come from this file). */
 const FACE_DETECTOR_PREFER = ["face_yolov8m", "face_yolov8", "face"];
 
 /** The face detailer's detection model: a face detector by default (FACE_DETECTOR_PREFER), any other the user has in models/ultralytics. */

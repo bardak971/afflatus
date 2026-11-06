@@ -49,3 +49,37 @@ export function facePhotos(g: GraphBuilder, ctx: Pick<BuildContext, "uploads">, 
   const files = people.length ? people : of.facePhoto && ctx.uploads.facePhoto ? [ctx.uploads.facePhoto] : of.opens && ctx.uploads.start ? [ctx.uploads.start] : [];
   return files.map((image) => loadedOnce(g, image));
 }
+
+/** The face detailer's own settings: the same whichever model redraws the face. */
+export interface FaceSettings {
+  faceThreshold: number;
+  faceCrop: number;
+  faceGrow: number;
+  faceSize: number;
+  faceMax: number;
+  faceFeather: number;
+}
+/**
+ * The steps a face refine redraws each face in, on every family (card #275; SDXL's rule before): the form's, at least 8 and
+ * at most 30. A crop redrawn at a denoise of about 0.4 runs that share of them: fewer than 8 (a distilled model's 4, Turbo's)
+ * leaves it two or three steps, too few to draw a face; more than 30 (Qwen Image's 50) is time a crop does not need.
+ */
+export const faceSteps = (steps: number) => Math.min(30, Math.max(8, steps));
+/**
+ * The steps a face pass takes on a model file distilled to a few steps (FlowSpec.distilled), else faceSteps: its share of the
+ * model's own steps for the denoise, rounded down, so that they are never closer together than the model was distilled for;
+ * two at least, for a pass to correct its first. Qwen Image 2.1 Turbo at 0.4 on a pod (card #286): 3 steps gave clean skin,
+ * as the full model's 30 did; 4 left a faint grain, 5 more, 8 (faceSteps) the most. Every face pass of a family reads this
+ * one rule, Face refine's and a txt2img's Detail face alike (card #303).
+ */
+export const faceStepsFor = (steps: number, denoise: number, distilled: boolean) => (distilled ? Math.max(2, Math.floor(steps * denoise + 1e-9)) : faceSteps(steps));
+/** What a face detailer's job says when it found no face: ComfyUI says nothing, and the picture comes out as it went in. */
+export const NO_FACE = "No face found: the picture is as it was (a lower Detection threshold finds more).";
+export const FACE_INPUTS: InputSpec[] = [
+  { id: "faceThreshold", type: "number", label: "Detection threshold", note: "how sure the detector must be that it is a face. Lower finds more: small or turned faces, and more mistakes", min: 0.1, max: 0.95, step: 0.05, default: 0.5, advanced: true },
+  { id: "faceCrop", type: "number", label: "Face crop factor", note: "how much around the face is redrawn with it, in face sizes: 3 takes in the hair and the neck", min: 1, max: 6, step: 0.5, default: 3, unit: "×", advanced: true },
+  { id: "faceGrow", type: "number", label: "Face mask dilation", note: "the area that is found, made larger by this much before it is redrawn", min: 0, max: 64, step: 1, default: 10, unit: " px", advanced: true },
+  { id: "faceSize", type: "number", label: "Face guide size", note: "the crop around the face (the face and its crop factor) is redrawn at this size, as ADetailer does: 1024 is what SDXL draws best; larger is slower", min: 256, max: 1536, step: 64, default: 1024, unit: " px", advanced: true },
+  { id: "faceMax", type: "number", label: "Face max size", note: "a crop larger than this is brought down to it", min: 512, max: 2048, step: 64, default: 1280, unit: " px", advanced: true },
+  { id: "faceFeather", type: "number", label: "Mask feather", note: "how softly the redrawn face is blended back", min: 0, max: 64, step: 1, default: 5, unit: " px", advanced: true },
+];

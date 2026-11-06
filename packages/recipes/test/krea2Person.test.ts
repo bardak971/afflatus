@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { dryContext, isBeyondPack, isShown, parseInput, type BuildContext, type InputSpec } from "@afflatus/core";
 import { krea2Picture } from "../src/krea2/recipes";
 import { krea2 } from "../src/krea2/family";
-import { SMALL_FACE_PX } from "../src/klein/facePass";
+import { SMALL_FACE_PX } from "../src/shared/adetail";
 
 /**
  * Krea 2's person reference (card #219): the graph the pod test measured (card #217), Identity Edit V2 on Turbo with the

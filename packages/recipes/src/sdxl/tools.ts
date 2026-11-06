@@ -1,11 +1,11 @@
 import { defineRecipe, GraphBuilder, roundTo, type BuildContext, type Ref } from "@afflatus/core";
 import { pictureForm, SOURCE_INPUT, strengthInput } from "../shared/pictureForm";
-import { redrawInTiles, tileInputs, TILE_NODES, tilePass, inTiles, type TileSettings } from "../shared/tiles";
-import {
-  boxOf, FACE_INPUTS, faceSteps, SDXL_DROPS, FACTOR_INPUT, loadSdxl, NO_FACE, MASK_INPUTS, MASK_NODES, maskParts, modelInputs, modelNodes, OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintPad, outpaintPlan, PASTE_BACK_NODES, pasteBack, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, REPAINT_NODES, repaintGuided, repaintInputs, repaints, samplerOf, stretchedFill, samplingInputs, SDXL_PRESETS, UPSCALER_INPUT, workSize,
-  type FaceSettings, type MaskSettings, type OutpaintSettings, type RefineColourMatch, type RepaintSettings, type UpscaleSettings,
-  type SdxlBase,
-} from "./common";
+import { tileInputs, TILE_NODES, type TileSettings } from "../shared/tiles";
+import { SDXL_DROPS, loadSdxl, modelInputs, modelNodes, REPAINT_NODES, repaintGuided, repaintInputs, repaints, samplerOf, samplingInputs, SDXL_PRESETS, workSize, type RepaintSettings, type SdxlBase } from "./common";
+import { boxOf, MASK_INPUTS, MASK_NODES, maskParts, type MaskSettings } from "../shared/mask";
+import { FACE_INPUTS, faceSteps, NO_FACE, type FaceSettings } from "../shared/face";
+import { FACTOR_INPUT, REFINE_COLOUR_MATCH_INPUT, upscale2x, UPSCALER_INPUT, type RefineColourMatch, type UpscaleSettings } from "../shared/upscale";
+import { OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintPad, outpaintPlan, PASTE_BACK_NODES, pasteBack, stretchedFill, type OutpaintSettings } from "../shared/outpaint";
 import { DETECTOR_INPUT } from "../shared/detector";
 import { SDXL_FACE_DENOISE } from "../shared/adetail";
 import { applyGuide, guideInputs, guideNeeds, guideNodes, type GuideSettings } from "../shared/guide";
@@ -297,41 +297,21 @@ export const sdxlSharper = pictureForm("upscale", defineRecipe<SdxlSharper>({
     const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
     const W = roundTo(from.width * input.factor, 8, 64);
     const H = roundTo(from.height * input.factor, 8, 64);
-    const source = g.out("LoadImage", { image: ctx.uploads.source });
-    g.phase("upscaling");
-    const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.upscaler }), image: source });
-    // upscale models enlarge by their own factor (usually 4×): scaled to exactly twice the picture
-    const sized = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: W, height: H, crop: "disabled" });
-    const loads = [`upscale_models/${input.upscaler}`];
-    const tiled = input.refine && inTiles(input, { width: W, height: H }, REFINE_WHOLE_PIXELS / 4);
-    if (!input.refine) {
-      const out = g.add("PreviewImage", { images: sized });
-      return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: 1, loads };
-    }
-    g.phase("loading");
-    const m = loadSdxl(g, input, input.prompt);
-    const steps = Math.max(6, Math.round(Math.min(30, input.steps) * 0.5));
-    let sampled: Ref = ["", 0];
-    let picture: Ref;
-    if (tiled) {
-      g.phase("refining");
-      // each tile held to its own piece of the enlarged picture
-      picture = redrawInTiles(g, ctx, sized, m.vae, { width: W, height: H }, input, (latent, tiles) => (sampled = g.out("KSampler", { ...samplerOf(input, { ...m, ...tileGuided(g, ctx, m, input, tiles) }, ctx), latent_image: latent, steps, denoise: input.strength })));
-    } else {
-      const latent = g.out("VAEEncode", { pixels: sized, vae: m.vae });
-      g.phase("refining");
-      sampled = g.out("KSampler", { ...samplerOf(input, { ...m, ...tileGuided(g, ctx, m, input, sized) }, ctx), latent_image: latent, steps, denoise: input.strength });
-      g.phase("decoding");
-      picture = g.out("VAEDecode", { samples: sampled, vae: m.vae });
-    }
-    g.phase("decoding");
-    const out = g.add("PreviewImage", { images: refineColourMatched(g, ctx, picture, sized, input) });
-    // in tiles, the pass runs once for each tile, at a tile's size
-    const pass = tiled ? tilePass({ node: sampled[0], steps }, { width: W, height: H }, input) : { node: sampled[0], steps };
-    return {
-      graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }],
-      totalSteps: pass.steps, passes: [pass], loads: [...loads, `checkpoints/${input.checkpoint}`, ...(input.tileGuide ? [`controlnet/${ctx.slots.controlnet}`] : [])],
-    };
+    return upscale2x(g, ctx, input, { width: W, height: H }, REFINE_WHOLE_PIXELS / 4, () => {
+      const m = loadSdxl(g, input, input.prompt);
+      const steps = Math.max(6, Math.round(Math.min(30, input.steps) * 0.5));
+      // the pass held to the enlarged picture (in tiles, each tile to its own piece of it) by the tile ControlNet when asked
+      const pass = (latent: Ref, hint: Ref) => {
+        const sampled = g.out("KSampler", { ...samplerOf(input, { ...m, ...tileGuided(g, ctx, m, input, hint) }, ctx), latent_image: latent, steps, denoise: input.strength });
+        return { latent: sampled, pass: { node: sampled[0], steps } };
+      };
+      return {
+        vae: m.vae, loads: [`checkpoints/${input.checkpoint}`, ...(input.tileGuide ? [`controlnet/${ctx.slots.controlnet}`] : [])],
+        encode: (pixels) => g.out("VAEEncode", { pixels, vae: m.vae }),
+        whole: (latent, _at, pixels) => pass(latent, pixels!),
+        tiles: () => (latent, tiles) => pass(latent, tiles),
+      };
+    });
   },
   variants: [
     { name: "enlarged and gone over", input: { source: "p", checkpoint: "x.safetensors", upscaler: "u.pth" }, uploads: { source: "s.png" }, media: { source: picture } },
