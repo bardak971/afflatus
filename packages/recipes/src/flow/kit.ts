@@ -1,4 +1,4 @@
-import { denoiseForSigma, flowStartSigma, fluxMu, roundTo, type BuildContext, type FlowSampling, type GraphBuilder, type InputSpec, type LoraValue, type Preset, type Ref } from "@afflatus/core";
+import { denoiseForSigma, flowStartSigma, fluxMu, roundTo, type BuildContext, type FlowSampling, type GraphBuilder, type InputSpec, type LoraValue, type Preset, type Ref, type RegionValue } from "@afflatus/core";
 import { kSample, type DetailSettings } from "../shared/detail";
 import { addedLora, applyLoras, loraLoads, putAdded } from "../shared/model";
 import { addedInputs, addedRow, type AddedSpec } from "../shared/addedRows";
@@ -6,6 +6,17 @@ import { TILE_NODES } from "../shared/tiles";
 import { GGUF_LOADER, loadUnet, unetNodes } from "../shared/unet";
 import { sigmaWords } from "../shared/sigmaWords";
 import type { GuideWay } from "../shared/guide";
+import type { RegionWay } from "../shared/regions";
+
+/**
+ * A flow model's way of reading regions (card #291): `apply` puts what the boxes need on the loaded model and gives the text
+ * a pass reads, made at that pass's size (the first pass's, the hires fix's whole frame).
+ */
+export type FlowRegions = RegionWay<
+  { model: Ref; prompt: string },
+  { model: Ref; text: (size: { width: number; height: number }) => Ref },
+  { prompt: string; regions?: RegionValue[] }
+>;
 
 /**
  * The picture models that are built the same way in ComfyUI (a diffusion model in a file of its own, one
@@ -80,11 +91,8 @@ export interface FlowSpec {
    * file from a slot, the switch among the sampling rows. A machine without the file is sent it (needs), as Turbo's is.
    */
   extras?: Array<{ toggle: { id: string; label: string; note: string }; row: AddedSpec }>;
-  /**
-   * txt2img reads regions (card #271) as one JSON layout of boxes (MOSS-Image's Create Bounding Boxes and Layout Prompt):
-   * `how` for the Regions row's "?", `guidance` the skip-layer guidance its layout template turns on with it.
-   */
-  layout?: { how: string; guidance: { single: string; end: number } };
+  /** How txt2img reads regions (card #271), its Regions row, nodes and LoRAs: MOSS-Image's layout (moss/regions.ts). */
+  regions?: FlowRegions;
   /** The negative prompt: where it starts, and what stands for it when it is empty. */
   negative: { default: string; note: string; empty: "zero" | "encode" };
   sampling: { steps: number; stepsNote: string; cfg: number; cfgNote: string; sampler: string; scheduler: string };

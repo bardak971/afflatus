@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { carryOver, dryContext, parseInput, recipeComfySince, regionsFor, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
 import { recipes } from "../src";
 import { PICTURE_DROPS } from "../src/shared/pictureForm";
-import { REGIONS_NOT_YET, REGIONS_WHY } from "../src/shared/regions";
+import { REGIONS_NOT_YET } from "../src/shared/regions";
+import { KLEIN_REGIONS_WHY } from "../src/klein/recipes";
+import { QWEN_REGIONS_WHY } from "../src/qwen";
+import { QWEN21_REGIONS_WHY } from "../src/qwen21";
+import { ZIMAGE_REGIONS_WHY } from "../src/zimage";
 import { DETECTOR_FILES } from "../src/shared/adetail";
 
 // Regions on the Stage (card #271): one input on every txt2img that can read it, the reason greyed on those that cannot
@@ -42,8 +46,8 @@ describe("the Regions row on every txt2img", () => {
     const why = Object.fromEntries(txt2imgs.filter((r) => !has.includes(r.family)).map((r) => [r.family, r.absent?.find((a) => a.id === "regions")]));
     expect(why).toEqual({
       flux: { id: "regions", label: "Regions", why: REGIONS_NOT_YET },
-      klein: { id: "regions", label: "Regions", why: REGIONS_WHY.klein }, qwen: { id: "regions", label: "Regions", why: REGIONS_WHY.qwen },
-      qwen21: { id: "regions", label: "Regions", why: REGIONS_WHY.qwen21 }, zimage: { id: "regions", label: "Regions", why: REGIONS_WHY.zimage },
+      klein: { id: "regions", label: "Regions", why: KLEIN_REGIONS_WHY }, qwen: { id: "regions", label: "Regions", why: QWEN_REGIONS_WHY },
+      qwen21: { id: "regions", label: "Regions", why: QWEN21_REGIONS_WHY }, zimage: { id: "regions", label: "Regions", why: ZIMAGE_REGIONS_WHY },
     });
   });
 

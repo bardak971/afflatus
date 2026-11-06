@@ -14,7 +14,6 @@ import {
 import { outpaintAsk, withIntro } from "../shared/asks";
 import { DETECTOR_INPUT } from "../shared/detector";
 import { SAME_FACE } from "./facePass";
-import { REGIONS_WHY } from "../shared/regions";
 import { hiresFix, pictureOut, type PictureSampler } from "../shared/passes";
 import { ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FILES, type AdetailSettings } from "../shared/adetail";
 
@@ -25,6 +24,8 @@ const ALL_ROLES = ["person", "place", "clothing", "object", "style"] as const;
 /** The sampling rows of the picture forms (pictureForm) that Klein's do not take. */
 /** Klein's txt2img and img2img take no control image (card #277, Hugging Face read on 2026-11-04). */
 const KLEIN_NO_GUIDE = noGuide("no ControlNet ComfyUI loads is made for Klein: DiffSynth's for Klein Base 4B (2026-04) runs in DiffSynth-Studio only. A pose or depth picture can go in as a reference image");
+/** Why Klein's txt2img has no regions (its drop, card #271). */
+export const KLEIN_REGIONS_WHY = "FLUX.2 Klein has no way to read regions: the only regional pack for it is non-commercial. FLUX 3 Klein's own box layout will come with that model";
 const KLEIN_DROPS = {
   scheduler: "Klein samples on Flux2Scheduler, laid out for the size it draws at: there is no scheduler to pick",
   shift: "Flux2Scheduler sets Klein's shift from the size it draws at",
@@ -153,7 +154,7 @@ export const kleinPicture = pictureForm("txt2img", defineRecipe<KleinPicture>({
   hiresScheduler: "Klein samples on Flux2Scheduler: there is no scheduler to pick",
   referenceStrength: "Klein reads a reference image as one more picture beside the prompt: it has no strength of its own",
   ...KLEIN_NO_GUIDE,
-  regions: REGIONS_WHY.klein,
+  regions: KLEIN_REGIONS_WHY,
 });
 
 // ---------------------------------------------------------------- change a picture with words

@@ -10,7 +10,8 @@ import { tileNodes, TILES_ON, inTiles, type TileSettings } from "../shared/tiles
 import { SDXL_AREA } from "./common";
 import { ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FILES, SDXL_FACE_DENOISE, type AdetailSettings } from "../shared/adetail";
 import { hiresFix, pictureOut, type PictureSampler } from "../shared/passes";
-import { regionLoads, regionsInput, sdxlRegionNodes, sdxlRegions } from "../shared/regions";
+import { regionsInput } from "../shared/regions";
+import { SDXL_REGIONS } from "./regions";
 
 export interface SdxlTextToPicture extends DetailSettings, GuideSettings, TileSettings, AdetailSettings, ReferenceSettings {
   prompt: string;
@@ -62,7 +63,7 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
         { id: "wide-16-9", label: "Landscape 16:9", width: 1344, height: 768 },
       ],
     },
-    regionsInput({ lora: "scoped", how: "Masked conditioning: each box's tags inside it, beside the prompt's; hires tiles redraw from the prompt alone." }),
+    regionsInput(SDXL_REGIONS),
     ...adetailInputs("tags", "", SDXL_FACE_DENOISE),
     ...DETAIL_INPUTS,
     // the checkpoint, its LoRAs and how it samples: the rows of the SDXL tools, which the skeleton lays out (pictureForm)
@@ -91,7 +92,7 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
       ...detailNodes(input),
       ...guideNodes(input, SDXL_GUIDE),
       ...ipAdapterNodes(input),
-      ...sdxlRegionNodes(input.regions),
+      ...SDXL_REGIONS.nodes(input.regions),
       ...tileNodes(tiled),
       "CheckpointLoaderSimple", "CLIPTextEncode", "EmptyLatentImage", "VAEDecode", "PreviewImage",
       ...fullPassNodes(input, input.steps), ...(input.hires ? ["KSampler"] : []),
@@ -117,7 +118,7 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
     const H = roundTo(input.size.height, 8, 64);
     const empty = g.out("EmptyLatentImage", { width: W, height: H, batch_size: 1 });
     // each region's tags over its box (its LoRA held to it), beside the prompt's everywhere
-    const positive = sdxlRegions(g, { clip: loaded.clip, positive: loaded.positive, quality: input.quality, size: { width: W, height: H } }, input.regions);
+    const positive = SDXL_REGIONS.apply(g, { clip: loaded.clip, positive: loaded.positive, quality: input.quality, size: { width: W, height: H } }, input.regions);
     // a guide picture holds the shapes of the picture drawn whole; tiles are pieces, redrawn from the text alone
     const guided = applyGuide(g, ctx, SDXL_GUIDE, { model, positive, negative: loaded.negative }, vae, { width: W, height: H }, input);
 
@@ -143,7 +144,7 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
       model: () => model, clip: loaded.clip, vae,
       cond: (text) => (text ? { positive: g.out("CLIPTextEncode", { text: withQuality(input.quality, text), clip: loaded.clip }), negative: loaded.negative } : { positive: loaded.positive, negative: loaded.negative }),
       steps: input.steps, cfg: input.cfg, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed,
-    }, [`checkpoints/${input.checkpoint}`, ...regionLoads(input.regions), ...referenced.loads, ...guided.loads]);
+    }, [`checkpoints/${input.checkpoint}`, ...SDXL_REGIONS.loads(input.regions), ...referenced.loads, ...guided.loads]);
   },
 
   variants: [

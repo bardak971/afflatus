@@ -5,7 +5,6 @@ import { unetNodes } from "../shared/unet";
 import { qwen21Lint } from "../shared/lint";
 import { FACE_AT_NODE, FACE_NODE, faceScore } from "../shared/face";
 import { detectorSlots } from "../shared/detector";
-import { REGIONS_WHY } from "../shared/regions";
 import { outpaintAsk, withIntro } from "../shared/asks";
 
 const HF = "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main";
@@ -96,13 +95,15 @@ const model: InputSpec = { id: "model", type: "model", label: "Model", folder: "
  */
 const load = (g: GraphBuilder, input: Qwen21Base, ctx: BuildContext) => qwen21Kit.load(g, input as unknown as FlowBase, ctx);
 const NODES = (input: Qwen21Base) => [...unetNodes(input.model), "QwenImage21Cache", "CLIPLoader", "VAELoader", "TextEncodeQwenImage21", "KSampler", "VAEDecode", "PreviewImage"];
+/** Why Qwen Image 2.1's txt2img has no regions (its drop, card #271). */
+export const QWEN21_REGIONS_WHY = "Qwen Image 2.1 has no regional prompting: no node reads boxes for it";
 /** The sampling rows of the picture forms (pictureForm) that Qwen Image 2.1's do not take. */
 const QWEN21_DROPS = {
   shift: "ComfyUI's Qwen Image 2.1 templates set no shift: the model samples at its own",
   // read on Hugging Face and in ComfyUI's nodes, 2026-11-04 (card #277)
   ...noGuide("Alibaba's Fun ControlNet Union for Qwen Image 2.1 runs in VideoX-Fun only: ComfyUI has no node that loads it yet"),
   ...noReferences("Qwen Image 2.1's txt2img and img2img read no reference image: its Edit takes them"),
-  regions: REGIONS_WHY.qwen21,
+  regions: QWEN21_REGIONS_WHY,
 };
 /** Qwen Image 2.1 Turbo's file (qwen_image_2.1_turbo_*): distilled to 8 steps at CFG 1. */
 const TURBO_FILE = /qwen.?image.?2\.1.*turbo/i;

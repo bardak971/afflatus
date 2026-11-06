@@ -15,7 +15,8 @@ import { addedLora, putAdded } from "../shared/model";
 import { addedInputs, withRow, type AddedSpec } from "../shared/addedRows";
 import { FACE_PASS_INPUTS, FACE_PASS_NODES, FACE_PASS_OPTIONAL, FACE_PASS_SLOTS, facePass, type FacePassValues } from "../klein/facePass";
 import { ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, adetailOn, ALL_DETAIL, DETECTOR_FILES, SMALL_FACE_PX, type AdetailSettings } from "../shared/adetail";
-import { KREA2_LAYOUT_INPUT, krea2Layout, krea2RegionNodes, krea2Regions, REGIONS, regionLoads, regionsInput, type Krea2Layout } from "../shared/regions";
+import { REGIONS, regionsInput } from "../shared/regions";
+import { KREA2_LAYOUT_INPUT, KREA2_REGIONS, type Krea2Layout } from "./regions";
 
 const files = krea2Spec.files;
 const withStyle = { ...files, styleRef: "krea2_style_reference.safetensors" };
@@ -135,10 +136,7 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
     // (drawn as the weight of the style-reference LoRA's row in the LoRA list, card #160)
     { id: "referenceStrength", type: "number", label: "Reference strength", note: "the weight of the style-reference LoRA. At 0 it is not loaded", min: 0, max: 1.5, step: 0.05, default: 1, showWhen: "references", advanced: true, inList: "loras" },
     { id: "size", type: "size", label: "Size", default: "tall", grid: 16, min: 256, max: 2048, perModel: true, shapes: krea2Spec.shapes },
-    regionsInput({
-      lora: "scoped",
-      how: "ComfyUI-Krea2-Regional, in one pass: each box's words read by its part of the picture, beside the prompt. Not with a person or style reference.",
-    }),
+    regionsInput(KREA2_REGIONS),
     KREA2_LAYOUT_INPUT,
     ...adetailInputs("sentences", PERSON_FACE),
     ...DETAIL_INPUTS,
@@ -158,7 +156,7 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
     { when: { all: [{ input: REGIONS, filled: true }, { any: [{ input: "person", filled: true }, { input: "references", filled: true }] }] }, why: REGIONS_ALONE },
   ],
   optionalNodes: [...new Set([...DETAIL_OPTIONAL, ...FACE_PASS_OPTIONAL, ...ADETAIL_OPTIONAL])],
-  layoutOf: (input) => (regionsOf(input.regions).length ? krea2Layout(input.prompt, regionsOf(input.regions), input.regionLayout) : null),
+  layoutOf: (input) => KREA2_REGIONS.layoutOf(input),
   // a person reference asks for its LoRA (unless one is picked in its row) and, with Face refine on, Klein's files and the
   // face detector: a pod is sent them; a machine of the user's own makes the picture without the pass rather than wait.
   // Style reference images ask for theirs the same way, which the build refuses them without: a pod was never sent it, and
@@ -181,7 +179,7 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
     // a hires fix in tiles redraws them from the prompt alone (see build)
     ...(input.person.length && input.hires && inTiles(input, krea2Large(input), KREA2_AREA) ? ["CLIPTextEncode"] : []),
     ...(personFace(input) ? FACE_PASS_NODES : []),
-    ...krea2RegionNodes(input.regions),
+    ...KREA2_REGIONS.nodes(input.regions),
     // the Detail passes read the prompt alone, which a reference's texts do not hold
     ...((input.references.length || input.person.length) && adetailOn(input, { Face: input.person.length > 0 }) ? ["CLIPTextEncode"] : []),
     ...(input.hires ? ["UpscaleModelLoader", "ImageUpscaleWithModel", "ImageScale", "VAEEncode"] : []),
@@ -237,7 +235,7 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
       positive = g.out("Krea2EditGroundedEncode", { clip: k.clip, prompt: input.prompt, image: picture, grounding_px: GROUNDING_PX, system_prompt: "" });
     } else if (regioned) {
       // every box in the one pass: the pack's patch on the model, its text the base's and each box's joined
-      const r = krea2Regions(g, { model, clip: k.clip, prompt: input.prompt, size: { width: W, height: H }, layout: input.regionLayout }, input.regions);
+      const r = KREA2_REGIONS.apply(g, { model, clip: k.clip, prompt: input.prompt, size: { width: W, height: H }, layout: input.regionLayout }, input.regions);
       model = r.model;
       positive = r.positive;
     } else {
@@ -248,7 +246,7 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
     g.phase("sampling");
     const detail = { input, ctx };
     const first = sample(g, k, input, styled ? styledAt(model, W, H) : shifted(g, model, input, { width: W, height: H }), cond, empty, ctx.seed, {}, detail);
-    const loads = [...k.loads, ...(added.put ? [`loras/${added.lora!.file}`] : []), ...regionLoads(input.regions)];
+    const loads = [...k.loads, ...(added.put ? [`loras/${added.lora!.file}`] : []), ...KREA2_REGIONS.loads(input.regions)];
     const pass = { steps: input.hiresSteps, denoise: input.hiresDenoise, ...hiresPass(input) };
     const krea2: PictureSampler = {
       vae: k.vae, area: KREA2_AREA,
