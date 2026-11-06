@@ -601,17 +601,23 @@ export function ScrollColumn({ className, children }: { className?: string; chil
   return (
     <div className="relative flex min-h-0 grow flex-col">
       <div ref={box} onScroll={look} className={cx("min-h-0 grow overflow-y-auto", className)}>{children}</div>
+      {/* the fade lets clicks through to what it covers, the arrow alone takes them: the fade as one button 48 px tall took
+          the first click meant for a fold header or a picker under it and scrolled instead (owner, 2026-11-06) */}
       {more && (
-        <button
-          type="button"
-          aria-label="There is more below: go down"
-          data-tip="There is more below"
-          onClick={() => box.current?.scrollBy({ top: box.current.clientHeight * 0.8, behavior: "smooth" })}
+        <div
           style={{ background: "linear-gradient(to top, var(--color-panel) 35%, transparent)" }}
-          className="absolute inset-x-0 bottom-0 flex h-12 items-end justify-center pb-1 text-ink-2 hover:text-ink"
+          className="pointer-events-none absolute inset-x-0 bottom-0 flex h-12 items-end justify-center pb-1"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
-        </button>
+          <button
+            type="button"
+            aria-label="There is more below: go down"
+            data-tip="There is more below"
+            onClick={() => box.current?.scrollBy({ top: box.current.clientHeight * 0.8, behavior: "smooth" })}
+            className="pointer-events-auto rounded-full p-0.5 text-ink-2 hover:text-ink"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+          </button>
+        </div>
       )}
     </div>
   );
