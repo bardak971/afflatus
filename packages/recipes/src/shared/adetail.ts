@@ -1,6 +1,6 @@
 import { wanted, type BuildContext, type GraphBuilder, type InputSpec, type Ref } from "@afflatus/core";
 import { faceStepsFor } from "./face";
-import { DETECTOR_SLOTS, HAND_THRESHOLD, HAND_VALUES } from "./detector";
+import { CPU_DETECTOR, DETECTOR_SLOTS, detectorNode, HAND_THRESHOLD, HAND_VALUES } from "./detector";
 
 /**
  * ADetailer inside txt2img (card #272): after the picture (and its hires fix), the faces, hands or people a YOLOv8 detector
@@ -146,7 +146,7 @@ export function adetailNeeds(input: Partial<AdetailSettings>, slots?: Record<str
 }
 
 /** The Impact Pack's nodes (and its Subpack's detector): optional, a pass done without when they are missing, the job saying so. */
-export const ADETAIL_OPTIONAL = ["UltralyticsDetectorProvider", "BboxDetectorSEGS", "SegmDetectorSEGS", "ImpactSEGSRangeFilter", "ImpactSEGSOrderedFilter", "DetailerForEach"];
+export const ADETAIL_OPTIONAL = ["UltralyticsDetectorProvider", CPU_DETECTOR, "BboxDetectorSEGS", "SegmDetectorSEGS", "ImpactSEGSRangeFilter", "ImpactSEGSOrderedFilter", "DetailerForEach"];
 
 /** What the render redraws with: its model and how it samples, and its texts (null: the render's own prompt). */
 export interface DetailWith {
@@ -213,7 +213,7 @@ export function adetail(g: GraphBuilder, ctx: BuildContext, input: AdetailSettin
     }
     let detector = detectors.get(file);
     if (!detector) {
-      detector = g.add("UltralyticsDetectorProvider", { model_name: file });
+      detector = g.add(detectorNode(ctx), { model_name: file });
       detectors.set(file, detector);
       made.loads.push(`ultralytics/${file}`);
     }

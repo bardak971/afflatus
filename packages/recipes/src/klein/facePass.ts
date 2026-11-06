@@ -1,6 +1,7 @@
 import { wanted, type BuildContext, type GraphBuilder, type InputSpec, type Ref } from "@afflatus/core";
 import { loadUnet } from "../shared/unet";
 import { SMALL_FACE_PX } from "../shared/adetail";
+import { CPU_DETECTOR, detectorNode } from "../shared/detector";
 import { kleinCond, kleinDistilled, kleinNoise, REFERENCE_NODES, type Klein } from "./common";
 import { faceStepsFor } from "../shared/face";
 
@@ -57,7 +58,7 @@ export const FACE_PASS_SLOTS = ["kleinUnet", "kleinClip", "kleinVae", "faceDetec
 /** Its nodes of ComfyUI's own, beside the picture's. */
 export const FACE_PASS_NODES = ["UNETLoader", "CLIPLoader", "VAELoader", "CLIPTextEncode", ...REFERENCE_NODES];
 /** And the Impact Pack's (and its Subpack's detector): done without when missing, the job saying so. */
-export const FACE_PASS_OPTIONAL = ["UltralyticsDetectorProvider", "BboxDetectorSEGS", "ImpactSEGSOrderedFilter", "ImpactSEGSRangeFilter", "DetailerForEach"];
+export const FACE_PASS_OPTIONAL = ["UltralyticsDetectorProvider", CPU_DETECTOR, "BboxDetectorSEGS", "ImpactSEGSOrderedFilter", "ImpactSEGSRangeFilter", "DetailerForEach"];
 
 /** Why a picture with Face refine on is made without it, or null when the pass runs (said on its job). */
 export function facePassSkipped(input: FacePassValues, ctx: Pick<BuildContext, "slots">, pictures: string[]): string | null {
@@ -100,7 +101,7 @@ export function facePass(g: GraphBuilder, ctx: BuildContext, input: FacePassValu
     loads: [],
   };
   const cond = kleinCond(g, k, SAME_FACE, at.pictures.map((p) => g.out("LoadImage", { image: p })));
-  const detector = g.out("UltralyticsDetectorProvider", { model_name: slots.faceDetector });
+  const detector = g.out(detectorNode(ctx), { model_name: slots.faceDetector });
   const found = g.out("BboxDetectorSEGS", { bbox_detector: detector, image, threshold: 0.5, dilation: Math.round(FACE_GROW * at.scale), crop_factor: FACE_CROP, drop_size: 10, labels: "all" });
   // the largest face is the person's: another one in the background is not turned into them
   const largest = g.out("ImpactSEGSOrderedFilter", { segs: found, target: "area(=w*h)", order: true, take_start: 0, take_count: 1 });

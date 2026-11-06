@@ -73,8 +73,9 @@ describe("find a mask", () => {
     await until(() => fake.prompts.size === 1);
     const graph = answer([makeMaskPng(200, 100, 40, 60, 10, 10), makeMaskPng(200, 100, 160, 60, 10, 10), makeMaskPng(200, 100, 100, 50, 10, 10, 0)]);
     const classes = Object.values(graph).map((n) => n.class_type);
-    expect(classes).toEqual(expect.arrayContaining(["UltralyticsDetectorProvider", "BboxDetectorSEGS", "ImpactSEGSToMaskList", "MaskToImage"]));
-    expect(Object.values(graph).find((n) => n.class_type === "UltralyticsDetectorProvider")!.inputs.model_name).toBe("bbox/hand_yolov8s.pt");
+    // the node pack's CPU provider, which this ComfyUI has (card #335)
+    expect(classes).toEqual(expect.arrayContaining(["AfflatusDetectorProviderCPU", "BboxDetectorSEGS", "ImpactSEGSToMaskList", "MaskToImage"]));
+    expect(Object.values(graph).find((n) => n.class_type === "AfflatusDetectorProviderCPU")!.inputs.model_name).toBe("bbox/hand_yolov8s.pt");
     const { masks } = await found(pic.id, job);
     expect(masks.map((m) => m.box.x).sort((a, b) => a - b)).toEqual([31, 151]);
   });

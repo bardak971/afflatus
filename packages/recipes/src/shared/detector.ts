@@ -1,4 +1,21 @@
-import type { ChoiceInput } from "@afflatus/core";
+import type { BuildContext, ChoiceInput } from "@afflatus/core";
+
+/**
+ * The node pack's YOLO provider (pack 0.50.2, card #335): the Impact Subpack's own, its model run on the CPU. On the GPU,
+ * a ComfyUI with DynamicVRAM left the model giving about 300 boxes or none once a diffusion model had loaded beside it (A40
+ * pods, 2026-11-06), and Detail redrew tree tops and blacked out the real face. The same inputs and outputs as the
+ * Subpack's, which a ComfyUI with an older pack keeps.
+ */
+export const CPU_DETECTOR = "AfflatusDetectorProviderCPU";
+
+/** The YOLO provider a graph loads its detector with: the CPU one where this ComfyUI has it, else the Subpack's. */
+export const detectorNode = (ctx: Pick<BuildContext, "has">) => (ctx.has(CPU_DETECTOR) ? CPU_DETECTOR : "UltralyticsDetectorProvider");
+
+/**
+ * The providers as a recipe's optionalNodes: its graph has one or the other. Its nodes() still names the Subpack's, which the
+ * CPU one runs on.
+ */
+export const DETECTOR_NODES = ["UltralyticsDetectorProvider", CPU_DETECTOR];
 
 /**
  * Bingsu's adetailer files at the commit their hashes were read from (2026-11-03), not at `main`: Ultralytics loads a .pt
