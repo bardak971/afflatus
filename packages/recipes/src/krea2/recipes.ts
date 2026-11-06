@@ -8,12 +8,13 @@ import { flowOutpaint } from "../flow/outpaint";
 import { flowRedraw } from "../flow/redraw";
 import { flowSharper } from "../flow/sharper";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
-import { redrawInTiles, tileNodes, tilePass, inTiles, type TileSettings } from "../shared/tiles";
+import { tileNodes, inTiles, type TileSettings } from "../shared/tiles";
+import { hiresFix, pictureOut, type PictureSampler } from "../shared/passes";
 import { krea2Kit, krea2Spec } from "./common";
 import { addedLora, putAdded } from "../shared/model";
 import { addedInputs, withRow, type AddedSpec } from "../shared/addedRows";
 import { FACE_PASS_INPUTS, FACE_PASS_NODES, FACE_PASS_OPTIONAL, FACE_PASS_SLOTS, facePass, type FacePassValues } from "../klein/facePass";
-import { adetail, ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, adetailOn, ALL_DETAIL, DETECTOR_FILES, sized, SMALL_FACE_PX, type AdetailSettings } from "../shared/adetail";
+import { ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, adetailOn, ALL_DETAIL, DETECTOR_FILES, SMALL_FACE_PX, type AdetailSettings } from "../shared/adetail";
 import { KREA2_LAYOUT_INPUT, krea2Layout, krea2RegionNodes, krea2Regions, REGIONS, regionLoads, regionsInput, type Krea2Layout } from "../shared/regions";
 
 const files = krea2Spec.files;
@@ -247,68 +248,40 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
     g.phase("sampling");
     const detail = { input, ctx };
     const first = sample(g, k, input, styled ? styledAt(model, W, H) : shifted(g, model, input, { width: W, height: H }), cond, empty, ctx.seed, {}, detail);
-    let latent = first.latent;
-    const passes: Array<{ node: string; steps: number; pixels?: number }> = [first.pass];
     const loads = [...k.loads, ...(added.put ? [`loras/${added.lora!.file}`] : []), ...regionLoads(input.regions)];
-
-    let image: Ref | null = null;
-    if (input.hires) {
-      const { width: W2, height: H2 } = krea2Large(input);
-      g.phase("upscaling");
-      // upscale models enlarge by their own factor (usually 4×): the result is scaled to the size asked for
-      const pixels = g.out("VAEDecode", { samples: latent, vae: k.vae });
-      const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.hiresUpscaler }), image: pixels });
-      const scaled = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: W2, height: H2, crop: "disabled" });
-      g.phase("refining");
-      const pass = { steps: input.hiresSteps, denoise: input.hiresDenoise, ...hiresPass(input) };
-      if (inTiles(input, { width: W2, height: H2 }, KREA2_AREA)) {
+    const pass = { steps: input.hiresSteps, denoise: input.hiresDenoise, ...hiresPass(input) };
+    const krea2: PictureSampler = {
+      vae: k.vae, area: KREA2_AREA,
+      whole: (scaled, large) => sample(g, k, input, shifted(g, model, input, large), cond, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), ctx.seed, pass, detail),
+      tiles: () => {
         // the patch fits the person's picture to each tile it samples, and a tile of a wall would be pulled toward them: the
         // tiles are redrawn by the model and the prompt alone (a light pass over a person already there). The regions' masks
         // are the whole picture's, which a tile is not: the same
         const tileModel = person || regioned ? plain : model;
         const tileCond = person || regioned ? condOf(g, k, input, input.prompt) : cond;
-        image = redrawInTiles(g, ctx, scaled, k.vae, { width: W2, height: H2 }, input, (l, _tiles, tile) => {
-          const second = sample(g, k, input, shifted(g, tileModel, input, { width: tile, height: tile }), tileCond, l, ctx.seed, pass, detail);
-          passes.push(tilePass(second.pass, { width: W2, height: H2 }, input));
-          return second.latent;
-        });
-        // each pass at its own size: the first at the picture's first, the tiles at a tile's
-        passes[0] = { ...passes[0]!, pixels: W * H };
-      } else {
-        const second = sample(g, k, input, shifted(g, model, input, { width: W2, height: H2 }), cond, g.out("VAEEncode", { pixels: scaled, vae: k.vae }), ctx.seed, pass, detail);
-        latent = second.latent;
-        passes.push(second.pass);
-      }
-      loads.push(`upscale_models/${input.hiresUpscaler}`);
-    }
-
-    g.phase("decoding");
+        return (l, _tiles, tile) => sample(g, k, input, shifted(g, tileModel, input, { width: tile, height: tile }), tileCond, l, ctx.seed, pass, detail);
+      },
+    };
+    const large = krea2Large(input);
+    const hired = hiresFix(g, ctx, input, krea2, first, { width: W, height: H }, large);
+    loads.push(...hired.loads);
     const scale = input.hires ? input.hiresScale : 1;
     // the Detail rows: people and hands redrawn by Krea 2 from the prompt (the user's LoRAs on, not a reference's), each crop
     // at the size it draws best; a face too when there is no person, whose face is theirs (below). With regions, from the
     // prompt alone too: the crops are sampled on the model without the pack's patch, and the regional text read there joins
     // every box's words with no mask to keep each to its box, so two cast people's faces were each drawn from both (card #296)
-    const d = adetail(g, ctx, input, image ?? g.out("VAEDecode", { samples: latent, vae: k.vae }), {
+    return pictureOut(g, ctx, input, krea2, hired, { size: { width: W, height: H }, large }, {
       model: () => shifted(g, plain, input, { width: 1024, height: 1024 }), clip: k.clip, vae: k.vae,
       cond: (text) => (!text && !styled && !person && !regioned ? cond : condOf(g, k, input, text ?? input.prompt)),
-      steps: k.steps, cfg: k.cfg, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed, scale, skip: { Face: person },
+      steps: k.steps, cfg: k.cfg, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed, skip: { Face: person },
+    }, loads, (image) => {
+      // Face refine (or Detail: face): the person's face redrawn from their picture when it is a small one, read at the size
+      // it was drawn at
+      const face = person ? facePass(g, ctx, { ...input, faceRefine: personFace(input) }, image, { pictures: [ctx.uploads["person.0"]!], scale }) : null;
+      return face?.pass
+        ? { image: face.image, passes: [face.pass], loads: face.loads, warnings: face.said ? [face.said] : [] }
+        : { image, passes: [], loads: [], warnings: face?.said ? [face.said] : [] };
     });
-    let result = d.image;
-    // Face refine (or Detail: face): the person's face redrawn from their picture when it is a small one, read at the size it
-    // was drawn at
-    const face = person ? facePass(g, ctx, { ...input, faceRefine: personFace(input) }, result, { pictures: [ctx.uploads["person.0"]!], scale }) : null;
-    const after = [...d.passes, ...(face?.pass ? [face.pass] : [])];
-    if (face?.pass) {
-      result = face.image;
-      loads.push(...face.loads);
-    }
-    const all = after.length ? [...sized(passes, [W * H, krea2Large(input).width * krea2Large(input).height]), ...after] : passes;
-    const warnings = [...d.warnings, ...(face?.said ? [face.said] : [])];
-    const out = g.add("PreviewImage", { images: result });
-    return {
-      graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: all.reduce((n, p) => n + p.steps, 0), passes: all, loads: [...loads, ...d.loads],
-      ...(warnings.length ? { warnings } : {}),
-    };
   },
   variants: [
     { name: "from words, as ComfyUI's template", input: { prompt: "a" }, slots: files },
