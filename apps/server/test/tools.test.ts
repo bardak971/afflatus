@@ -198,8 +198,8 @@ describe("the other things done to a picture", () => {
       "sdxl.redraw", "sdxl.paint-over", "sdxl.outpaint", "sdxl.sharper", "sdxl.fix-face", "klein.edit", "klein.redraw", "klein.variation", "klein.paint-over", "klein.change-shape", "klein.sharper", "klein.fix-face", "krea2.redraw", "krea2.paint-over", "krea2.outpaint", "krea2.sharper", "krea2.fix-face",
       "flux.edit", "flux.redraw", "flux.paint-over", "flux.outpaint", "flux.sharper", "flux.fix-face", "qwen.edit", "qwen.redraw", "qwen.paint-over", "qwen.outpaint", "qwen.sharper", "qwen.fix-face", "qwen21.edit", "qwen21.redraw", "qwen21.paint-over", "qwen21.outpaint", "qwen21.sharper", "qwen21.fix-face", "qwen21.motion-picture",
       "zimage.redraw", "zimage.paint-over", "zimage.outpaint", "zimage.sharper", "zimage.fix-face", "tools.remove-background", "tools.seedvr-upscale", "tools.find-mask",
-      // the Stage's Edit in box, one per instruction editor (card #284): hidden, sent from Paint and fix's bar
-      "qwen.edit-in-box", "qwen21.edit-in-box", "klein.edit-in-box", "flux.edit-in-box",
+      // the Stage's Edit in box, one per instruction editor (card #284): hidden, sent from Paint and fix's bar, in the order Settings offers them (card #292)
+      "qwen21.edit-in-box", "qwen.edit-in-box", "klein.edit-in-box", "flux.edit-in-box",
     ]);
     const setup = unlistOptions((await get(t.app, "/api/setup")).json());
     const of = (id: string) => setup.recipes.find((r: { id: string }) => r.id === id);
