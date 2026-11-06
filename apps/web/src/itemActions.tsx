@@ -101,14 +101,6 @@ export const actionIds = (kind: Kind): ActionId[] => ORDER.filter((id) => ACTION
  */
 export const KEY_TUNES: ReadonlySet<ActionId> = new Set(["background"]);
 
-/** The passes by the viewer's key for them (viewer/shared.ts OPS reads the recipe for each). */
-export const PASS_KEYS: Partial<Record<ActionId, string>> = { upscale: "u", face: "f", hand: "h", background: "b", inpaint: "i", edit: "e", outpaint: "r" };
-/**
- * The passes whose results come back as versions of the picture, under it (the owner's choice, card #274): same picture,
- * same framing. Upscale and Remove background make new items.
- */
-export const VERSION_PASSES: ReadonlySet<string> = new Set(["f", "h", "i", "e", "r"]);
-
 /** A group's heading, where a place shows headings (the viewer's side); a video's tools and a sound's are named for it. */
 export const groupTitle = (group: GroupId, kind: Kind): string =>
   ({ item: "", make: "Make from it", passes: "Passes", tools: kind === "audio" ? "Sound" : "Video tools", look: "Look", put: "Put it in", last: "" })[group];

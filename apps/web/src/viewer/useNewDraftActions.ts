@@ -8,6 +8,7 @@ import { useOpenNewDraft } from "../draft";
 import { handMask } from "../handoff";
 import { useReuse } from "../reuse";
 import { followOn, usedLast } from "../picker";
+import type { PassKey } from "../passes";
 import { carried, ownInputs, renderOf, toolOf } from "./shared";
 import { varyTool } from "../vary";
 import { useFormAim } from "../recipeForm/formAim";
@@ -158,7 +159,7 @@ export function useNewDraftActions({ asset, detail, leave, enabled = true }: { a
 
   const all = (recipes.data?.recipes ?? []).filter(offers);
   /** The recipe for an operation: the one of the model the picture was made with when it has it, else one that is ready, else any. */
-  const toolFor = (key: string): RecipeInfo | undefined =>
+  const toolFor = (key: PassKey): RecipeInfo | undefined =>
     toolOf(key, all, recipes.data?.families ?? [], madeWith?.id, (r) => Boolean(setup.data?.recipes.find((x) => x.id === r.id)?.ready));
   /** The img2img a Vary runs on: the one of the model this was rendered with, none when that model has none. */
   const vary = varyTool(all, recipes.data?.families ?? [], recipe?.id);

@@ -1,4 +1,4 @@
-import type { InputSpec, Recipe } from "@afflatus/core";
+import type { InputSpec, PictureOp, Recipe } from "@afflatus/core";
 
 /**
  * Every picture form laid out by one skeleton (card #275), as h3Form lays out H3's: the owner's rule for H3 (every form alike:
@@ -8,9 +8,6 @@ import type { InputSpec, Recipe } from "@afflatus/core";
  * operation are said once, in their order; a form's own rows stay right after the shared row they came after, and a shared
  * row a form does not take is named in its drop, with why (the parity test reads them).
  */
-
-/** What a picture form does: its operation decides which rows it shares with the other families' forms of it. */
-export type PictureOp = "txt2img" | "img2img" | "inpaint" | "outpaint" | "upscale" | "face" | "edit" | "own";
 
 /** The model's row: "checkpoint" on SDXL (a checkpoint holds the model, its text encoders and its VAE), "model" elsewhere. */
 const MODEL = ["model", "checkpoint"];
@@ -90,7 +87,8 @@ export const pictureRowsOf = (op: PictureOp, model = "model"): string[] => [mode
 /**
  * A picture form's recipe with its rows laid out by the skeleton: its operation's shared rows in their order, the form's
  * own rows each right after the shared row it came after (before the first one: after the model), and the operation's
- * words. Refuses a form that leaves a shared row out without saying why, or drops one its operation does not have.
+ * words; the operation itself goes on the recipe (`op`: the web finds a picture's tools by it). Refuses a form that
+ * leaves a shared row out without saying why, or drops one its operation does not have.
  */
 export function pictureForm<In>(op: PictureOp, recipe: Recipe<In>, drop: Record<string, string> = {}): Recipe<In> {
   const model = recipe.inputs.find((i) => MODEL.includes(i.id))?.id ?? "model";
@@ -116,5 +114,5 @@ export function pictureForm<In>(op: PictureOp, recipe: Recipe<In>, drop: Record<
   });
   PICTURE_DROPS.set(recipe.id, { op, drop });
   const absent = SAID_ABSENT.filter((a) => drop[a.id] !== undefined).map((a) => ({ ...a, why: drop[a.id]! }));
-  return { ...recipe, inputs, ...(absent.length ? { absent } : {}) };
+  return { ...recipe, op, inputs, ...(absent.length ? { absent } : {}) };
 }

@@ -23,6 +23,15 @@ describe("picture forms laid out by pictureForm", () => {
     expect(order).toEqual(shared.filter((i) => ids.includes(i)));
   });
 
+  // the web finds a picture's Inpaint, Upscale, Edit or Outpaint by it (viewer/shared.ts OPS), not by the recipe's id (card #290):
+  // a family's picture form without one would have no tools on its pictures. The tools' own (Remove background, SeedVR2)
+  // are no family's form, and an Edit in box is the Stage's
+  it("says its operation on every picture form a family offers, MOSS's too", () => {
+    const pictures = recipes.filter((r) => r.output === "image" && r.family !== "tools" && !r.hidden);
+    expect(pictures.filter((r) => !r.op).map((r) => r.id)).toEqual([]);
+    for (const r of recipes) expect(r.op, r.id).toBe(PICTURE_DROPS.get(r.id)?.op);
+  });
+
   it("gives a shared row the same words on every form that has it", () => {
     const labels = new Map<string, Map<string, string[]>>();
     for (const r of forms) {

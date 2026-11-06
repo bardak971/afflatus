@@ -9,7 +9,7 @@ import { BOX_TONE } from "../stageLayer/LayerStrip";
 import { MAX_COUNT, tuneAt, useTune, type TuneAsk } from "../passTune";
 import type { QueuedJob } from "../queueVariation";
 import { Button, cx, Failed, Help, IconButton, NumberBox } from "../ui";
-import type { FixAsk } from "./useFixJob";
+import type { FixAsk } from "../passes";
 
 /**
  * The fix's settings in ⚙: the sampling, and an outpaint's feathering. Short, so the popover leaves the picture in sight.

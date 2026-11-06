@@ -12,7 +12,7 @@ import { draw } from "./render";
 /** A pass's popover (card #270): its rows filled from the picture, changed, then queued; ×N sent as one job of N copies. */
 
 const sharper = {
-  id: "zz-test.sharper", family: "zz-test", output: "image", title: "Upscale",
+  id: "zz-test.sharper", family: "zz-test", output: "image", op: "upscale", title: "Upscale",
   inputs: [
     { id: "source", type: "image", role: "source", label: "Image" },
     { id: "upscaler", type: "choice", label: "Upscaler", choices: ["zz-test-2x.pth", "zz-test-4x.pth"], default: "zz-test-4x.pth" },
@@ -20,7 +20,7 @@ const sharper = {
   ],
 } as unknown as RecipeInfo;
 const redraw = {
-  id: "zz-test.redraw", family: "zz-test", output: "image", title: "img2img",
+  id: "zz-test.redraw", family: "zz-test", output: "image", op: "img2img", title: "img2img",
   inputs: [{ id: "source", type: "image", role: "source", label: "Image" }, { id: "strength", type: "number", label: "Denoising strength", min: 0.05, max: 1, step: 0.05, default: 0.55 }, { id: "seed", type: "seed", label: "Seed" }],
 } as unknown as RecipeInfo;
 const at = { left: 100, top: 100, width: 120, height: 30 };

@@ -9,15 +9,16 @@ import { eraseNow } from "./binActions";
 import { askAboutDisk } from "./Confirm";
 import { useSettings, useSetup, type useAsset } from "./data";
 import { saveAsset } from "./download";
-import { ACTIONS, itemActions, PASS_KEYS, VERSION_PASSES, sentPrompt, type ActionId, type ItemFacts, type Runs, type Tunes } from "./itemActions";
+import { ACTIONS, itemActions, sentPrompt, type ActionId, type ItemFacts, type Runs, type Tunes } from "./itemActions";
 import { TUNED_ROWS, tunedJob, useTune } from "./passTune";
 import type { QueuedJob } from "./queueVariation";
 import { VARY, varyJob } from "./vary";
 import { useItemMutations, useTimelineSubmenu } from "./itemMutations";
 import { canCopyPicture } from "./secureContext";
 import { useBanners, useHandover } from "./store";
-import { MODE_PASS, outpaintsByFrame, useStageMode, type StageMode } from "./paintFix/useStageMode";
-import { handsInput, NO_HAND_DETECTOR, OPS } from "./viewer/shared";
+import { outpaintsByFrame, useStageMode, type StageMode } from "./paintFix/useStageMode";
+import { jobOfPass, modePass, PASSES, passOf, type PassKey } from "./passes";
+import { handsInput, NO_HAND_DETECTOR } from "./viewer/shared";
 import { useMediaExtract } from "./viewer/useMediaExtract";
 import { useNewDraftActions } from "./viewer/useNewDraftActions";
 import { useFlash } from "./hooks";
@@ -86,14 +87,13 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
   const queue = (action: ActionId, job: Parameters<typeof queued.mutate>[0]) => queued.mutate(job, { onSuccess: () => flash(action) });
 
   /** The job of a pass queued at once with the picture's parameters (Upscale, Face refine, Remove background). */
-  const quickJob = (key: string): QueuedJob | undefined => {
+  const quickJob = (key: PassKey): QueuedJob | undefined => {
     const tool = toolFor(key);
-    return tool ? { recipe: tool, stored: toolInput(tool), label: OPS[key]!.label, from: a.id, ...(VERSION_PASSES.has(key) ? { versionOf: a.id } : {}) } : undefined;
+    return tool ? jobOfPass(key, tool, toolInput(tool), a.id) : undefined;
   };
-  const quick = (key: string) => {
+  const quick = (key: PassKey) => {
     const job = quickJob(key);
-    const action = (Object.keys(PASS_KEYS) as ActionId[]).find((id) => PASS_KEYS[id] === key);
-    if (job && action) queue(action, job);
+    if (job) queue(PASSES[key].action, job);
   };
   /**
    * The face detailer on the hand detector, on the values the recipe starts on for hands (denoise, crop factor, a
@@ -108,7 +108,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
       say({ id: `queued:${Date.now()}`, tone: "bad", title: "Hand refine could not be queued", text: NO_HAND_DETECTOR, href: "/settings/models", go: "Open Settings" });
       return undefined;
     }
-    return { recipe: tool, stored: { ...toolInput(tool), ...way.values }, label: OPS.h!.label, from: a.id, versionOf: a.id };
+    return jobOfPass("h", tool, { ...toolInput(tool), ...way.values }, a.id);
   };
   const hands = () => {
     const job = handsJob();
@@ -125,7 +125,7 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
     if (VARY[action]) return varyOf(action);
     if (action === "variation") return variationJob();
     if (action === "hand") return handsJob();
-    const key = PASS_KEYS[action];
+    const key = passOf(action);
     return key ? quickJob(key) : undefined;
   };
   /** Shift+click or ▾ on a pass: its key rows in the popover, then queued from there (TunePopover.tsx). */
@@ -138,24 +138,24 @@ export function useItemActions({ asset, detail, enabled = true, leave = noop, on
    * menu, the command bar), the picture opens over the screen in that mode; the viewer that shows it hands its own.
    */
   const onStage = (mode: StageMode) => {
-    if (!toolFor(MODE_PASS[mode]) && !(mode === "edit" && toolFor("i"))) return;
+    if (!toolFor(modePass(mode)) && !(mode === "edit" && toolFor("i"))) return;
     useStageMode.getState().set(a.id, mode);
     useHandover.getState().set({ show: a.id });
     if (path !== "/" && path !== "/create") go("/");
   };
   /** A pass that opens a form with the picture in place (an Outpaint the Stage's frame cannot drive). */
-  const openPass = (key: string) => {
+  const openPass = (key: PassKey) => {
     const tool = toolFor(key);
-    if (tool) openTool.mutate(tool.id, said(`Could not open ${OPS[key]!.label}`));
+    if (tool) openTool.mutate(tool.id, said(`Could not open ${PASSES[key].label}`));
   };
   const seed = typedSeed(g?.resolved.seed);
   // the inputs as sent (a cast worked in), read by the form's own inputs where its recipe is still here
   const prompt = g ? sentPrompt(g.inputs, recipe?.inputs) : null;
   const reading = enabled && Boolean(asset.id) && detail.data?.id !== asset.id && detail.isFetching;
   const passes = Object.fromEntries([
-    ...Object.entries(PASS_KEYS).flatMap(([id, k]) => {
-      const tool = toolFor(k!);
-      return tool ? [[id, tool.title]] : [];
+    ...(Object.keys(PASSES) as PassKey[]).flatMap((k) => {
+      const tool = toolFor(k);
+      return tool ? [[PASSES[k].action, tool.title]] : [];
     }),
     ...(vary ? Object.keys(VARY).map((id) => [id, vary.title]) : []),
   ]) as Partial<Record<ActionId, string>>;

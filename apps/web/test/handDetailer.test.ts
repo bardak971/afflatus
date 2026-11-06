@@ -5,7 +5,7 @@ import { formDefaults } from "../src/form";
 import { carried, handsOf, renderOf, toolOf } from "../src/viewer/shared";
 
 // the built-in recipes as /api/recipes lists them (only what the form and the passes read)
-const all = recipes.map((r) => ({ id: r.id, family: r.family, version: r.version, title: r.title, summary: r.summary, output: r.output, inputs: r.inputs, traits: null }) as unknown as RecipeInfo);
+const all = recipes.map((r) => ({ id: r.id, family: r.family, version: r.version, title: r.title, summary: r.summary, output: r.output, op: r.op, inputs: r.inputs, traits: null }) as unknown as RecipeInfo);
 const byId = (id: string) => all.find((r) => r.id === id)!;
 const FACE = "bbox/face_yolov8m.pt";
 const HAND = "bbox/hand_yolov8s.pt";

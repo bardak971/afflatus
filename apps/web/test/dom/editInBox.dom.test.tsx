@@ -14,7 +14,7 @@ const head = picture("zz-test-head");
 
 afterEach(() => act(() => useStageMode.getState().leave()));
 
-const INPAINT = { id: "zz-test.paint-over", family: "zz-test", output: "image", title: "Inpaint", inputs: [{ id: "source", type: "image", role: "source" }, { id: "mask", type: "image", role: "mask" }, { id: "prompt", type: "prompt" }, { id: "strength", type: "number", min: 0.05, max: 1, step: 0.05, default: 0.75 }] };
+const INPAINT = { id: "zz-test.paint-over", family: "zz-test", output: "image", op: "inpaint", title: "Inpaint", inputs: [{ id: "source", type: "image", role: "source" }, { id: "mask", type: "image", role: "mask" }, { id: "prompt", type: "prompt" }, { id: "strength", type: "number", min: 0.05, max: 1, step: 0.05, default: 0.75 }] };
 const BOXED = (family: string) => ({ id: `${family}.edit-in-box`, family, hidden: true, output: "image", title: "Edit in box", inputs: [{ id: "source", type: "image", role: "source" }, { id: "boxes", type: "regions", max: 8 }, { id: "steps", type: "number", min: 1, max: 80, step: 1, default: 40 }] });
 const families = [{ id: "zz-test", name: "zz-test", summary: "" }, { id: "qwen21", name: "Qwen Image 2.1", summary: "" }, { id: "klein", name: "FLUX.2 Klein", summary: "" }];
 

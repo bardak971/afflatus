@@ -1,30 +1,17 @@
-import { RANDOM_SEED, REMOVE_BACKGROUND, squash, typedSeed, type ChoiceInput } from "@afflatus/core";
+import { RANDOM_SEED, squash, typedSeed, type ChoiceInput } from "@afflatus/core";
 import type { AssetDetail, RecipeInfo } from "../api";
+import { PASSES, type PassKey } from "../passes";
 import { carryAcross, carryOver, modelGroups } from "../picker";
 
 export const FORMATS: Record<string, string> = { "image/png": "PNG", "image/jpeg": "JPEG", "image/webp": "WebP", "video/mp4": "MP4", "video/webm": "WebM", "audio/wav": "WAV", "audio/mpeg": "MP3", "audio/flac": "FLAC", "audio/mp4": "M4A", "audio/ogg": "OGG" };
-
-/** The operations that have a key, by how their recipes are named; `takes`: of those, the ones that can do it. */
-export const OPS: Record<string, { ends: string[]; label: string; takes?(r: RecipeInfo): boolean }> = {
-  u: { ends: [".sharper"], label: "Upscale 2x" },
-  f: { ends: [".fix-face"], label: "Face refine" },
-  // the face detailer given a hand detector; Klein's redraws a face from a person's pictures and is not offered for hands
-  h: { ends: [".fix-face"], label: "Hand refine", takes: (r) => Boolean(handsOf(r)) },
-  b: { ends: [REMOVE_BACKGROUND], label: "Remove background" },
-  i: { ends: [".paint-over"], label: "Inpaint" },
-  e: { ends: [".edit", ".redraw"], label: "Edit" },
-  // Klein names its outpaint by what it does to the frame; the other image models (SDXL, Flux, Qwen) call theirs outpaint
-  r: { ends: [".outpaint", ".change-shape"], label: "Outpaint" },
-};
 
 /**
  * The recipe for an operation on a picture: the one of the model the picture was made with (`made`, its recipe id) when
  * that model has it, else one that is ready, else any. `all` is the recipes of the families turned on.
  */
-export function toolOf(key: string, all: RecipeInfo[], families: Array<{ id: string; name: string; summary: string }>, made: string | undefined, ready: (r: RecipeInfo) => boolean): RecipeInfo | undefined {
-  const ends = OPS[key]?.ends ?? [];
-  const takes = OPS[key]?.takes ?? (() => true);
-  const fits = (r: RecipeInfo) => r.output === "image" && ends.some((e) => r.id.endsWith(e)) && takes(r);
+export function toolOf(key: PassKey, all: RecipeInfo[], families: Array<{ id: string; name: string; summary: string }>, made: string | undefined, ready: (r: RecipeInfo) => boolean): RecipeInfo | undefined {
+  const what = PASSES[key];
+  const fits = (r: RecipeInfo) => r.output === "image" && (what.id ? r.id === what.id : Boolean(r.op && what.op?.includes(r.op))) && (!what.hands || Boolean(handsOf(r)));
   const mine = modelGroups(all.filter((r) => r.output === "image"), families).find((group) => group.recipes.some((r) => r.id === made));
   return mine?.recipes.find(fits) ?? all.find((r) => fits(r) && ready(r)) ?? all.find(fits);
 }

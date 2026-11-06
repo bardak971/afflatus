@@ -33,7 +33,7 @@ export const varyDenoise = (family: string, how: VaryHow): number => (DENOISE[fa
 export function varyTool(all: RecipeInfo[], families: Array<{ id: string; name: string; summary: string }>, made: string | undefined): RecipeInfo | undefined {
   if (!made) return undefined;
   const mine = modelGroups(all.filter((r) => r.output === "image"), families).find((group) => group.recipes.some((r) => r.id === made));
-  return mine?.recipes.find((r) => r.id.endsWith(".redraw"));
+  return mine?.recipes.find((r) => r.op === "img2img");
 }
 
 /**

@@ -12,7 +12,9 @@ const source = { id: "source", type: "image", role: "source", label: "Image" };
 const prompt = { id: "prompt", type: "prompt", label: "Prompt" };
 const strength = { id: "strength", type: "number", label: "Denoising strength", min: 0.05, max: 1, step: 0.05, default: 0.55 };
 const seed = { id: "seed", type: "seed", label: "Seed" };
-const recipe = (id: string, inputs: unknown[]): RecipeInfo => ({ id, family: id.split(".")[0], output: "image", title: id, inputs }) as unknown as RecipeInfo;
+// each recipe's picture operation, as pictureForm says it
+const OP: Record<string, string> = { "text-to-picture": "txt2img", redraw: "img2img", sharper: "upscale", "fix-face": "face" };
+const recipe = (id: string, inputs: unknown[]): RecipeInfo => ({ id, family: id.split(".")[0], output: "image", op: OP[id.split(".")[1]!], title: id, inputs }) as unknown as RecipeInfo;
 
 const sdxl = [
   recipe("sdxl.text-to-picture", [{ id: "checkpoint", type: "choice" }, prompt, seed]),
