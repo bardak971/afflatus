@@ -1,4 +1,4 @@
-import { GraphBuilder, inBoxOf, isRef, MAX_BOXES, regionBox, roundTo, type BuildContext, type BuiltGraph, type InputSpec, type Recipe, type Ref, type RegionValue } from "@afflatus/core";
+import { GraphBuilder, inBoxOf, isRef, MAX_BOXES, regionBox, roundTo, type BoxEditorTrait, type BuildContext, type BuiltGraph, type InputSpec, type Recipe, type Ref, type RegionValue } from "@afflatus/core";
 
 /**
  * Edit in a box (card #284): boxes drawn over a picture, each with an instruction, and the picture's instruction editor
@@ -257,11 +257,11 @@ function boxesOf(boxes: RegionValue[]): RegionValue[] {
 
 /**
  * The Edit in box of an instruction editor: its rows (the model, references, sampling) as they are, its one instruction
- * replaced by each box's own, built as said above. `working`: the size the editor reads a picture at, for its input;
- * `starts`: rows that start on another value for a box than in the editor's own form.
- * Hidden: it is the Stage's, sent from its bar, never a form of its own.
+ * replaced by each box's own, built as said above. `editor`: the editor it is, as Settings and the bar list it; `working`:
+ * the size the editor reads a picture at, for its input; `starts`: rows that start on another value for a box than in the
+ * editor's own form. Hidden: it is the Stage's, sent from its bar, never a form of its own.
  */
-export function inBox<In extends { source: string; prompt: string }>(edit: Recipe<In>, working: (input: In) => WorkingSize, starts: Partial<Record<keyof In, unknown>> = {}): Recipe<Omit<In, "prompt"> & InBox> {
+export function inBox<In extends { source: string; prompt: string }>(edit: Recipe<In>, editor: BoxEditorTrait, working: (input: In) => WorkingSize, starts: Partial<Record<keyof In, unknown>> = {}): Recipe<Omit<In, "prompt"> & InBox> {
   type Boxed = Omit<In, "prompt"> & InBox;
   const boxes: InputSpec = { id: "boxes", type: "regions", label: "Boxes", max: MAX_BOXES, note: "each box's instruction, done there one box after another" };
   // the soft edge (FEATHER, OUTSIDE): the bar sends neither, the API may set them
@@ -275,6 +275,7 @@ export function inBox<In extends { source: string; prompt: string }>(edit: Recip
     id: inBoxOf(edit.id),
     family: edit.family,
     hidden: true,
+    boxEditor: editor,
     version: 1,
     title: "Edit in box",
     summary: `Each box drawn on the picture edited from its own instruction by ${edit.title.toLowerCase()}, one after another; the rest of the picture is kept.`,

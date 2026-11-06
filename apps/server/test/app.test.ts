@@ -50,6 +50,12 @@ describe("GET /api/recipes", () => {
     const recipe = body.recipes.find((r: { id: string }) => r.id === "sdxl.text-to-picture");
     expect(recipe.inputs.map((i: { id: string }) => i.id)).toContain("hiresUpscaler");
     expect(recipe.build).toBeUndefined();
+    // Edit in box's editors say so, in Settings' order, with the names Settings gives them (card #292)
+    const editors = body.recipes.filter((r: { boxEditor?: unknown }) => r.boxEditor);
+    expect(editors.map((r: { family: string; boxEditor: { name: string } }) => [r.family, r.boxEditor.name])).toEqual([
+      ["qwen21", "Qwen Image 2.1"], ["qwen", "Qwen Image Edit"], ["klein", "FLUX.2 Klein"], ["flux", "FLUX.1 Kontext"],
+    ]);
+    expect(editors.filter((r: { boxEditor: { default?: true } }) => r.boxEditor.default).map((r: { family: string }) => r.family)).toEqual(["qwen"]);
   });
 });
 
@@ -234,6 +240,15 @@ describe("settings", () => {
     await put({ civitaiKey: "k" });
     await put({ comfyUrl: "http://10.0.0.5:8188" });
     expect((await get(t.app, "/api/settings")).json()).toMatchObject({ comfyUrl: "http://10.0.0.5:8188", hasCivitaiKey: true });
+  });
+
+  it("keep Edit in box's editor by family, one no recipe's editor said as the default rather than refused (card #292)", async () => {
+    expect((await put({ boxEditModel: "klein" })).json().boxEditModel).toBe("klein");
+    expect((await get(t.app, "/api/settings")).json().boxEditModel).toBe("klein");
+    // a family taken out since it was set (or never an editor): Qwen Image Edit, the recipes' default
+    expect((await put({ boxEditModel: "gone" })).statusCode).toBe(200);
+    expect((await get(t.app, "/api/settings")).json().boxEditModel).toBe("qwen");
+    expect((await put({ boxEditModel: "" })).json().boxEditModel).toBe("qwen");
   });
 
   it("reject a setting that does not exist", async () => {

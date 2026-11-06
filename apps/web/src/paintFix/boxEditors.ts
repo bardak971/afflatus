@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { BOX_EDIT_DEFAULT, BOX_EDIT_FAMILIES, BOX_EDITOR_NAMES, inBoxOf } from "@afflatus/core";
+import { boxEditFamily } from "@afflatus/core";
 import type { RecipeInfo } from "../api";
 import { useFamilies, useRecipes, useSettings, useSetup } from "../data";
 
@@ -20,21 +20,28 @@ export function startEditor(editors: readonly BoxEditor[], made: string | undefi
   return editors.find((e) => e.family === made) ?? editors.find((e) => e.family === chosen) ?? editors.find((e) => e.ready) ?? editors[0];
 }
 
+/**
+ * Every editor Edit in box can use, turned on or not: the recipes that say they are one (their boxEditor), in the server's
+ * order, which is Settings'. A box recipe is hidden (the Stage's alone): it is found by that, never by its id.
+ */
+export const allBoxEditors = (recipes: readonly RecipeInfo[]): Array<RecipeInfo & { boxEditor: NonNullable<RecipeInfo["boxEditor"]> }> =>
+  recipes.filter((r): r is RecipeInfo & { boxEditor: NonNullable<RecipeInfo["boxEditor"]> } => Boolean(r.boxEditor));
+
 /** The instruction editors of the families turned on, in Settings' order, and the one to start on for a picture made by `made`. */
 export function useBoxEditors(made: string | undefined): { editors: BoxEditor[]; start: BoxEditor | undefined } {
   const recipes = useRecipes();
   const setup = useSetup();
   const settings = useSettings();
   const { isOn } = useFamilies();
-  const chosen = settings.data?.boxEditModel ?? BOX_EDIT_DEFAULT;
+  const asked = settings.data?.boxEditModel;
   return useMemo(() => {
     const all = recipes.data?.recipes ?? [];
-    // a box recipe is hidden (the Stage's alone): it is found by its editor's id, its family on as the editor's would be
-    const editors = BOX_EDIT_FAMILIES.flatMap((family) => {
-      const recipe = all.find((r) => r.id === inBoxOf(`${family}.edit`));
-      if (!recipe || !isOn(family)) return [];
-      return [{ family, recipe, name: BOX_EDITOR_NAMES[family], ready: Boolean(setup.data?.recipes.find((s) => s.id === recipe.id)?.ready) }];
-    });
+    // the one set in Settings, the default while the settings are not read yet (or name one no longer there)
+    const chosen = boxEditFamily(all, asked);
+    // its family on, as the editor's own would have to be
+    const editors = allBoxEditors(all).filter((r) => isOn(r.family)).map((recipe) => ({
+      family: recipe.family, recipe, name: recipe.boxEditor.name, ready: Boolean(setup.data?.recipes.find((s) => s.id === recipe.id)?.ready),
+    }));
     return { editors, start: startEditor(editors, made, chosen) };
-  }, [recipes.data, setup.data, isOn, made, chosen]);
+  }, [recipes.data, setup.data, isOn, made, asked]);
 }

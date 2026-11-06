@@ -29,17 +29,20 @@ import { moss, mossPicture } from "./moss";
 import { areaSize, inBox, kontextSize } from "./shared/boxEdit";
 
 /**
- * The instruction editors' Edit in box (card #284), each reading its crop at the size it would bring a picture to itself:
- * Kontext's sizes for Kontext and Qwen Image Edit (both read through FluxKontextImageScale), a megapixel on a grid of 16 for
- * Klein, the Working size on a grid of 32 for Qwen Image 2.1 (a megapixel at its 0, "as it is", which a small crop is not).
+ * The instruction editors' Edit in box (card #284), in the order Settings and the Stage's bar offer them, each named as
+ * they say it and reading its crop at the size it would bring a picture to itself: Kontext's sizes for Kontext and Qwen
+ * Image Edit (both read through FluxKontextImageScale), a megapixel on a grid of 16 for Klein, the Working size on a grid
+ * of 32 for Qwen Image 2.1 (a megapixel at its 0, "as it is", which a small crop is not).
  */
 export const editsInBox = [
-  // Turbo on: on a pod (card #284), the Lightning LoRA put each thing in its box as well as the full 40 steps did, in 14 to
-  // 25 s a box against about 170
-  inBox(qwenEdit, () => kontextSize, { fast: true }),
-  inBox(qwen21Edit, (input) => areaSize((input.resolution > 0 ? input.resolution : 1024) ** 2, 32)),
-  inBox(kleinEdit, () => areaSize(1024 * 1024, 16)),
-  inBox(fluxEdit, () => kontextSize),
+  inBox(qwen21Edit, { name: "Qwen Image 2.1" }, (input) => areaSize((input.resolution > 0 ? input.resolution : 1024) ** 2, 32)),
+  // the default, Turbo on. The pod A/B of card #284 (2026-11-04, an A40: a deer, a bicycle, a lamp removed, three boxes in
+  // one go): Qwen Image Edit with its Lightning LoRA put each thing in its box in the scene's light, removed the lamp, and
+  // took 14 to 25 s a box; Qwen Image 2.1 left the lamp where it was, Klein's deer looked cut out, Qwen Image Edit's full
+  // 40 steps took about 170 s
+  inBox(qwenEdit, { name: "Qwen Image Edit", default: true }, () => kontextSize, { fast: true }),
+  inBox(kleinEdit, { name: "FLUX.2 Klein" }, () => areaSize(1024 * 1024, 16)),
+  inBox(fluxEdit, { name: "FLUX.1 Kontext" }, () => kontextSize),
 ];
 
 export const families: Family[] = [sdxl, klein, krea2, flux, qwen, qwen21, zimage, moss, h3, wan, scail, ltx, ltx25, tools];

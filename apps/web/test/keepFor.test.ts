@@ -55,15 +55,15 @@ describe("the banner when renders finish", () => {
   it("is on at first, and / flips it in place", () => {
     expect(useNotify.getState().banner).toBe(true);
     const s = SETTINGS.find((x) => x.id === "notify.banner")!;
-    void s.set!({ server: undefined, save: async () => {} }, false);
+    void s.set!({ server: undefined, recipes: [], save: async () => {} }, false);
     expect(useNotify.getState().banner).toBe(false);
-    void s.set!({ server: undefined, save: async () => {} }, true);
+    void s.set!({ server: undefined, recipes: [], save: async () => {} }, true);
     expect(useNotify.getState().banner).toBe(true);
   });
 
   it("offers the bin's two durations in / as choices, saved to the server as numbers", async () => {
     const saved: unknown[] = [];
-    const ctx = { server: undefined, save: async (p: unknown) => void saved.push(p) };
+    const ctx = { server: undefined, recipes: [], save: async (p: unknown) => void saved.push(p) };
     await SETTINGS.find((x) => x.id === "storage.unkeptDays")!.set!(ctx, "0");
     await SETTINGS.find((x) => x.id === "storage.binDays")!.set!(ctx, "30");
     expect(saved).toEqual([{ unkeptDays: 0 }, { binDays: 30 }]);
