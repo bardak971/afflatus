@@ -1,5 +1,5 @@
 /** Models and recipes: what ComfyUI has, what each recipe needs, imported workflows, and where a missing file can be had. */
-import type { Chapter, ComfyTooOld, FormRefusal, InputSpec, ModelLine, StartRule, VideoTraits } from "@afflatus/core";
+import type { Chapter, ComfyTooOld, FormRefusal, InputSpec, ModelLine, PictureOp, StartRule, VideoTraits } from "@afflatus/core";
 import type { Bindings, Wiring, WorkflowDef } from "@afflatus/workflows";
 import type { PresetFile } from "./designer";
 
@@ -18,6 +18,8 @@ export interface RecipeInfo {
   title: string;
   summary: string;
   output: "image" | "video" | "audio";
+  /** Of a picture form, what it does (core's Recipe.op): a picture's Inpaint, Upscale, Edit or Outpaint is found by it. */
+  op?: PictureOp;
   inputs: InputSpec[];
   /** Chapters the recipe arranges itself (an imported workflow's sections), in order. */
   chapters?: Chapter[];

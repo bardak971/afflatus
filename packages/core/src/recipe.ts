@@ -269,6 +269,13 @@ export interface Chapter {
   under?: string;
 }
 
+/**
+ * What a picture form does (shared/pictureForm.ts in the recipes): its operation decides which rows it shares with the
+ * other families' forms of it, and the web finds a family's Inpaint, Upscale, Edit or Outpaint by it rather than by the
+ * recipe's id. "own": a job of its own (a variation, a motion picture).
+ */
+export type PictureOp = "txt2img" | "img2img" | "inpaint" | "outpaint" | "upscale" | "face" | "edit" | "own";
+
 export interface Recipe<In = Record<string, unknown>> {
   /** "<family>.<what it does>", stable: stored with every generation. */
   id: string;
@@ -285,6 +292,8 @@ export interface Recipe<In = Record<string, unknown>> {
   title: string;
   summary: string;
   output: "image" | "video" | "audio";
+  /** Of a picture form, what it does (pictureForm sets it): the web picks a picture's tools by it. */
+  op?: PictureOp;
   inputs: InputSpec[];
   /** Chapters of the form the recipe arranges itself (an imported workflow's sections), in order; the inputs name theirs with `chapter`. */
   chapters?: Chapter[];
@@ -469,6 +478,7 @@ export function describeRecipe(r: Recipe<any>) {
   return {
     id: r.id, family: r.family, ...(r.imported ? { imported: true as const } : {}), ...(r.hidden ? { hidden: true as const } : {}), version: r.version, title: r.title, summary: r.summary, output: r.output,
     inputs: r.inputs, traits: r.traits ?? null, presets: r.presets ?? [], starts: r.starts ?? [],
+    ...(r.op ? { op: r.op } : {}),
     ...(r.partsInto ? { partsInto: r.partsInto } : {}),
     ...(r.partsStartOn?.length ? { partsStartOn: [...r.partsStartOn] } : {}),
     ...(r.chapters?.length ? { chapters: r.chapters } : {}),
