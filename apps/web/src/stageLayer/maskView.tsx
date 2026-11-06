@@ -13,6 +13,14 @@ export const MASK_VIEWS: readonly MaskView[] = ["tint", "spot", "bw", "off"];
 
 export const MASK_VIEW_NAMES: Record<MaskView, string> = { tint: "Tint", spot: "Spotlight", bw: "B&W", off: "Off" };
 
+/** Each view's swatch on the eye: the tint, the picture darkened round the mask, black and white, nothing. */
+export const MASK_VIEW_SWATCH: Record<MaskView, string> = {
+  tint: "color-mix(in srgb, var(--color-accent) 55%, transparent)",
+  spot: "linear-gradient(90deg, #000 50%, color-mix(in srgb, var(--color-accent) 40%, white) 50%)",
+  bw: "linear-gradient(90deg, #000 50%, #fff 50%)",
+  off: "transparent",
+};
+
 export const nextView = (v: MaskView): MaskView => MASK_VIEWS[(MASK_VIEWS.indexOf(v) + 1) % MASK_VIEWS.length]!;
 
 /** How long a fresh stroke takes to fade in, and a view to cross-fade: short enough never to lag the hand. */

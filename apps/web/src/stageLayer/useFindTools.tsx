@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { MousePointerClick, ScanFace, Wand2 } from "lucide-react";
 import { fileUrl } from "../api";
 import { cx } from "../cx";
+import { useLiveValue } from "../hooks";
 import type { Size } from "../viewer/zoom";
 import { percentOf } from "./geometry";
 import { picturePixels, planeFrom } from "./maskImage";
@@ -77,7 +78,8 @@ function useOwnStep(mask: MaskLayer) {
     put(found: Plane, ink: "add" | "subtract", replace: boolean) {
       const m = latest.current;
       const took = replace && mine.current !== null && m.version === mine.current;
-      if (took) m.undo();
+      // taken back for good: should the new result change nothing, a redo would bring the replaced one back
+      if (took) m.takeBack();
       // a step that changed nothing is not this tool's: owning it would make the next result undo the user's own last step
       const made = m.apply(found, ink);
       if (made !== null || took) mine.current = made;
@@ -121,12 +123,13 @@ export interface ClickTool {
  * for nothing: the answer to the newest points wins. `active`: off, the points are cleared and the next click starts anew.
  */
 export function useClickTool({ mask, natural, find, load = loadAsset, active }: { mask: MaskLayer; natural: Size | null; find: Find; load?: LoadMask; active: boolean }): ClickTool {
-  const [points, setPoints] = useState<ClickTool["points"]>([]);
+  // the points for the render, and as they are this instant for the next click and the settled ask
+  const [pointsNow, setPoints] = useLiveValue<ClickTool["points"]>();
+  const points = pointsNow.current ?? [];
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const own = useOwnStep(mask);
   const asked = useRef(0);
-  const pointsNow = useRef(points);
   const one = useOneFind();
   const settle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(settle.current), []);
@@ -134,7 +137,6 @@ export function useClickTool({ mask, natural, find, load = loadAsset, active }: 
     asked.current += 1;
     clearTimeout(settle.current);
     one.stop();
-    pointsNow.current = [];
     setPoints([]);
     setBusy(false);
     own.forget();
@@ -184,17 +186,16 @@ export function useClickTool({ mask, natural, find, load = loadAsset, active }: 
       down: (p: LayerPointer) => {
         if (!natural || p.x < 0 || p.y < 0 || p.x >= natural.w || p.y >= natural.h) return;
         const add = !p.shift;
-        if (pointsNow.current.filter((q) => q.add === add).length >= MOST_POINTS) {
+        const before = pointsNow.current ?? [];
+        if (before.filter((q) => q.add === add).length >= MOST_POINTS) {
           setError(`At most ${MOST_POINTS} points of each kind: start again to place more`);
           return;
         }
-        const all = [...pointsNow.current, { x: p.x, y: p.y, add }];
-        pointsNow.current = all;
-        setPoints(all);
+        setPoints([...before, { x: p.x, y: p.y, add }]);
         // shown at once, asked once the clicks settle
         setBusy(true);
         clearTimeout(settle.current);
-        settle.current = setTimeout(() => void ask(pointsNow.current), CLICK_SETTLE_MS);
+        settle.current = setTimeout(() => void ask(pointsNow.current ?? []), CLICK_SETTLE_MS);
       },
       draw: (place) => (
         <>

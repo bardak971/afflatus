@@ -55,12 +55,9 @@ export interface FrameTool {
 /**
  * The outpaint frame (R): its eight handles and its edges dragged out round the picture, snapped so the frame's size stays
  * on the model's step (FRAME_RULES; Alt held, not snapped), each side under the recipes' most, optionally held to an
- * aspect. `onSides` hears the sides when a drag ends or a chip is picked, as the outpaint rows take them.
+ * aspect. Its `pads` are the sides as the outpaint rows take them.
  */
-export function useFrameTool({ natural, onSides }: {
-  natural: Size | null;
-  onSides?(sides: FrameSides): void;
-}): FrameTool {
+export function useFrameTool({ natural }: { natural: Size | null }): FrameTool {
   const rules = FRAME_RULES;
   const [now, setPads] = useLiveValue<Pads>();
   const pads = now.current ?? NO_PADS;
@@ -71,7 +68,6 @@ export function useFrameTool({ natural, onSides }: {
   const [held, setHeld] = useState<Pads | null>(null);
   const drag = useRef<{ handle: Handle; from: { x: number; y: number }; start: Pads } | null>(null);
   const place = useRef<LayerPlace | null>(null);
-  const said = (p: Pads) => onSides?.({ shape: "Custom", ...p });
   const ratio = ratioOf(aspect);
 
   const tool: LayerTool = {
@@ -96,7 +92,6 @@ export function useFrameTool({ natural, onSides }: {
       if (!drag.current) return;
       drag.current = null;
       setHeld(null);
-      said(padsNow());
     },
     cancel: () => {
       const d = drag.current;
@@ -156,12 +151,10 @@ export function useFrameTool({ natural, onSides }: {
       if (!r || !natural) return;
       const next = padsForRatio(natural, r, rules);
       setPads(next);
-      said(next);
     },
     reset: () => {
       setPads(NO_PADS);
       setAspectState("Free");
-      said(NO_PADS);
     },
     canvas: natural ? roomFor(natural, shown) : undefined,
     size: natural ? { w: natural.w + pads.padLeft + pads.padRight, h: natural.h + pads.padTop + pads.padBottom } : { w: 0, h: 0 },

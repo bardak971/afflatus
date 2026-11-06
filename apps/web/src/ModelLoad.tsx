@@ -302,7 +302,8 @@ function OfForm({ recipe, input, look }: OpenForm) {
             disabled={load.isPending}
             onClick={() => load.mutate()}
           >
-            Load
+            {/* where the words say only "<name> loaded", the button names what it loads: "loaded · Load" read as a contradiction */}
+            Load{held && family && <span className="hidden max-[1600px]:inline"> {family.name}</span>}
           </button>
         </>
       )}

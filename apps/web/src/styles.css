@@ -323,12 +323,13 @@ input[type="range"] {
     opacity: 0;
   }
 }
-/* a change the server refused, back in its place: a short shake, twice */
+/* the edit box picked or being drawn: its dashes run round it */
 @keyframes m-box-dash {
   to {
     stroke-dashoffset: calc(-1 * var(--dash, 10px));
   }
 }
+/* a change the server refused, back in its place: a short shake, twice */
 @keyframes m-shake {
   25% {
     transform: translateX(-3px);

@@ -233,6 +233,8 @@ export function NumberBox({ value, min, max, step = 1, unit, label, onCommit, cl
     <span className={cx("inline-flex items-baseline gap-1 font-mono text-ink-2", className)}>
       <input
         aria-label={label}
+        // a bar's Ctrl+Enter leaves the box before it runs, so what is typed is in (useCtrlEnter)
+        data-commits-on-blur
         inputMode="decimal"
         value={text ?? value.toFixed(decimals)}
         onChange={(e) => setText(e.target.value)}

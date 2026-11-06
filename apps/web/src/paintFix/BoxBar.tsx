@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Settings2, Wand2 } from "lucide-react";
 import type { RegionValue } from "@afflatus/core";
 import { Kbd } from "../Keys";
@@ -18,6 +18,15 @@ export function boxInHand(boxes: readonly RegionValue[], selected: string | null
 export function boxesWhy(boxes: readonly RegionValue[]): string | null {
   const unsaid = boxes.findIndex((b) => !b.prompt.trim());
   return unsaid >= 0 ? `Box ${unsaid + 1} says nothing to do yet` : null;
+}
+
+/** The box chip's ‹ or ›: the box before or after. */
+function BoxStep({ label, onClick, children }: { label: string; onClick(): void; children: ReactNode }) {
+  return (
+    <button type="button" data-soft-focus aria-label={label} className="px-0.5 font-semibold text-ink-3 hover:text-ink" onClick={onClick}>
+      {children}
+    </button>
+  );
 }
 
 /**
@@ -42,6 +51,8 @@ export function BoxBar({ boxes, selected, onSelect, onPrompt, editors, editor, o
 }) {
   const box = boxInHand(boxes, selected);
   const n = box ? boxes.indexOf(box) + 1 : 0;
+  // ‹ › step through the boxes once there are several
+  const stepping = boxes.length > 1 && Boolean(box);
   const why = busy ? "Sending…" : boxesWhy(boxes);
   const bar = useTunedBar((tuned) => {
     if (!why) onEdit(tuned);
@@ -71,9 +82,9 @@ export function BoxBar({ boxes, selected, onSelect, onPrompt, editors, editor, o
       {/* on a narrow stage the instruction keeps a row of its own, the model and the button wrapping under it */}
       <div role="group" aria-label="Edit in box" className={BAR_CAPSULE}>
         <BarWhat tone="box" tip={boxes.length > 1 ? "The box the instruction is for: ‹ › for the one before or after (or pick a box on the picture)" : "The box the instruction is for"}>
-          {boxes.length > 1 && box && <button type="button" data-soft-focus aria-label="The box before" className="px-0.5 font-semibold text-ink-3 hover:text-ink" onClick={() => onSelect(boxes[(n - 2 + boxes.length) % boxes.length]!.id)}>‹</button>}
+          {stepping && <BoxStep label="The box before" onClick={() => onSelect(boxes[(n - 2 + boxes.length) % boxes.length]!.id)}>‹</BoxStep>}
           <span>✦ Box {n} of {boxes.length}</span>
-          {boxes.length > 1 && box && <button type="button" data-soft-focus aria-label="The box after" className="px-0.5 font-semibold text-ink-3 hover:text-ink" onClick={() => onSelect(boxes[n % boxes.length]!.id)}>›</button>}
+          {stepping && <BoxStep label="The box after" onClick={() => onSelect(boxes[n % boxes.length]!.id)}>›</BoxStep>}
         </BarWhat>
         <BarInput
           ref={field}

@@ -9,6 +9,7 @@ import { Viewer } from "./viewer/LazyViewer";
 import { DRAG_PICTURE, useDropZone } from "./dragging";
 import { clock } from "./format";
 import { Picker } from "./PictureField";
+import { allRunning } from "./screens/studio/queueOf";
 import { useSayFailed } from "./sayFailed";
 import { AutoText, Bar, Button, Chip, CloseButton, cx, fieldClass, Help, Toggle } from "./ui";
 
@@ -44,7 +45,8 @@ function useJobsOf(ids: string[]) {
   const client = useQueryClient();
   const queue = useQueue();
   const q = queue.data;
-  const live = new Set([...(q?.waiting ?? []).map((w) => w.id), ...(q?.running ? [q.running.id] : []), ...(q?.machines ?? []).flatMap((m) => (m.running ? [m.running.id] : []))]);
+  const running = q ? allRunning(q) : [];
+  const live = new Set([...(q?.waiting ?? []).map((w) => w.id), ...running.map((r) => r.id)]);
   // which of them the queue still holds: one leaving it is read again at once (the key changes), its picture shown as it lands
   const inQueue = ids.filter((id) => live.has(id)).join(",");
   const history = useQuery({
@@ -67,8 +69,8 @@ function useJobsOf(ids: string[]) {
   // (dataUpdatedAt read here so that each read redraws, the same answer included)
   const settled = history.dataUpdatedAt > 0 && !history.isPlaceholderData && (client.getQueryState(["picture-set-jobs", ids.join(","), inQueue])?.dataUpdateCount ?? 0) >= 10;
   return ids.map((id) => {
-    const running = q?.running?.id === id ? q.running : (q?.machines ?? []).map((m) => m.running).find((r) => r?.id === id);
-    if (running) return { id, state: "running" as const, progress: running.progress ?? 0 };
+    const on = running.find((r) => r.id === id);
+    if (on) return { id, state: "running" as const, progress: on.progress ?? 0 };
     if (q?.waiting.some((w) => w.id === id)) return { id, state: "waiting" as const };
     const h = history.data?.items.find((x) => x.id === id);
     if (h?.status === "done") {

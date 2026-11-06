@@ -26,13 +26,14 @@ const KEYS: Record<string, QueryKey> = {
   models: ["facets", "models"],
   queue: ["queue"],
   backupPlan: ["backup-plan"],
+  drafts: ["drafts", "list", "p1"],
 };
 /** The names of the queries a run of changes reads again. */
 const read = (...changes: Array<LibraryChange | null>) => {
   const reads = libraryReads(changes);
   return Object.keys(KEYS).filter((name) => reads(KEYS[name]!));
 };
-const EVERY = Object.keys(KEYS).filter((n) => n !== "queue" && n !== "backupPlan");
+const EVERY = Object.keys(KEYS).filter((n) => n !== "queue" && n !== "backupPlan" && n !== "drafts");
 
 describe("a library event on the page", () => {
   it("reads every list when it says nothing, or a change this page does not know", () => {
@@ -60,7 +61,8 @@ describe("a library event on the page", () => {
 
   it("reads after a render only the lists of the folders it filed into, and the counts", () => {
     const loose = read({ change: "added", items: ["n1", "n2"], folders: [null] });
-    expect(loose).toEqual(["studio", "searched", "loose", "keptOnly", "bin", "unkept", "storage", "projects", "projectsTree", "families", "models"]);
+    // the drafts' lists too: a render landing in a draft changes its count and cover on the draft button (#333)
+    expect(loose).toEqual(["studio", "searched", "loose", "keptOnly", "bin", "unkept", "storage", "projects", "projectsTree", "families", "models", "drafts"]);
     // no item's details, no folder counts when nothing went into a folder, no other folder's list
     expect(read({ change: "added", items: ["n1"], folders: ["A"] })).toEqual(expect.arrayContaining(["folderA", "treeA", "folders"]));
     expect(read({ change: "added", items: ["n1"], folders: ["A"] })).not.toContain("treeB");
@@ -73,7 +75,7 @@ describe("a library event on the page", () => {
   });
 
   it("reads after a bin what the items leave and the bin; after an erase the bin and the disk use alone", () => {
-    expect(read({ change: "binned", items: ["i1"], folders: ["B"] })).toEqual(["studio", "searched", "folderB", "keptOnly", "bin", "treeB", "item1", "unkept", "versions", "folders", "storage", "projects", "projectsTree", "families", "models"]);
+    expect(read({ change: "binned", items: ["i1"], folders: ["B"] })).toEqual(["studio", "searched", "folderB", "keptOnly", "bin", "treeB", "item1", "unkept", "versions", "folders", "storage", "projects", "projectsTree", "families", "models", "drafts"]);
     expect(read({ change: "erased", items: ["i2"] })).toEqual(["bin", "item2", "storage"]);
   });
 

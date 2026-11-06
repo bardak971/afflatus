@@ -83,7 +83,7 @@ export function PaintAndFix({ acts, mode, strip, overlay }: {
   const [boxes, setBoxes] = useState<RegionValue[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   // a mask painted takes the bar: the boxes are then left out of the fix, and drawn so (grey, dashed, still)
-  const boxTools = useRegionTool({ spec: { max: MAX_BOXES }, regions: boxes, natural, selected, onSelect: setSelected, onChange: setBoxes, nameOf: () => undefined, noun: "box", look: "edit", ignored: Boolean(mask.area) });
+  const boxTools = useRegionTool({ spec: { max: MAX_BOXES }, regions: boxes, natural, selected, onSelect: setSelected, onChange: setBoxes, look: "edit", ignored: Boolean(mask.area) });
   const [toolId, setToolId] = useState(mode === "outpaint" && out ? "frame" : mode === "edit" && editor ? "box" : "brush");
   // the finds run on the picture shown (a version is a picture of its own)
   const find = useMemo(() => findOn(a.id), [a.id]);
@@ -132,7 +132,7 @@ export function PaintAndFix({ acts, mode, strip, overlay }: {
     <div ref={room} className="flex min-h-0 w-full grow flex-col items-center gap-2">
       <LayerStrip title={inBoxes ? "Edit in box" : verb === "Fix" ? "Paint and fix" : verb} tone={inBoxes ? "box" : undefined} className="w-full shrink-0">{options}</LayerStrip>
       <div className="flex min-h-0 w-full grow items-start gap-3">
-        {/* a short Stage (1280 × 800 with the form open) holds fewer tools than the bar has: it scrolls rather than run over the strip */}
+        {/* a short Stage (1280 × 800 with the form open) puts the tools two by two, then scrolls, rather than run over the strip */}
         <LayerToolbar items={items} active={toolId} onPick={setToolId} named className="max-h-full overflow-y-auto [scrollbar-width:none]" />
         <div className="relative flex h-full min-w-0 grow flex-col">
           {mask.failed && <ErrorNote>{mask.failed}</ErrorNote>}
@@ -177,8 +177,8 @@ export function PaintAndFix({ acts, mode, strip, overlay }: {
         note={mode === "edit" && !editTool ? "No edit model for this picture: paint the part to change, and Fix redoes it" : undefined}
         busy={fix.isPending || fullForm.isPending || outpaint.isPending || outForm.isPending || edit.isPending || editForm.isPending}
         failure={failure}
-        onFix={(ask) => (outpainting ? outpaint.mutate({ ...ask, sides }) : editing ? edit.mutate(ask) : void mask.png().then((png) => fix.mutate({ ...ask, soft: mask.soft, png })))}
-        onFullForm={(ask) => (outpainting ? outForm.mutate({ ...ask, sides }) : editing ? editForm.mutate(ask) : void (mask.area ? mask.png() : Promise.resolve(null)).then((png) => fullForm.mutate({ ...ask, soft: mask.soft, png })))}
+        onFix={(ask) => (outpainting ? outpaint.mutate({ ...ask, sides }) : editing ? edit.mutate(ask) : fix.mutate({ ...ask, soft: mask.soft, png: mask.png }))}
+        onFullForm={(ask) => (outpainting ? outForm.mutate({ ...ask, sides }) : editing ? editForm.mutate(ask) : fullForm.mutate({ ...ask, soft: mask.soft, png: mask.area ? mask.png : null }))}
       />
       )}
     </div>

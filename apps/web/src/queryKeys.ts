@@ -320,6 +320,9 @@ function touches(c: LibraryChange | null | undefined, key: QueryKey): boolean {
   const storage = root === "storage";
   const projects = root === "projects";
   const facets = root === "facets";
+  // the drafts' lists say each draft's outputs (how many, its cover): a render landing in a draft, or one binned, changes them
+  // (the draft button kept its old count and cover until the next save, card #333)
+  const drafts = root === "drafts" && part === "list";
   switch (c.change) {
     case "fields":
       // written in place: only what is found or ordered by the name can change (a search, the panel sorted by name)
@@ -328,10 +331,10 @@ function touches(c: LibraryChange | null | undefined, key: QueryKey): boolean {
       // written in place: what comes into or leaves a list of the kept or the unkept, the expiring count, the disk use's split
       return (libraryInPlace(c) ? list && Boolean(filter.kept || filter.unkept) : list || tree || one) || unkept || storage || versions;
     case "places": return root === "folders" || projects;
-    case "added": return list || tree || unkept || counts || storage || projects || facets;
+    case "added": return list || tree || unkept || counts || storage || projects || facets || drafts;
     // a move changes no size; filing in a folder keeps what was not (`kept` left out: it may have)
     case "moved": return list || tree || one || unkept || counts || projects || versions || (c.kept !== false && storage);
-    case "binned": return list || tree || one || unkept || counts || storage || projects || facets || versions;
+    case "binned": return list || tree || one || unkept || counts || storage || projects || facets || versions || drafts;
     // out of the bin for good: it was in no count but the bin's and the disk use
     case "erased": return (list && Boolean(filter.bin)) || one || storage;
   }

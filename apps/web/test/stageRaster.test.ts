@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  bounds, chase, clear, clip, combine, cut, dab, distanceOut, dropStrays, EMPTY_BELOW, falloff, feathered, fillPolygon, fillRect, fromRgba, History, insidePolygon, invert,
-  line, newPlane, normal, paste, resample, tint, toRgba, union, wand, workSize, WORK_EDGE, type Plane,
+  alphaOf, bounds, chase, clear, clip, combine, cut, dab, distanceOut, dropStrays, EMPTY_BELOW, falloff, feathered, fillPolygon, fillRect, fromRgba, History, insidePolygon, invert,
+  line, newPlane, normal, paste, resample, toRgba, union, wand, workSize, WORK_EDGE, type Plane,
 } from "../src/stageLayer/raster";
 
 const at = (p: Plane, x: number, y: number) => p.data[y * p.w + x]!;
@@ -269,14 +269,14 @@ describe("the mask in and out", () => {
     expect(bounds(down, 127)).toEqual({ x: 20, y: 10, w: 40, h: 20 });
   });
 
-  it("is tinted for the screen by its strength, a part alone when asked", () => {
+  it("is shown as white as strong as the mask, a part alone when asked", () => {
     const p = newPlane(3, 2);
     p.data.set([0, 255, 128, 0, 0, 255]);
-    const whole = tint(p, [255, 77, 61], 0.5);
+    const whole = alphaOf(p);
     expect(whole.rect).toEqual({ x: 0, y: 0, w: 3, h: 2 });
-    expect([...whole.data.slice(4, 8)]).toEqual([255, 77, 61, 128]);
-    const part = tint(p, [1, 2, 3], 1, { x: 2, y: 1, w: 1, h: 1 });
-    expect([...part.data]).toEqual([1, 2, 3, 255]);
+    expect([...whole.data.slice(4, 12)]).toEqual([255, 255, 255, 255, 255, 255, 255, 128]);
+    const part = alphaOf(p, { x: 2, y: 1, w: 1, h: 1 });
+    expect([...part.data]).toEqual([255, 255, 255, 255]);
   });
 
   it("cuts a part out and pastes it back", () => {

@@ -199,6 +199,8 @@ export const Tile = memo(function Tile({ asset, onOpen, selected, selecting, onS
         tabIndex={0}
         aria-checked={Boolean(selected)}
         aria-label="Select, to move, keep or delete several at once"
+        // Esc after ticking leaves the focus on the last tick, shown as focused: a soft ring there, not the accent's rectangle
+        data-soft-focus
         data-tip="Select (also Ctrl + click; Shift + click selects the range)"
         onClick={(e) => onSelect(e.shiftKey, asset)}
         onKeyDown={(e) => {

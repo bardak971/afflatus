@@ -102,17 +102,19 @@ export function useFixJob(acts: ViewerActions) {
   const upload = async (png: Blob) => (await uploadMask(a.id, png)).id;
 
   const fix = useMutation({
-    mutationFn: async ({ png, ...ask }: FixAsk & { png: Blob }) => {
+    // the mask's PNG is made here, not before: the bar is busy while it encodes (a second Fix then is no second batch), and
+    // a mask that cannot be made is said under the bar like any other failure
+    mutationFn: async ({ png, ...ask }: FixAsk & { png(): Promise<Blob> }) => {
       const t = need(tool, "inpaint");
-      await queueVersion(t, "Inpaint", fixInputs(t, ask, await upload(png)), ask.count);
+      await queueVersion(t, "Inpaint", fixInputs(t, ask, await upload(await png())), ask.count);
     },
     ...queued,
   });
   const fullForm = useMutation({
-    mutationFn: async ({ png, ...ask }: Omit<FixAsk, "count"> & { png: Blob | null }) => {
+    mutationFn: async ({ png, ...ask }: Omit<FixAsk, "count"> & { png: (() => Promise<Blob>) | null }) => {
       const t = need(tool, "inpaint");
       // an empty mask goes as none: the form's painter opens on the picture
-      const mask = png ? await upload(png) : null;
+      const mask = png ? await upload(await png()) : null;
       await openVersionForm(t, mask ? fixInputs(t, ask, mask) : {});
     },
   });

@@ -25,7 +25,7 @@ export interface LayerPointer {
 
 export interface LayerTool {
   id: string;
-  /** The one key that picks it (a letter), shown on its button. */
+  /** The one key that picks it (a letter), said in its button's tip and beside the bar while it is in hand. */
   key: string;
   label: string;
   icon: LucideIcon;
@@ -67,10 +67,10 @@ export interface ToolGroup {
   tone?: "box";
 }
 
-/** The toolbar's list: tools, a rule between groups of them, or a group's caption. */
-export type ToolbarItem = LayerTool | "rule" | ToolGroup;
+/** The toolbar's list: tools, or a group's caption over those that follow it. */
+export type ToolbarItem = LayerTool | ToolGroup;
 
-export const isTool = (t: ToolbarItem): t is LayerTool => t !== "rule" && !("group" in t);
+export const isTool = (t: ToolbarItem): t is LayerTool => !("group" in t);
 
 /** The tool a key picks, among those shown (a letter, either case; Ctrl, Alt and Meta are other keys' own). */
 export function toolForKey(items: readonly ToolbarItem[], e: { key: string; ctrlKey?: boolean; metaKey?: boolean; altKey?: boolean }): LayerTool | undefined {

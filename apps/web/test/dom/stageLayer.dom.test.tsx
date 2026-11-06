@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent } from "@testing-library/react";
+import { createEvent, fireEvent } from "@testing-library/react";
 import { useMemo, useState } from "react";
 import { Brush } from "lucide-react";
 import { DetectOptions, FrameOptions, WandOptions } from "../../src/stageLayer/LayerStrip";
@@ -8,7 +8,7 @@ import { useClickTool, useDetectTool, useWandTool, type Find, type FindRequest, 
 import { LayerToolbar } from "../../src/stageLayer/LayerToolbar";
 import { StageLayer, useLayerKeys } from "../../src/stageLayer/StageLayer";
 import { HAND_TOOL, isTool, type LayerTool, type ToolbarItem } from "../../src/stageLayer/tools";
-import { useFrameTool, type FrameSides, type FrameTool } from "../../src/stageLayer/useFrameTool";
+import { useFrameTool, type FrameTool } from "../../src/stageLayer/useFrameTool";
 import { useMaskLayer, type MaskLayer } from "../../src/stageLayer/useMaskLayer";
 import { FIT, fitted, placed } from "../../src/viewer/zoom";
 import { ZoomPicture } from "../../src/viewer/ZoomPicture";
@@ -95,6 +95,20 @@ describe("the drawing layer", () => {
     expect(seen).toEqual(["down 40,40 pen 0.5", "up"]);
   });
 
+  it("a pen's coalesced points each go to the tool, with their own place and pressure (card #331)", () => {
+    const seen: string[] = [];
+    const { tool } = spyTool();
+    tool.move = (p) => seen.push(`move ${Math.round(p.x)},${Math.round(p.y)} ${p.pressure}${p.shift ? " shift" : ""}`);
+    draw(<Rig tool={tool} />);
+    // as a browser hands them: the fields are getters on the event's prototype, none of them its own
+    const point = (x: number, y: number, pressure: number) => Object.create({ get clientX() { return x; }, get clientY() { return y; }, get pressure() { return pressure; } }) as PointerEvent;
+    fireEvent.pointerDown(layer(), { button: 0, pointerId: 4, pointerType: "pen", pressure: 0.5, clientX: 40, clientY: 40 });
+    const move = createEvent.pointerMove(layer(), { pointerId: 4, pointerType: "pen", pressure: 0.7, clientX: 60, clientY: 50, shiftKey: true });
+    Object.defineProperty(move, "getCoalescedEvents", { value: () => [point(50, 45, 0.6), point(60, 50, 0.7)] });
+    fireEvent(layer(), move);
+    expect(seen).toEqual(["move 50,45 0.6 shift", "move 60,50 0.7 shift"]);
+  });
+
   it("a second finger is a pinch: the stroke the first began is taken back", () => {
     const { seen, tool } = spyTool();
     draw(<Rig tool={tool} />);
@@ -121,7 +135,7 @@ describe("the mask layer", () => {
   function MaskRig() {
     const m = useMaskLayer({ natural: NATURAL });
     mask = m;
-    const items: ToolbarItem[] = [m.tools.brush, m.tools.eraser, m.tools.box, m.tools.lasso, "rule", m.tools.invert, HAND_TOOL];
+    const items: ToolbarItem[] = [{ group: "Mask" }, m.tools.brush, m.tools.eraser, m.tools.box, m.tools.lasso, m.tools.invert, { group: "View" }, HAND_TOOL];
     const [id, setId] = useState("brush");
     useLayerKeys({ items, onPick: setId, mask: m });
     const tool = items.find((t): t is LayerTool => isTool(t) && t.id === id) ?? null;
@@ -179,6 +193,23 @@ describe("the mask layer", () => {
     expect(pressed()).toEqual(["Rectangle mask"]);
   });
 
+  it("leaves its keys to a popover open over it (⚙): no tool picked, no invert, no undo (#324)", async () => {
+    draw(<MaskRig />);
+    await vi.waitFor(() => expect(mask!.ready).toBe(true));
+    press(100, 100);
+    const over = document.body.appendChild(Object.assign(document.createElement("div"), { role: "dialog" }));
+    over.setAttribute("data-floating", "");
+    const area = mask!.area;
+    fireEvent.keyDown(window, { key: "l" });
+    fireEvent.keyDown(window, { key: "x" });
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    expect(pressed()).toEqual(["Soft brush"]);
+    expect(mask!.area).toEqual(area);
+    over.remove();
+    fireEvent.keyDown(window, { key: "l" });
+    expect(pressed()).toEqual(["Lasso"]);
+  });
+
   it("fills a box, held square with Shift, and takes one away with Alt", async () => {
     draw(<MaskRig />);
     await vi.waitFor(() => expect(mask!.ready).toBe(true));
@@ -231,10 +262,9 @@ describe("the mask layer", () => {
 });
 
 describe("the outpaint frame", () => {
-  let said: FrameSides[] = [];
   let frame: FrameTool | null = null;
   function FrameRig() {
-    const f = useFrameTool({ natural: NATURAL, onSides: (s) => said.push(s) });
+    const f = useFrameTool({ natural: NATURAL });
     frame = f;
     return (
       <>
@@ -251,9 +281,7 @@ describe("the outpaint frame", () => {
     const k = fit.w / c.w;
     return { clientX: shown.left + (x + c.x) * k, clientY: shown.top + (y + c.y) * k };
   };
-  beforeEach(() => {
-    said = [];
-  });
+  const NONE = { padLeft: 0, padTop: 0, padRight: 0, padBottom: 0 };
 
   it("drags a corner out, snapped, and says the sides when let go", () => {
     draw(<FrameRig />);
@@ -261,11 +289,10 @@ describe("the outpaint frame", () => {
     fireEvent.pointerDown(layer(), { button: 0, pointerId: 1, pointerType: "mouse", ...from });
     // the Stage's frame is held still while dragging: the same sums place the pointer
     fireEvent.pointerMove(layer(), { pointerId: 1, pointerType: "mouse", ...onScreen(-200, -120) });
-    expect(said).toEqual([]);
     expect(document.querySelectorAll("[data-handle]").length).toBe(8);
     fireEvent.pointerUp(layer(), { pointerId: 1, pointerType: "mouse" });
     // 800 × 600: 200 out on the left makes 1000, snapped to 1024 (+224); 120 up makes 720, snapped to 704 (+104)
-    expect(said).toEqual([{ shape: "Custom", padLeft: 224, padTop: 104, padRight: 0, padBottom: 0 }]);
+    expect(frame!.pads).toEqual({ padLeft: 224, padTop: 104, padRight: 0, padBottom: 0 });
     expect(document.body.textContent).toContain("800 × 600 → 1024 × 704");
   });
 
@@ -274,20 +301,19 @@ describe("the outpaint frame", () => {
     fireEvent.pointerDown(layer(), { button: 0, pointerId: 1, pointerType: "mouse", ...onScreen(400, 300) });
     fireEvent.pointerMove(layer(), { pointerId: 1, pointerType: "mouse", ...onScreen(100, 100) });
     fireEvent.pointerUp(layer(), { pointerId: 1, pointerType: "mouse" });
-    expect(said).toEqual([]);
-    expect(frame!.pads).toEqual({ padLeft: 0, padTop: 0, padRight: 0, padBottom: 0 });
+    expect(frame!.pads).toEqual(NONE);
   });
 
   it("brings the picture to a shape by its chip, and back by the reset", () => {
     draw(<FrameRig />);
     fireEvent.click([...document.querySelectorAll<HTMLElement>("[role=radio]")].find((b) => b.textContent === "16:9")!);
-    const last = said[said.length - 1]!;
+    const last = frame!.pads;
     // both sizes on the 64 px step: 600 is not, so the frame is 640 high, about 16:9 at 1088 wide
     expect(800 + last.padLeft + last.padRight).toBe(1088);
     expect(600 + last.padTop + last.padBottom).toBe(640);
     expect(last.padTop).toBe(20);
     fireEvent.click(document.querySelector<HTMLElement>('[aria-label="Back to the picture\'s edges"]')!);
-    expect(said[said.length - 1]).toEqual({ shape: "Custom", padLeft: 0, padTop: 0, padRight: 0, padBottom: 0 });
+    expect(frame!.pads).toEqual(NONE);
   });
 });
 
@@ -489,5 +515,27 @@ describe("the tools that find a mask", () => {
     await vi.waitFor(() => expect(mask!.area?.w).toBeGreaterThan(400));
     expect(mask!.steps).toBe(2);
     expect(mask!.redos).toBe(0);
+  });
+
+  it("a wand click that replaces its last and changes nothing leaves no redo of the replaced one", async () => {
+    const pixels: LoadPixels = async (w, h) => {
+      const rgba = new Uint8ClampedArray(w * h * 4);
+      for (let i = 0; i < w * h; i++) rgba.set(i % w < w / 2 ? [220, 20, 20, 255] : [20, 20, 220, 255], i * 4);
+      return rgba;
+    };
+    draw(<FindRig find={async () => []} pixels={pixels} />);
+    await vi.waitFor(() => expect(mask!.ready).toBe(true));
+    fireEvent.keyDown(window, { key: "w" });
+    click(100, 100);
+    await vi.waitFor(() => expect(mask!.area).toEqual({ x: 0, y: 0, w: 400, h: 600 }));
+    click(700, 100, { shiftKey: true });
+    await vi.waitFor(() => expect(mask!.area).toEqual({ x: 0, y: 0, w: 800, h: 600 }));
+    // the red half again: the Shift-click's step taken back, and the red half is what is left, so nothing new is a step
+    click(100, 100);
+    await vi.waitFor(() => expect(mask!.area).toEqual({ x: 0, y: 0, w: 400, h: 600 }));
+    expect(mask!.redos).toBe(0);
+    fireEvent.keyDown(window, { key: "y", ctrlKey: true });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mask!.area).toEqual({ x: 0, y: 0, w: 400, h: 600 });
   });
 });

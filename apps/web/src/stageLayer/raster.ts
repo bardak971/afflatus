@@ -395,18 +395,21 @@ export function toRgba(plane: Plane): Uint8ClampedArray {
   return out;
 }
 
-/** The mask laid over the picture: one colour, as strong as the mask. Only `rect` of it when given (a stroke's part, drawn again alone). */
-export function tint(plane: Plane, rgb: readonly [number, number, number], strength: number, rect?: Rect): { data: Uint8ClampedArray; rect: Rect } {
+/**
+ * The mask laid over the picture: white, as strong as the mask (each view's SVG filter colours it, maskView.tsx). Only
+ * `rect` of it when given (a stroke's part, drawn again alone).
+ */
+export function alphaOf(plane: Plane, rect?: Rect): { data: Uint8ClampedArray; rect: Rect } {
   const r = rect ?? { x: 0, y: 0, w: plane.w, h: plane.h };
   const out = new Uint8ClampedArray(r.w * r.h * 4);
   for (let y = 0; y < r.h; y++)
     for (let x = 0; x < r.w; x++) {
       const v = plane.data[(r.y + y) * plane.w + r.x + x]!;
       const o = (y * r.w + x) * 4;
-      out[o] = rgb[0];
-      out[o + 1] = rgb[1];
-      out[o + 2] = rgb[2];
-      out[o + 3] = Math.round(v * strength);
+      out[o] = 255;
+      out[o + 1] = 255;
+      out[o + 2] = 255;
+      out[o + 3] = v;
     }
   return { data: out, rect: r };
 }
@@ -504,6 +507,14 @@ export class History {
     if (!p) return null;
     paste(plane, p.rect, p.before);
     this.ahead.push(p);
+    return p.rect;
+  }
+
+  /** The last step taken back for good, not kept for a redo: a tool's result that a newer one replaces. */
+  drop(plane: Plane): Rect | null {
+    const p = this.back.pop();
+    if (!p) return null;
+    paste(plane, p.rect, p.before);
     return p.rect;
   }
 

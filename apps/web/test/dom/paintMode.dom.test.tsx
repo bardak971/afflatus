@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import type { Asset, RecipeInfo } from "../../src/api";
@@ -146,6 +146,63 @@ describe("the viewer in Paint and fix", () => {
     key("Enter", { ctrlKey: true });
     await act(() => new Promise((r) => setTimeout(r, 30)));
     expect(fakeApi.calls("POST", "/jobs")).toHaveLength(0);
+  });
+
+  it("Ctrl+Enter while a number box is typed in queues with what it holds, not the number before (#324)", async () => {
+    withInpaint();
+    fakeApi.on("GET /assets/:id/versions", { head, versions: [v1] });
+    fakeApi.on("POST /jobs", { ids: ["zz-test-job"] });
+    draw(<Viewer inline asset={head} items={[head]} onOpen={() => {}} onClose={() => {}} />);
+    await screen.findByRole("group", { name: "Versions" });
+    act(() => useStageMode.getState().set(head.id, "edit"));
+    fireEvent.change(await screen.findByRole("textbox", { name: "What to change" }), { target: { value: "make the sky stormy" } });
+    const count = screen.getByRole("textbox", { name: "Versions" });
+    count.focus();
+    fireEvent.change(count, { target: { value: "5" } });
+    key("Enter", { ctrlKey: true });
+    await waitFor(() => expect(fakeApi.calls("POST", "/jobs")).toHaveLength(1));
+    expect(fakeApi.calls("POST", "/jobs")[0]!.body).toMatchObject({ count: 5 });
+  });
+
+  it("a second Fix while the mask's PNG is made queues nothing more, and a mask that cannot be made is said (#324)", async () => {
+    // a page that draws, its PNG slow to come as on a large picture (happy-dom has no 2D context of its own)
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(640);
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(480);
+    vi.stubGlobal("ResizeObserver", class { constructor(private seen: () => void) {} observe() { this.seen(); } disconnect() {} });
+    vi.stubGlobal("ImageData", class { constructor(readonly data: Uint8ClampedArray, readonly width: number, readonly height: number) {} });
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(() => ({ putImageData: () => {} }) as unknown as RenderingContext);
+    let blobs = 0;
+    const toBlob = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function (done: BlobCallback) {
+      setTimeout(() => done(++blobs === 1 ? new Blob(["png"], { type: "image/png" }) : null), 40);
+    };
+    Element.prototype.setPointerCapture ??= () => {};
+    try {
+      fakeApi.on("POST /assets", { ...picture("zz-test-mask") });
+      fakeApi.on("POST /jobs", { ids: ["zz-test-job"] });
+      await painting();
+      const layer = document.querySelector<HTMLElement>("[data-stage-layer]")!;
+      fireEvent.pointerDown(layer, { button: 0, pointerId: 1, pointerType: "mouse", clientX: 300, clientY: 200 });
+      fireEvent.pointerUp(layer, { pointerId: 1, pointerType: "mouse", clientX: 300, clientY: 200 });
+      const go = await screen.findByRole("button", { name: /^Fix · 3 versions/ });
+      await waitFor(() => expect((go as HTMLButtonElement).disabled).toBe(false));
+      fireEvent.click(go);
+      fireEvent.click(go);
+      key("Enter", { ctrlKey: true });
+      await waitFor(() => expect(fakeApi.calls("POST", "/jobs")).toHaveLength(1));
+      await act(() => new Promise((r) => setTimeout(r, 80)));
+      expect(fakeApi.calls("POST", "/jobs")).toHaveLength(1);
+      expect(fakeApi.calls("POST", "/assets")).toHaveLength(1);
+      // the next PNG fails: the bar says so
+      await waitFor(() => expect((go as HTMLButtonElement).disabled).toBe(false));
+      fireEvent.click(go);
+      expect(await screen.findByText(/the mask could not be saved/)).toBeTruthy();
+      expect(fakeApi.calls("POST", "/jobs")).toHaveLength(1);
+    } finally {
+      HTMLCanvasElement.prototype.toBlob = toBlob;
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("says so in the bar when the picture has no edit model, and fixes a painted part instead", async () => {

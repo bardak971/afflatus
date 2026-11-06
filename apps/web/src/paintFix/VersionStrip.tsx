@@ -42,9 +42,12 @@ export function VersionStrip({ versions, shown, onShow, onCompare }: {
   const busy = keep.isPending || keepAll.isPending;
   return (
     <div role="group" aria-label="Versions" className="flex max-w-full shrink-0 flex-wrap items-center justify-center gap-2 px-1">
+      {/* the name, the tiles and ← → wrap as one: many versions, the tiles scroll beside their name rather than send it to a
+          row of its own (which took the Stage's height from the picture and the tools at 1280, card #332) */}
+      <span className="flex min-w-0 max-w-full items-center gap-2">
       <span className="shrink-0 text-xs text-ink-2">Versions</span>
       {/* the tiles scroll on their own: Keep and Keep all stay in sight however many there are */}
-      <span className="flex min-w-0 max-w-full items-center gap-2 overflow-x-auto pb-0.5">
+      <span className="flex min-w-0 items-center gap-2 overflow-x-auto pb-0.5">
       {all.map((a, i) => (
         <button
           key={a.id}
@@ -64,6 +67,7 @@ export function VersionStrip({ versions, shown, onShow, onCompare }: {
       {waiting > 0 && <span className="shrink-0 rounded-lg border border-dashed border-line-strong px-2 py-1 text-xs text-ink-2">{waiting} queued</span>}
       </span>
       {made > 0 && <span className="shrink-0 text-xs text-ink-3">← →</span>}
+      </span>
       {made > 0 && (
         <Button size="sm" tone="primary" disabled={busy} onClick={() => keep.mutate(shown)} data-tip={all[0]?.id === shown ? "Keep the original as it is: the versions count down to the bin" : "This version becomes the picture: the original and the other versions count down to the bin"} className="shrink-0">
           <Star size={13} /> {keepLabel(all, shown)} <Kbd>K</Kbd>
@@ -81,5 +85,5 @@ export function VersionStrip({ versions, shown, onShow, onCompare }: {
 /** A version on its way: its live preview and its Stop, at the strip's size. */
 function RunningVersion({ id }: { id: string }) {
   const job = useQueueOf((q) => allRunning(q).find((j) => j.id === id) ?? null);
-  return job ? <div style={{ height: TILE_H, width: TILE_H }} className="shrink-0"><LiveTile fill job={job} title="A version on its way" /></div> : null;
+  return job ? <div style={{ height: TILE_H, width: TILE_H }} className="shrink-0"><LiveTile fill compact job={job} title="A version on its way" /></div> : null;
 }

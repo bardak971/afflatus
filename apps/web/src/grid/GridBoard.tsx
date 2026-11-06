@@ -164,7 +164,7 @@ export function GridBoard({ grid, draft, folder, onClose }: { grid: string; draf
   const title = g ? g.axes.slice(0, 2).map((a) => a.label).filter(Boolean).join(" × ") || (g.axes[2]?.label ?? "Grid") : "Grid";
 
   return (
-    <div data-grid-board className="flex min-h-0 grow flex-col gap-2">
+    <div data-grid-board={grid} className="flex min-h-0 grow flex-col gap-2">
       <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2.5 text-sm">
         <span className="rounded-md bg-accent-wash px-1.5 py-0.5 text-meta font-bold tracking-label text-accent uppercase">Grid</span>
         <span className="min-w-0 truncate font-semibold" data-tip={title}>{title}</span>

@@ -148,7 +148,7 @@ export function DraftResults({ draft, folder, list, title, empty }: {
           />
         )}
       </div>
-      <div className="flex w-[172px] shrink-0 flex-col gap-2.5 overflow-y-auto px-1 pb-4">
+      <div data-banner-room className="flex w-[172px] shrink-0 flex-col gap-2.5 overflow-y-auto px-1 pb-4">
         <span className="text-meta font-bold tracking-label text-ink-3 uppercase">{draft ? "This draft" : title ?? "Here"} · {items.length}</span>
         {running && <RunningTile id={running} on={Boolean(live)} onClick={() => setPicked("live")} />}
         {waiting > 0 && (
@@ -325,7 +325,7 @@ function StagePlaceholder({ title }: { title: string }) {
       <div data-stage className="flex min-h-0 min-w-0 grow flex-col rounded-xl bg-stage p-[var(--stage-pad)]">
         <div className="m-skeleton min-h-0 grow" />
       </div>
-      <div className="flex w-[172px] shrink-0 flex-col gap-2.5 overflow-hidden px-1 pb-4">
+      <div data-banner-room className="flex w-[172px] shrink-0 flex-col gap-2.5 overflow-hidden px-1 pb-4">
         <span className="text-meta font-bold tracking-label text-ink-3 uppercase">{title} · <span className="font-mono">–</span></span>
         {[0, 1, 2].map((i) => (
           <div key={i} className="flex flex-col gap-1.5 rounded-xl p-1.5">
@@ -364,7 +364,7 @@ function EmptyFrame({ here }: { here: NonNullable<ReturnType<typeof useRegionsHe
       <div data-stage className="flex min-h-0 min-w-0 grow flex-col rounded-xl bg-stage p-[var(--stage-pad)]">
         <RegionsStage here={here} />
       </div>
-      <div className="flex w-[172px] shrink-0 flex-col gap-2.5 px-1 pb-4">
+      <div data-banner-room className="flex w-[172px] shrink-0 flex-col gap-2.5 px-1 pb-4">
         <span className="text-meta font-bold tracking-label text-ink-3 uppercase">This draft · 0</span>
       </div>
     </div>
