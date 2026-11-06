@@ -6,9 +6,10 @@ import { SDXL_GUIDE } from "./family";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, kSample, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { applyGuide, FOLLOW_MAP, guideInputs, guideNeeds, guideNodes, type GuideSettings } from "../shared/guide";
 import { IP_ADAPTER_INPUTS, IP_FILES, IP_OPTIONAL, IP_REFUSES, ipAdapterNeeds, ipAdapterNodes, withIpAdapter, type ReferenceSettings } from "../shared/references";
-import { redrawInTiles, tileNodes, TILES_ON, tilePass, inTiles, type TileSettings } from "../shared/tiles";
+import { tileNodes, TILES_ON, inTiles, type TileSettings } from "../shared/tiles";
 import { SDXL_AREA } from "./common";
-import { adetail, ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FILES, SDXL_FACE_DENOISE, sized, type AdetailSettings } from "../shared/adetail";
+import { ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FILES, SDXL_FACE_DENOISE, type AdetailSettings } from "../shared/adetail";
+import { hiresFix, pictureOut, type PictureSampler } from "../shared/passes";
 import { regionLoads, regionsInput, sdxlRegionNodes, sdxlRegions } from "../shared/regions";
 
 export interface SdxlTextToPicture extends DetailSettings, GuideSettings, TileSettings, AdetailSettings, ReferenceSettings {
@@ -122,71 +123,27 @@ export const sdxlTextToPicture = pictureForm("txt2img", defineRecipe<SdxlTextToP
 
     g.phase("sampling");
     const sampler = { model, positive: guided.positive, negative: guided.negative, seed: ctx.seed, cfg: input.cfg, sampler_name: input.sampler, scheduler: input.scheduler };
-    let latent = kSample(g, { ...sampler, latent_image: empty, steps: input.steps, denoise: 1 }, input, ctx);
-    let totalSteps = input.steps;
-    const passes: Array<{ node: string; steps: number; pixels?: number }> = [{ node: latent[0], steps: input.steps }];
-
-    const W2 = roundTo(W * input.hiresScale, 8, 64);
-    const H2 = roundTo(H * input.hiresScale, 8, 64);
-    let image: Ref | null = null;
-    if (input.hires && inTiles(input, { width: W2, height: H2 }, SDXL_AREA)) {
-      g.phase("upscaling");
-      const pixels = g.out("VAEDecode", { samples: latent, vae });
-      const big = input.hiresUpscaler === LATENT_UPSCALE ? pixels : g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.hiresUpscaler }), image: pixels });
-      const sized = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: W2, height: H2, crop: "disabled" });
-      g.phase("refining");
-      const pass = { ...sampler, positive: loaded.positive, negative: loaded.negative, ...hiresPass(input), steps: input.hiresSteps, denoise: input.hiresDenoise };
-      let tileSampler = "";
-      image = redrawInTiles(g, ctx, sized, vae, { width: W2, height: H2 }, input, (l) => {
-        const out = kSample(g, { ...pass, latent_image: l }, input, ctx);
-        tileSampler = out[0];
-        return out;
-      });
-      // the pass runs once for each tile, at a tile's size; the first at the picture's first size
-      const rounds = tilePass({ node: tileSampler, steps: input.hiresSteps }, { width: W2, height: H2 }, input);
-      totalSteps += rounds.steps;
-      passes[0] = { ...passes[0]!, pixels: W * H };
-      passes.push(rounds);
-    } else if (input.hires) {
-      g.phase("upscaling");
-      let enlarged: Ref;
-      if (input.hiresUpscaler === LATENT_UPSCALE) {
-        enlarged = g.out("LatentUpscale", { samples: latent, upscale_method: "bilinear", width: W2, height: H2, crop: "disabled" });
-      } else {
-        // upscale models enlarge by their own factor (usually 4×): scale the result to the size asked for
-        const pixels = g.out("VAEDecode", { samples: latent, vae });
-        const up = g.out("UpscaleModelLoader", { model_name: input.hiresUpscaler });
-        const big = g.out("ImageUpscaleWithModel", { upscale_model: up, image: pixels });
-        const sized = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: W2, height: H2, crop: "disabled" });
-        enlarged = g.out("VAEEncode", { pixels: sized, vae });
-      }
-      g.phase("refining");
-      latent = kSample(g, { ...sampler, ...hiresPass(input), latent_image: enlarged, steps: input.hiresSteps, denoise: input.hiresDenoise }, input, ctx);
-      totalSteps += input.hiresSteps;
-      passes.push({ node: latent[0], steps: input.hiresSteps });
-    }
-
-    g.phase("decoding");
-    image ??= g.out("VAEDecode", { samples: latent, vae });
+    const latent = kSample(g, { ...sampler, latent_image: empty, steps: input.steps, denoise: 1 }, input, ctx);
+    const first = { latent, pass: { node: latent[0], steps: input.steps } };
+    const second = { ...hiresPass(input), steps: input.hiresSteps, denoise: input.hiresDenoise };
+    const passed = (out: Ref) => ({ latent: out, pass: { node: out[0], steps: input.hiresSteps } });
+    const sdxl: PictureSampler = {
+      vae, area: SDXL_AREA,
+      encode: (pixels) => g.out("VAEEncode", { pixels, vae }),
+      whole: (start) => passed(kSample(g, { ...sampler, ...second, latent_image: start }, input, ctx)),
+      // the tiles from the prompt alone: the regions' and the guide picture's conditioning are the whole picture's
+      tiles: () => (l) => passed(kSample(g, { ...sampler, positive: loaded.positive, negative: loaded.negative, ...second, latent_image: l }, input, ctx)),
+    };
+    const large = { width: roundTo(W * input.hiresScale, 8, 64), height: roundTo(H * input.hiresScale, 8, 64) };
+    // (SDXL's loads have not listed its upscale model, as 0.10.0 built them: its hired.loads are left out)
+    const hired = hiresFix(g, ctx, input, sdxl, first, { width: W, height: H }, large, { latent: input.hiresUpscaler === LATENT_UPSCALE });
     // the Detail rows: faces, hands, people redrawn by the checkpoint (its LoRAs on, the guide picture's shapes not: they are
     // the whole picture's), each crop at the size it draws best; a prompt of its own after the checkpoint's quality tags
-    const d = adetail(g, ctx, input, image, {
+    return pictureOut(g, ctx, input, sdxl, hired, { size: { width: W, height: H }, large }, {
       model: () => model, clip: loaded.clip, vae,
       cond: (text) => (text ? { positive: g.out("CLIPTextEncode", { text: withQuality(input.quality, text), clip: loaded.clip }), negative: loaded.negative } : { positive: loaded.positive, negative: loaded.negative }),
-      steps: input.steps, cfg: input.cfg, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed, scale: input.hires ? input.hiresScale : 1,
-    });
-    // PreviewImage writes to ComfyUI's temp folder, which ComfyUI clears itself: nothing piles up in output/
-    const out = g.add("PreviewImage", { images: d.image });
-    const all = d.passes.length ? [...sized(passes, [W * H, W2 * H2]), ...d.passes] : passes;
-    return {
-      graph: g.graph,
-      phases: g.phases,
-      outputs: [{ node: out, kind: "image", role: "result" }],
-      totalSteps: totalSteps + d.passes.reduce((n, p) => n + p.steps, 0),
-      passes: all,
-      loads: [`checkpoints/${input.checkpoint}`, ...regionLoads(input.regions), ...referenced.loads, ...guided.loads, ...d.loads],
-      ...(d.warnings.length ? { warnings: d.warnings } : {}),
-    };
+      steps: input.steps, cfg: input.cfg, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed,
+    }, [`checkpoints/${input.checkpoint}`, ...regionLoads(input.regions), ...referenced.loads, ...guided.loads]);
   },
 
   variants: [
