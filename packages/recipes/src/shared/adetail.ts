@@ -18,11 +18,13 @@ export const SMALL_FACE_PX = 150;
 
 /** What each detector redraws: its word, its family slot, how much around it is redrawn and where it starts. */
 interface Kind {
-  /** The rows' ids: detail<Key>, detail<Key>Prompt, detail<Key>Denoise, detail<Key>Under. */
+  /** The rows' ids: detail<Key>, detail<Key>Prompt, detail<Key>Denoise, detail<Key>Under, detail<Key>Most. */
   key: "Person" | "Hands" | "Face";
   word: string;
   /** One of them: "hand" for hands. */
   one: string;
+  /** More than one: "people" for a person. */
+  many: string;
   slot: string;
   /** A segmentation model: the person is redrawn inside their outline, not the box around them. */
   segm: boolean;
@@ -31,7 +33,7 @@ interface Kind {
   denoise: number;
   /** The tallest one redrawn, in pixels of the picture as drawn (before a hires fix); 0, any size. */
   under: number;
-  /** Only this many are redrawn, the largest first; 0, all of them. */
+  /** Only this many are redrawn, the largest first; 0, all of them (its row's default: ADetailer's "top k largest"). */
   most: number;
   prompt: string;
   /** Why the size gate is where it is, for the "?". */
@@ -47,17 +49,17 @@ const KINDS: Kind[] = [
     // a person whose crop is redrawn at the guide size only gains where they are small: past half a 1024 picture's height
     // the crop is redrawn at its own size or smaller, which only softens it. The two largest only: on a street, every
     // passer-by was redrawn at 1024, 139 s against 7 s for almost nothing seen (the pod test, card #280)
-    key: "Person", word: "person", one: "person", slot: "personDetector", segm: true, crop: 1.2, denoise: 0.35, under: 512, most: 2, prompt: "",
+    key: "Person", word: "person", one: "person", many: "people", slot: "personDetector", segm: true, crop: 1.2, denoise: 0.35, under: 512, most: 2, prompt: "",
     gate: "a person taller than that is redrawn at about their own size, which adds no detail",
   },
   {
     // the owner's hand test (HAND_VALUES): a lighter denoise, a tighter crop, words about hands. Broken fingers are not a
     // matter of size, so hands of any size are gone over; the four largest only, two people's, not a crowd's
-    key: "Hands", word: "hands", one: "hand", slot: "handDetector", segm: false, crop: HAND_VALUES.faceCrop, denoise: HAND_VALUES.strength, under: 0, most: 4, prompt: HAND_VALUES.prompt,
+    key: "Hands", word: "hands", one: "hand", many: "hands", slot: "handDetector", segm: false, crop: HAND_VALUES.faceCrop, denoise: HAND_VALUES.strength, under: 0, most: 4, prompt: HAND_VALUES.prompt,
     gate: "0 goes over hands of any size: broken fingers are not a matter of size",
   },
   {
-    key: "Face", word: "face", one: "face", slot: "faceDetector", segm: false, crop: 3, denoise: 0.4, under: SMALL_FACE_PX, most: 0, prompt: "",
+    key: "Face", word: "face", one: "face", many: "faces", slot: "faceDetector", segm: false, crop: 3, denoise: 0.4, under: SMALL_FACE_PX, most: 0, prompt: "",
     gate: `Krea 2's pod test (card #217): faces of 120–130 px gained, those of 200–300 px stayed where they were, close-ups came out worse`,
   },
 ];
@@ -84,14 +86,17 @@ export interface AdetailSettings {
   detailPersonPrompt: string;
   detailPersonDenoise: number;
   detailPersonUnder: number;
+  detailPersonMost: number;
   detailHands: boolean;
   detailHandsPrompt: string;
   detailHandsDenoise: number;
   detailHandsUnder: number;
+  detailHandsMost: number;
   detailFace: boolean;
   detailFacePrompt: string;
   detailFaceDenoise: number;
   detailFaceUnder: number;
+  detailFaceMost: number;
 }
 
 /**
@@ -125,6 +130,12 @@ export function adetailInputs(style: "tags" | "sentences", faceNote = "", faceDe
       {
         id: `${id}Under`, type: "number", label: `${Word} detail: only under`, min: 0, max: 2048, step: 16, default: k.under, unit: " px", showWhen: id, advanced: true, section: "out",
         note: `the tallest ${k.word} redrawn, at the size the picture is drawn at (before the hires fix); 0, any size. ${capital(k.gate)}`,
+      },
+      {
+        // ADetailer's "top k largest": a crowd is one crop redrawn at the guide size each, which is where Detail's time goes
+        // (13 passers-by took 35 s on a 4090, the largest 3 took 8 s; card #334). The cap only takes away: 0 adds no node
+        id: `${id}Most`, type: "number", label: `${Word} detail: max ${k.many}`, min: 0, max: 20, step: 1, default: k.most, showWhen: id, advanced: true, section: "out",
+        note: `redraws only the largest ones, this many; 0 redraws every ${k.one} found. Caps the time on crowds: each ${k.one} is a crop redrawn on its own`,
       },
     ];
   });
@@ -225,7 +236,8 @@ export function adetail(g: GraphBuilder, ctx: BuildContext, input: AdetailSettin
     // Impact's range filter reads the crop, which is the area's height times the crop factor
     if (under > 0) segs = g.out("ImpactSEGSRangeFilter", { segs, target: "height", mode: true, min_value: 0, max_value: Math.round(under * w.scale * k.crop) });
     // the largest of those left, by their crop's area: each one found is a crop redrawn at the guide size
-    if (k.most) segs = g.out("ImpactSEGSOrderedFilter", { segs, target: "area(=w*h)", order: true, take_start: 0, take_count: k.most });
+    const most = Math.max(0, Math.round(Number(values[`${id}Most`] ?? k.most)));
+    if (most > 0) segs = g.out("ImpactSEGSOrderedFilter", { segs, target: "area(=w*h)", order: true, take_start: 0, take_count: most });
     const text = String(values[`${id}Prompt`] ?? "").trim();
     const c = w.cond(text || null, k.key);
     const denoise = Number(values[`${id}Denoise`] ?? k.denoise);

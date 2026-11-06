@@ -19,12 +19,12 @@ const NO_TIME = /^(seed|crf|drivingStart|faceCarried|holdFace)$|^shift/i;
 /**
  * Settings said in the key only when moved from their default. SeedVR2's frames together changes its render time
  * several-fold, but every video form holds it: said always, it would have changed the key of every video render and
- * left them without the times recorded before it was counted. A Detail pass's denoise and size gate are said with it on.
+ * left them without the times recorded before it was counted. A Detail pass's denoise, size gate and cap are said with it on.
  */
 const SAID_WHEN_SET = new Set([
   "seedvrFrames",
   // txt2img's Detail rows (card #272), on every picture family's: said always, every picture's key would have changed with them
-  ...["Face", "Hands", "Person"].flatMap((k) => [`detail${k}`, `detail${k}Denoise`, `detail${k}Under`]),
+  ...["Face", "Hands", "Person"].flatMap((k) => [`detail${k}`, `detail${k}Denoise`, `detail${k}Under`, `detail${k}Most`]),
 ]);
 
 /**
