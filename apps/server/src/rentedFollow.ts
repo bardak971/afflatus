@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { httpError } from "./errors";
 import { BOOT_PORT, RunpodError, tokenSecret, type Pod } from "./runpod";
 import type { Comfy } from "./comfy";
-import { POD_BOOT_LIMIT_MIN, stepSaid, usd, type PresetFile } from "@afflatus/core";
+import { HOUR_MS, POD_BOOT_LIMIT_MIN, stepSaid, usd, type PresetFile } from "@afflatus/core";
 import { recordMeasure } from "./podMeasures";
 import { bootPacks, type BootLog } from "./podBoot";
 import { imageLayers, type ImageLayer } from "./podImage";
@@ -12,7 +12,7 @@ import { noteFill, recordHoldings } from "./rentedVolumes";
 import { machineSaid } from "./notifyWords";
 import { machinesSetAside, readSettings, updateSettings, type Machine, type MachineSetAside, type Settings } from "./settings";
 import { resetRun, type PodFilesLeft, type RentedView, type Seen } from "./rentedModel";
-import { capReached, HOUR, RentedBilling } from "./rentedBilling";
+import { capReached, RentedBilling } from "./rentedBilling";
 import { overrunAllowed } from "./queueModel";
 import { KeepAwake } from "./keepAwake";
 
@@ -72,7 +72,7 @@ const FILL_STALL_MS = 30 * 60_000;
  * plus its known bytes at 10 MB/s, the slow end of what a pod fetches at (RunPod's data centers mostly do many times that),
  * and 10 GB for a file of a size not known. Room for a fill that goes slowly, a bound on one that crawls.
  */
-const fillLimitMs = (files: readonly PresetFile[]) => 2 * HOUR + (files.reduce((n, f) => n + (f.size || 10e9), 0) / 10e6) * 1000;
+const fillLimitMs = (files: readonly PresetFile[]) => 2 * HOUR_MS + (files.reduce((n, f) => n + (f.size || 10e9), 0) / 10e6) * 1000;
 /** What a fill's note says when its pod was terminated before its files were in, by why. */
 const FILL_CUT: Partial<Record<NonNullable<RentedView["stoppedBy"]>, string>> = {
   idle: "its ComfyUI stopped answering",

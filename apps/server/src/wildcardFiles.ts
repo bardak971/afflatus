@@ -78,6 +78,12 @@ async function indexOf(folders: WildcardFolder[]): Promise<Map<string, string[]>
   return names;
 }
 
+/** The wildcard names a text holds (`__name__`), in lower case, as often as it holds them. */
+const namedIn = (text: string) => [...text.matchAll(new RegExp(FILE_CHOICE.source, "gu"))].map((m) => m[1]!.toLowerCase());
+
+/** The files a name stands for: its own, else any in a sub-folder ending in it (`__hats__` for clothes/hats.txt). */
+const pathsOf = (index: Map<string, string[]>, name: string): string[] => index.get(name) ?? [...index].filter(([n]) => n.endsWith(`/${name}`)).map(([, p]) => p[0]!);
+
 /**
  * The files a form's texts read, all read before the texts are settled: the names in them, the names in the lines of
  * those, and so on. Their lines, by name; the core's WildcardFiles over them.
@@ -85,13 +91,12 @@ async function indexOf(folders: WildcardFolder[]): Promise<Map<string, string[]>
 async function filesFor(texts: string[], folders: WildcardFolder[]): Promise<WildcardFiles> {
   const index = await indexOf(folders);
   const lines = new Map<string, string[]>();
-  const want = (text: string) => [...text.matchAll(new RegExp(FILE_CHOICE.source, "gu"))].map((m) => m[1]!.toLowerCase());
   const read = async (name: string): Promise<string[] | undefined> => {
-    const paths = index.get(name) ?? [...index].filter(([n]) => n.endsWith(`/${name}`)).map(([, p]) => p[0]!);
+    const paths = pathsOf(index, name);
     if (!paths.length) return undefined;
     return (await Promise.all(paths.map((p) => readFile(p, "utf8").then(linesOf, () => [])))).flat();
   };
-  const queue = texts.flatMap(want);
+  const queue = texts.flatMap(namedIn);
   // a name with no file is looked for once: a text naming it a thousand times walked the whole index a thousand times
   const missed = new Set<string>();
   for (let name = queue.shift(); name !== undefined; name = queue.shift()) {
@@ -102,7 +107,7 @@ async function filesFor(texts: string[], folders: WildcardFolder[]): Promise<Wil
       continue;
     }
     lines.set(name, got);
-    queue.push(...got.flatMap(want));
+    queue.push(...got.flatMap(namedIn));
   }
   return (name) => lines.get(name.toLowerCase());
 }
@@ -113,10 +118,10 @@ async function filesFor(texts: string[], folders: WildcardFolder[]): Promise<Wil
  * read when the job is queued.
  */
 export async function missingWildcards(places: WildcardPlaces, text: string): Promise<string[]> {
-  const names = [...new Set([...text.matchAll(new RegExp(FILE_CHOICE.source, "gu"))].map((m) => m[1]!.toLowerCase()))];
+  const names = [...new Set(namedIn(text))];
   if (!names.length) return [];
   const index = await indexOf(await wildcardFolders(places.dataDir, await places.comfyDir()));
-  return names.filter((name) => !index.has(name) && ![...index.keys()].some((n) => n.endsWith(`/${name}`)));
+  return names.filter((name) => !pathsOf(index, name).length);
 }
 
 /** What a server needs to read the files: its data folder (none in most tests) and the ComfyUI folder of its settings. */

@@ -186,6 +186,7 @@ export function adetail(g: GraphBuilder, ctx: BuildContext, input: AdetailSettin
   const values = input as unknown as Record<string, unknown>;
   const detectors = new Map<string, string>();
   let model: Ref | null = null;
+  let alpha: Ref | null = null;
   for (const k of on(input, w.skip)) {
     const id = `detail${k.key}`;
     const file = ctx.slots[k.slot];
@@ -198,8 +199,13 @@ export function adetail(g: GraphBuilder, ctx: BuildContext, input: AdetailSettin
     if (!wanted(ctx, { input: id, nodes: ["UltralyticsDetectorProvider"], without: `Detail: ${k.word}` })) continue;
     if (!made.passes.length) g.phase("detailing");
     // the Impact Pack's detailer takes three channels: Qwen Image 2.1's fourth failed it on a pod ("'Tensor' object has no
-    // attribute 'copy'", 2026-11-05). Split once, before the first pass; the next ones take the picture it gives back
-    if (!made.passes.length && w.alpha) made.image = g.out("SplitImageWithAlpha", { image: made.image });
+    // attribute 'copy'", 2026-11-05). Split once, before the first pass; the next ones take the picture it gives back, and
+    // the alpha is joined again after the last (a transparent background came out opaque, card #326)
+    if (!made.passes.length && w.alpha) {
+      const split = g.add("SplitImageWithAlpha", { image: made.image });
+      made.image = [split, 0];
+      alpha = [split, 1];
+    }
     let detector = detectors.get(file);
     if (!detector) {
       detector = g.add("UltralyticsDetectorProvider", { model_name: file });
@@ -234,5 +240,7 @@ export function adetail(g: GraphBuilder, ctx: BuildContext, input: AdetailSettin
     const none = under > 0 ? `Detail: ${k.word} left the picture as drawn: it redraws ${k.word === "hands" ? "hands" : `a ${k.word}`} under ${under} px tall, and found none.` : `Detail: ${k.word} found no ${k.word}: the picture is as drawn.`;
     redraw(segs, c.positive, none);
   }
+  // the detailer pastes each crop back at the picture's size: the alpha split off before the first pass fits it still
+  if (alpha) made.image = g.out("JoinImageWithAlpha", { image: made.image, alpha });
   return made;
 }

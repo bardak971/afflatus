@@ -39,10 +39,28 @@ def folder(root):
     return os.path.join(root, "models", NAME)
 
 
-def complete(root):
-    """Whether the models under `root` are whole: both files there, and not empty."""
+def complete(root, need=FILES):
+    """Whether the models under `root` are whole: the files `need`s there (Face Match's two by default), and not empty."""
     where = folder(root)
-    return all(os.path.isfile(os.path.join(where, f)) and os.path.getsize(os.path.join(where, f)) > 0 for f in FILES)
+    return all(os.path.isfile(os.path.join(where, f)) and os.path.getsize(os.path.join(where, f)) > 0 for f in need)
+
+
+def strangers(where, sha256=SHA256):
+    """The .onnx files in a models folder that the release has no hash for. FaceAnalysis opens an ONNX Runtime session
+    on every *.onnx of the folder, in name order, before `allowed_modules` is looked at, and keeps the first file of each
+    task: an extra one is loaded unchecked, and one named to sort first (a "0det.onnx") takes the detector's place, for
+    Face Match as for FaceID (InsightFace's app/face_analysis.py and model_zoo.ModelRouter, read 2026-11-06)."""
+    try:
+        names = os.listdir(where)
+    except OSError:
+        return []
+    return sorted(n for n in names if n.lower().endswith(".onnx") and n not in sha256)
+
+
+def _no_strangers(where, sha256):
+    other = strangers(where, sha256)
+    if other:
+        raise RuntimeError(f"InsightFace's {NAME} in {where} holds files its release has not ({', '.join(other)}), which InsightFace would load unchecked: not used. Move them out of that folder")
 
 
 def _sha256(path):
@@ -59,11 +77,12 @@ def _insightface_fetch(into):
     ensure_available("models", NAME, root=into)
 
 
-def fetch(root, download=_insightface_fetch, sha256=SHA256):
-    """The models whole under `root`, fetched when they are not: into a folder of their own, moved in once complete and
-    their bytes the release's (`sha256`). A folder left half-extracted is replaced. Raises when the fetch did not give both
-    files, or gave other bytes."""
-    if complete(root):
+def fetch(root, download=_insightface_fetch, sha256=SHA256, need=FILES):
+    """The models whole under `root` (the files `need`s), fetched when they are not: into a folder of their own, moved in
+    once complete and their bytes the release's (`sha256`). A folder left half-extracted is replaced. Raises when the fetch
+    did not give both files, or gave other bytes, and when the folder holds an .onnx the release has not (strangers)."""
+    if complete(root, need):
+        _no_strangers(folder(root), sha256)
         return folder(root)
     os.makedirs(os.path.join(root, "models"), exist_ok=True)
     # a hidden folder beside the real one: on the same disk, so that the move is a rename; ComfyUI lists no dot folder
@@ -76,15 +95,16 @@ def fetch(root, download=_insightface_fetch, sha256=SHA256):
         other = [f for f in sha256 if not os.path.isfile(os.path.join(folder(temp), f)) or _sha256(os.path.join(folder(temp), f)) != sha256[f]]
         if other:
             raise RuntimeError(f"InsightFace's {NAME} came with other bytes than its release's ({', '.join(other)}): not used")
-        if not complete(root):
+        if not complete(root, need):
             # what a pod ended mid-extraction left: never complete, and in the way of the rename
             shutil.rmtree(folder(root), ignore_errors=True)
             try:
                 os.replace(folder(temp), folder(root))
             except OSError:
                 # another fetch (the pod's start, a render) moved its own in first: that one is used
-                if not complete(root):
+                if not complete(root, need):
                     raise
+        _no_strangers(folder(root), sha256)
         return folder(root)
     finally:
         shutil.rmtree(temp, ignore_errors=True)
@@ -98,11 +118,14 @@ def ready(root, download=_insightface_fetch, sha256=SHA256):
     """The models under `root` whole and with the release's bytes, for a loader that builds FaceAnalysis on the whole pack
     (IP-Adapter's FaceID, AfflatusInsightFaceLoader): fetched as `fetch` does when they are not there, and the files already
     there read against `sha256` once a process, since IP-Adapter's own loader (or InsightFace's fetch from another pack) may
-    have put them there without a hash. Raises, naming the files, when their bytes are not the release's."""
-    where = fetch(root, download, sha256)
+    have put them there without a hash. Every file of `sha256` is needed: a folder missing one (another pack's partial copy,
+    a file deleted) is fetched again as a half-extracted one is, since FaceAnalysis would build on what is left. Raises,
+    naming the files, when their bytes are not the release's, or when the folder holds an .onnx the release has not."""
+    where = fetch(root, download, sha256, need=tuple(sha256))
+    # the strangers are looked for by fetch at every call: a file put there since is not taken as read once and for all
     if where in _checked:
         return where
-    other = [f for f in sha256 if os.path.isfile(os.path.join(where, f)) and _sha256(os.path.join(where, f)) != sha256[f]]
+    other = [f for f in sha256 if _sha256(os.path.join(where, f)) != sha256[f]]
     if other:
         raise RuntimeError(f"InsightFace's {NAME} in {where} has other bytes than its release's ({', '.join(other)}): not used. Delete that folder for it to be fetched again")
     _checked.add(where)

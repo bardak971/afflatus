@@ -1,4 +1,4 @@
-import { dayStart, GB, modelStem, monthStart, plural, rankGpus, shortGpu, usd, usdFor, volumePerMonth, volumeSizeFor, type RankOffer } from "@afflatus/core";
+import { dayStart, GB, HOUR_MS, modelStem, monthStart, plural, rankGpus, type RankOffer, shortGpu, usd, usdFor, volumePerMonth, volumeSizeFor } from "@afflatus/core";
 import type { Selectable } from "kysely";
 import type { Db, Tables } from "./db";
 import { buildOf } from "./podImage";
@@ -37,7 +37,6 @@ export const BOOT_PARTS: readonly BootPart[] = ["pull", "packs", "comfy", "start
 export type BootMs = Record<BootPart, number>;
 const noBoot = (): BootMs => ({ pull: 0, packs: 0, comfy: 0, startFailed: 0, boot: 0 });
 
-const HOUR = 3_600_000;
 const DAY = 86_400_000;
 
 export interface Span {
@@ -578,7 +577,7 @@ export async function costs(d: CostsDeps, asked: { from?: number; to?: number },
     const ms = readOnes.reduce((n, r) => n + r.total_ms, 0);
     home.push({
       machine, name: machineOf.get(machine)?.name || (machine === homeFirst ? "This PC" : machine), gpu: gpuShort(list.find((r) => r.gpu)?.gpu ?? null), renders: list.length, read: readOnes.length,
-      wh, avgW: ms > 0 ? (wh * HOUR) / ms : null, cost: readOnes.length && kwh.kwhPrice !== null ? (wh / 1000) * kwh.kwhPrice : null,
+      wh, avgW: ms > 0 ? (wh * HOUR_MS) / ms : null, cost: readOnes.length && kwh.kwhPrice !== null ? (wh / 1000) * kwh.kwhPrice : null,
     });
   }
 

@@ -1,4 +1,5 @@
 import { useId, type ReactNode } from "react";
+import { HOUR_MS } from "@afflatus/core";
 import type { TimesSummary } from "../../api";
 import { long, plural } from "../../format";
 import { cx } from "../../ui";
@@ -16,7 +17,7 @@ export const busyShare = (gpuMs: number, spanMs: number) => Math.min(1, gpuMs / 
 
 /** The window's length, short: "31 d", "24 h", "45 min". */
 export function spanSaid(ms: number): string {
-  const H = 3_600_000;
+  const H = HOUR_MS;
   return ms >= 2 * 24 * H ? `${Math.round(ms / (24 * H))} d` : ms >= 2 * H ? `${Math.round(ms / H)} h` : `${Math.round(ms / 60_000)} min`;
 }
 

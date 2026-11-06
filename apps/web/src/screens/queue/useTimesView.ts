@@ -1,18 +1,18 @@
 import { useEffect, useState } from "react";
 import { useSearch } from "wouter";
 import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { HOUR_MS } from "@afflatus/core";
 import { api } from "../../api";
 import { useRenderTimes } from "../../data";
 import { queryKeys } from "../../queryKeys";
 import { UI_LOCALE } from "../../format";
 
-export const HOUR = 3_600_000;
 export const DAY = 86_400_000;
 const WEEK = 7 * DAY;
 /** The windows a click gives, each ending now; "All" reaches back to the first render. */
 export const PRESETS: Array<{ label: string; ms: number | null }> = [
-  { label: "1H", ms: HOUR }, { label: "3H", ms: 3 * HOUR }, { label: "6H", ms: 6 * HOUR }, { label: "12H", ms: 12 * HOUR }, { label: "24H", ms: 24 * HOUR },
-  { label: "2D", ms: 2 * 24 * HOUR }, { label: "7D", ms: 7 * 24 * HOUR }, { label: "30D", ms: 30 * 24 * HOUR }, { label: "All", ms: null },
+  { label: "1H", ms: HOUR_MS }, { label: "3H", ms: 3 * HOUR_MS }, { label: "6H", ms: 6 * HOUR_MS }, { label: "12H", ms: 12 * HOUR_MS }, { label: "24H", ms: 24 * HOUR_MS },
+  { label: "2D", ms: 2 * 24 * HOUR_MS }, { label: "7D", ms: 7 * 24 * HOUR_MS }, { label: "30D", ms: 30 * 24 * HOUR_MS }, { label: "All", ms: null },
 ];
 /**
  * What is looked at: a preset (a window that ends now, worked out each time it is read, so that new renders
@@ -29,7 +29,7 @@ export function chartTimeLabel(spanMs: number, step: number) {
   return (time: number, full?: boolean) =>
     new Date(time).toLocaleString(UI_LOCALE, full
       ? step < DAY ? { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" } : { weekday: "short", day: "numeric", month: "short", year: "numeric" }
-      : step < DAY ? (spanMs > 36 * HOUR ? { weekday: "short", hour: "2-digit", minute: "2-digit" } : { hour: "2-digit", minute: "2-digit" }) : { day: "numeric", month: "short" });
+      : step < DAY ? (spanMs > 36 * HOUR_MS ? { weekday: "short", hour: "2-digit", minute: "2-digit" } : { hour: "2-digit", minute: "2-digit" }) : { day: "numeric", month: "short" });
 }
 
 /**
@@ -44,7 +44,7 @@ export function chartPointLabel(spanMs: number, step: number) {
 }
 
 /** What a stretch of a chart is called: "5 min", "hour", "6 h", "day", "week". */
-export const stretchOf = (step: number) => (step < HOUR ? `${Math.round(step / 60_000)} min` : step === HOUR ? "hour" : step < DAY ? `${Math.round(step / HOUR)} h` : step < WEEK ? "day" : "week");
+export const stretchOf = (step: number) => (step < HOUR_MS ? `${Math.round(step / 60_000)} min` : step === HOUR_MS ? "hour" : step < DAY ? `${Math.round(step / HOUR_MS)} h` : step < WEEK ? "day" : "week");
 
 /** A moment as a datetime-local input writes it (local time, to the minute). */
 export const toLocalInput = (ms: number) => {

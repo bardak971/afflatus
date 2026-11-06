@@ -203,7 +203,7 @@ export interface GridView {
 export interface GridPlanView {
   count: number;
   ms: number | null;
-  pod: { ms: number | null; usd: number | null } | null;
+  pod: { ms: number | null; usd: number | null; most: number | null } | null;
 }
 /** A grid as it is sent to be priced and queued: the whole form, its axes as typed, the lists a value is found in. */
 export interface GridAsk {

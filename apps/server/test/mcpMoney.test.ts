@@ -447,11 +447,27 @@ describe("a grid on a pod", () => {
     expect(plan.pod.usd).toBeGreaterThan(0.9);
     expect(plan.pod.usd).toBeLessThan(0.96);
     expect(plan.ms).toBe(80 * 60_000);
+    // forecasts on 5 renders each: what it may cost is the forecast, the figure an MCP token is held to
+    expect((plan.pod as { most?: number }).most).toBeCloseTo(plan.pod.usd, 6);
     // stopped, the pod is still where Auto may send the grid once it is started: it is priced, not left out
     expect((await post(t.app, `/api/machines/${pod}/stop`, {})).statusCode).toBe(200);
     await until(async () => (await t.services.rented.poll(), runpod.pods[0]!.status === "EXITED"));
     await t.services.rented.poll();
     const auto = (await post(t.app, "/api/grids/plan", body)).json() as { pod: { usd: number } | null };
     expect(auto.pod?.usd).toBeGreaterThan(0.9);
+  });
+
+  it("the grid card's plan says what it may cost with an unsure forecast's margin, as render_grid holds a token to (card #328)", async () => {
+    vi.spyOn(t.services.queue, "forecastToPrice").mockImplementation(async (_recipe, input) => {
+      const steps = Number((input as { steps?: number }).steps ?? 30);
+      // read off one render only: unsure, so counted half again
+      const f = { ms: steps * 60_000, loadMs: 0, samples: steps === 60 ? 1 : 5, pace: "usual" as const, fitsUpTo: 0 };
+      return { forecast: f, shape: { pixels: 1024 * 1024, frames: 1 }, model: CHECKPOINT, on: { [pod]: f, m1: f } };
+    });
+    const body = { recipe: RECIPE, input: { ...FORM.values, steps: 20 }, axes: [{ field: "steps", values: "20, 60" }], machine: pod };
+    const plan = (await post(t.app, "/api/grids/plan", body)).json() as { pod: { ms: number; usd: number; most: number } };
+    expect(plan.pod.ms).toBe(80 * 60_000);
+    // 20 min sure and 60 unsure: 20 + 90 min of the pod's rate, against 80 for the plain forecast
+    expect(plan.pod.most / plan.pod.usd).toBeCloseTo(110 / 80, 6);
   });
 });

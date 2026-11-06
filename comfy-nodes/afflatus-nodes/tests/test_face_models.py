@@ -104,3 +104,39 @@ def test_models_already_there_with_other_bytes_are_refused_for_faceid(tmp_path, 
         F.ready(root, download=lambda into: pytest.fail("fetched again"), sha256=every)
     # nothing of the user's folder is removed
     assert F.complete(root)
+
+
+def _put(root, name, data=b"onnx"):
+    with open(os.path.join(F.folder(root), name), "wb") as f:
+        f.write(data)
+
+
+def test_a_folder_missing_a_file_of_the_pack_is_fetched_again_for_faceid(tmp_path, monkeypatch):
+    # FaceID builds FaceAnalysis on what is in the folder: one with Face Match's two files alone is not the whole pack
+    monkeypatch.setattr(F, "_checked", set())
+    root = str(tmp_path)
+    _extract(root)
+    every = {**ONNX, "genderage.onnx": ONNX["det_10g.onnx"]}
+    fetched = []
+    F.ready(root, download=lambda into: fetched.append(into) or _extract(into, files=tuple(every)), sha256=every)
+    assert len(fetched) == 1 and F.complete(root, need=tuple(every)) and _left(root) == []
+    # Face Match needs its two only: the same folder is not fetched again for it
+    F.fetch(root, download=lambda into: pytest.fail("fetched again"), sha256=every)
+
+
+def test_an_onnx_the_release_has_not_is_refused_for_both_loaders(tmp_path, monkeypatch):
+    # FaceAnalysis opens every *.onnx of the folder before allowed_modules is read, the first of each task kept: one named
+    # to sort first would take the detector's place
+    monkeypatch.setattr(F, "_checked", set())
+    root = str(tmp_path)
+    _extract(root)
+    F.ready(root, download=lambda into: pytest.fail("fetched again"), sha256=ONNX)
+    _put(root, "0det.onnx")
+    _put(root, "notes.txt")
+    with pytest.raises(RuntimeError, match=r"0det\.onnx.*Move them out"):
+        F.ready(root, download=lambda into: pytest.fail("fetched again"), sha256=ONNX)
+    with pytest.raises(RuntimeError, match=r"0det\.onnx"):
+        F.fetch(root, download=lambda into: pytest.fail("fetched again"), sha256=ONNX)
+    assert F.strangers(F.folder(root), ONNX) == ["0det.onnx"]
+    # nothing of the user's folder is removed
+    assert os.path.isfile(os.path.join(F.folder(root), "0det.onnx")) and F.complete(root)

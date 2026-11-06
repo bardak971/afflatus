@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { GRID_ASK_USD, gridAsks, plural, usdFor } from "@afflatus/core";
+import { GRID_ASK_USD, gridAsks, plural, usdFor, worstOf } from "@afflatus/core";
 import { api, type QueueStatus, type RecipeInfo } from "./api";
 import { batchMs } from "./advice";
 import { ask } from "./Confirm";
@@ -22,7 +22,7 @@ export async function askBeforeMany(client: QueryClient, o: { recipe: RecipeInfo
     const ms = batchMs(estimate, o.total, p);
     return ms === null || p.rented?.rate == null ? null : usdFor(ms, p.rented.rate);
   });
-  const usd = each.some((u) => u === null) ? null : Math.max(...(each as number[]));
+  const usd = worstOf(each);
   // the spending as it is now: a cap is money
   const spend = (await client.fetchQuery({ queryKey: queryKeys.rentedSpending(), queryFn: ({ signal }) => api.rentedSpending({ signal }), staleTime: 5_000 })).spending;
   const why = gridAsks({ onPod: true, usd }, spend);

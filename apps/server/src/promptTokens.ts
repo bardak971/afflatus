@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { clipBpe, clipChunks, estimatePieces } from "@afflatus/core";
+import { clipBpe, clipChunks, estimatePieces, PROMPT_MOST } from "@afflatus/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { isNetworkPath } from "./linked";
@@ -35,13 +35,13 @@ function counterOf(comfyDir: string): Promise<((piece: string) => number) | null
 export function registerPromptTokens(app: FastifyInstance, s: Services): void {
   /** The tokens of each chunk of 75 a prompt fills, as ComfyUI cuts them; `exact` false when they are a guess. */
   app.post("/api/prompt/tokens", async (req) => {
-    const { text } = z.strictObject({ text: z.string().max(20_000) }).parse(req.body);
+    const { text } = z.strictObject({ text: z.string().max(PROMPT_MOST) }).parse(req.body);
     const count = await counterOf((await readSettings(s.db)).comfyDir);
     return { chunks: clipChunks(text, count ?? estimatePieces), exact: count !== null };
   });
   /** The `__name__` wildcards of a prompt that no file answers, said under it as it is written (wildcardFiles.ts). */
   app.post("/api/prompt/wildcards", async (req) => {
-    const { text } = z.strictObject({ text: z.string().max(20_000) }).parse(req.body);
+    const { text } = z.strictObject({ text: z.string().max(PROMPT_MOST) }).parse(req.body);
     return { missing: await missingWildcards(s.wildcards, text) };
   });
 }

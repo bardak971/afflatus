@@ -143,6 +143,12 @@ describe("a dropped picture's settings, as a form", () => {
     expect((await t.app.inject({ method: "GET", url: "/api/assets" })).json().items).toEqual([]);
   });
 
+  it("takes a hires upscale past 2× as the form does, held to the form's own ranges", async () => {
+    const at = async (scale: string, steps = "10") => (await read(pngWith({ parameters: A1111.replace("Hires upscale: 1.5", `Hires upscale: ${scale}, Hires steps: ${steps}`) }))).settings.input;
+    expect(await at("3")).toMatchObject({ hires: true, hiresScale: 3, hiresSteps: 10 });
+    expect(await at("6", "200")).toMatchObject({ hiresScale: 4, hiresSteps: 60 });
+  });
+
   it("keeps the form's own model when the picture's is not there", async () => {
     const out = await read(pngWith({ parameters: A1111.replace("Model: Illustrious", "Model: SomethingElse_v3") }));
     expect(out.settings.input.checkpoint).toBeUndefined();

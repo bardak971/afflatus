@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { HOUR_MS } from "@afflatus/core";
 import { useAssets } from "../../data";
 import { useSettled } from "../../hooks";
 import type { Place } from "../Library";
@@ -17,12 +18,11 @@ export const KINDS = [
 ] as const;
 export type LibraryKind = (typeof KINDS)[number]["id"];
 
-const HOUR = 3_600_000;
 /**
  * Where "Recent" starts: two days before the hour it is now. By the hour, so that the list is asked again once an hour
  * (the cutoff is part of what is asked), not at every drawing.
  */
-export const recentSince = (now: number) => new Date(Math.floor(now / HOUR) * HOUR - 48 * HOUR).toISOString();
+export const recentSince = (now: number) => new Date(Math.floor(now / HOUR_MS) * HOUR_MS - 48 * HOUR_MS).toISOString();
 
 /** What the library's grid is narrowed to: the kind, the search, the model and LoRA it was made with, Kept only (or Expiring only); and the items that match. */
 export function useLibraryFilters({ place, view, draftId, initialKind = "all", onKind }: {

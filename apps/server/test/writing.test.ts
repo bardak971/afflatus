@@ -54,6 +54,21 @@ describe("choices written in a prompt", () => {
     expect(Date.now() - started).toBeLessThan(2000);
   });
 
+  it("holds a cast render's regions to their bounds before their wildcards are settled", async () => {
+    // a region's words are settled with the prompt's (card #300); one box of megabytes of {a|b} took a second a copy
+    const box = { x: 0, y: 0, w: 0.5, h: 0.5 };
+    const send = (regions: unknown[]) =>
+      post(t.app, "/api/jobs", { recipe: "sdxl.text-to-picture", input: { prompt: "a room", checkpoint: CHECKPOINT, quality: "", regions }, look: { cast: [], snippets: ["zz-test"] }, count: 8 });
+    const started = Date.now();
+    const big = await send([{ id: "a", box, prompt: "{a|b} ".repeat(1_300_000) }]);
+    expect(big.statusCode).toBe(400);
+    expect(big.json().error).toMatch(/Region 1: at most 4,000 characters/);
+    expect(Date.now() - started).toBeLessThan(2000);
+    const many = await send(Array.from({ length: 50 }, (_, i) => ({ id: `r${i}`, box, prompt: "{a|b}" })));
+    expect(many.statusCode).toBe(400);
+    expect(many.json().error).toMatch(/Regions: at most \d+ regions/);
+  });
+
   it("reads __name__ from the wildcard packs' folders of ComfyUI, the same picks for the same seed", async () => {
     const comfyDir = mkdtempSync(join(tmpdir(), "afflatus-wild-"));
     try {

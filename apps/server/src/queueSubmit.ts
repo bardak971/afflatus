@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { openAsBlob } from "node:fs";
-import { baseModels, checkGraph, choicesOf, graphFiles, clockFits, exactSoundPart, FRAME_SLACK_MS, folderOfFileInput, isChunkStart, latentClockOf, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, neededSlots, onGrid, packOfNode, parseInput, pickChoice, pickedFiles, RANDOM_SEED, randomSeed, relocateFiles, soundPartOf, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type Family, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue, type SetFinding } from "@afflatus/core";
+import { baseModels, checkGraph, choiceFiles, graphFiles, clockFits, exactSoundPart, FRAME_SLACK_MS, folderOfFileInput, inputsIn, isChunkStart, latentClockOf, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, neededSlots, onGrid, optionsIn, packOfNode, parseInput, pickChoice, pickedFiles, RANDOM_SEED, randomSeed, relocateFiles, soundPartOf, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type Family, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue, type SetFinding } from "@afflatus/core";
 import { catalogKey, ComfyCancelled, ComfyError, ComfyUnreachable, filesIn } from "@afflatus/comfy";
 import { Kept } from "./kept";
 import { chunksOf, forecast, fromRates, sizedFrom, workOf, type Forecast } from "./forecast";
@@ -14,7 +14,7 @@ import { addPart, timedPart } from "./serverMetrics";
 import { maskBox, mirrorPicture, readPicture } from "./thumbs";
 import { ffmpegPool } from "./pool";
 import { probeVideo, readVideo, videoFacts, type VideoFacts } from "./video";
-import { ANY_PACKS, asBuilt, cannotWhy, inputsIn, optionsIn, packsSaid, ranWithoutSaid } from "./jobPacks";
+import { ANY_PACKS, asBuilt, cannotWhy, packsSaid, ranWithoutSaid } from "./jobPacks";
 import { CATALOG_WAIT_MS, readJson, within, type JobRow, type QueueCore, type Resume } from "./queueModel";
 import type { Registry } from "./registry";
 import type { Placed } from "./timelineModel";
@@ -108,9 +108,7 @@ function settled(recipe: Recipe<any>, input: Record<string, unknown>, catalog: A
   for (const spec of recipe.inputs as InputSpec[]) {
     if (spec.type !== "choice" || Array.isArray(spec.options)) continue;
     if (pod && chosen[spec.id] === spec.default && pinnedDefault(pod, spec.options, String(spec.default))) continue;
-    const def = catalog[spec.options.node];
-    const offered = choicesOf(def?.input.required?.[spec.options.input] ?? def?.input.optional?.[spec.options.input]) ?? [];
-    const all = [...(spec.extra ?? []), ...offered];
+    const all = choiceFiles(spec, catalog);
     if (all.length && !all.includes(String(chosen[spec.id])) && chosen[spec.id] === spec.default) chosen[spec.id] = pickChoice(spec, all);
   }
   return chosen;
@@ -147,8 +145,7 @@ async function podDefaults(
   const families = core.registry.families();
   const kept = (recipe.inputs as InputSpec[]).flatMap((spec) => {
     if (spec.type !== "choice" || Array.isArray(spec.options) || chosen[spec.id] !== spec.default) return [];
-    const def = catalog[spec.options.node];
-    const all = [...(spec.extra ?? []), ...(choicesOf(def?.input.required?.[spec.options.input] ?? def?.input.optional?.[spec.options.input]) ?? [])];
+    const all = choiceFiles(spec, catalog);
     const get = all.includes(String(spec.default)) ? null : pinnedDefault(families, spec.options, String(spec.default));
     return get ? [{ spec, all, get, on: pod.state(get) }] : [];
   });

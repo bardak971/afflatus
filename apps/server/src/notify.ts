@@ -1,7 +1,7 @@
 import type { EventEmitter } from "node:events";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { modelOf, plural, usd } from "@afflatus/core";
+import { downloadName, modelOf, plural, usd } from "@afflatus/core";
 import { envSaid } from "./config";
 import { toRun, type Db } from "./db";
 import { httpError } from "./errors";
@@ -286,8 +286,8 @@ export class Notify {
     const mb = (a.bytes ?? 0) / 1024 / 1024;
     const most = channel === "discord" ? 10 : 50;
     if (mb > most) throw httpError(`It is ${mb.toFixed(0)} MB: ${channel === "discord" ? "a Discord webhook" : "a Telegram bot"} takes ${most} MB at most. Export a web copy (the timeline's Export, For the web) and send that.`, 413);
-    const ext = (a.mime.split("/")[1] ?? "bin").replace("jpeg", "jpg").replace("quicktime", "mov");
-    const file = `${(a.name || "afflatus").replace(/[^\w .-]+/g, "").trim().slice(0, 60) || "afflatus"}.${ext}`;
+    // the name a Download gives it (core downloadName, its extension by its type), kept to what a multipart name takes
+    const file = downloadName({ id: "afflatus", name: (a.name || "").replace(/[^\w .-]+/g, "").trim().slice(0, 60), mime: a.mime });
     const blob = new Blob([(await this.deps.storage.get(a.file_key)) as Uint8Array<ArrayBuffer>], { type: a.mime });
     const signal = AbortSignal.timeout(Math.max(this.opts.timeoutMs, 120_000));
     try {

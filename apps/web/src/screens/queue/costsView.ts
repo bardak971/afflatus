@@ -1,5 +1,5 @@
 import type { BootMs, BootPart, CostPart, CostsView, PartMs, PodSession } from "../../api";
-import { monthStart, usdFor } from "@afflatus/core";
+import { HOUR_MS, monthStart, usdFor } from "@afflatus/core";
 import { gb, long, plural, spell, usd } from "../../format";
 
 /**
@@ -7,7 +7,6 @@ import { gb, long, plural, spell, usd } from "../../format";
  * long the balance lasts. The figures themselves come from the server (costs.ts).
  */
 
-const HOUR = 3_600_000;
 const DAY = 86_400_000;
 
 /** The chart's series for what RunPod billed beyond Afflatus's count of the pods' time (the server's costs.ts NOT_SPLIT). */
@@ -15,7 +14,7 @@ export const NOT_SPLIT = "Not split";
 
 /** The windows a click gives, each ending now; "Month" from the 1st, "All" from the first session or render. */
 export const COST_PRESETS: ReadonlyArray<{ label: string; ms: number | null | "month" }> = [
-  { label: "1H", ms: HOUR }, { label: "6H", ms: 6 * HOUR }, { label: "24H", ms: DAY }, { label: "7D", ms: 7 * DAY }, { label: "30D", ms: 30 * DAY }, { label: "Month", ms: "month" }, { label: "All", ms: null },
+  { label: "1H", ms: HOUR_MS }, { label: "6H", ms: 6 * HOUR_MS }, { label: "24H", ms: DAY }, { label: "7D", ms: 7 * DAY }, { label: "30D", ms: 30 * DAY }, { label: "Month", ms: "month" }, { label: "All", ms: null },
 ];
 
 /** A preset's window as asked now: null for "All" (the server reaches back to the first). */

@@ -1,6 +1,6 @@
 import { defineFamily, defineRecipe, GraphBuilder, REFERENCE_ROLES, roundTo, type BuildContext, type InputSpec, type LoraValue, type Ref, type ReferenceValue } from "@afflatus/core";
 import { flowKit, flowRecipes, type FlowBase, type FlowSpec } from "../flow/recipes";
-import { dropsFor, noGuide, noReferences, pictureForm } from "../shared/pictureForm";
+import { dropsFor, noGuide, noReferences, pictureForm, SOURCE_INPUT } from "../shared/pictureForm";
 import { unetNodes } from "../shared/unet";
 import { qwen21Lint } from "../shared/lint";
 import { FACE_AT_NODE, FACE_NODE, faceScore } from "../shared/face";
@@ -234,7 +234,7 @@ export const qwen21Edit = pictureForm("edit", defineRecipe<Qwen21Edit>({
   output: "image",
   inputs: [
     model,
-    { id: "source", type: "image", role: "source", label: "Image", note: "<image1> in the instruction" },
+    { ...SOURCE_INPUT, note: "<image1> in the instruction" },
     { id: "prompt", type: "prompt", label: "Instruction", style: "sentences", placeholder: "Replace the jacket in <image1> with the one in <image2>, keep everything else the same." },
     {
       id: "references", type: "references", label: "Reference images", max: EDIT_IMAGES - 1, roles: [...REFERENCE_ROLES],
@@ -349,7 +349,7 @@ export const qwen21MotionPicture = pictureForm("own", defineRecipe<Qwen21MotionP
   output: "image",
   inputs: [
     model,
-    { id: "source", type: "image", role: "source", label: "Frame", note: "the frame of the driving video the person is put into: <image1>" },
+    { ...SOURCE_INPUT, label: "Frame", note: "the frame of the driving video the person is put into: <image1>" },
     {
       id: "people", type: "references", label: "Who goes in", max: 3, roles: ["person"],
       note: "photos of the person: one sharp, front-facing and well lit matters most; a second from another angle helps a frame where they are turned",

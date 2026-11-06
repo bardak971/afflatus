@@ -109,7 +109,8 @@ export function GridCost({ plan }: { plan: GridPlan }) {
       {plan.pod && (
         <span className="flex items-center gap-1 text-xs text-ink-2">
           On your pod: {plan.pod.ms !== null ? aboutMs(plan.pod.ms) : "time not known yet"} · {plan.pod.usd !== null ? `about ${usd(plan.pod.usd, true)}` : "cost not known yet"}
-          <Help text={`From your own render times for this model, each cell at its own steps and size (render_stats), on the pod's hourly rate. Asked before queuing above $${GRID_ASK_USD}, near a spending cap, or when it cannot be told.`} />
+          {plan.pod.usd !== null && plan.pod.most !== null && plan.pod.most - plan.pod.usd >= 0.005 && <>, up to {usd(plan.pod.most, true)}</>}
+          <Help text={`From your own render times for this model, each cell at its own steps and size (render_stats), on the pod's hourly rate. "Up to" counts a cell whose time rests on fewer than 3 renders there half again, as an agent's cap does. Asked before queuing when that is above $${GRID_ASK_USD}, near a spending cap, or when it cannot be told.`} />
         </span>
       )}
     </div>

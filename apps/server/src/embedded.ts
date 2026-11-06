@@ -4,7 +4,8 @@ import { inflateSync } from "node:zlib";
 import { modelStem, WEIGHT_NUMBER } from "@afflatus/core";
 import { SAMPLERS, SCHEDULES } from "./a1111";
 import { isPng, pngChunks } from "./aiMark";
-import { PICTURE_MOST, pictureTooLarge } from "./media";
+import { isJpeg, isWebp, jpegSegments, webpChunks } from "./pictureWords";
+import { looksLikePicture, PICTURE_MOST, pictureTooLarge } from "./media";
 import { ffRun, inTemp, readAs, tools } from "./ff";
 
 /**
@@ -107,26 +108,11 @@ function pngText(buf: Buffer): Record<string, string> {
 
 /** The EXIF block of a JPEG (APP1) or a WebP (EXIF chunk), without a picture library. */
 function exifOf(buf: Buffer): Buffer | null {
-  if (buf.length > 4 && buf[0] === 0xff && buf[1] === 0xd8) {
-    let pos = 2;
-    while (pos + 4 <= buf.length && buf[pos] === 0xff) {
-      const marker = buf[pos + 1]!;
-      const len = buf.readUInt16BE(pos + 2);
-      if (marker === 0xe1 && buf.toString("latin1", pos + 4, pos + 10) === "Exif\0\0") return buf.subarray(pos + 4, pos + 2 + len);
-      if (marker === 0xda) break;
-      pos += 2 + len;
-    }
+  if (isJpeg(buf)) {
+    for (const seg of jpegSegments(buf)) if (seg.marker === 0xe1 && seg.data.toString("latin1", 0, 6) === "Exif\0\0") return seg.data;
     return null;
   }
-  if (buf.length > 12 && buf.toString("latin1", 0, 4) === "RIFF" && buf.toString("latin1", 8, 12) === "WEBP") {
-    let pos = 12;
-    while (pos + 8 <= buf.length) {
-      const id = buf.toString("latin1", pos, pos + 4);
-      const len = buf.readUInt32LE(pos + 4);
-      if (id === "EXIF") return buf.subarray(pos + 8, pos + 8 + len);
-      pos += 8 + len + (len % 2);
-    }
-  }
+  if (isWebp(buf)) for (const c of webpChunks(buf)) if (c.id === "EXIF") return c.data;
   return null;
 }
 
@@ -466,13 +452,12 @@ function workflowOf(texts: Record<string, string>): unknown | null {
   return editor && typeof editor === "object" ? editor : isGraph(graph) ? graph : null;
 }
 
-const isPictureBytes = (buf: Buffer) => buf.length > 12 && (buf.readUInt32BE(0) === 0x89504e47 || (buf[0] === 0xff && buf[1] === 0xd8) || buf.toString("latin1", 8, 12) === "WEBP");
 
 /** Everything a dropped file says about how it was made. Never throws: a file that says nothing gives nothing. */
 export async function readEmbedded(bytes: Uint8Array): Promise<Embedded> {
   const buf = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let texts = pngText(buf);
-  const isPicture = isPictureBytes(buf);
+  const isPicture = looksLikePicture(buf);
   let comment: string | null = null;
   if (!Object.keys(texts).length && isPicture) {
     const exif = exifOf(buf);
@@ -493,7 +478,7 @@ export async function readEmbeddedFile(file: string): Promise<Embedded> {
     const { bytesRead } = await f.read(b, 0, 16, 0).finally(() => f.close());
     return b.subarray(0, bytesRead);
   });
-  if (!isPictureBytes(head)) return fromTexts(videoTexts(await tagsOfFile(file)), null);
+  if (!looksLikePicture(head)) return fromTexts(videoTexts(await tagsOfFile(file)), null);
   if ((await stat(file)).size > PICTURE_MOST) throw pictureTooLarge();
   return readEmbedded(await readFile(file));
 }
@@ -512,7 +497,6 @@ function ownFormOf(text: string | undefined): OwnForm | undefined {
  */
 function settingsOfOwn(own: OwnForm): FoundSettings {
   const i = own.input;
-  const bare = (v: string) => v.replace(/^.*[\\/]/, "");
   const str = (v: unknown) => (typeof v === "string" ? v : undefined);
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
   const model = str(i.checkpoint) ?? str(i.model) ?? str(i.unet);
@@ -521,8 +505,8 @@ function settingsOfOwn(own: OwnForm): FoundSettings {
   return {
     source: "a1111",
     prompt: str(i.prompt) ?? "", negative: str(i.negative) ?? "",
-    ...(model ? { checkpoint: modelStem(bare(model)) } : {}),
-    loras: loras.map((l) => ({ name: modelStem(bare(l.file as string)), weight: l.weight as number })),
+    ...(model ? { checkpoint: modelStem(model) } : {}),
+    loras: loras.map((l) => ({ name: modelStem(l.file as string), weight: l.weight as number })),
     steps: num(i.steps), cfg: num(i.cfg), sampler: str(i.sampler), scheduler: str(i.scheduler), seed: num(i.seed),
     width: num(size.width), height: num(size.height),
     notes: [],

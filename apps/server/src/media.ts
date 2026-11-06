@@ -96,10 +96,9 @@ export function looksLikePicture(head: Uint8Array): boolean {
   return png || jpeg || webp;
 }
 
-const EXT = MEDIA_EXT;
-export const extOf = (mime: string) => EXT[mime] ?? "bin";
+export const extOf = (mime: string) => MEDIA_EXT[mime] ?? "bin";
 
-const MIME_BY_EXT: Record<string, string> = Object.fromEntries(Object.entries(EXT).map(([m, e]) => [e, m]));
+const MIME_BY_EXT: Record<string, string> = Object.fromEntries(Object.entries(MEDIA_EXT).map(([m, e]) => [e, m]));
 export const mimeOfFile = (filename: string) => MIME_BY_EXT[filename.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream";
 /**
  * What a file of a linked folder is taken for by its extension: the library's own ones, and the other names the same

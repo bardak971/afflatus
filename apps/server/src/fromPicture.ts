@@ -1,5 +1,5 @@
-import { formModelInput, isModelFile, modelStem, SEED_RANGE, type InputSpec, type Recipe } from "@afflatus/core";
-import { a1111Slots, bare, MEDIA_TYPES, takesPicture } from "./a1111";
+import { baseName, formModelInput, isModelFile, modelStem, SEED_RANGE, type InputSpec, type Recipe, type RegionValue } from "@afflatus/core";
+import { a1111Slots, MEDIA_TYPES, takesPicture } from "./a1111";
 import type { FoundSettings, OwnForm } from "./embedded";
 
 /**
@@ -120,13 +120,19 @@ export function fill(found: FoundSettings, recipe: Recipe<any>, options: Options
       const upscaler = slot.hires.upscaler;
       const has = fileFor(found.hires.upscaler, options.hiresUpscaler) ?? (upscaler?.type === "choice" && upscaler.extra?.includes("latent") ? "latent" : undefined);
       if (has) input.hiresUpscaler = has;
-      if (found.hires.scale) input.hiresScale = clamp(found.hires.scale, 1.1, 2);
-      if (found.hires.denoise) input.hiresDenoise = clamp(found.hires.denoise, 0.05, 0.9);
-      if (found.hires.steps) input.hiresSteps = clamp(Math.round(found.hires.steps), 1, 60);
+      // held to the form's own ranges (its scale goes to 4×, past 2× in tiles): a fixed 2 cut an A1111 "Upscale by 3" short
+      const row = (id: string) => (recipe.inputs as InputSpec[]).find((i): i is Extract<InputSpec, { type: "number" }> => i.id === id && i.type === "number");
+      const put = (id: string, value: number | undefined) => {
+        const r = row(id);
+        if (r && value) number(r, value);
+      };
+      put("hiresScale", found.hires.scale);
+      put("hiresDenoise", found.hires.denoise);
+      put("hiresSteps", found.hires.steps);
     }
   }
 
-  if (made?.recipe === recipe.id) ownInto(recipe, made.input, input, options);
+  if (made?.recipe === recipe.id) ownInto(recipe, made.input, input, options, notes);
 
   return {
     recipe: recipe.id, input, source: found.source, notes, missing,
@@ -142,16 +148,30 @@ export function fill(found: FoundSettings, recipe: Recipe<any>, options: Options
  * pictures. A file the form names (an upscaler) went out by its name alone: it is this ComfyUI's file of that name, else
  * the form keeps its own.
  */
-function ownInto(recipe: Recipe<any>, own: Record<string, unknown>, input: Record<string, unknown>, options: Options): void {
+function ownInto(recipe: Recipe<any>, own: Record<string, unknown>, input: Record<string, unknown>, options: Options, notes: string[]): void {
   // a form that starts from the picture rolls its own seed and keeps the picture's size, as fill does
   const fromPicture = takesPicture(recipe);
+  const lorasInput = (recipe.inputs as InputSpec[]).find((i) => i.type === "loras");
   for (const spec of recipe.inputs as InputSpec[]) {
     const v = own[spec.id];
     if (v === undefined || MEDIA_TYPES.has(spec.type) || spec.type === "loras" || spec === formModelInput(recipe)) continue;
     if (fromPicture && (spec.type === "seed" || spec.type === "size")) continue;
+    if (spec.type === "regions" && Array.isArray(v)) {
+      // a box's LoRA went out by its name alone (pngInfo.ts ownRegion), as the main LoRAs did: matched back the same way to
+      // this ComfyUI's file, its sub-folder with it; one this ComfyUI does not have is left out of its box, said
+      const listed = lorasInput ? options[lorasInput.id] ?? [] : [];
+      input[spec.id] = (v as RegionValue[]).map((r) => {
+        if (!r.lora || !listed.length) return r;
+        const file = fileFor(r.lora.file, listed);
+        if (file) return { ...r, lora: { ...r.lora, file } };
+        notes.push(`A region's LoRA (${modelStem(r.lora.file)}) is not one ComfyUI has: its box goes without it.`);
+        return { ...r, lora: undefined };
+      });
+      continue;
+    }
     if (typeof v === "string" && isModelFile(v)) {
       const offered = spec.type === "choice" && Array.isArray(spec.options) ? spec.options : options[spec.id] ?? [];
-      const file = offered.find((o) => o === v) ?? offered.find((o) => bare(o).toLowerCase() === v.toLowerCase());
+      const file = offered.find((o) => o === v) ?? offered.find((o) => baseName(o).toLowerCase() === v.toLowerCase());
       if (file) input[spec.id] = file;
       else if (!offered.length) input[spec.id] = v;
       continue;

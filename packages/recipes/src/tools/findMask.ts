@@ -1,6 +1,7 @@
 import { defineRecipe, GraphBuilder, TOOLS_FAMILY } from "@afflatus/core";
 import { DETECTOR_FILES } from "../shared/adetail";
 import { HAND_THRESHOLD } from "../shared/detector";
+import { SOURCE_INPUT } from "../shared/pictureForm";
 import { SAM_FILE, samModel } from "../shared/sam";
 
 /**
@@ -59,7 +60,7 @@ export const findMask = defineRecipe<FindMask>({
   summary: "Finds a mask on a picture: SAM 3 from points clicked on it, or a face, hands or a person found by a detector. The Stage's click and find tools.",
   output: "image",
   inputs: [
-    { id: "source", type: "image", role: "source", label: "Image", note: "the picture the mask is found on" },
+    { ...SOURCE_INPUT, note: "the picture the mask is found on" },
     { id: "way", type: "choice", label: "Way", options: ["points", "detect"], default: "points", internal: true },
     { id: "add", type: "prompt", label: "Points on it", style: "sentences", line: true, optional: true, noCast: true, default: "", internal: true },
     { id: "remove", type: "prompt", label: "Points off it", style: "sentences", line: true, optional: true, noCast: true, default: "", internal: true },

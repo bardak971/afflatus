@@ -1,6 +1,6 @@
 import type { Db, Tables } from "./db";
 import type { Registry } from "./registry";
-import { shortGpu } from "@afflatus/core";
+import { HOUR_MS, shortGpu } from "@afflatus/core";
 import { machinePaces } from "./forecast";
 import { buildOf } from "./podImage";
 import { cellOf, DAY, dayOf, dayStart, digestedThrough, digestOf, machineDigestedThrough, groupKey, median, merge, parseDigest, real, spilled, sum, weighted, WHOLE_DAY, BUCKETS, type Cell, type Digest, type Line, type RenderRow, type Setting } from "./renderDigests";
@@ -38,7 +38,7 @@ export type Period = "day" | "week" | "month" | "all";
 export interface Window { from: number; to: number }
 /** How long a stretch of a chart is for a window: five minutes up to three hours, a quarter up to twelve, an hour up to two days, six hours up to a week, a day beyond. */
 function stepFor(spanMs: number): number {
-  const H = 3_600_000;
+  const H = HOUR_MS;
   return spanMs <= 3 * H ? 5 * 60_000 : spanMs <= 12 * H ? 15 * 60_000 : spanMs <= 48 * H ? H : spanMs <= 7 * DAY + H ? 6 * H : DAY;
 }
 

@@ -123,6 +123,11 @@ describe("one rule for every form of Qwen Image 2.1 (card #303)", () => {
       expect(g[(g[first]!.inputs.image as [string, number])[0]]!.class_type, last).toBe(last);
       // split once: the next rows take the detailer's picture before them
       expect(of(g, "SplitImageWithAlpha"), last).toHaveLength(1);
+      // and its alpha joined again after the last row, for the picture saved (card #326: a transparent background came out opaque)
+      const [join] = of(g, "JoinImageWithAlpha");
+      expect(join?.[1].inputs, last).toEqual({ image: [detailers[2]![0], 0], alpha: [first, 1] });
+      const [preview] = of(g, "PreviewImage");
+      expect(preview![1].inputs.images, last).toEqual([join![0], 0]);
     }
     // without a Detail row, or on a family whose VAE gives colours alone, the graph is as it was
     expect(of(built("qwen21.text-to-picture", { model: turbo }), "SplitImageWithAlpha")).toEqual([]);

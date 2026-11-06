@@ -1,4 +1,4 @@
-import { NVIDIA_ONLY, choicesOf, isNvidiaRtx, packName, packOfNode, type NodeCatalog, type Wanted } from "@afflatus/core";
+import { NVIDIA_ONLY, isNvidiaRtx, packName, packOfNode, type NodeCatalog, type Wanted } from "@afflatus/core";
 import type { Machine } from "./settings";
 import { readJson, type JobRow } from "./queueModel";
 import type { PodPackState } from "./podPacks";
@@ -107,18 +107,6 @@ export function ranWithoutSaid(w: Wanted, why: string): string {
   if (why === "run without it, as asked" || why.startsWith("it runs on")) return `${what}: ${why}.`;
   return `${what}: its node pack${pack ? ` ${pack}` : ""} is missing${why === "its node pack is not on this ComfyUI" ? "" : `, ${why}`}.`;
 }
-
-/** The files a node's input offers on a ComfyUI (BuildContext.options): what RTX VSR falls back on. */
-export const optionsIn = (catalog: NodeCatalog) => (node: string, input: string): string[] | null => {
-  const def = catalog[node];
-  return def ? choicesOf(def.input.required?.[input] ?? def.input.optional?.[input]) : null;
-};
-
-/** The inputs a node takes on a ComfyUI (BuildContext.inputs): what a fork of a pack under the same node names asks for. */
-export const inputsIn = (catalog: NodeCatalog) => (node: string): string[] | null => {
-  const def = catalog[node];
-  return def ? [...Object.keys(def.input.required ?? {}), ...Object.keys(def.input.optional ?? {})] : null;
-};
 
 /**
  * The packs a job lacks on a machine, from what its graph uses there (jobFiles.ts Loaded): those of the options it asks
