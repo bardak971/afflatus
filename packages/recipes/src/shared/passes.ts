@@ -27,10 +27,13 @@ export interface PictureSampler {
   area: number;
   /** Its passes give pictures and set their own phases (Klein's sampler decodes): the output is not put in "decoding". */
   decodes?: boolean;
-  /** The enlarged picture as the second pass starts from it, encoded while upscaling (SDXL's); else `whole` encodes it. */
+  /** The enlarged picture as the second pass starts from it, encoded before the pass's "refining" phase (SDXL's); else `whole` encodes it. */
   encode?: (pixels: Ref) => Ref;
-  /** The second pass over the whole enlarged picture: the pixels (or what `encode` made of them) at `large`. */
-  whole: (start: Ref, large: Size) => Drawn;
+  /**
+   * The second pass over the whole enlarged picture at `large`: from `start`, what `encode` made of its `pixels` (else they;
+   * no pixels for a picture enlarged in latent space, SDXL's).
+   */
+  whole: (start: Ref, large: Size, pixels?: Ref) => Drawn;
   /**
    * The second pass in tiles: made once before the picture is cut (what every tile shares, a model shifted for a tile or the
    * prompt read alone, is made there), it samples the tiles' latents, `tiles` their pixels, each `tile` px square.
@@ -71,7 +74,7 @@ export function hiresFix(g: GraphBuilder, ctx: BuildContext, input: HiresFixSett
   if (!tiled) {
     const start = s.encode ? s.encode(scaled) : scaled;
     g.phase("refining");
-    const second = s.whole(start, large);
+    const second = s.whole(start, large, scaled);
     return { latent: second.latent, image: second.image, passes: [first.pass, second.pass], loads };
   }
   g.phase("refining");

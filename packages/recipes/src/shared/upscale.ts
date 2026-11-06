@@ -1,5 +1,7 @@
-import type { BuildContext, GraphBuilder, InputSpec, Ref } from "@afflatus/core";
+import type { BuildContext, BuiltGraph, GraphBuilder, InputSpec, Ref } from "@afflatus/core";
 import { UPSCALER_DEFAULT, UPSCALER_PREFER } from "./hires";
+import type { PictureSampler } from "./passes";
+import { inTiles, redrawInTiles, tilePass, type TileSettings } from "./tiles";
 
 /** How much "Upscale" enlarges. */
 export interface UpscaleSettings {
@@ -27,3 +29,62 @@ export function refineColourMatched(g: GraphBuilder, ctx: BuildContext, refined:
 
 /** The Upscaler row of every Upscale 2x (SDXL, FLUX and its kin, Klein): one row, one default. */
 export const UPSCALER_INPUT: InputSpec = { id: "upscaler", type: "choice", label: "Upscaler", note: "from your upscale models", options: { node: "UpscaleModelLoader", input: "model_name" }, default: UPSCALER_DEFAULT, prefer: UPSCALER_PREFER, section: "out" };
+
+/** What every Upscale 2x reads of its form besides its family's own pass settings. */
+export interface Upscale2xSettings extends TileSettings, RefineColourMatch {
+  upscaler: string;
+  refine: boolean;
+}
+
+/**
+ * Upscale 2x, written once (card #289): the source enlarged by an upscale model and scaled to `size`, then, with `refine`, a
+ * light img2img pass over it, whole or (past four times `area`, or asked) in tiles, colour matched back after. The family's
+ * sampler is made while loading, told whether the pass goes in tiles (what only the whole pass reads is made there, Klein's
+ * texts with the source), with the files it loads; its `encode` is made there too (SDXL's). `alpha`: the model decodes an alpha
+ * too, which ColorTransfer does not take.
+ */
+export function upscale2x(
+  g: GraphBuilder, ctx: BuildContext, input: Upscale2xSettings, size: { width: number; height: number }, area: number,
+  sampler: (tiled: boolean, source: Ref) => Omit<PictureSampler, "area"> & { loads: string[] }, o: { alpha?: boolean } = {},
+): Pick<BuiltGraph, "graph" | "phases" | "outputs" | "totalSteps" | "passes" | "loads"> {
+  const source = g.out("LoadImage", { image: ctx.uploads.source });
+  g.phase("upscaling");
+  const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.upscaler }), image: source });
+  // upscale models enlarge by their own factor (usually 4×): scaled to exactly the size asked
+  const sized = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
+  const loads = [`upscale_models/${input.upscaler}`];
+  if (!input.refine) {
+    const out = g.add("PreviewImage", { images: sized });
+    return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: 1, loads };
+  }
+  const tiled = inTiles(input, size, area);
+  g.phase("loading");
+  const s = sampler(tiled, source);
+  let pass: { node: string; steps: number; pixels?: number } = { node: "", steps: 0 };
+  let picture: Ref;
+  if (tiled) {
+    g.phase("refining");
+    const sample = s.tiles(size);
+    picture = redrawInTiles(g, ctx, sized, s.vae, size, input, (latent, tiles, tile) => {
+      const done = sample(latent, tiles, tile);
+      // the pass runs once for each tile, at a tile's size
+      pass = tilePass(done.pass, size, input);
+      return done.latent;
+    });
+  } else {
+    const start = s.encode ? s.encode(sized) : sized;
+    g.phase("refining");
+    const done = s.whole(start, size, sized);
+    pass = done.pass;
+    if (done.image) picture = done.image;
+    else {
+      g.phase("decoding");
+      picture = g.out("VAEDecode", { samples: done.latent!, vae: s.vae });
+    }
+  }
+  g.phase("decoding");
+  // ColorTransfer takes the colours only: a decode with an alpha gives them alone (the picture is opaque, its source too)
+  if (o.alpha && input.colourMatch && ctx.has("ColorTransfer")) picture = g.out("SplitImageWithAlpha", { image: picture });
+  const out = g.add("PreviewImage", { images: refineColourMatched(g, ctx, picture, sized, input) });
+  return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: pass.steps, passes: [pass], loads: [...loads, ...s.loads] };
+}

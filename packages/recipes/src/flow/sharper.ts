@@ -1,7 +1,7 @@
-import { defineRecipe, GraphBuilder, roundTo, type Recipe, type Ref } from "@afflatus/core";
+import { defineRecipe, GraphBuilder, roundTo, type Recipe } from "@afflatus/core";
 import { dropsFor, pictureForm, SOURCE_INPUT, strengthInput } from "../shared/pictureForm";
-import { FACTOR_INPUT, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_INPUT, type RefineColourMatch, type UpscaleSettings } from "../shared/upscale";
-import { redrawInTiles, tileInputs, tilePass, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
+import { FACTOR_INPUT, REFINE_COLOUR_MATCH_INPUT, upscale2x, UPSCALER_INPUT, type RefineColourMatch, type UpscaleSettings } from "../shared/upscale";
+import { tileInputs, tilesOf, type TileSettings } from "../shared/tiles";
 import { rowsWhile } from "../shared/addedRows";
 import { sigmaWords } from "../shared/sigmaWords";
 import { photo, SAME_PICTURE, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
@@ -58,46 +58,23 @@ export function flowSharper(spec: FlowSpec, kit: FlowKit): Recipe<FlowSharper> {
       const g = new GraphBuilder();
       const from = ctx.media.source?.width ? ctx.media.source : { width: 1024, height: 1024 };
       const size = { width: roundTo(from.width * input.factor, spec.grid ?? 16), height: roundTo(from.height * input.factor, spec.grid ?? 16) };
-      const source = g.out("LoadImage", { image: ctx.uploads.source });
-      g.phase("upscaling");
-      const big = g.out("ImageUpscaleWithModel", { upscale_model: g.out("UpscaleModelLoader", { model_name: input.upscaler }), image: source });
-      // upscale models enlarge by their own factor (usually 4x): scaled to exactly twice the picture
-      const sized = g.out("ImageScale", { image: big, upscale_method: "lanczos", width: size.width, height: size.height, crop: "disabled" });
-      const loads = [`upscale_models/${input.upscaler}`];
-      if (!input.refine) {
-        const out = g.add("PreviewImage", { images: sized });
-        return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: 1, loads };
-      }
-      const tiled = inTiles(input, size, REFINE_WHOLE_PIXELS / 4);
-      g.phase("loading");
-      const k = load(g, input, ctx);
-      const c = cond(g, k, input, input.prompt.trim() || SAME_PICTURE);
-      g.phase("refining");
-      const light = { steps: lightSteps(k.steps) };
-      let pass: { node: string; steps: number; pixels?: number } = { node: "", steps: light.steps };
-      let picture: Ref;
-      if (tiled) {
-        // each tile is a picture its own size to the model: the shift for that size
-        const { tile } = tilesOf(size, input);
-        const at = { width: tile, height: tile };
-        const model = shifted(g, k.model, input, at);
-        const denoise = denoiseAt(input, at, light.steps);
-        picture = redrawInTiles(g, ctx, sized, k.vae, size, input, (l) => {
-          const done = sample(g, k, input, model, c, l, ctx.seed, { ...light, denoise });
-          pass = tilePass(done.pass, size, input);
-          return done.latent;
-        });
-      } else {
-        const done = sample(g, k, input, shifted(g, k.model, input, size), c, g.out("VAEEncode", { pixels: sized, vae: k.vae }), ctx.seed, { ...light, denoise: denoiseAt(input, size, light.steps) });
-        pass = done.pass;
-        g.phase("decoding");
-        picture = g.out("VAEDecode", { samples: done.latent, vae: k.vae });
-      }
-      g.phase("decoding");
-      // ColorTransfer takes the colours only: a decode with an alpha gives them alone (the picture is opaque, its source too)
-      if (spec.alpha && input.colourMatch && ctx.has("ColorTransfer")) picture = g.out("SplitImageWithAlpha", { image: picture });
-      const out = g.add("PreviewImage", { images: refineColourMatched(g, ctx, picture, sized, input) });
-      return { graph: g.graph, phases: g.phases, outputs: [{ node: out, kind: "image", role: "result" }], totalSteps: pass.steps, passes: [pass], loads: [...loads, ...k.loads] };
+      return upscale2x(g, ctx, input, size, REFINE_WHOLE_PIXELS / 4, () => {
+        const k = load(g, input, ctx);
+        const c = cond(g, k, input, input.prompt.trim() || SAME_PICTURE);
+        const light = { steps: lightSteps(k.steps) };
+        return {
+          vae: k.vae, loads: k.loads,
+          whole: (pixels, at) => sample(g, k, input, shifted(g, k.model, input, at), c, g.out("VAEEncode", { pixels, vae: k.vae }), ctx.seed, { ...light, denoise: denoiseAt(input, at, light.steps) }),
+          // each tile is a picture its own size to the model: the shift for that size
+          tiles: (at) => {
+            const { tile } = tilesOf(at, input);
+            const each = { width: tile, height: tile };
+            const model = shifted(g, k.model, input, each);
+            const denoise = denoiseAt(input, each, light.steps);
+            return (l) => sample(g, k, input, model, c, l, ctx.seed, { ...light, denoise });
+          },
+        };
+      }, { alpha: spec.alpha });
     },
     variants: [
       { name: "enlarged and gone over", input: { source: "p", upscaler: "u.pth" } as Partial<FlowSharper>, slots: files, uploads: { source: "s.png" }, media: { source: { width: 640, height: 960 } } },
