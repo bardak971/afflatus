@@ -50,6 +50,8 @@ export const krea2Spec: FlowSpec = {
     },
   ],
   placeholder: "A photograph of a woman in a linen shirt drinking coffee on a terrace at sunrise, soft warm light from the left, waist up.",
+  // every Krea 2 file but RAW (the presets' match): Turbo and its fine-tunes are made for its few steps
+  distilled: /^(?!(?!.*turbo).*krea.?2.*raw)/i,
   files: { unet: "krea2_turbo_fp8_scaled.safetensors", clip: "qwen3vl_4b_fp8_scaled.safetensors", vae: "qwen_image_vae.safetensors" },
   fineTune: "someone_krea2.safetensors",
 };

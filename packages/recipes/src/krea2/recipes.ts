@@ -271,7 +271,7 @@ export const krea2Picture = pictureForm("txt2img", defineRecipe<Krea2Picture>({
     return pictureOut(g, ctx, input, krea2, hired, { size: { width: W, height: H }, large }, {
       model: () => shifted(g, plain, input, { width: 1024, height: 1024 }), clip: k.clip, vae: k.vae,
       cond: (text) => (!text && !styled && !person && !regioned ? cond : condOf(g, k, input, text ?? input.prompt)),
-      steps: k.steps, cfg: k.cfg, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed, skip: { Face: person },
+      steps: k.steps, distilled: krea2Kit.distilledFile(input, ctx.slots), cfg: k.cfg, sampler: input.sampler, scheduler: input.scheduler, seed: ctx.seed, skip: { Face: person },
     }, loads, (image) => {
       // Face refine (or Detail: face): the person's face redrawn from their picture when it is a small one, read at the size
       // it was drawn at

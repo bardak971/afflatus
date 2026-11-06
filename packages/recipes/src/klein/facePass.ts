@@ -1,7 +1,8 @@
 import { wanted, type BuildContext, type GraphBuilder, type InputSpec, type Ref } from "@afflatus/core";
 import { loadUnet } from "../shared/unet";
 import { SMALL_FACE_PX } from "../shared/adetail";
-import { KLEIN_PRESETS, kleinCond, kleinNoise, REFERENCE_NODES, type Klein } from "./common";
+import { kleinCond, kleinDistilled, kleinNoise, REFERENCE_NODES, type Klein } from "./common";
+import { faceStepsFor } from "../shared/face";
 
 /** What a face is redrawn towards, in Klein's words: the person of the reference pictures, nothing else changed. */
 export const SAME_FACE = "the same person's face, identical to the reference photos: same features, eyes, nose, mouth, beard and hair; natural skin, sharp, photorealistic";
@@ -29,8 +30,8 @@ const FACE_FEATHER = 12;
  * from 0.54 to 0.63–0.64, within 1–3 of 255 of each other over the face, and the pass from 31.5 s to 10 s there.
  */
 const FACE_PASS_STEPS = 6;
-/** Klein's own sampling for the pass: the base model's FACE_PASS_STEPS at CFG 5, a distilled one's 4 at CFG 1. */
-const sampling = (file: string | undefined) => (new RegExp(KLEIN_PRESETS[0]!.match, "i").test(file?.split(/[\\/]/).pop() ?? "") ? { steps: 4, cfg: 1 } : { steps: FACE_PASS_STEPS, cfg: 5 });
+/** Klein's own sampling for the pass: the base model's FACE_PASS_STEPS at CFG 5, a distilled one's share of its 4 at CFG 1. */
+const sampling = (file: string | undefined, denoise: number) => (kleinDistilled(file) ? { steps: faceStepsFor(4, denoise, true), cfg: 1 } : { steps: FACE_PASS_STEPS, cfg: 5 });
 
 export const FACE_PASS_INPUTS: InputSpec[] = [
   {
@@ -90,7 +91,7 @@ export function facePass(g: GraphBuilder, ctx: BuildContext, input: FacePassValu
   if (!wanted(ctx, { input: "faceRefine", nodes: ["UltralyticsDetectorProvider"], without: "Face refine" })) return as;
   const { slots } = ctx;
   g.phase("detailing");
-  const { steps, cfg } = sampling(slots.kleinUnet);
+  const { steps, cfg } = sampling(slots.kleinUnet, input.faceRefineDenoise);
   const k: Klein = {
     model: loadUnet(g, ctx, slots.kleinUnet),
     clip: g.out("CLIPLoader", { clip_name: slots.kleinClip, type: "flux2", device: "default" }),

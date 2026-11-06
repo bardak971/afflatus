@@ -43,6 +43,8 @@ export const KLEIN_PRESETS: Preset[] = [
     note: "distilled Klein: 4 steps at CFG 1, 3 for hires fix",
   },
 ];
+/** A distilled Klein file, by its name as KLEIN_PRESETS reads it: its face passes keep the spacing of its steps (faceStepsFor). */
+export const kleinDistilled = (file: string | undefined) => new RegExp(KLEIN_PRESETS[0]!.match, "i").test(file?.split(/[\\/]/).pop() ?? "");
 
 /** About one megapixel at this shape, both edges multiples of 16: where Klein draws best. */
 export function kleinSize(of: { width: number; height: number } | undefined, megapixels = 1) {

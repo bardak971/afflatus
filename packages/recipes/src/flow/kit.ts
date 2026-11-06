@@ -54,7 +54,7 @@ export interface FlowSpec {
    */
   extend?: { nodes: string[]; read(g: GraphBuilder, k: { clip: Ref; vae: Ref }, prompt: string, negative: string, canvas: Ref): { positive: Ref; negative: Ref; latent: Ref } };
   /**
-   * A model file distilled to a few steps, by its name (Qwen Image 2.1 Turbo's). Its face pass keeps the spacing of the
+   * A model file distilled to a few steps, by its name (Qwen Image 2.1 Turbo's, Krea 2's). Its face pass keeps the spacing of the
    * steps it was distilled for: ComfyUI runs every step of a pass over the part of the schedule a denoise leaves, so its own
    * 8 steps at 0.4 were laid as close as 20 over the whole, and the skin came out grainy, as its txt2img does at 40. At the
    * spacing it was made for (3 steps at 0.4), the skin was as clean as the full model's (card #286's pod A/B).
