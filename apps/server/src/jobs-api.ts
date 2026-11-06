@@ -79,11 +79,13 @@ export async function queueRender(s: Services, body: z.output<typeof jobBody>, b
   return s.queue.enqueueAll(async (ask) => {
     for (const copy of copies) {
       const seeded = copy.input;
+      // a grid's cell on another family renders on that family's form (card #294), the cast worked into it there
+      const on = copy.recipe ? s.registry.recipe(copy.recipe) : recipe;
       // with a cast: each copy's choices ({a|b}, __colors__) settled before it is worked in, so that what was asked and what
       // renders pick the same
-      const own = recipe && look ? await settleTexts(s.wildcards, recipe, bounded(recipe, seeded)) : seeded;
-      const each = recipe && look ? (await compose(s.db, recipe, own, look)).input : own;
-      await ask.render(body.recipe, each, { label: copy.label ? `${label ?? recipe?.title ?? body.recipe} · ${copy.label}` : label, draft: body.draft, folder: body.folder, versionOf: body.versionOf, look, asked: each === own ? undefined : askedOf(own, each), machine: body.machine ?? null, mcpToken: by.mcpToken ?? null, ...(copy.grid ? { grid: copy.grid } : {}) });
+      const own = on && look ? await settleTexts(s.wildcards, on, bounded(on, seeded)) : seeded;
+      const each = on && look ? (await compose(s.db, on, own, look)).input : own;
+      await ask.render(copy.recipe ?? body.recipe, each, { label: copy.label ? `${label ?? recipe?.title ?? body.recipe} · ${copy.label}` : label, draft: body.draft, folder: body.folder, versionOf: body.versionOf, look, asked: each === own ? undefined : askedOf(own, each), machine: body.machine ?? null, mcpToken: by.mcpToken ?? null, ...(copy.grid ? { grid: copy.grid } : {}) });
     }
   });
 }
@@ -112,6 +114,8 @@ function bounded(recipe: Recipe<any>, input: Record<string, unknown>): Record<st
 
 /** One cell of an X/Y/Z grid as it is queued (grids.ts): its form, what it is said as, and its place on the board. */
 export interface GridCellJob {
+  /** Its recipe when it is not the grid's: another family's form of the same operation (card #294). */
+  recipe?: string;
   input: Record<string, unknown>;
   label?: string;
   grid?: { id: string; cell: string };

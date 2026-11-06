@@ -101,7 +101,7 @@ describe("an X/Y/Z grid, as it is queued", () => {
 
   it("plans a grid off pods: its count, no money line", async () => {
     const plan = (await post(t.app, "/api/grids/plan", { recipe, input, axes: [{ field: "cfg", values: "4, 6" }, { field: "steps", values: "20, 30" }] })).json();
-    expect(plan).toEqual({ count: 4, ms: null, pod: null });
+    expect(plan).toEqual({ count: 4, ms: null, pod: null, refused: null });
   });
 
   it("puts each Prompt S/R value in place of the first", async () => {

@@ -203,7 +203,13 @@ export interface GridView {
 export interface GridPlanView {
   count: number;
   ms: number | null;
-  pod: { ms: number | null; usd: number | null; most: number | null } | null;
+  /**
+   * On a rented pod: the time and the money at worst, with `fetch`, the model files it would fetch first (each family's of a
+   * Model axis across families, each once, card #294): how many, their bytes and their time (null: not known).
+   */
+  pod: { ms: number | null; usd: number | null; most: number | null; fetch: { files: number; bytes: number | null; ms: number | null } | null } | null;
+  /** A cell on another family no machine it may go to can run, and why: Queue grid is refused. */
+  refused: string | null;
 }
 /** A grid as it is sent to be priced and queued: the whole form, its axes as typed, the lists a value is found in. */
 export interface GridAsk {
@@ -211,6 +217,8 @@ export interface GridAsk {
   input: Record<string, unknown>;
   axes: Array<{ field: string; values: string }>;
   options?: Record<string, string[]>;
+  /** By recipe id, the model files of the other families' forms of this operation: where a Model axis value of theirs is found. */
+  across?: Record<string, string[]>;
   machine?: string;
 }
 /** One of a draft's grids, as its column lists them. */

@@ -44,9 +44,10 @@ export interface CellTime {
  * queued: each cell's own forecast, so a steps, size, hires or model axis is priced at what it renders, not at the base
  * form's cost times the count (the 2026-11-05 review: a steps 20-150 axis priced at 20 steps). A model is loaded where a
  * cell's model is not the one before it, at worst as the queue takes them in order, and not again for a run of cells with it.
+ * Each cell on its own recipe: a Model axis across families renders cells on several (card #294).
  */
-export async function cellTimes(s: Services, recipe: string, inputs: readonly unknown[], machine: string | null, prices: Prices = new Map()): Promise<CellTime[]> {
-  const got = await Promise.all(inputs.map((input) => priced(s, prices, recipe, input)));
+export async function cellTimes(s: Services, cells: ReadonlyArray<{ recipe: string; input: unknown }>, machine: string | null, prices: Prices = new Map()): Promise<CellTime[]> {
+  const got = await Promise.all(cells.map((c) => priced(s, prices, c.recipe, c.input)));
   let held: string | null = null;
   return got.map((g) => {
     const f = g ? (machine ? g.on?.[machine] ?? g.forecast : g.forecast) : null;

@@ -1,10 +1,12 @@
-import { PROMPT_MOST, type InputSpec, type LoraValue } from "./inputs";
+import { carryAcross, carryOver } from "./carryOver";
+import { formModelInput, PROMPT_MOST, type InputSpec, type LoraValue } from "./inputs";
 import { RANDOM_SEED } from "./seed";
 import { withinPixels } from "./frame";
 import { capRoom, usd, type CapsSpent } from "./money";
 import { modelStem } from "./modelFiles";
+import type { PictureOp } from "./recipe";
 import { SEED_RANGE } from "./seed";
-import { plural } from "./text";
+import { plural, squash } from "./text";
 
 /**
  * X/Y/Z grids (card #21), as A1111's X/Y/Z plot makes them: up to three axes, each a setting of the form and the values it
@@ -62,6 +64,68 @@ export interface GridCell {
   x: number;
   y: number;
   z: number;
+}
+
+/**
+ * Another family's form of the same operation (card #294), which the Model axis may run across, as A1111's checkpoint axis
+ * does but across architectures: the same prompt on SDXL, Krea 2 and Klein as one board. Its recipe, the family's name as
+ * the values and the board say it ("Klein: flux-2-klein-4b"), and the files its model input offers on the machines.
+ */
+export interface GridFamily {
+  recipe: { id: string; family: string; inputs: readonly InputSpec[] };
+  name: string;
+  files: readonly string[];
+}
+
+/** What a Model axis may run across: the base form's family's name, and the other families' forms of its operation. */
+export interface GridAcross {
+  name: string;
+  families: readonly GridFamily[];
+}
+
+/** A Model axis's value on another family: that family's form and the file its model input takes. */
+interface AcrossValue {
+  recipe: string;
+  file: string;
+}
+const isAcross = (v: unknown): v is AcrossValue => typeof v === "object" && v !== null && typeof (v as AcrossValue).recipe === "string" && typeof (v as AcrossValue).file === "string";
+
+/**
+ * The other families' forms of the same operation as this one, one per family (a built-in one before an imported workflow
+ * of it): what a Model axis may run across. None for a form that says no operation, or one of its own (a variation).
+ */
+export function sameOpForms<R extends { id: string; family: string; op?: PictureOp; hidden?: true; imported?: true; inputs: readonly InputSpec[] }>(base: { family: string; op?: PictureOp }, recipes: readonly R[]): R[] {
+  if (!base.op || base.op === "own") return [];
+  const out = new Map<string, R>();
+  for (const r of recipes) {
+    if (r.family === base.family || r.op !== base.op || r.hidden || !formModelInput(r)) continue;
+    const had = out.get(r.family);
+    if (!had || (had.imported && !r.imported)) out.set(r.family, r);
+  }
+  return [...out.values()];
+}
+
+/**
+ * What a cell on another family starts with (card #294): what the picture is made from and about, as a model switch takes
+ * it to another family (carryAcross: its pictures, its prompt, its boxes), with its size and its seed where that form has
+ * them alike; never how the first model was run (its file, its LoRAs, its steps and CFG), which are the other family's own,
+ * filled as a job sent without a form is (Queue.renderJob: its file's line, its defaults). The prompt goes whatever the
+ * two forms' styles (SDXL's tags into Klein's sentences), and a text of the same name (the negative) with it: the same
+ * prompt on every model is what the axis is for, as A1111's checkpoint axis keeps it.
+ */
+export function acrossInput(from: { inputs: readonly InputSpec[] }, to: { inputs: readonly InputSpec[] }, base: Record<string, unknown>): Record<string, unknown> {
+  const out = carryAcross(from, to, base, undefined);
+  const alike = carryOver({ inputs: [...from.inputs] }, { inputs: [...to.inputs] }, base, undefined);
+  for (const i of to.inputs) if ((i.type === "size" || i.type === "seed") && alike[i.id] !== undefined) out[i.id] ??= alike[i.id];
+  const said = (inputs: readonly InputSpec[]) => inputs.find((i) => i.type === "prompt" && !i.optional);
+  const [a, b] = [said(from.inputs), said(to.inputs)];
+  if (a && b && typeof base[a.id] === "string") out[b.id] ??= base[a.id];
+  for (const i of to.inputs) {
+    if (i.type !== "prompt" || i === b) continue;
+    const was = from.inputs.find((o) => o.id === i.id && o.type === "prompt" && o !== a);
+    if (was && typeof base[was.id] === "string") out[i.id] ??= base[was.id];
+  }
+  return out;
 }
 
 const groupOf = (spec: InputSpec): GridField["group"] => (spec.section === "speed" ? "Sampling" : spec.section === "out" ? "Output" : "Settings");
@@ -174,7 +238,7 @@ export function matchOption(typed: string, options: readonly string[], labels?: 
  * offers by input id (a model's files, a sampler's names); a list not known takes what is typed as it is (the queue refuses
  * a file no machine has). An error says the first value that cannot be read.
  */
-export function axisValues(specs: readonly InputSpec[], values: Record<string, unknown>, axis: GridAxis, options: Record<string, readonly string[]> = {}): { axis: GridAxisValues } | { error: string } {
+export function axisValues(specs: readonly InputSpec[], values: Record<string, unknown>, axis: GridAxis, options: Record<string, readonly string[]> = {}, across?: GridAcross): { axis: GridAxisValues } | { error: string } {
   const field = gridField(specs, values, axis.field);
   if (!field) return { error: "this setting is not on the form" };
   const spec = specs.find((s) => s.id === field.input)!;
@@ -227,8 +291,10 @@ export function axisValues(specs: readonly InputSpec[], values: Record<string, u
       const caps = spec.type === "toggle" ? spec.captions : undefined;
       return done(vals, vals.map((v) => (caps ? (v ? caps.on : caps.off) : v ? "on" : "off")));
     }
-    case "choice":
-    case "model": {
+    case "model":
+      if (across?.families.length && spec.id === formModelInput({ inputs: specs })?.id) return acrossValues(field, typed, options[spec.id] ?? [], across);
+    // falls through: a model of the form's own family only
+    case "choice": {
       const own = spec.type === "choice" && Array.isArray(spec.options) ? [...(spec.extra ?? []), ...spec.options] : [];
       const list = options[spec.id]?.length ? options[spec.id]! : own;
       const labels = spec.type === "choice" ? spec.labels : undefined;
@@ -263,8 +329,61 @@ export function axisValues(specs: readonly InputSpec[], values: Record<string, u
   }
 }
 
+/**
+ * A Model axis that may run across families (card #294): a value is a file of the form's own list, as before, else of one
+ * other family's; "Klein: 4b" says the family first, for a file that more than one family lists (their folders are often
+ * one). Each is said with its family once any value is of another, so that the board tells the cells apart.
+ */
+function acrossValues(field: GridField, typed: readonly string[], own: readonly string[], across: GridAcross): { axis: GridAxisValues } | { error: string } {
+  const named = (t: string): GridFamily | "own" | null => {
+    const n = squash(t);
+    if (!n) return null;
+    if (squash(across.name) === n) return "own";
+    const same = across.families.filter((f) => squash(f.name) === n || squash(f.recipe.family) === n);
+    if (same.length === 1) return same[0]!;
+    const starts = across.families.filter((f) => squash(f.name).startsWith(n));
+    return starts.length === 1 ? starts[0]! : null;
+  };
+  const vals: Array<string | AcrossValue> = [];
+  for (const t of typed) {
+    // "Family: file"; a file name with a colon in it (rare: Windows forbids it) is a plain value when what is before it names no family
+    const at = t.indexOf(":");
+    const family = at > 0 ? named(t.slice(0, at)) : null;
+    const file = family ? t.slice(at + 1).trim() : t;
+    if (family === "own" || (!family && (!own.length || matchOption(file, own)))) {
+      const hit = own.length ? matchOption(file, own) : file;
+      if (!hit) return { error: `“${file}” is not one of ${across.name}'s files, or matches several` };
+      vals.push(hit);
+      continue;
+    }
+    if (family) {
+      const hit = family.files.length ? matchOption(file, family.files) : file;
+      if (!hit) return { error: `“${file}” is not one of ${family.name}'s files, or matches several` };
+      vals.push({ recipe: family.recipe.id, file: hit });
+      continue;
+    }
+    // no family said and none of the form's own: the one other family that has it
+    const found = across.families.flatMap((f) => {
+      const hit = matchOption(file, f.files);
+      return hit ? [{ f, hit }] : [];
+    });
+    if (found.length !== 1) return { error: found.length ? `“${t}” is a file of ${found.map((x) => x.f.name).join(" and ")}: write it as ${found[0]!.f.name}: ${t}` : `“${t}” is not one of ${field.label}'s files, nor another family's, or matches several` };
+    vals.push({ recipe: found[0]!.f.recipe.id, file: found[0]!.hit });
+  }
+  const crosses = vals.some(isAcross);
+  const nameOf = (id: string) => across.families.find((f) => f.recipe.id === id)?.name ?? id;
+  const labels = vals.map((v) => (isAcross(v) ? `${nameOf(v.recipe)}: ${modelStem(v.file)}` : crosses ? `${across.name}: ${modelStem(v)}` : modelStem(v)));
+  return { axis: { field: field.id, label: field.label, values: vals, labels } };
+}
+
+/** The forms of other families a set-up's cells render on (card #294): those its Model axis's values name. */
+const acrossOf = (axes: readonly GridAxisValues[], across: GridAcross | undefined): GridFamily[] => {
+  const ids = new Set(axes.flatMap((a) => a.values.filter(isAcross).map((v) => v.recipe)));
+  return (across?.families ?? []).filter((f) => ids.has(f.recipe.id));
+};
+
 /** The axes in use of a set-up, worked out: those with a field and values, in order; the first that cannot be read refuses the grid. */
-export function gridAxes(specs: readonly InputSpec[], values: Record<string, unknown>, setup: GridSetup, options: Record<string, readonly string[]> = {}): { axes: GridAxisValues[] } | { error: string; axis: number } {
+export function gridAxes(specs: readonly InputSpec[], values: Record<string, unknown>, setup: GridSetup, options: Record<string, readonly string[]> = {}, across?: GridAcross): { axes: GridAxisValues[] } | { error: string; axis: number } {
   const axes: GridAxisValues[] = [];
   const seen = new Set<string>();
   const used = setup.axes.slice(0, GRID_AXES.length);
@@ -276,9 +395,20 @@ export function gridAxes(specs: readonly InputSpec[], values: Record<string, unk
     }
     if (seen.has(a.field)) return { error: "this setting is on another axis already", axis: i };
     seen.add(a.field);
-    const read = axisValues(specs, values, a, options);
+    const read = axisValues(specs, values, a, options, across);
     if ("error" in read) return { error: read.error, axis: i };
     axes.push(read.axis);
+  }
+  // across families, every other axis runs on each family's form too: read there as here, or the grid is refused before
+  // anything is priced (a LoRA's weight, a setting that form has not, a size it does not draw)
+  for (const f of acrossOf(axes, across)) {
+    const carried = acrossInput({ inputs: specs }, f.recipe, values);
+    for (const [i, a] of used.entries()) {
+      if (!a.field || axes[i]?.values.some(isAcross)) continue;
+      if (a.field.startsWith(LORA)) return { error: `a LoRA's weight cannot run across families: the LoRAs are ${across!.name}'s`, axis: i };
+      const read = axisValues(f.recipe.inputs, carried, a);
+      if ("error" in read) return { error: `${f.name}: ${read.error === "this setting is not on the form" ? `${axes[i]?.label ?? a.field} is not on its form` : read.error}`, axis: i };
+    }
   }
   const n = gridCount(axes);
   if (n > GRID_MOST) return { error: `${n} renders, ${GRID_MOST} at most in one grid`, axis: axes.length - 1 };
@@ -330,11 +460,13 @@ export function cellInput(specs: readonly InputSpec[], base: Record<string, unkn
   return input;
 }
 
-/** One cell of a grid as it is queued and priced: its place, the form it renders, and its name. */
+/** One cell of a grid as it is queued and priced: its place, the form it renders (on its recipe), and its name. */
 export interface GridJob {
   cell: GridCell;
   /** Its place as the board keys it: "x.y.z". */
   key: string;
+  /** The recipe it renders on: the grid's own, or another family's form of the same operation (card #294). */
+  recipe: string;
   input: Record<string, unknown>;
   label: string;
 }
@@ -342,10 +474,24 @@ export interface GridJob {
 /**
  * Every cell of the axes with the form it renders (cellInput) and its name (cellSaid), in the order they are queued: what
  * is priced before queuing is what is queued (the cost of each cell's own steps, size and model), with the one seed
- * drawn for the grid.
+ * drawn for the grid. A cell whose Model axis value is another family's renders on that family's form (card #294).
  */
-export const gridJobs = (specs: readonly InputSpec[], base: Record<string, unknown>, axes: readonly GridAxisValues[], seed: number): GridJob[] =>
-  gridCells(axes).map((cell) => ({ cell, key: `${cell.x}.${cell.y}.${cell.z}`, input: cellInput(specs, base, axes, cell, seed), label: cellSaid(axes, cell) }));
+export function gridJobs(recipe: { id: string; inputs: readonly InputSpec[] }, base: Record<string, unknown>, axes: readonly GridAxisValues[], seed: number, across?: GridAcross): GridJob[] {
+  const others = new Map(acrossOf(axes, across).map((f) => [f.recipe.id, f.recipe]));
+  return gridCells(axes).map((cell) => {
+    const key = `${cell.x}.${cell.y}.${cell.z}`;
+    const at = [cell.x, cell.y, cell.z];
+    const i = axes.findIndex((a, k) => isAcross(a.values[at[k]!]));
+    const on = i < 0 ? undefined : (axes[i]!.values[at[i]!] as AcrossValue);
+    const other = on && others.get(on.recipe);
+    if (!other) return { cell, key, recipe: recipe.id, input: cellInput(recipe.inputs, base, axes, cell, seed), label: cellSaid(axes, cell) };
+    // on another family: its form started from this one (acrossInput), then every axis put in as here, the Model axis's
+    // value being the file of that form's own model input
+    const model = formModelInput({ inputs: other.inputs })!.id;
+    const there = axes.map((a, k) => (k === i ? { ...a, field: model, values: a.values.map((v) => (isAcross(v) ? v.file : v)) } : a));
+    return { cell, key, recipe: other.id, input: cellInput(other.inputs, acrossInput(recipe, other, base), there, cell, seed), label: cellSaid(axes, cell) };
+  });
+}
 
 /** What one cell is said as, its axes' values in order ("30 · blue coat · 5678"): a cell's name in the library and its banners. */
 export const cellSaid = (axes: ReadonlyArray<{ labels: readonly string[] }>, cell: GridCell): string =>
