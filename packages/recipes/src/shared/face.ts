@@ -70,7 +70,8 @@ export const faceSteps = (steps: number) => Math.min(30, Math.max(8, steps));
  * model's own steps for the denoise, rounded down, so that they are never closer together than the model was distilled for;
  * two at least, for a pass to correct its first. Qwen Image 2.1 Turbo at 0.4 on a pod (card #286): 3 steps gave clean skin,
  * as the full model's 30 did; 4 left a faint grain, 5 more, 8 (faceSteps) the most. Every face pass of a family reads this
- * one rule, Face refine's and a txt2img's Detail face alike (card #303).
+ * one rule, Face refine's and a txt2img's Detail face alike (card #303), Klein's and Krea 2's too (card #330's pod A/B: Krea 2
+ * Turbo's face at 8 steps and 0.4 was grainy, at 3 clean; a distilled Klein's at 2 as good as at 8, 2.5–3 times faster).
  */
 export const faceStepsFor = (steps: number, denoise: number, distilled: boolean) => (distilled ? Math.max(2, Math.floor(steps * denoise + 1e-9)) : faceSteps(steps));
 /** What a face detailer's job says when it found no face: ComfyUI says nothing, and the picture comes out as it went in. */

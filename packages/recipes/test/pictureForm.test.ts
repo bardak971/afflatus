@@ -82,7 +82,8 @@ describe("picture forms laid out by pictureForm", () => {
         const built = r.build(parseInput(r, { ...v.input, steps }), dryContext({ slots: v.slots ?? {}, uploads: v.uploads ?? {}, media: v.media ?? {} }));
         return Object.values(built.graph).filter((n) => n.class_type === "FaceDetailer").map((n) => n.inputs.steps);
       };
-      expect([stepsAt(4), stepsAt(20), stepsAt(50)], r.id).toEqual([[8], [20], [30]]);
+      // Krea 2's file is Turbo, distilled: its share of the steps at the strength, 0.4, two at least (faceStepsFor, card #330)
+      expect([stepsAt(4), stepsAt(20), stepsAt(50)], r.id).toEqual(r.family === "krea2" ? [[2], [8], [20]] : [[8], [20], [30]]);
     }
   });
 

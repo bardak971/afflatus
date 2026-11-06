@@ -154,3 +154,27 @@ describe("txt2img's Detail rows", () => {
     }
   });
 });
+
+describe("Klein's and Krea 2's face passes on a distilled file keep its step spacing (card #330)", () => {
+  const KLEIN = "flux-2-klein-4b.safetensors";
+  const stepsOf = (id: string, over: Record<string, unknown>, slots: Record<string, string> = DETECTOR_FILES) => {
+    const r = recipeById(id)!;
+    const g = build(r, over, slots).graph;
+    return Object.values(g).filter((n) => /Detailer/.test(n.class_type)).map((n) => n.inputs.steps);
+  };
+
+  it("Klein's Detail face and Face refine: a distilled 4B's share of its 4 steps; the base model's faceSteps as before", () => {
+    // the pod A/B of 2026-11-06: 2 steps at 0.5 as clean as 8, the pass 2.5–3× faster
+    expect(stepsOf("klein.picture", { model: KLEIN, steps: 4, cfg: 1, detailFace: true })).toEqual([2]);
+    expect(stepsOf("klein.picture", { steps: 20, detailFace: true })).toEqual([20]);
+    expect(stepsOf("klein.fix-face", { model: KLEIN, steps: 4, cfg: 1 }, { detector: "bbox/face.pt" })).toEqual([2]);
+    expect(stepsOf("klein.fix-face", { steps: 20 }, {})).toEqual([20]);
+  });
+
+  it("Krea 2's Detail face and Face refine: Turbo's share of its 8 steps; RAW, not distilled, faceSteps", () => {
+    // the same A/B: Turbo's face at 8 steps and 0.4 came out grainy, at 3 clean (as Qwen Image 2.1 Turbo's, card #286)
+    expect(stepsOf("krea2.text-to-picture", { detailFace: true })).toEqual([3]);
+    expect(stepsOf("krea2.fix-face", {}, {})).toEqual([3]);
+    expect(stepsOf("krea2.text-to-picture", { model: "krea2_raw.safetensors", steps: 52, detailFace: true })).toEqual([30]);
+  });
+});

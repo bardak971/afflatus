@@ -161,9 +161,9 @@ describe("Krea 2 · Face refine", () => {
     expect(of(graph, "ImpactSEGSRangeFilter")[0]!.inputs.max_value).toBe(Math.round(SMALL_FACE_PX * 1.5 * 2.5));
   });
 
-  it("runs a distilled Klein at its 4 steps and CFG 1", () => {
+  it("runs a distilled Klein at CFG 1, in its share of its 4 steps at the denoise (card #330)", () => {
     const { graph } = build({ person }, { slots: { ...withPerson, ...faceFiles, kleinUnet: "flux-2-klein-4b.safetensors" } });
-    expect(of(graph, "DetailerForEach")[0]!.inputs).toMatchObject({ steps: 4, cfg: 1 });
+    expect(of(graph, "DetailerForEach")[0]!.inputs).toMatchObject({ steps: 2, cfg: 1, denoise: 0.35 });
   });
 
   it("is left out, and the job says why, without Klein or the detector here; and without the Impact Pack", () => {
