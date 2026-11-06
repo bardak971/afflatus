@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dryContext, inBoxOf, MAX_BOXES, parseInput, type BuiltGraph, type Recipe, type RegionValue } from "@afflatus/core";
+import { boxEditFamily, dryContext, inBoxOf, MAX_BOXES, parseInput, type BuiltGraph, type Recipe, type RegionValue } from "@afflatus/core";
 import { recipes } from "../src";
 import { areaSize, FEATHER, kontextSize, pixelBox, planBox, type Box } from "../src/shared/boxEdit";
 
@@ -80,6 +80,23 @@ describe("where a box is cropped and pasted", () => {
 });
 
 describe("an Edit in box of every instruction editor", () => {
+  it("says it is one of the editors, in Settings' order, under the names Settings gives them, Qwen Image Edit the default (card #292)", () => {
+    const editors = recipes.filter((r) => r.boxEditor);
+    expect(editors.map((r) => [r.id, r.boxEditor!.name])).toEqual([
+      ["qwen21.edit-in-box", "Qwen Image 2.1"], ["qwen.edit-in-box", "Qwen Image Edit"], ["klein.edit-in-box", "FLUX.2 Klein"], ["flux.edit-in-box", "FLUX.1 Kontext"],
+    ]);
+    expect(editors.filter((r) => r.boxEditor!.default).map((r) => r.family)).toEqual(["qwen"]);
+  });
+
+  it("falls back on the default editor for a family that has none (one taken out since it was set), else on the first", () => {
+    expect(boxEditFamily(recipes, "klein")).toBe("klein");
+    expect(boxEditFamily(recipes, "sdxl")).toBe("qwen");
+    expect(boxEditFamily(recipes, undefined)).toBe("qwen");
+    const named = [{ family: "a", boxEditor: { name: "A" } }, { family: "b" }, { family: "c", boxEditor: { name: "C" } }];
+    expect(boxEditFamily(named, "b")).toBe("a");
+    expect(boxEditFamily([{ family: "b" }], "b")).toBe("");
+  });
+
   it("is there for Qwen Image Edit, Qwen Image 2.1, Klein and Kontext, hidden, its instruction each box's own", () => {
     for (const edit of ["qwen.edit", "qwen21.edit", "klein.edit", "flux.edit"]) {
       const r = recipe(inBoxOf(edit));

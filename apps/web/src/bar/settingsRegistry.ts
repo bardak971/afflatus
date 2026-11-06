@@ -1,5 +1,6 @@
-import type { NotifyKind, Settings, SettingsPatch } from "../api";
-import { BOX_EDIT_DEFAULT, BOX_EDIT_FAMILIES, BOX_EDITOR_NAMES, SETTING_HELP, type BoxEditFamily } from "@afflatus/core";
+import type { NotifyKind, RecipeInfo, Settings, SettingsPatch } from "../api";
+import { boxEditFamily, SETTING_HELP } from "@afflatus/core";
+import { allBoxEditors } from "../paintFix/boxEditors";
 import { INDEX, settingHref, TABS, type Tab } from "../screens/settings/settingsIndex";
 import { allowNotifications, useBanners, useCompareResult, useExplain, useHoverPlay, useNotify } from "../store";
 import { DEFAULT_PROGRESS, PROGRESS_STYLES, type ProgressStyle } from "../progress/style";
@@ -20,6 +21,8 @@ const themeNames = (light: boolean) => THEMES.filter((t) => Boolean(t.light) ===
 
 export interface SettingCtx {
   server: Settings | undefined;
+  /** The recipes as the server lists them: Edit in box's editors are among them. */
+  recipes: readonly RecipeInfo[];
   save(patch: SettingsPatch): Promise<void>;
 }
 
@@ -73,9 +76,9 @@ export const SETTINGS: SettingEntry[] = [
   {
     id: "models.boxEdit", label: "Edit model for boxes", page: "models", words: "edit in box boxes instruction editor paint and fix stage qwen klein kontext default model", scope: "Afflatus", kind: "choice",
     about: SETTING_HELP.boxEditModel,
-    get: (c) => c.server?.boxEditModel ?? BOX_EDIT_DEFAULT,
-    set: (c, v) => c.save({ boxEditModel: v as BoxEditFamily }),
-    options: () => BOX_EDIT_FAMILIES.map((f) => ({ value: f, label: BOX_EDITOR_NAMES[f] })),
+    get: (c) => boxEditFamily(c.recipes, c.server?.boxEditModel),
+    set: (c, v) => c.save({ boxEditModel: String(v) }),
+    options: (c) => allBoxEditors(c.recipes).map((r) => ({ value: r.family, label: r.boxEditor.name })),
   },
   { id: "hover.video", label: "Play videos on hover", page: "interface", words: "mouse card preview", scope: "this browser", kind: "switch", about: "Videos in the library play, muted, while the mouse rests on them. Off: a video card shows its frame until you open it.", get: () => useHoverPlay.getState().video, set: (_c, v) => useHoverPlay.getState().set({ video: Boolean(v) }) },
   { id: "hover.sound", label: "Play sound on hover", page: "interface", words: "audio mouse card", scope: "this browser", kind: "switch", about: "The sound of a video playing on hover, and of a sound card. Off: they stay silent until opened.", get: () => useHoverPlay.getState().sound, set: (_c, v) => useHoverPlay.getState().set({ sound: Boolean(v) }) },

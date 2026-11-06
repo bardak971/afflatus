@@ -1,5 +1,5 @@
 /** Models and recipes: what ComfyUI has, what each recipe needs, imported workflows, and where a missing file can be had. */
-import type { Chapter, ComfyTooOld, FormRefusal, InputSpec, ModelLine, StartRule, VideoTraits } from "@afflatus/core";
+import type { BoxEditorTrait, Chapter, ComfyTooOld, FormRefusal, InputSpec, ModelLine, StartRule, VideoTraits } from "@afflatus/core";
 import type { Bindings, Wiring, WorkflowDef } from "@afflatus/workflows";
 import type { PresetFile } from "./designer";
 
@@ -37,6 +37,8 @@ export interface RecipeInfo {
   needs?: string[];
   /** Mixes of inputs it refuses, each with why (core's Recipe.refuses): Render greyed, saying it. */
   refuses?: FormRefusal[];
+  /** Of one of Edit in box's editors (core's Recipe.boxEditor): its name, whether it is the default. */
+  boxEditor?: BoxEditorTrait;
 }
 export interface FamilyInfo {
   id: string;

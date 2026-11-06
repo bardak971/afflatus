@@ -110,7 +110,7 @@ describe("a setting picked in the bar", () => {
     (globalThis as { Notification?: unknown }).Notification = { permission: "denied" };
     try {
       const each = SETTINGS.find((s) => s.id === "notify.renderDone")!;
-      await each.set!({ server: undefined, save: async () => {} }, true);
+      await each.set!({ server: undefined, recipes: [], save: async () => {} }, true);
       expect(useNotify.getState().browser.renderDone).toBeFalsy();
       expect(useBanners.getState().items.find((b) => b.id === "bar:notify")).toMatchObject({ tone: "bad", href: "/settings/notifications?find=notify.renderDone" });
     } finally {

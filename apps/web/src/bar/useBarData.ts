@@ -137,11 +137,12 @@ export function useBarData({ open, mode, text, line, ranks, picked, learn, found
 
   const settingCtx: SettingCtx = useMemo(() => ({
     server: settings.data,
+    recipes,
     save: async (patch: SettingsPatch) => {
       const saved = await api.saveSettings(patch);
       client.setQueryData(queryKeys.settings(), saved);
     },
-  }), [settings.data, client]);
+  }), [settings.data, recipes, client]);
   // the switches kept in this browser: the bar is drawn again when one changes, so that a switch flipped here shows it
   const kept = [useHoverPlay(), useExplain(), useThemeChoice(), useNotify(), useCompareResult()];
   const bar = settings.data?.bar;

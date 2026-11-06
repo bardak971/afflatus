@@ -301,6 +301,8 @@ export interface Recipe<In = Record<string, unknown>> {
    */
   guide?: string;
   traits?: VideoTraits;
+  /** Of a recipe Edit in box can use (card #284): the editor it is, as Settings and the Stage's bar list it. */
+  boxEditor?: BoxEditorTrait;
   /**
    * Files this recipe names itself (an imported workflow's models): each must be among the choices
    * ComfyUI offers for that input of that node class. Files the user picks on the form are not listed here.
@@ -474,6 +476,8 @@ export function describeRecipe(r: Recipe<any>) {
     ...(r.chapters?.length ? { chapters: r.chapters } : {}),
     ...(r.absent?.length ? { absent: r.absent } : {}),
     ...(r.first?.length ? { first: r.first } : {}),
+    // an editor Edit in box can use: Settings and the Stage's bar list them from these
+    ...(r.boxEditor ? { boxEditor: r.boxEditor } : {}),
     // the family's optional files it cannot run without (Edit's Kontext model): Settings › Models says which operations use each file
     ...(r.needs?.length ? { needs: r.needs } : {}),
     // the mixes it refuses, which the form says before Render
@@ -502,26 +506,29 @@ export const TOOLS_FAMILY = "tools";
 export const REMOVE_BACKGROUND = "tools.remove-background";
 
 /**
- * The id of an instruction editor's Edit in box (card #284), from the editor's own ("qwen.edit" → "qwen.edit-in-box"): the
- * Stage finds a family's box edit by it, and it ends in no pass's suffix (".edit"), so no pass takes it for the editor.
+ * The id of an instruction editor's Edit in box (card #284), from the editor's own ("qwen.edit" → "qwen.edit-in-box"): it
+ * ends in no pass's suffix (".edit"), so no pass takes it for the editor. The Stage finds the box edits by their boxEditor.
  */
 export const inBoxOf = (editId: string): string => `${editId}-in-box`;
 /** The most boxes one Edit in box takes: each is a whole edit, so eight boxes take eight edits' time. */
 export const MAX_BOXES = 8;
+
 /**
- * The instruction editor Edit in box uses where the picture's own model has none (Settings › Models, "Edit model for
- * boxes"), by family; one not installed gives way to one that is.
+ * What makes a recipe one of Edit in box's editors (card #292): the name the bar and Settings give it, the editor's own
+ * where the family's ("FLUX.1") says another model. `native`: it edits a box itself, rather than through inBox's crop and
+ * paste round another recipe. `default`: the one used where Settings › Models names none, or one no longer there.
  */
-export const BOX_EDIT_FAMILIES = ["qwen21", "qwen", "klein", "flux"] as const;
-export type BoxEditFamily = (typeof BOX_EDIT_FAMILIES)[number];
+export interface BoxEditorTrait { name: string; native?: true; default?: true }
+
 /**
- * The pod A/B of card #284 (2026-11-04, an A40: a deer, a bicycle, a lamp removed, three boxes in one go): Qwen Image Edit
- * with its Lightning LoRA put each thing in its box in the scene's light, removed the lamp, and took 14 to 25 s a box; Qwen
- * Image 2.1 left the lamp where it was, Klein's deer looked cut out, Qwen Image Edit's full 40 steps took about 170 s.
+ * The family whose editor Edit in box uses where the picture's own model has none: `asked` (Settings › Models, "Edit model
+ * for boxes") when one of `recipes` is its editor, else the default one, else the first; empty with no editor at all. A
+ * family taken out since it was set falls back so, rather than the setting being refused.
  */
-export const BOX_EDIT_DEFAULT: BoxEditFamily = "qwen";
-/** Each one's editor as the bar and Settings say it: the editor's own name, where the family's ("FLUX.1") says another model. */
-export const BOX_EDITOR_NAMES: Record<BoxEditFamily, string> = { qwen21: "Qwen Image 2.1", qwen: "Qwen Image Edit", klein: "FLUX.2 Klein", flux: "FLUX.1 Kontext" };
+export function boxEditFamily(recipes: ReadonlyArray<{ family: string; boxEditor?: BoxEditorTrait }>, asked: string | undefined): string {
+  const editors = recipes.filter((r) => r.boxEditor);
+  return (editors.find((r) => r.family === asked) ?? editors.find((r) => r.boxEditor!.default) ?? editors[0])?.family ?? "";
+}
 
 /** The upscale route that samples a video's own latent again, larger (H3's): kept in the recipe, not run as a tool. */
 export const LATENT_RESAMPLE = "Latent: re-sampled";
