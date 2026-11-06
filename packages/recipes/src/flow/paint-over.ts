@@ -1,6 +1,6 @@
 import { defineRecipe, GraphBuilder, type Recipe } from "@afflatus/core";
 import { dropsFor, pictureForm, SOURCE_INPUT, strengthInput } from "../shared/pictureForm";
-import { boxOf, MASK_INPUTS, MASK_NODES, maskParts, type MaskSettings } from "../sdxl/common";
+import { boxOf, MASK_INPUTS, MASK_NODES, maskParts, type MaskSettings } from "../shared/mask";
 import { INPAINT_PATCH_NODES, inpaintPatched, inpaintPatchNeeds, photo, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
 
 export interface FlowPaintOver extends FlowBase, MaskSettings { source: string; mask: string; prompt: string; strength: number }

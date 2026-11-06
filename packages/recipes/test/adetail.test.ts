@@ -2,8 +2,7 @@ import { describe, expect, it } from "vitest";
 import { dryContext, parseInput, podSlotFiles, timeKey, type Recipe } from "@afflatus/core";
 import { familyById, recipeById, recipes } from "../src";
 import { PICTURE_DROPS } from "../src/shared/pictureForm";
-import { DETECTOR_FILES } from "../src/shared/adetail";
-import { SMALL_FACE_PX } from "../src/klein/facePass";
+import { DETECTOR_FILES, SMALL_FACE_PX } from "../src/shared/adetail";
 
 // ADetailer inside every txt2img (card #272): a face, hands or people redrawn by the render's own model in the same job
 const txt2imgs = recipes.filter((r) => PICTURE_DROPS.get(r.id)?.op === "txt2img");

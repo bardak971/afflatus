@@ -1,6 +1,6 @@
 import { beyondPack, defineRecipe, GraphBuilder, packCommit, regionsOf, roundTo, type ReferenceValue, type Ref, type RegionValue, type SizeValue } from "@afflatus/core";
 import { dropsFor, noReferences, pictureForm } from "../shared/pictureForm";
-import { hiresInputs, hiresPass, type HiresPass } from "../sdxl/common";
+import { hiresInputs, hiresPass, type HiresPass } from "../shared/hires";
 import type { FlowBase } from "../flow/kit";
 import { flowFixFace } from "../flow/fix-face";
 import { flowPaintOver } from "../flow/paint-over";
@@ -12,8 +12,8 @@ import { redrawInTiles, tileNodes, tilePass, inTiles, type TileSettings } from "
 import { krea2Kit, krea2Spec } from "./common";
 import { addedLora, putAdded } from "../shared/model";
 import { addedInputs, withRow, type AddedSpec } from "../shared/addedRows";
-import { FACE_PASS_INPUTS, FACE_PASS_NODES, FACE_PASS_OPTIONAL, FACE_PASS_SLOTS, facePass, SMALL_FACE_PX, type FacePassValues } from "../klein/facePass";
-import { adetail, ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, adetailOn, ALL_DETAIL, DETECTOR_FILES, sized, type AdetailSettings } from "../shared/adetail";
+import { FACE_PASS_INPUTS, FACE_PASS_NODES, FACE_PASS_OPTIONAL, FACE_PASS_SLOTS, facePass, type FacePassValues } from "../klein/facePass";
+import { adetail, ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, adetailOn, ALL_DETAIL, DETECTOR_FILES, sized, SMALL_FACE_PX, type AdetailSettings } from "../shared/adetail";
 import { KREA2_LAYOUT_INPUT, krea2Layout, krea2RegionNodes, krea2Regions, REGIONS, regionLoads, regionsInput, type Krea2Layout } from "../shared/regions";
 
 const files = krea2Spec.files;

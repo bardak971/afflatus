@@ -1,6 +1,7 @@
 import { defineRecipe, GraphBuilder, roundTo, withQuality, type LoraValue, type Ref, type RegionValue, type SizeValue } from "@afflatus/core";
 import { pictureForm } from "../shared/pictureForm";
-import { hiresInputs, hiresPass, isVPred, loadSdxl, modelInputs, PREDICTION_NODES, samplingInputs, SDXL_DROPS, SDXL_PRESETS, UPSCALER_DEFAULT } from "./common";
+import { isVPred, loadSdxl, modelInputs, PREDICTION_NODES, samplingInputs, SDXL_DROPS, SDXL_PRESETS } from "./common";
+import { hiresInputs, hiresPass, UPSCALER_DEFAULT } from "../shared/hires";
 import { SDXL_GUIDE } from "./family";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, kSample, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { applyGuide, FOLLOW_MAP, guideInputs, guideNeeds, guideNodes, type GuideSettings } from "../shared/guide";

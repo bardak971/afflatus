@@ -1,5 +1,6 @@
 import { wanted, type BuildContext, type GraphBuilder, type InputSpec, type Ref } from "@afflatus/core";
 import { loadUnet } from "../shared/unet";
+import { SMALL_FACE_PX } from "../shared/adetail";
 import { KLEIN_PRESETS, kleinCond, kleinNoise, REFERENCE_NODES, type Klein } from "./common";
 
 /** What a face is redrawn towards, in Klein's words: the person of the reference pictures, nothing else changed. */
@@ -14,8 +15,6 @@ export const SAME_FACE = "the same person's face, identical to the reference pho
  * pixels enough of its own; a small one is redrawn at three times its size.
  */
 
-/** The tallest face redrawn, in pixels of the picture as it is drawn (before a hires fix): between the gain and the rest. */
-export const SMALL_FACE_PX = 150;
 /** The square cut around the face, in face heights (the pod test's 2.5), redrawn at FACE_GUIDE pixels. */
 const FACE_CROP = 2.5;
 const FACE_GUIDE = 1024;

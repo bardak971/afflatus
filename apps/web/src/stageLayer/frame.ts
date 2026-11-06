@@ -27,7 +27,7 @@ export interface FrameRules {
   ratio: number | null;
 }
 
-/** The forms' outpaint rows' limits (sdxl/common.ts OUTPAINT_INPUTS): each side 0 to 1024 px. */
+/** The forms' outpaint rows' limits (recipes shared/outpaint.ts OUTPAINT_INPUTS): each side 0 to 1024 px. */
 export const FRAME_RULES: FrameRules = { step: 64, most: 1024, ratio: null };
 
 /** The frame the pads make around a picture, in the picture's pixels. */

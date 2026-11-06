@@ -1,9 +1,10 @@
 import { defineRecipe, GraphBuilder, roundTo, type InputSpec, type ReferenceValue, type Ref, type SizeValue } from "@afflatus/core";
 import { noGuide, noReferences, pictureForm, SOURCE_INPUT, strengthInput } from "../shared/pictureForm";
-import {
-  boxOf, FACE_INPUTS, faceSteps, FACTOR_INPUT, HIRES_PASS_INPUTS, hiresInputs, OUTPAINT_INPUTS, outpaintPad, outpaintPlan, SAME_PASS, shapeInput, MASK_INPUTS, NO_FACE, MASK_NODES, maskParts, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_INPUT,
-  type FaceSettings, type MaskSettings, type OutpaintSettings, type RefineColourMatch, type UpscaleSettings,
-} from "../sdxl/common";
+import { boxOf, MASK_INPUTS, MASK_NODES, maskParts, type MaskSettings } from "../shared/mask";
+import { FACE_INPUTS, faceSteps, NO_FACE, type FaceSettings } from "../shared/face";
+import { FACTOR_INPUT, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_INPUT, type RefineColourMatch, type UpscaleSettings } from "../shared/upscale";
+import { HIRES_PASS_INPUTS, hiresInputs, SAME_PASS } from "../shared/hires";
+import { OUTPAINT_INPUTS, outpaintPad, outpaintPlan, shapeInput, type OutpaintSettings } from "../shared/outpaint";
 import { DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { redrawInTiles, tileInputs, tileNodes, TILE_NODES, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import {

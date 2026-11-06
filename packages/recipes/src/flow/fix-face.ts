@@ -1,6 +1,6 @@
 import { defineRecipe, GraphBuilder, type Recipe } from "@afflatus/core";
 import { dropsFor, pictureForm, SOURCE_INPUT, strengthInput } from "../shared/pictureForm";
-import { FACE_INPUTS, faceStepsFor, NO_FACE, type FaceSettings } from "../sdxl/common";
+import { FACE_INPUTS, faceStepsFor, NO_FACE, type FaceSettings } from "../shared/face";
 import { A_FACE, photo, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
 import { DETECTOR_INPUT } from "../shared/detector";
 

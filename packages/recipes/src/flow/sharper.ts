@@ -1,6 +1,6 @@
 import { defineRecipe, GraphBuilder, roundTo, type Recipe, type Ref } from "@afflatus/core";
 import { dropsFor, pictureForm, SOURCE_INPUT, strengthInput } from "../shared/pictureForm";
-import { FACTOR_INPUT, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_INPUT, type RefineColourMatch, type UpscaleSettings } from "../sdxl/common";
+import { FACTOR_INPUT, REFINE_COLOUR_MATCH_INPUT, refineColourMatched, UPSCALER_INPUT, type RefineColourMatch, type UpscaleSettings } from "../shared/upscale";
 import { redrawInTiles, tileInputs, tilePass, tilesOf, inTiles, type TileSettings } from "../shared/tiles";
 import { rowsWhile } from "../shared/addedRows";
 import { sigmaWords } from "../shared/sigmaWords";

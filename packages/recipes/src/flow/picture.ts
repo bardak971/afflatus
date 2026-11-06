@@ -1,6 +1,6 @@
 import { defineRecipe, GraphBuilder, regionsOf, roundTo, type Recipe, type Ref, type RegionValue, type SizeValue } from "@afflatus/core";
 import { dropsFor, pictureForm } from "../shared/pictureForm";
-import { hiresInputs, hiresPass, type HiresPass } from "../sdxl/common";
+import { hiresInputs, hiresPass, type HiresPass } from "../shared/hires";
 import { asDaemon, DAEMON_DETAIL_INPUTS, DETAIL_INPUTS, DETAIL_OPTIONAL, detailNodes, fullPassNodes, withoutDaemon, type DetailSettings } from "../shared/detail";
 import { redrawInTiles, tileNodes, tilePass, inTiles, type TileSettings } from "../shared/tiles";
 import { adetail, ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FILES, sized, type AdetailSettings } from "../shared/adetail";

@@ -2,7 +2,7 @@ import { defineFamily, defineRecipe, GraphBuilder, REMOVE_BACKGROUND, TOOLS_FAMI
 import { DETECTOR_SLOTS } from "../shared/detector";
 import { SOURCE_INPUT } from "../shared/pictureForm";
 import { SAM_FILE, samSlot } from "../shared/sam";
-import { UPSCALER_SLOTS } from "../sdxl/common";
+import { UPSCALER_SLOTS } from "../shared/hires";
 import { SEEDVR_COLOURS, SEEDVR_NODES, SEEDVR_SLOTS, seedvrUpscale } from "../video/upscale";
 
 /** Things done to a picture that need no picture model: nothing is drawn, so there is no prompt. */
