@@ -9,7 +9,7 @@ import { useDownloads } from "./useGetFile";
 import { moves } from "./leave";
 import { Kbd } from "./Keys";
 import { OUT_MS } from "./motion";
-import { useBanners, useBannersAsideNow, useHandover, useNotify, type Banner } from "./store";
+import { useBanners, useBannersAsideNow, useHandover, useNotify, useOpenDraft, useStudio, type Banner } from "./store";
 import { CloseButton, cx } from "./ui";
 import { askViewer, passFrom } from "./viewer/ask";
 import { useGridBoard } from "./grid/boardLayout";
@@ -23,6 +23,17 @@ import { settingHref } from "./screens/settings/settingsIndex";
  * Studio announces it, form open (/create) or not: the owner keeps those (E16), only without "Open library" there.
  */
 const showsResults = (path: string) => path === "/queue" || path.startsWith("/timelines/");
+
+/**
+ * A grid's board up on the Stage of its draft. The board only shows in the draft's own view on the Stage, so from Recent,
+ * a folder or another draft the Studio is brought there first, or the button would do nothing to be seen.
+ */
+function openBoard(draft: string, grid: string): void {
+  useOpenDraft.getState().open(draft);
+  const studio = useStudio.getState();
+  studio.set({ form: true, scope: "draft", displays: { ...studio.displays, draft: "Stage" } });
+  useGridBoard.getState().show(draft, grid);
+}
 
 /** What ended while its banner is up, folded into it: a batch says "8 done" once, not eight times. */
 interface Fold {
@@ -211,7 +222,7 @@ export function Banners() {
           // on the Studio, its draft open, the board is put back up; elsewhere the library holds its cells
           // nothing to open while the board is the Stage already
           ...(document.querySelector(`[data-grid-board="${id}"]`) ? {}
-            : draft && (path === "/" || path === "/create") ? { action: { label: "Open the board", run: () => useGridBoard.getState().show(draft, id) } }
+            : draft && (path === "/" || path === "/create") ? { action: { label: "Open the board", run: () => openBoard(draft, id) } }
             : { href: "/", go: "Open the library" }),
         });
       }
