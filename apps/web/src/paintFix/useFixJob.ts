@@ -1,4 +1,5 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, type UseMutationResult } from "@tanstack/react-query";
+import { useRef } from "react";
 import type { RegionValue } from "@afflatus/core";
 import type { RecipeInfo } from "../api";
 import { uploadMask } from "../maskName";
@@ -97,6 +98,20 @@ export function useFixJob(acts: ViewerActions) {
     const picture = a.id;
     return openTool.mutateAsync({ id: recipe.id, with: inputs, opened: (d) => useVersionDrafts.getState().mark(d.id, picture) });
   };
+  /**
+   * One send at a time, held at once: a second ask while one is on its way is dropped. The bars' busy (isPending) comes a
+   * tick late, after TanStack's notify, so two clicks in one frame both found Fix enabled and queued two batches (pod test
+   * 2026-11-06, card #324). A dropped ask never reaches the mutation, which keeps the first one's failure to say.
+   */
+  const sending = useRef(false);
+  const once = <V,>(m: UseMutationResult<void, Error, V>) => ({
+    ...m,
+    mutate: (v: V) => {
+      if (sending.current) return;
+      sending.current = true;
+      m.mutate(v, { onSettled: () => { sending.current = false; } });
+    },
+  });
   /** A queued job's end: the queue read again. Why one failed is said in the bar it came from (`failure`), not in a banner. */
   const queued = { onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.queue() }) };
   const upload = async (png: Blob) => (await uploadMask(a.id, png)).id;
@@ -163,5 +178,5 @@ export function useFixJob(acts: ViewerActions) {
   const newest = Math.max(0, ...tries.map(([, m]) => m.submittedAt));
   const said = latestFailure(tries, newest);
   const failure = said.error ? { what: said.what, error: said.error } : null;
-  return { tool, fix, fullForm, out, outpaint, outForm, editTool, edit, editForm, boxEdit, jobFor, failure };
+  return { tool, fix: once(fix), fullForm: once(fullForm), out, outpaint: once(outpaint), outForm: once(outForm), editTool, edit: once(edit), editForm: once(editForm), boxEdit: once(boxEdit), jobFor, failure };
 }

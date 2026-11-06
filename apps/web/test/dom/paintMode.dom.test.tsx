@@ -205,6 +205,60 @@ describe("the viewer in Paint and fix", () => {
     }
   });
 
+  it("two clicks on Edit in one frame queue one batch: the bar's busy comes a tick after the first (pod test 2026-11-06, #324)", async () => {
+    withInpaint();
+    fakeApi.on("GET /assets/:id/versions", { head, versions: [v1] });
+    fakeApi.on("POST /jobs", { ids: ["zz-test-job"] });
+    draw(<Viewer inline asset={head} items={[head]} onOpen={() => {}} onClose={() => {}} />);
+    await screen.findByRole("group", { name: "Versions" });
+    act(() => useStageMode.getState().set(head.id, "edit"));
+    fireEvent.change(await screen.findByRole("textbox", { name: "What to change" }), { target: { value: "make the sky stormy" } });
+    const go = screen.getByRole("button", { name: /^Edit · 3 versions/ });
+    fireEvent.click(go);
+    fireEvent.click(go);
+    await waitFor(() => expect(fakeApi.calls("POST", "/jobs")).toHaveLength(1));
+    await act(() => new Promise((r) => setTimeout(r, 50)));
+    expect(fakeApi.calls("POST", "/jobs")).toHaveLength(1);
+    // once it is queued, the next click is a new batch
+    await waitFor(() => expect((go as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(go);
+    await waitFor(() => expect(fakeApi.calls("POST", "/jobs")).toHaveLength(2));
+  });
+
+  it("two clicks on Fix in one frame, both masks made, queue one batch and upload one mask (pod test 2026-11-06, #324)", async () => {
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(640);
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(480);
+    vi.stubGlobal("ResizeObserver", class { constructor(private seen: () => void) {} observe() { this.seen(); } disconnect() {} });
+    vi.stubGlobal("ImageData", class { constructor(readonly data: Uint8ClampedArray, readonly width: number, readonly height: number) {} });
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(() => ({ putImageData: () => {} }) as unknown as RenderingContext);
+    const toBlob = HTMLCanvasElement.prototype.toBlob;
+    // every PNG comes, as in a browser: the second click must be stopped by the bar, not by a failed mask
+    HTMLCanvasElement.prototype.toBlob = function (done: BlobCallback) {
+      setTimeout(() => done(new Blob(["png"], { type: "image/png" })), 20);
+    };
+    Element.prototype.setPointerCapture ??= () => {};
+    try {
+      fakeApi.on("POST /assets", { ...picture("zz-test-mask") });
+      fakeApi.on("POST /jobs", { ids: ["zz-test-job"] });
+      await painting();
+      const layer = document.querySelector<HTMLElement>("[data-stage-layer]")!;
+      fireEvent.pointerDown(layer, { button: 0, pointerId: 1, pointerType: "mouse", clientX: 300, clientY: 200 });
+      fireEvent.pointerUp(layer, { pointerId: 1, pointerType: "mouse", clientX: 300, clientY: 200 });
+      const go = await screen.findByRole("button", { name: /^Fix · 3 versions/ });
+      await waitFor(() => expect((go as HTMLButtonElement).disabled).toBe(false));
+      fireEvent.click(go);
+      fireEvent.click(go);
+      await waitFor(() => expect(fakeApi.calls("POST", "/jobs")).toHaveLength(1));
+      await act(() => new Promise((r) => setTimeout(r, 80)));
+      expect(fakeApi.calls("POST", "/jobs")).toHaveLength(1);
+      expect(fakeApi.calls("POST", "/assets")).toHaveLength(1);
+    } finally {
+      HTMLCanvasElement.prototype.toBlob = toBlob;
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("says so in the bar when the picture has no edit model, and fixes a painted part instead", async () => {
     fakeApi.on("GET /recipes", { families: [{ id: "zz-test", name: "zz-test", summary: "" }], recipes: [INPAINT] });
     fakeApi.on("GET /assets/:id/versions", { head, versions: [v1] });
