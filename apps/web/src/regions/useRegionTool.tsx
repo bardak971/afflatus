@@ -51,7 +51,7 @@ interface RegionTools {
  * is written to the form when the drag ends, and shown as it goes meanwhile. `off`: the family cannot use regions, the boxes
  * shown greyed and nothing drawn.
  */
-export function useRegionTool({ spec, regions, natural, selected, onSelect, onChange, nameOf, off, noun, look, ignored = false }: {
+export function useRegionTool({ spec, regions, natural, selected, onSelect, onChange, nameOf = () => undefined, off, look, ignored = false }: {
   spec: Pick<RegionsSpec, "max" | "kinds">;
   regions: RegionValue[];
   /** The frame's size in its pixels: the empty frame's, or the picture's the boxes lie over. */
@@ -59,12 +59,13 @@ export function useRegionTool({ spec, regions, natural, selected, onSelect, onCh
   selected: string | null;
   onSelect(id: string | null): void;
   onChange(regions: RegionValue[]): void;
-  /** A cast person's name, for the chips. */
-  nameOf(id: string): string | undefined;
+  /** A cast person's name, for the chips (a form's regions; Edit in box's boxes have no cast). */
+  nameOf?(id: string): string | undefined;
   off?: string;
-  /** What the boxes are called when there is no room for one more: a form's regions, or Edit in box's boxes. */
-  noun?: "region" | "box";
-  /** "edit": Edit in box's own look (editBoxLook.tsx: the picture blue, ✦ and the instruction on each label) rather than a form's regions. */
+  /**
+   * "edit": Edit in box's own look (editBoxLook.tsx: the picture blue, ✦ and the instruction on each label) rather than a
+   * form's regions, and its boxes called boxes, not regions, when there is no room for one more.
+   */
   look?: "edit";
   /** Edit in box's boxes while a mask is painted: Fix takes the mask alone, so they are drawn grey, dashed and still. */
   ignored?: boolean;
@@ -74,7 +75,7 @@ export function useRegionTool({ spec, regions, natural, selected, onSelect, onCh
   const [liveNow, setLive] = useLiveValue<{ id: string; box: UnitBox }>();
   const live = liveNow.current;
   const place = useRef<LayerPlace | null>(null);
-  const full = fullSaid(regions.length, spec.max, noun);
+  const full = fullSaid(regions.length, spec.max, look === "edit" ? "box" : "region");
 
   /** A press's point in parts of the frame, and the grab in the picture's pixels (so many screen pixels whatever the zoom). */
   const read = (p: LayerPointer) => {

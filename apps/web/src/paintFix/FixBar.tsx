@@ -5,6 +5,7 @@ import type { RecipeInfo } from "../api";
 import { plural } from "../format";
 import { dialogOver, OVER } from "../Dialog";
 import { Kbd } from "../Keys";
+import { BOX_TONE } from "../stageLayer/LayerStrip";
 import { MAX_COUNT, tuneAt, useTune, type TuneAsk } from "../passTune";
 import type { QueuedJob } from "../queueVariation";
 import { Button, cx, Failed, Help, IconButton, NumberBox } from "../ui";
@@ -31,16 +32,21 @@ const FIX_DENOISE = 0.95;
  * Ctrl+Enter runs the bar's job while the bar shows: taken on the capture phase, before the draft's Generate hears it (that
  * one skips a key already taken). Not under a dialog opened over the bar (`root`); the viewer over the screen, a dialog
  * itself, holds the bar and leaves it the key. Nor while ⚙ (a popover), a list or a menu is open: the bar would run on its
- * settings from before the popover's, and the popover's own Enter queues with what it shows.
+ * settings from before the popover's, and the popover's own Enter queues with what it shows. A number box being typed in
+ * commits on blur: it is left first, and the bar runs once its value is in (it ran on the number before, card #324).
  */
-export function useCtrlEnter(run: () => void, root: RefObject<HTMLElement | null>) {
+function useCtrlEnter(run: () => void, root: RefObject<HTMLElement | null>) {
   const now = useRef(run);
   now.current = run;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !e.defaultPrevented && !dialogOver(root.current) && !document.querySelector(OVER)) {
         e.preventDefault();
-        now.current();
+        const box = document.activeElement;
+        if (box instanceof HTMLElement && box.matches("[data-commits-on-blur]")) {
+          box.blur();
+          setTimeout(() => now.current());
+        } else now.current();
       }
     };
     window.addEventListener("keydown", onKey, true);
@@ -107,7 +113,7 @@ export function BarWhat({ tone, tip, children }: { tone: "mask" | "box" | "none"
       data-tip={tip}
       className={cx(
         "inline-flex h-8 shrink-0 items-center gap-2 rounded-control px-2.5 text-xs font-bold whitespace-nowrap",
-        tone === "mask" ? "bg-accent-wash text-accent" : tone === "box" ? "bg-picture/12 text-picture" : "bg-hover text-ink-2",
+        tone === "mask" ? "bg-accent-wash text-accent" : tone === "box" ? BOX_TONE : "bg-hover text-ink-2",
       )}
     >
       {tone === "mask" && <span aria-hidden className="size-3.5 shrink-0 rounded-key bg-[radial-gradient(circle,var(--color-accent)_35%,transparent_72%)] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-accent)_35%,transparent)]" />}
@@ -135,7 +141,7 @@ const BAR_FIELD = "flex h-8 shrink-0 items-center gap-1.5 px-1 text-xs text-ink-
 export type BarFailure = { what: string; error: Error };
 
 /** The "?" on both of Paint and fix's bars: what a mask does and what a box does, since both are drawn on the same picture. */
-export const MASK_OR_BOX = "Mask: those pixels are inpainted again from a description of what they become (Fix). Box: an edit model follows an instruction there, the rest kept (Edit in box). A mask painted takes the bar; clear it to edit in the boxes";
+export const MASK_OR_BOX = "Mask: inpainted from the prompt (Fix). Box: an edit model follows the box's instruction (Edit in box). A painted mask takes the bar";
 
 /** What Fix's bar says of edit boxes drawn while a mask is painted: they are left out of the fix. */
 export const boxesIgnored = (n: number) => `Fix uses the mask · ${n === 1 ? "the 1 box is" : `the ${n} boxes are`} ignored`;

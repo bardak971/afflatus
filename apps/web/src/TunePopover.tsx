@@ -69,8 +69,8 @@ function TunePanel({ ask, at, onClose }: { ask: TuneAsk; at: TuneAt; onClose(): 
               </Button>
             )}
             {/* the focus here at once: Enter queues it (the key that opened it, B, leaves nothing else focused), and the button
-                that was Shift+clicked is not pressed again by it */}
-            <Button type="submit" tone="primary" autoFocus>
+                that was Shift+clicked is not pressed again by it; its Enter keycap says so, so a soft ring, not the accent's rectangle */}
+            <Button type="submit" tone="primary" autoFocus data-soft-focus>
               {ask.go ?? `Queue${count > 1 ? ` ×${count}` : ""}`} <Kbd>Enter</Kbd>
             </Button>
           </span>

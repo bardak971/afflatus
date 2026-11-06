@@ -45,7 +45,8 @@ export function MaskPainter({ picture, mask, find, onDone, onClose }: { picture:
   const { tools } = layer;
   const [toolId, setToolId] = useState("brush");
   const maskTools = useMaskTools({ mask: layer, natural, src: fileUrl(picture), find, toolId });
-  const items: ToolbarItem[] = [...maskTools.items, "rule", tools.invert, HAND_TOOL];
+  // grouped as Paint and fix's toolbar (mock-0.10-paint-look): Mask, View
+  const items: ToolbarItem[] = [{ group: "Mask" }, ...maskTools.items, tools.invert, { group: "View" }, HAND_TOOL];
   const tool = items.find((t): t is LayerTool => isTool(t) && t.id === toolId) ?? null;
   const room = useRef<HTMLDivElement>(null);
   useLayerKeys({ items, onPick: setToolId, mask: layer, root: room });

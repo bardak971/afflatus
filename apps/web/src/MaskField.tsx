@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Brush } from "lucide-react";
 import { thumbUrl } from "./api";
 import { useAsset } from "./data";
@@ -37,6 +37,9 @@ export function MaskField({ label, note, picture, value, onChange }: {
     if (stale || (value && !picture)) onChange(undefined);
   }, [stale, value, picture, onChange]);
   const has = Boolean(value && picture && !stale);
+  // one find per picture: the painter's click and detector start again when it changes (a new picture), so a new one at
+  // each render of the form cleared the clicks and queued the detector again (card #323)
+  const find = useMemo(() => (picture ? findOn(picture) : null), [picture]);
 
   return (
     <div ref={root} className="flex flex-col gap-1.5">
@@ -64,11 +67,11 @@ export function MaskField({ label, note, picture, value, onChange }: {
           <span>Paint the mask</span>
         </button>
       )}
-      {painting && picture && (
+      {painting && picture && find && (
         <Suspense fallback={null}>
           <Painter
             picture={picture}
-            find={findOn(picture)}
+            find={find}
             mask={has ? value : null}
             onClose={() => setPainting(false)}
             onDone={(id) => {

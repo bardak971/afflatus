@@ -49,7 +49,8 @@ export function RegionsStage({ here, picture, onLeave }: {
     disabled: why,
     act: () => setCastShown((v) => !v),
   };
-  const items: ToolbarItem[] = [tools.select, tools.box, ...(tools.text ? [tools.text] : []), "rule", cast, HAND_TOOL];
+  // grouped as Paint and fix's toolbar (mock-0.10-paint-look): the boxes, then what is shown over the Stage
+  const items: ToolbarItem[] = [{ group: "Box" }, tools.select, tools.box, ...(tools.text ? [tools.text] : []), { group: "View" }, cast, HAND_TOOL];
   const tool = items.find((t): t is LayerTool => isTool(t) && t.id === toolId && !t.disabled) ?? null;
   const room = useRef<HTMLDivElement>(null);
   useLayerKeys({ items, onPick: setTool, root: room });

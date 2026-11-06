@@ -9,7 +9,7 @@ import { boxFrom, percentOf } from "./geometry";
 import { planeFrom, pngOf } from "./maskImage";
 import { FADE_MS, MaskFilters, viewFilter, type MaskView } from "./maskView";
 import {
-  bounds, chase, clear as clearPlane, clip, combine, dab, EMPTY_BELOW, feathered, fillPolygon, fillRect, History, invert, line, newPlane, resample, tint, union, workSize,
+  alphaOf, bounds, chase, clear as clearPlane, clip, combine, dab, EMPTY_BELOW, feathered, fillPolygon, fillRect, History, invert, line, newPlane, resample, union, workSize,
   type Ink, type Plane, type Rect,
 } from "./raster";
 import type { LayerPointer, LayerTool } from "./tools";
@@ -21,9 +21,6 @@ export interface Brush {
 }
 
 export const BRUSH_LIMITS = { size: { min: 2, max: 600 }, feather: { min: 0, max: 200 } };
-
-/** What the canvas holds: white, as strong as the mask; each view's filter (maskView.tsx) colours it. */
-const LEVELS: readonly [number, number, number] = [255, 255, 255];
 
 /** Past this much, a mask's grey levels are not all 0 and 255: it has a soft edge ("1 area, soft"). */
 const isSoft = (plane: Plane) => plane.data.some((v) => v > EMPTY_BELOW && v < 255 - EMPTY_BELOW);
@@ -47,6 +44,8 @@ export interface MaskLayer {
   redos: number;
   undo(): void;
   redo(): void;
+  /** The last step taken back with no redo: a tool replacing its own result (a redo would bring the replaced one back). */
+  takeBack(): void;
   clear(): void;
   /** The masked part in the picture's pixels; null while nothing is masked. */
   area: Rect | null;
@@ -112,7 +111,7 @@ export function useMaskLayer({ natural, from = null, start = { size: 64, feather
     // no 2D context (a page that draws nothing, as the tests'): the mask is kept all the same, only not shown
     const ctx = c.getContext("2d");
     if (!ctx) return;
-    const { data, rect } = tint({ w: p.w, h: p.h, data: d }, LEVELS, 1, r);
+    const { data, rect } = alphaOf({ w: p.w, h: p.h, data: d }, r);
     ctx.putImageData(new ImageData(data as Uint8ClampedArray<ArrayBuffer>, rect.w, rect.h), rect.x, rect.y);
   }, []);
 
@@ -130,7 +129,8 @@ export function useMaskLayer({ natural, from = null, start = { size: 64, feather
       return draw({ x: 0, y: 0, w: p.w, h: p.h });
     }
     if (once || !motionAllowed()) {
-      for (let y = part.y; y < part.y + part.h; y++) display.current.set(p.data.subarray(y * p.w + part.x, y * p.w + part.x + part.w), y * p.w + part.x);
+      // the whole way in one step: shown as it is
+      chase(display.current, p, part, 255);
       return draw(part);
     }
     fading.current.push(part);
@@ -350,6 +350,12 @@ export function useMaskLayer({ natural, from = null, start = { size: 64, feather
       const p = plane.current;
       if (!p) return;
       paint(history.current.redo(p));
+      changed();
+    },
+    takeBack: () => {
+      const p = plane.current;
+      if (!p) return;
+      paint(history.current.drop(p));
       changed();
     },
     clear: () => step(clearPlane),

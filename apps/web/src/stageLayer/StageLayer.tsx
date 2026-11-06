@@ -101,10 +101,12 @@ export function StageLayer({ place, tool, mask, children }: {
         if (palm(e)) return;
         setHover(place.toPicture(e.clientX, e.clientY));
         if (active.current?.id !== e.pointerId) return;
-        // a pen moves faster than the screen draws: each of its points between two frames, for a smooth line
+        // a pen moves faster than the screen draws: each of its points between two frames, for a smooth line. Their fields
+        // are read one by one: a PointerEvent's are getters on its prototype, which a spread would drop (all NaN, card #331)
         const points = e.pointerType === "pen" ? e.nativeEvent.getCoalescedEvents?.() ?? [] : [];
-        if (points.length > 1) for (const p of points) now.current?.move?.(pointer({ ...p, pointerType: "pen" }));
-        else now.current?.move?.(pointer(e));
+        if (points.length > 1) {
+          for (const p of points) now.current?.move?.(pointer({ clientX: p.clientX, clientY: p.clientY, pressure: p.pressure, pointerType: "pen", shiftKey: e.shiftKey, altKey: e.altKey }));
+        } else now.current?.move?.(pointer(e));
       }}
       onPointerUp={(e) => end(e, "up")}
       onPointerCancel={(e) => end(e, "cancel")}
@@ -121,7 +123,7 @@ export function StageLayer({ place, tool, mask, children }: {
 /**
  * The layer's keys, while it is on screen: a tool's letter picks it (or does it, for invert), [ and ] the brush's size
  * (with Shift: its feather), M the mask's next view (Tint, Spotlight, B&W, Off), Ctrl+Z and Ctrl+Shift+Z (Ctrl+Y) undo and redo. Not while typing,
- * nor under a dialog opened over the layer (`root`: what the layer is in). [ and ] are also read by where they sit (a
+ * nor under a dialog opened over the layer (`root`: what the layer is in) or a popover. [ and ] are also read by where they sit (a
  * French keyboard has them under AltGr), as every paint program does.
  */
 export function useLayerKeys({ items, onPick, mask, root }: {
@@ -134,7 +136,8 @@ export function useLayerKeys({ items, onPick, mask, root }: {
   now.current = { items, onPick, mask };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || typing(e) || dialogOver(root?.current)) return;
+      // nor while a popover, a menu or a list is open over the layer (the ⚙ options): its keys are its own
+      if (e.defaultPrevented || typing(e) || dialogOver(root?.current) || document.querySelector(OVER)) return;
       const { items: list, onPick: pick, mask: m } = now.current;
       const k = e.key.toLowerCase();
       const ctrl = e.ctrlKey || e.metaKey;

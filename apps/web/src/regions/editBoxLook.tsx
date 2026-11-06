@@ -1,6 +1,6 @@
 import { cx } from "../cx";
 import { BoxHandles } from "../stageLayer/BoxHandles";
-import { percentOf } from "../stageLayer/geometry";
+import { percentOf, perScreen } from "../stageLayer/geometry";
 import type { Rect } from "../stageLayer/raster";
 import type { Size } from "../viewer/zoom";
 import type { LayerPlace } from "../viewer/ZoomPicture";
@@ -61,7 +61,7 @@ export function EditBoxes({ at, natural, regions, selected, live, ignored }: {
 function EditBox({ id, at, box, n, say, how, dimmed }: { id?: string; at: LayerPlace; box: Rect; n: number; say?: string; how: How; dimmed?: boolean }) {
   const line = 1 / at.shown.scale;
   // one of the picture's pixels in screen pixels
-  const k = (at.fit.w / at.frame.w) * at.shown.scale;
+  const k = 1 / perScreen(at.frame, at.fit, at.shown);
   const picked = how === "picked" || how === "drawing";
   const colour = how === "ignored" ? "var(--color-ink-3)" : "var(--color-picture)";
   const inside = (box.y + at.frame.y) * k < LABEL_ROOM_PX;

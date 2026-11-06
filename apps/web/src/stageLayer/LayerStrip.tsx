@@ -7,9 +7,12 @@ import { Help, IconButton, Segmented, Toggle } from "../ui";
 import { FRAME_ASPECTS, FRAME_RULES, padded } from "./frame";
 import type { ClickTool, DetectTool, FindWhat, WandTool } from "./useFindTools";
 import type { FrameTool } from "./useFrameTool";
-import { MASK_VIEW_NAMES, nextView, type MaskView } from "./maskView";
+import { MASK_VIEW_NAMES, MASK_VIEW_SWATCH, nextView } from "./maskView";
 import { BRUSH_LIMITS, type MaskLayer } from "./useMaskLayer";
 import type { Size } from "../viewer/zoom";
+
+/** Edit in box's blue, on what holds the boxes' work: the strip's title, the bar's chip. */
+export const BOX_TONE = "bg-picture/12 text-picture";
 
 /**
  * The strip over the Stage while the layer is on: what it is doing (its title), then the active tool's options. The same
@@ -25,7 +28,7 @@ export function LayerStrip({ title, tone, children, end, className }: {
 }) {
   return (
     <div className={cx("flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 px-1", className)}>
-      <span className={cx("inline-flex h-[26px] shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-bold transition-colors", tone === "box" ? "bg-picture/12 text-picture" : "bg-accent-wash text-accent")}>
+      <span className={cx("inline-flex h-[26px] shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-bold transition-colors", tone === "box" ? BOX_TONE : "bg-accent-wash text-accent")}>
         {tone === "box" && <span aria-hidden>✦</span>}
         {title}
       </span>
@@ -53,14 +56,6 @@ function Option({ name, help, children }: { name: string; help?: string; childre
   );
 }
 
-/** Each view's swatch on the eye: the tint, the picture darkened round the mask, black and white, nothing. */
-const SWATCH: Record<MaskView, string> = {
-  tint: "color-mix(in srgb, var(--color-accent) 55%, transparent)",
-  spot: "linear-gradient(90deg, #000 50%, color-mix(in srgb, var(--color-accent) 40%, white) 50%)",
-  bw: "linear-gradient(90deg, #000 50%, #fff 50%)",
-  off: "transparent",
-};
-
 /**
  * The eye: how the mask is shown, its view named beside it; a click (or M) shows the next one. Pushed to the strip's end,
  * where it stays whatever the tool's options before it.
@@ -79,7 +74,7 @@ export function MaskEye({ mask }: { mask: MaskLayer }) {
       className="ml-auto inline-flex h-7 shrink-0 items-center gap-1.5 rounded-control border border-line bg-panel px-2 text-xs font-semibold text-ink-2 transition-colors hover:text-ink"
     >
       {off ? <EyeOff size={14} /> : <Eye size={14} />}
-      <span aria-hidden className={cx("size-2.5 shrink-0 rounded-xs", off && "border border-line-strong")} style={{ background: SWATCH[mask.view] }} />
+      <span aria-hidden className={cx("size-2.5 shrink-0 rounded-xs", off && "border border-line-strong")} style={{ background: MASK_VIEW_SWATCH[mask.view] }} />
       <span className="w-16 text-left">{MASK_VIEW_NAMES[mask.view]}</span>
     </button>
   );
@@ -95,7 +90,7 @@ export function MaskOptions({ mask, grow, onGrow }: { mask: MaskLayer; grow?: nu
       <Option name="Size">
         <Slider label="Size of the brush" value={mask.brush.size} min={BRUSH_LIMITS.size.min} max={BRUSH_LIMITS.size.max} step={1} unit=" px" onChange={(size) => mask.setBrush({ size })} className={SLIDER} />
       </Option>
-      <Option name="Feather" help="The mask's own soft edge, painted into it past the brush's core: the dashed ring shows where it fades out, and a box, a lasso or a found mask fades out by the same. Not the fix's Mask blur (⚙): that one blurs the whole mask again when the new part is put back, on top of this.">
+      <Option name="Feather" help="The mask's soft edge past the brush's core (the dashed ring); boxes, lassos and found masks fade by it too. Not ⚙'s Mask blur.">
         <Slider label="Feather of the brush" value={mask.brush.feather} min={BRUSH_LIMITS.feather.min} max={BRUSH_LIMITS.feather.max} step={1} unit=" px" onChange={(feather) => mask.setBrush({ feather })} className={SLIDER} />
       </Option>
       {grow !== undefined && onGrow && (

@@ -209,7 +209,10 @@ export function Banners() {
         push({
           id: `grid:${id}`, tone: g.failed ? "bad" : "good", title: g.failed ? `Grid done · ${g.failed} of ${plural(count, "render")} failed` : `Grid done · ${plural(count, "render")}`,
           // on the Studio, its draft open, the board is put back up; elsewhere the library holds its cells
-          ...(draft && (path === "/" || path === "/create") ? { action: { label: "Open the board", run: () => useGridBoard.getState().show(draft, id) } } : { href: "/", go: "Open the library" }),
+          // nothing to open while the board is the Stage already
+          ...(document.querySelector(`[data-grid-board="${id}"]`) ? {}
+            : draft && (path === "/" || path === "/create") ? { action: { label: "Open the board", run: () => useGridBoard.getState().show(draft, id) } }
+            : { href: "/", go: "Open the library" }),
         });
       }
     }
@@ -279,13 +282,19 @@ export function Banners() {
   }, [undoable, redoable, dismiss, path]);
 
   const drawn = useLeaving(items);
+  const room = useBannerRoom(aside && drawn.length > 0, items);
   if (!drawn.length) return null;
+  // in the draft column's width: the action goes under the words, the close button staying beside them
+  const narrow = Boolean(room);
   return (
     // top centre, under the screens' headers: over the stage's or the player's empty top, never over a header's
     // controls (as it was at the very top) nor the stage's action bar and the status bar at the foot. With a board or a
     // drawing layer up, whose top is its own controls (the grid's column labels, Paint and fix's strip), down the right
-    // side instead, over the library's column, under the Stage's strip
-    <div className={cx("pointer-events-none fixed z-banner flex max-w-[calc(100vw-2rem)] flex-col gap-2", aside ? "top-36 right-3 w-[340px]" : "top-16 left-1/2 w-[440px] -translate-x-1/2")}>
+    // side instead: over the draft column when there is one (useBannerRoom), else under the Stage's strip
+    <div
+      style={room ?? undefined}
+      className={cx("pointer-events-none fixed z-banner flex max-w-[calc(100vw-2rem)] flex-col gap-2", room ? "" : aside ? "top-36 right-3 w-[340px]" : "top-16 left-1/2 w-[440px] -translate-x-1/2")}
+    >
       {drawn.map(({ b, leaving }) => {
         const said = (
           <>
@@ -295,7 +304,7 @@ export function Banners() {
           </>
         );
         return (
-        <div key={b.id} role={b.tone === "bad" ? "alert" : "status"} inert={leaving} className={cx(leaving ? "m-out" : "m-toast", "pointer-events-auto flex items-start gap-2.5 rounded-xl border py-2.5 pr-2 pl-3.5 shadow-2xl", b.tone === "bad" ? "border-warn bg-warn-wash text-warn-ink" : "border-line-strong bg-panel")}>
+        <div key={b.id} role={b.tone === "bad" ? "alert" : "status"} inert={leaving} className={cx(leaving ? "m-out" : "m-toast", "pointer-events-auto flex items-start gap-2.5 rounded-xl border py-2.5 pr-2 pl-3.5 shadow-2xl", narrow && "flex-wrap gap-y-1.5 pl-3", b.tone === "bad" ? "border-warn bg-warn-wash text-warn-ink" : "border-line-strong bg-panel")}>
           <span className="pt-0.5">{b.tone === "bad" ? <AlertTriangle size={16} /> : <Check size={16} className="text-good" />}</span>
           {b.act || b.href ? (
             <button
@@ -305,12 +314,12 @@ export function Banners() {
                 if (b.act) b.act();
                 else if (b.href) go(b.href);
               }}
-              className="flex min-w-0 grow flex-col gap-0.5 text-left"
+              className={cx("flex min-w-0 grow flex-col gap-0.5 text-left", narrow && "basis-0")}
             >
               {said}
             </button>
           ) : (
-            <div className="flex min-w-0 grow flex-col gap-0.5 pt-px">{said}</div>
+            <div className={cx("flex min-w-0 grow flex-col gap-0.5 pt-px", narrow && "basis-0")}>{said}</div>
           )}
           {b.action && (
             <button
@@ -319,7 +328,7 @@ export function Banners() {
                 dismiss(b.id);
                 b.action!.run();
               }}
-              className="flex h-7 shrink-0 items-center gap-1.5 self-center rounded-md border border-line-strong px-2.5 text-xs font-semibold hover:bg-hover"
+              className={cx("flex h-7 shrink-0 items-center gap-1.5 self-center rounded-md border border-line-strong px-2.5 text-xs font-semibold hover:bg-hover", narrow && "order-last mr-1.5 basis-full justify-center")}
             >
               {b.action.label} {b.action.key && <Kbd>{b.action.key}</Kbd>}
             </button>
@@ -330,4 +339,32 @@ export function Banners() {
       })}
     </div>
   );
+}
+
+/**
+ * Where the banners go while a tool keeps them aside: over the draft column on the Stage's right (`data-banner-room`), at
+ * its width, under its heading. In 340 px down the right side they covered the grid board's top-right cell and Paint and
+ * fix's eye chip at 1280 (card #333). Null without that column (the viewer over the screen has its own side panel there).
+ */
+function useBannerRoom(on: boolean, items: readonly Banner[]): { top: number; left: number; width: number } | null {
+  const [room, setRoom] = useState<{ top: number; left: number; width: number } | null>(null);
+  useLayoutEffect(() => {
+    const column = on ? document.querySelector<HTMLElement>("[data-banner-room]") : null;
+    if (!column) return setRoom(null);
+    const look = () => {
+      const r = column.getBoundingClientRect();
+      const head = column.firstElementChild?.getBoundingClientRect();
+      const next = { top: Math.round((head?.bottom ?? r.top) + 8), left: Math.round(r.left), width: Math.round(r.width) };
+      setRoom((was) => (was && was.top === next.top && was.left === next.left && was.width === next.width ? was : next));
+    };
+    look();
+    const watch = new ResizeObserver(look);
+    watch.observe(column);
+    window.addEventListener("resize", look);
+    return () => {
+      watch.disconnect();
+      window.removeEventListener("resize", look);
+    };
+  }, [on, items]);
+  return room;
 }
