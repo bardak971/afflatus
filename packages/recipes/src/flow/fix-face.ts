@@ -2,7 +2,7 @@ import { defineRecipe, GraphBuilder, type Recipe } from "@afflatus/core";
 import { dropsFor, pictureForm, SOURCE_INPUT, strengthInput } from "../shared/pictureForm";
 import { FACE_INPUTS, faceStepsFor, NO_FACE, type FaceSettings } from "../shared/face";
 import { A_FACE, photo, type FlowBase, type FlowKit, type FlowSpec } from "./kit";
-import { DETECTOR_INPUT } from "../shared/detector";
+import { DETECTOR_INPUT, DETECTOR_NODES, detectorNode } from "../shared/detector";
 
 export interface FlowFixFace extends FlowBase, FaceSettings { source: string; prompt: string; detector: string; strength: number }
 
@@ -30,13 +30,13 @@ export function flowFixFace(spec: FlowSpec, kit: FlowKit): Recipe<FlowFixFace> {
     ],
     ...(spec.presets ? { presets: spec.presets } : {}),
     nodes: (input) => [...loadNodes(input).filter((n) => !["KSampler", "VAEDecode"].includes(n)), "LoadImage", "UltralyticsDetectorProvider", "FaceDetailer"],
-    ...(SOMETIMES.length ? { optionalNodes: SOMETIMES } : {}),
+    optionalNodes: [...SOMETIMES, ...DETECTOR_NODES],
     build(input, ctx) {
       const g = new GraphBuilder();
       const k = load(g, input, ctx);
       const source = g.out("LoadImage", { image: ctx.uploads.source });
       const c = cond(g, k, input, input.prompt.trim() || A_FACE);
-      const detector = g.out("UltralyticsDetectorProvider", { model_name: input.detector });
+      const detector = g.out(detectorNode(ctx), { model_name: input.detector });
       const steps = faceStepsFor(k.steps, input.strength, kit.distilledFile(input, ctx.slots));
       g.phase("detailing");
       const fixed = g.add("FaceDetailer", {

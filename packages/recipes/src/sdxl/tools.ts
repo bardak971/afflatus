@@ -6,7 +6,7 @@ import { boxOf, MASK_INPUTS, MASK_NODES, maskParts, type MaskSettings } from "..
 import { FACE_INPUTS, faceSteps, NO_FACE, type FaceSettings } from "../shared/face";
 import { FACTOR_INPUT, REFINE_COLOUR_MATCH_INPUT, upscale2x, UPSCALER_INPUT, type RefineColourMatch, type UpscaleSettings } from "../shared/upscale";
 import { OUTPAINT_INPUTS, OUTPAINT_NODES, outpaintPad, outpaintPlan, PASTE_BACK_NODES, pasteBack, stretchedFill, type OutpaintSettings } from "../shared/outpaint";
-import { DETECTOR_INPUT } from "../shared/detector";
+import { DETECTOR_INPUT, DETECTOR_NODES, detectorNode } from "../shared/detector";
 import { SDXL_FACE_DENOISE } from "../shared/adetail";
 import { applyGuide, guideInputs, guideNeeds, guideNodes, type GuideSettings } from "../shared/guide";
 import { IP_ADAPTER_INPUTS, IP_FILES, IP_OPTIONAL, IP_REFUSES, ipAdapterNeeds, ipAdapterNodes, withIpAdapter, type ReferenceSettings } from "../shared/references";
@@ -353,11 +353,12 @@ export const sdxlFixFace = pictureForm("face", defineRecipe<SdxlFixFace>({
   ],
   presets: SDXL_PRESETS,
   nodes: (input) => [...modelNodes(input), "LoadImage", "UltralyticsDetectorProvider", "FaceDetailer", "PreviewImage"],
+  optionalNodes: DETECTOR_NODES,
   build(input, ctx) {
     const g = new GraphBuilder();
     const m = loadSdxl(g, input, input.prompt);
     const source = g.out("LoadImage", { image: ctx.uploads.source });
-    const detector = g.out("UltralyticsDetectorProvider", { model_name: input.detector });
+    const detector = g.out(detectorNode(ctx), { model_name: input.detector });
     const steps = faceSteps(input.steps);
     g.phase("detailing");
     const fixed = g.add("FaceDetailer", {

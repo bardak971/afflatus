@@ -31,6 +31,8 @@ Afflatus's other routes:
   averaged over about a second first, so that a drift inside a window is followed and windows of one source meet.
 - Afflatus: Room Tone — a faint noise laid into a sound's stretches of digital silence before LTX is pinned to it (LTX 2.3
   faded the picture to black over exact silence).
+- Afflatus: YOLO Detector on CPU — the Impact Subpack's UltralyticsDetectorProvider with its model run on the CPU (on the GPU,
+  DynamicVRAM left it giving hundreds of boxes or none once a diffusion model had loaded beside it).
 
 Afflatus writes this pack into ComfyUI's custom_nodes folder itself when it knows the folder (Settings →
 ComfyUI); ComfyUI picks it up at its next start. It can also be installed by hand: copy this folder into
@@ -112,6 +114,7 @@ from .colour_follow import AfflatusColorFollow  # noqa: E402
 from .room_tone import AfflatusRoomTone  # noqa: E402
 from .text_encoder import AfflatusFreeTextEncoder  # noqa: E402
 from .face_pass import AfflatusFaceDetailKeep, AfflatusFaceMaskStride, AfflatusH3InjectRegion, AfflatusH3ReferenceLatents, AfflatusH3ReferencePrompt  # noqa: E402
+from .detector_cpu import AfflatusDetectorProviderCPU  # noqa: E402
 
 
 def _version() -> str:
@@ -169,6 +172,9 @@ class AfflatusExtension(ComfyExtension):
             AfflatusFaceMaskStride,
             AfflatusFaceDetailKeep,
             AfflatusH3InjectRegion,
+            # the Impact Subpack's YOLO detectors run on the CPU: on the GPU, DynamicVRAM left them giving hundreds of boxes or none
+            # once a diffusion model had loaded beside them (pack 0.50.2, card #335)
+            AfflatusDetectorProviderCPU,
             # a face's likeness to some photos, for the pictures a Motion transfer is made from, and a person's picture cut to
             # their face (LTX 2.5's references), and InsightFace for IP-Adapter's FaceID once its files are checked (pack
             # 0.50.0): only with insightface installed

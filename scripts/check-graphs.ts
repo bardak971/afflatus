@@ -51,7 +51,9 @@ for (const recipe of recipes) {
       problems.push(...offGrid(built.graph));
       // a file the build loads without its name: a slot the variant's machine has no file for (Klein 9B read with the 4B's encoder)
       for (const l of built.loads ?? []) if (/\/(undefined|null)?$/.test(l)) problems.push(`loads ${l}: no file`);
-      const missing = recipe.nodes(input).filter((n) => !Object.values(built.graph).some((node) => node.class_type === n));
+      // a node both needed and optional is asked of the machine without always being in the graph: the Subpack's YOLO
+      // provider, which the node pack's CPU one runs on (card #335)
+      const missing = recipe.nodes(input).filter((n) => !recipe.optionalNodes?.includes(n) && !Object.values(built.graph).some((node) => node.class_type === n));
       for (const n of missing) problems.push(`nodes() lists ${n}, which the graph does not use`);
       const unlisted = [...new Set(Object.values(built.graph).map((node) => node.class_type))].filter((c) => !recipe.nodes(input).includes(c) && !recipe.optionalNodes?.includes(c));
       for (const n of unlisted) problems.push(`the graph uses ${n}, which nodes() does not list`);

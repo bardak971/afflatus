@@ -1,6 +1,6 @@
 import { defineRecipe, GraphBuilder, TOOLS_FAMILY } from "@afflatus/core";
 import { DETECTOR_FILES } from "../shared/adetail";
-import { HAND_THRESHOLD } from "../shared/detector";
+import { DETECTOR_NODES, detectorNode, HAND_THRESHOLD } from "../shared/detector";
 import { SOURCE_INPUT } from "../shared/pictureForm";
 import { SAM_FILE, samModel } from "../shared/sam";
 
@@ -76,6 +76,7 @@ export const findMask = defineRecipe<FindMask>({
     input.way === "detect"
       ? ["LoadImage", "UltralyticsDetectorProvider", DETECT[input.what].segm ? "SegmDetectorSEGS" : "BboxDetectorSEGS", "ImpactSEGSToMaskList", "MaskToImage", "PreviewImage"]
       : ["LoadImage", "CheckpointLoaderSimple", "SAM3_Detect", "MaskToImage", "PreviewImage"],
+  optionalNodes: DETECTOR_NODES,
   build(input, ctx) {
     const g = new GraphBuilder();
     const image = g.out("LoadImage", { image: ctx.uploads.source });
@@ -85,7 +86,7 @@ export const findMask = defineRecipe<FindMask>({
       const kind = DETECT[input.what];
       const file = ctx.slots[kind.slot];
       if (!file) throw new Error(`Finding ${input.what === "hands" ? "hands" : `a ${input.what}`} needs its detector (${DETECTOR_FILES[kind.slot]} in models/ultralytics; Settings › Models has it).`);
-      const detector = g.add("UltralyticsDetectorProvider", { model_name: file });
+      const detector = g.add(detectorNode(ctx), { model_name: file });
       const crop = { threshold: kind.threshold, dilation: 0, crop_factor: 1, drop_size: 10, labels: "all" };
       const segs = kind.segm
         ? g.out("SegmDetectorSEGS", { segm_detector: [detector, 1], image, ...crop })

@@ -12,7 +12,7 @@ import {
   type KleinBase,
 } from "./common";
 import { outpaintAsk, withIntro } from "../shared/asks";
-import { DETECTOR_INPUT } from "../shared/detector";
+import { DETECTOR_INPUT, DETECTOR_NODES, detectorNode } from "../shared/detector";
 import { SAME_FACE } from "./facePass";
 import { hiresFix, pictureOut, type PictureSampler } from "../shared/passes";
 import { ADETAIL_OPTIONAL, adetailInputs, adetailNeeds, ALL_DETAIL, DETECTOR_FILES, type AdetailSettings } from "../shared/adetail";
@@ -538,12 +538,13 @@ export const kleinFixFace = pictureForm("face", defineRecipe<KleinFixFace>({
     ...LOAD_NODES(input), "CLIPTextEncode", ...REFERENCE_NODES, "UltralyticsDetectorProvider", "PreviewImage",
     ...(input.references.length && input.second.length ? ["BboxDetectorSEGS", "ImpactSEGSOrderedFilter", "DetailerForEach"] : ["FaceDetailer"]),
   ],
+  optionalNodes: DETECTOR_NODES,
   build(input, ctx) {
     const g = new GraphBuilder();
     const k = loadKlein(g, input, ctx);
     const source = g.out("LoadImage", { image: ctx.uploads.source });
     const load = (id: "references" | "second") => input[id].map((_, i) => g.out("LoadImage", { image: ctx.uploads[`${id}.${i}`] }));
-    const detector = g.out("UltralyticsDetectorProvider", { model_name: input.detector });
+    const detector = g.out(detectorNode(ctx), { model_name: input.detector });
     if (input.references.length && input.second.length) {
       const people = [load("references"), load("second")];
       g.phase("detailing");
