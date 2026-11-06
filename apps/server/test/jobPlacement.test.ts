@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makePng, startFakeComfy, type FakeComfy } from "@afflatus/comfy/testing";
 import { newId, now, OWNER } from "../src/db";
+import { placementColumns, placementOf, type JobPlacement } from "../src/jobPlacement";
 import { CHECKPOINT, makeApp, post, referenceCatalog, type TestApp } from "./helpers";
 
 /**
@@ -20,8 +21,12 @@ afterEach(async () => {
   await fake.close().catch(() => {});
 });
 
-const PLACEMENT = ["draft_id", "folder_id", "clip_id", "clip_fit", "clip_mirror", "finished_from", "version_of", "grid_id", "grid_cell"] as const;
-const placement = async (id: string) => t.db.selectFrom("jobs").select(PLACEMENT).where("id", "=", id).executeTakeFirstOrThrow();
+/** The job's placement columns, as the insert writes them: a field added to JobPlacement is checked here too. */
+const PLACEMENT = Object.keys(placementColumns({})) as Array<keyof ReturnType<typeof placementColumns>>;
+const placement = async (id: string) => {
+  const row = await t.db.selectFrom("jobs").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
+  return Object.fromEntries(PLACEMENT.map((k) => [k, row[k]]));
+};
 
 describe("a job done again", () => {
   it("lands where the job it repeats was to land, every field of its placement kept", async () => {
@@ -43,5 +48,14 @@ describe("a job done again", () => {
     // each field is set, so that none is equal by both being empty
     for (const k of PLACEMENT) expect(was[k], k).toBeTruthy();
     expect(await placement(redo)).toEqual(was);
+  });
+});
+
+describe("a placement", () => {
+  it("is read back from the columns it is written to as it was, every field", () => {
+    const p: JobPlacement = { draft: "d", folder: "f", clip: { id: "c", fit: true, mirror: ["image"] }, finishedFrom: "t", versionOf: "v", grid: { id: "g", cell: "0.1.2" } };
+    expect(placementOf(placementColumns(p))).toEqual(p);
+    // none of it: no column set, a clip that does not fit
+    expect(placementColumns({})).toEqual({ draft_id: null, folder_id: null, clip_id: null, clip_fit: 0, clip_mirror: null, finished_from: null, version_of: null, grid_id: null, grid_cell: null });
   });
 });

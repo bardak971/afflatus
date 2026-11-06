@@ -38,6 +38,7 @@ import { formPacks, type FormPackNote } from "./formPacks";
 import { refusedSaid } from "./modelSetCheck";
 import { NO_WILDCARDS, settleTexts, type WildcardPlaces } from "./wildcardFiles";
 import { stackRoot } from "./versions";
+import { placementColumns, placementOf, type JobPlacement } from "./jobPlacement";
 
 // what the routes and the services name from here: the options, and the RIFE model lookup the timelines routes share with the slow-motion tool
 export { DEFAULT_QUEUE_OPTIONS, type QueueOptions };
@@ -126,19 +127,15 @@ export interface CutExtra {
 const FRONT = -1_000_000;
 
 /** What a render's job is queued with (Queue.enqueue). */
-export interface EnqueueOptions {
-  label?: string; dependsOn?: string; clip?: { id: string; fit: boolean; mirror?: readonly string[] }; draft?: string | null; folder?: string | null;
-  /** The picture its results come back under as versions (versions.ts), any one of its stack: written as the stack's root. */
-  versionOf?: string | null;
+export interface EnqueueOptions extends Partial<JobPlacement> {
+  label?: string; dependsOn?: string;
   /** Ahead of every job waiting (a mask the Stage finds: the user waits for it with the brush in hand). */
   front?: boolean;
-  warm?: boolean; look?: unknown; finishedFrom?: string | null; asked?: Record<string, unknown>; machine?: string | null;
+  warm?: boolean; look?: unknown; asked?: Record<string, unknown>; machine?: string | null;
   /** What the job is to the person when its files are refused ("Clip 3" of a timeline's Render): the refusal starts with it. */
   who?: string;
   /** The MCP token whose call queued it (mcpTokens.ts): its limits count it, and a token without Spend keeps it off rented pods. */
   mcpToken?: string | null;
-  /** A cell of an X/Y/Z grid (grids.ts): the grid's id and the cell's place on its board ("x.y.z"), carried by what it makes. */
-  grid?: { id: string; cell: string };
 }
 
 /**
@@ -675,10 +672,9 @@ export class Queue {
     return {
       id, owner_id: OWNER, recipe_id: recipe.id, label: opts.label?.trim() || recipe.title, inputs: JSON.stringify(input), asked,
       status: "queued", warm: opts.warm ? 1 : 0, look: opts.look ? JSON.stringify(opts.look) : null, priority: opts.front ? FRONT : recipe.output === "image" ? 0 : 10, depends_on: opts.dependsOn ?? null,
-      attempts: 0, resume: null, error: null, generation_id: null, clip_id: opts.clip?.id ?? null, clip_fit: opts.clip?.fit ? 1 : 0, clip_mirror: opts.clip?.mirror?.length ? JSON.stringify(opts.clip.mirror) : null,
-      draft_id: opts.draft ?? null, folder_id: opts.folder ?? null, finished_from: opts.finishedFrom ?? null, pin_machine: pin,
-      mcp_token_id: opts.mcpToken ?? null, version_of: opts.versionOf ? await stackRoot(this.db, opts.versionOf) : null,
-      grid_id: opts.grid?.id ?? null, grid_cell: opts.grid?.cell ?? null,
+      attempts: 0, resume: null, error: null, generation_id: null, pin_machine: pin, mcp_token_id: opts.mcpToken ?? null,
+      // where its results land; sent as versions of any one of a stack, it is written as the stack's root
+      ...placementColumns({ ...opts, versionOf: opts.versionOf ? await stackRoot(this.db, opts.versionOf) : null }),
       created_at: at, started_at: null, finished_at: null, updated_at: at,
     } satisfies Insertable<Tables["jobs"]>;
   }
@@ -1006,15 +1002,10 @@ export class Queue {
     return this.enqueue(row.recipe_id, { ...was, ...change }, {
       label: row.label,
       dependsOn,
-      // with the flips it was sent with: done again, it renders what it was asked to, whatever the clip says now
-      clip: row.clip_id ? { id: row.clip_id, fit: Boolean(row.clip_fit), mirror: readJson<string[]>(row.clip_mirror, []) } : undefined,
-      draft: row.draft_id, folder: row.folder_id, warm: Boolean(row.warm), look: readJson(row.look, undefined),
-      // done again, its results still come back under the same picture
-      versionOf: row.version_of ?? null,
-      // and a grid's cell done again lands in its place on the board
-      grid: row.grid_id && row.grid_cell ? { id: row.grid_id, cell: row.grid_cell } : undefined,
-      // a finish done again is still the finished version of the same take
-      finishedFrom: row.finished_from,
+      // done again, its results land where the job's were to: its draft, folder, clip (with the flips it was sent with), the
+      // take it finishes, the picture it renders versions of, its grid cell (jobPlacement.ts)
+      ...placementOf(row),
+      warm: Boolean(row.warm), look: readJson(row.look, undefined),
       // what the person asked stays theirs, with what was changed now
       asked: row.asked ? { ...readJson<Record<string, unknown>>(row.asked, {}), ...change } : undefined,
       // pinned by hand, it goes back where it was pinned
