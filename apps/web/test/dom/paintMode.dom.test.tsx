@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { Asset, RecipeInfo } from "../../src/api";
 import { findOn } from "../../src/paintFix/findOn";
 import { frameSaid } from "../../src/paintFix/PaintAndFix";
-import { fixInputs, outInputs } from "../../src/paintFix/useFixJob";
+import { passInputs } from "../../src/passes";
 import { useStageMode, useVersionDrafts, versionOfDraft } from "../../src/paintFix/useStageMode";
 import { TunePopoverHost } from "../../src/TunePopover";
 import { Viewer } from "../../src/Viewer";
@@ -329,13 +329,13 @@ describe("what a fix sends", () => {
   const tool = { id: "zz-test.paint-over", inputs: [{ id: "source", type: "image", role: "source" }, { id: "mask", type: "image", role: "mask" }, { id: "prompt", type: "prompt" }, { id: "strength", type: "number" }, { id: "maskGrow", type: "number" }] } as unknown as RecipeInfo;
 
   it("is the mask in the recipe's mask slot, the denoise and grow it takes, the prompt only when written", () => {
-    expect(fixInputs(tool, { prompt: "  ", strength: 0.5, grow: 8, tuned: {} }, "zz-test-mask")).toEqual({ mask: "zz-test-mask", strength: 0.5, maskGrow: 8 });
-    expect(fixInputs(tool, { prompt: "a red scarf", strength: 0.5, grow: 8, tuned: { steps: 12 } }, "zz-test-mask")).toMatchObject({ prompt: "a red scarf", steps: 12 });
+    expect(passInputs("i", tool, { prompt: "  ", strength: 0.5, grow: 8, tuned: {}, mask: "zz-test-mask" })).toEqual({ mask: "zz-test-mask", strength: 0.5, maskGrow: 8 });
+    expect(passInputs("i", tool, { prompt: "a red scarf", strength: 0.5, grow: 8, tuned: { steps: 12 }, mask: "zz-test-mask" })).toMatchObject({ prompt: "a red scarf", steps: 12 });
     const blurred = { ...tool, inputs: [...tool.inputs, { id: "maskBlur", type: "number" }] } as RecipeInfo;
-    expect(fixInputs(blurred, { prompt: "", strength: 0.5, grow: 8, tuned: {}, soft: true }, "zz-test-mask")).toMatchObject({ maskBlur: 1 });
-    expect(fixInputs(blurred, { prompt: "", strength: 0.5, grow: 8, tuned: {} }, "zz-test-mask")).not.toHaveProperty("maskBlur");
+    expect(passInputs("i", blurred, { prompt: "", strength: 0.5, grow: 8, tuned: {}, soft: true, mask: "zz-test-mask" })).toMatchObject({ maskBlur: 1 });
+    expect(passInputs("i", blurred, { prompt: "", strength: 0.5, grow: 8, tuned: {}, mask: "zz-test-mask" })).not.toHaveProperty("maskBlur");
     const plain = { ...tool, inputs: tool.inputs.filter((i) => i.id !== "maskGrow" && i.id !== "prompt") } as RecipeInfo;
-    expect(fixInputs(plain, { prompt: "a red scarf", strength: 0.5, grow: 8, tuned: {} }, "zz-test-mask")).toEqual({ mask: "zz-test-mask", strength: 0.5 });
+    expect(passInputs("i", plain, { prompt: "a red scarf", strength: 0.5, grow: 8, tuned: {}, mask: "zz-test-mask" })).toEqual({ mask: "zz-test-mask", strength: 0.5 });
   });
 
   it("from the full form opened through ⚙ is a version while the form's picture is still the one it was opened on", () => {
@@ -350,8 +350,8 @@ describe("what an outpaint sends", () => {
   const sides = { shape: "Custom" as const, padLeft: 192, padTop: 128, padRight: 0, padBottom: 0 };
   it("is the frame's sides as the Custom shape, the prompt only when written", () => {
     const tool = { id: "zz-test.outpaint", inputs: [{ id: "prompt", type: "prompt" }, { id: "padLeft", type: "number" }] } as unknown as RecipeInfo;
-    expect(outInputs(tool, { prompt: "", tuned: {} }, sides)).toEqual(sides);
-    expect(outInputs(tool, { prompt: " more tables ", tuned: { feathering: 40 } }, sides)).toEqual({ ...sides, prompt: "more tables", feathering: 40 });
+    expect(passInputs("r", tool, { prompt: "", tuned: {}, sides })).toEqual(sides);
+    expect(passInputs("r", tool, { prompt: " more tables ", tuned: { feathering: 40 }, sides })).toEqual({ ...sides, prompt: "more tables", feathering: 40 });
   });
 
   it("is said on the chip side by side, nothing when the frame is the picture's own", () => {

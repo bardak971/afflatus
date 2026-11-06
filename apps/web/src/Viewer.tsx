@@ -21,7 +21,8 @@ import { ViewerSidebar } from "./viewer/ViewerSidebar";
 import { useCompareResult } from "./store";
 import { useVersions } from "./paintFix/useVersions";
 import { stepVersion, VersionStrip } from "./paintFix/VersionStrip";
-import { MODE_PASS, outpaintsByFrame, useStageMode } from "./paintFix/useStageMode";
+import { outpaintsByFrame, useStageMode } from "./paintFix/useStageMode";
+import { modePass } from "./passes";
 
 // the parameters reader is a chunk of its own: fetched the first time Details opens
 const PngInfo = lazy(() => import("./PngInfo").then((m) => ({ default: m.PngInfo })));
@@ -133,7 +134,7 @@ export function Viewer({ asset: first, items, more, onOpen, onClose, inline, onD
   const { a, g, leave, move, timeline } = acts;
   // painting needs the picture's inpaint: without one (no model for it) the viewer stays as it is
   // Edit with no edit model still opens on the inpaint, its bar saying so
-  const painting = paintAsked && Boolean(acts.toolFor(MODE_PASS[stageOn!.mode]) ?? (stageOn!.mode === "edit" ? acts.toolFor("i") : undefined));
+  const painting = paintAsked && Boolean(acts.toolFor(modePass(stageOn!.mode)) ?? (stageOn!.mode === "edit" ? acts.toolFor("i") : undefined));
   const formTarget = useFormTarget((st) => st.target);
 
   const compareResult = useCompareResult((s) => s.on);

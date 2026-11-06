@@ -2,14 +2,15 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Asset, type AssetDetail, type RecipeInfo } from "./api";
 import { useFamilies, useRecipes, useSetup } from "./data";
 import { plural } from "./format";
-import { ACTIONS, PASS_KEYS, SELECTION_PASSES, VERSION_PASSES, type ActionId, type SelectionPass, type TuneAt } from "./itemActions";
+import { ACTIONS, SELECTION_PASSES, type ActionId, type SelectionPass, type TuneAt } from "./itemActions";
 import { TUNED_ROWS, tunedJob, useTune } from "./passTune";
 import { useSendJob, type QueuedJob } from "./queueVariation";
 import { askBeforeMany } from "./podAsk";
 import { queryKeys } from "./queryKeys";
 import { failedBanner } from "./sayFailed";
 import { useBanners } from "./store";
-import { carried, handsInput, NO_HAND_DETECTOR, OPS, renderOf, toolOf } from "./viewer/shared";
+import { jobOfPass, PASSES, passOf } from "./passes";
+import { carried, handsInput, NO_HAND_DETECTOR, renderOf, toolOf } from "./viewer/shared";
 import { VARY, varyJob, varyTool } from "./vary";
 
 /** Where a pass is picked from: the recipes on, the families, which are ready and what ComfyUI offers for each. */
@@ -37,7 +38,7 @@ export function passJob(pass: SelectionPass, d: AssetDetail, place: PassPlace): 
     if (!tool) throw new Error("Its model has no img2img.");
     return varyJob(how, ACTIONS[pass].label, made, madeWith, tool, d.id);
   }
-  const key = PASS_KEYS[pass]!;
+  const key = passOf(pass)!;
   const tool = toolOf(key, place.all, place.families, madeWith?.id, place.ready);
   if (!tool) throw new Error("No model is installed for it.");
   const slot = tool.inputs.find((i) => i.type === "image" && i.role === "source")!;
@@ -49,7 +50,7 @@ export function passJob(pass: SelectionPass, d: AssetDetail, place: PassPlace): 
     Object.assign(stored, way.values);
   }
   // Face and Hand refine of a grid's pictures land under each picture as versions, as from the picture itself
-  return { recipe: tool, stored, label: OPS[key]!.label, from: d.id, ...(VERSION_PASSES.has(key) ? { versionOf: d.id } : {}) };
+  return jobOfPass(key, tool, stored, d.id);
 }
 
 /**
@@ -75,7 +76,7 @@ export function useSelectionPasses() {
   // a Vary's img2img is each picture's own model's: offered while any model on has one
   const img2img = place.all.find((r) => r.output === "image" && r.op === "img2img");
   const passes = Object.fromEntries(SELECTION_PASSES.flatMap((id) => {
-    const tool = VARY[id] ? img2img : toolOf(PASS_KEYS[id]!, place.all, place.families, undefined, place.ready);
+    const tool = VARY[id] ? img2img : toolOf(passOf(id)!, place.all, place.families, undefined, place.ready);
     return tool ? [[id, tool.title]] : [];
   })) as Partial<Record<ActionId, string>>;
   const read = (a: Asset) => client.fetchQuery({ queryKey: queryKeys.assets.one(a.id), queryFn: ({ signal }) => api.asset(a.id, { signal }) });
@@ -114,9 +115,10 @@ export function useSelectionPasses() {
       if (!done) return;
       const { pass, queued, failed, count } = done;
       const label = ACTIONS[pass].label;
+      const key = passOf(pass);
       if (queued) {
         void client.invalidateQueries({ queryKey: queryKeys.queue() });
-        say({ id: `queued:${Date.now()}`, tone: "good", title: `${label}${count > 1 ? ` ×${count}` : ""} queued on ${plural(queued, "picture")}`, ...(VERSION_PASSES.has(PASS_KEYS[pass] ?? "") ? { text: "Each comes back as a version under its picture, not as a new item: K keeps it." } : {}), href: "/queue", go: "Open the Queue" });
+        say({ id: `queued:${Date.now()}`, tone: "good", title: `${label}${count > 1 ? ` ×${count}` : ""} queued on ${plural(queued, "picture")}`, ...(key && PASSES[key].version ? { text: "Each comes back as a version under its picture, not as a new item: K keeps it." } : {}), href: "/queue", go: "Open the Queue" });
       }
       if (failed.length) say(failedBanner({ id: `queued-many:${pass}`, href: "/settings", go: "Open Settings" }, `${label} could not be queued on ${plural(failed.length, "picture")}`, failed[0]));
     },

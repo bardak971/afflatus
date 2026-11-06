@@ -8,13 +8,14 @@ import { useOpenNewDraft } from "./draft";
 import { fileLabel, recipeLabel } from "./format";
 import { GetFile } from "./GetFile";
 import { handMask } from "./handoff";
-import { ACTIONS, PASS_KEYS, type ActionId } from "./itemActions";
+import { ACTIONS, type ActionId } from "./itemActions";
+import { jobOfPass, passOf, type PassKey } from "./passes";
 import { useQueueVariation } from "./queueVariation";
 import { useFormAim } from "./recipeForm/formAim";
 import { Select } from "./Select";
 import { useHandover } from "./store";
 import { Button, cx, ErrorNote } from "./ui";
-import { OPS, toolOf } from "./viewer/shared";
+import { toolOf } from "./viewer/shared";
 
 import { workflowFile } from "./dropZones";
 
@@ -74,7 +75,7 @@ export function PngInfo({ name, title = "PNG info", read, first, picture, onClos
   };
 
   /** The recipe of a pass, as the library's list picks it: the one of the model the form above is for, else one that is ready. */
-  const toolFor = (key: string): RecipeInfo | undefined => {
+  const toolFor = (key: PassKey): RecipeInfo | undefined => {
     const all = (recipes.data?.recipes ?? []).filter(offers);
     return toolOf(key, all, recipes.data?.families ?? [], data?.settings?.recipe, (r) => Boolean(setup.data?.recipes.find((x) => x.id === r.id)?.ready));
   };
@@ -88,7 +89,7 @@ export function PngInfo({ name, title = "PNG info", read, first, picture, onClos
       const slot = tool.inputs.find((i) => i.type === "image" && i.role === "source")!.id;
       const input = { ...(fresh.settings?.recipe === tool.id ? fresh.settings.input : {}), [slot]: asset };
       if (id === "upscale") {
-        queued.mutate({ recipe: tool, stored: input, label: OPS.u!.label, from: asset });
+        queued.mutate(jobOfPass("u", tool, input, asset));
         onClose();
         return;
       }
@@ -106,7 +107,7 @@ export function PngInfo({ name, title = "PNG info", read, first, picture, onClos
     }
   };
   const passes = picture ? (["edit", "inpaint", "upscale"] as const).flatMap((id) => {
-    const tool = toolFor(PASS_KEYS[id]!);
+    const tool = toolFor(passOf(id)!);
     return tool ? [{ id, tool }] : [];
   }) : [];
 
