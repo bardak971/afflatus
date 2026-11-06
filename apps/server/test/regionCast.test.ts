@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { inputFiles } from "@afflatus/core";
 import { recipeById } from "@afflatus/recipes";
 import { newId, now, OWNER } from "../src/db";
 import { compose, regionCast } from "../src/entities";
-import { filesAsked } from "../src/machineScans";
 import { CHECKPOINT, makeApp, post, type TestApp } from "./helpers";
 
 /**
@@ -53,8 +53,8 @@ describe("the people of a form's regions", () => {
 
   it("ask a machine for their LoRAs as the form's own list does (a pod is sent them)", () => {
     const sdxl = recipeById("sdxl.text-to-picture")!;
-    const asked = filesAsked(sdxl, { checkpoint: CHECKPOINT, loras: [], regions: [{ id: "a", box, prompt: "x", lora: { file: "coat.safetensors", weight: 0.6 }, castLora: { file: "mira.safetensors", weight: 0.7 } }, { id: "b", box, prompt: "y", lora: { file: "off.safetensors", weight: 0 } }] });
-    expect(asked.filter((f) => f.folder === "loras")).toEqual([{ input: "loras", file: "coat.safetensors", folder: "loras" }, { input: "loras", file: "mira.safetensors", folder: "loras" }]);
+    const asked = inputFiles(sdxl.inputs, { checkpoint: CHECKPOINT, loras: [], regions: [{ id: "a", box, prompt: "x", lora: { file: "coat.safetensors", weight: 0.6 }, castLora: { file: "mira.safetensors", weight: 0.7 } }, { id: "b", box, prompt: "y", lora: { file: "off.safetensors", weight: 0 } }] });
+    expect(asked.filter((f) => f.folder === "loras")).toEqual([{ input: "loras", file: "coat.safetensors", folder: "loras", kind: "lora" }, { input: "loras", file: "mira.safetensors", folder: "loras", kind: "lora" }]);
   });
 
   it("drop a person deleted since they were cast, and a box left with nothing in it is no box (card #300)", async () => {

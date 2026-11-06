@@ -1,5 +1,5 @@
 import type { RecipeStatus, Scan } from "@afflatus/comfy";
-import { familyOnFor, folderOfFileInput, pickedFiles, regionsOf, sameFile, isMissingSlotFile, isShown, neededSlots, packOfNode, SOFT_SLOTS, TOOLS_FAMILY, type Family, type GraphFile, type LoraValue, type Recipe } from "@afflatus/core";
+import { familyOnFor, inputFiles, pickedFiles, sameFile, isMissingSlotFile, neededSlots, packOfNode, SOFT_SLOTS, TOOLS_FAMILY, type Family, type GraphFile, type Recipe } from "@afflatus/core";
 import type { Loaded } from "./jobFiles";
 import type { Machine, Settings } from "./settings";
 
@@ -44,33 +44,6 @@ export function mergeScans(scans: Array<{ machine: Machine; scan: Scan }>, setti
     return whole ?? f;
   });
   return { ...base, recipes, families };
-}
-
-/**
- * The model files and LoRAs a job asks for, by input, with the folder each goes in: what a machine must list for the job to
- * run there. A choice among a model folder's files (a hires upscaler, a detector, a ControlNet: its options read from a
- * loader node's file input) asks for the file chosen, while that choice is in play: a pod planned for an SDXL job with hires
- * fix fetched its checkpoint, text encoder and VAE, and every render then failed for the upscaler it was never sent. Its
- * own options (`extra`: "Latent", "Same as the first pass") name no file.
- */
-export function filesAsked(recipe: Pick<Recipe<any>, "inputs">, input: Record<string, unknown>): Array<{ input: string; file: string; folder: string }> {
-  // a model input asks for its file while it is in play (Face refine's model holds one with Face refine off)
-  const models = pickedFiles(recipe.inputs, input);
-  return recipe.inputs.flatMap((i) => {
-    const v = input[i.id];
-    if (i.type === "model") return models.filter((m) => m.input === i.id);
-    if (i.type === "loras" && Array.isArray(v)) return (v as LoraValue[]).filter((l) => l?.file).map((l) => ({ input: i.id, file: l.file, folder: "loras" }));
-    // a region's LoRA and its person's (card #271): LoRA files as the form's list asks for them, looked for in the same list
-    if (i.type === "regions") {
-      const list = recipe.inputs.find((x) => x.type === "loras")?.id ?? i.id;
-      return regionsOf(v).flatMap((r) => [r.lora, r.castLora]).filter((l): l is LoraValue => Boolean(l?.file && l.weight !== 0)).map((l) => ({ input: list, file: l.file, folder: "loras" }));
-    }
-    if (i.type === "choice" && !Array.isArray(i.options) && typeof v === "string" && v && !i.extra?.includes(v) && isShown(i, input, recipe.inputs)) {
-      const folder = folderOfFileInput(i.options.node, i.options.input);
-      if (folder) return [{ input: i.id, file: v, folder }];
-    }
-    return [];
-  });
 }
 
 /**
@@ -120,7 +93,7 @@ export function filesUsed(
 ): UsedFile[] {
   // a file nobody has (missingSlotFile) is not one to list: the job cannot be sent it
   if (loaded) return filesOfLoaded(loaded, slots, recipe);
-  const out: UsedFile[] = filesAsked(recipe, input).map(({ file, folder }) => ({ file, folder }));
+  const out: UsedFile[] = inputFiles(recipe.inputs, input).map(({ file, folder }) => ({ file, folder }));
   const found = scan?.families.find((f) => f.id === recipe.family)?.slots ?? [];
   const asks = recipe.needsWith?.(input, slotFilesOf(found)) ?? [];
   const needs = neededSlots(recipe, input);
@@ -175,7 +148,7 @@ export function lackOn(
   // there is said by the files it lacks
   const off = !on && (machine.families[recipe.family] ?? settings.families[recipe.family]) === false;
   if (loaded) return lackOfGraph(recipe, input, scan, status, on, off, { ...loaded, absent: loaded.absent.filter((f) => !soft(f.slot)) });
-  const wanted = filesAsked(recipe, input);
+  const wanted = inputFiles(recipe.inputs, input);
   // matched as the build matches it (core sameFile): a file this ComfyUI keeps in another sub-folder is not lacking
   const asked = wanted.filter(({ input: id, file }) => status?.options[id] && !sameFile(status.options[id]!, file));
   const slots = scan.families.find((f) => f.id === recipe.family)?.slots ?? [];
@@ -247,7 +220,7 @@ function lackOfGraph(
   status: RecipeStatus | undefined, on: boolean, off: boolean, loaded: Loaded,
 ): Lack | null {
   const slots = scan.families.find((f) => f.id === recipe.family)?.slots ?? [];
-  const filled = new Set(filesAsked(recipe, input).map((w) => w.input));
+  const filled = new Set(inputFiles(recipe.inputs, input).map((w) => w.input));
   const gap = loaded.absent.find((f) => isMissingSlotFile(f.file));
   const files = loaded.absent.filter((f) => !isMissingSlotFile(f.file)).map((f) => withUrl(recipe, slots, f));
   // the node types its own graph uses there (an option's pack too), else its plain form's as the scan read them

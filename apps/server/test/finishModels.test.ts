@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { OWN_MODEL, parseInput } from "@afflatus/core";
+import { inputFiles, OWN_MODEL, parseInput } from "@afflatus/core";
 import { recipeById } from "@afflatus/recipes";
 import { newId, now, OWNER } from "../src/db";
 import { newAssetRow } from "../src/media";
-import { filesAsked } from "../src/machineScans";
 import { toolNeeds } from "../src/queueTools";
 import { CUT_JOB } from "../src/timelineModel";
 import { makeApp, type TestApp } from "./helpers";
@@ -95,7 +94,7 @@ describe("a form's model inputs, as the files a job asks for", () => {
   const form = (values: Record<string, unknown>) => parseInput(video, { description: "a", references: [{ asset: "r1", role: "person" }], ...values }) as unknown as Record<string, unknown>;
 
   it("asks for Face refine's model only with Face refine on, and never for the clip's own", () => {
-    const asked = (values: Record<string, unknown>) => filesAsked(video, form(values)).map((f) => f.file);
+    const asked = (values: Record<string, unknown>) => inputFiles(video.inputs, form(values)).map((f) => f.file);
     expect(asked({ faceRefine: true, faceRefineModel: "other_h3_ref2va.safetensors" })).toContain("other_h3_ref2va.safetensors");
     expect(asked({ faceRefine: false, faceRefineModel: "other_h3_ref2va.safetensors" })).not.toContain("other_h3_ref2va.safetensors");
     expect(asked({ faceRefine: true, faceRefineModel: OWN_MODEL })).not.toContain(OWN_MODEL);
@@ -104,14 +103,14 @@ describe("a form's model inputs, as the files a job asks for", () => {
   it("asks for the Face refine model picked on a SCAIL-2 or LTX 2.5 form (card #204), none left out", () => {
     for (const [id, values] of [["scail.motion24", { picture: "p1", driving: { asset: "v1" } }], ["ltx25.video", { prompt: "a" }]] as const) {
       const recipe = recipeById(id)!;
-      const asked = (more: Record<string, unknown>) => filesAsked(recipe, parseInput(recipe, { ...values, faceRefine: true, ...more }) as unknown as Record<string, unknown>).filter((f) => f.input === "faceRefineModel");
+      const asked = (more: Record<string, unknown>) => inputFiles(recipe.inputs, parseInput(recipe, { ...values, faceRefine: true, ...more }) as unknown as Record<string, unknown>).filter((f) => f.input === "faceRefineModel");
       expect(asked({ faceRefineModel: "other_h3_ref2va.safetensors" }), id).toEqual([expect.objectContaining({ file: "other_h3_ref2va.safetensors", folder: "diffusion_models" })]);
       expect(asked({}), id).toEqual([]);
     }
   });
 
   it("asks for SeedVR2's and the latent upscaler's only on their routes", () => {
-    const asked = (values: Record<string, unknown>) => filesAsked(video, form(values)).map((f) => f.file);
+    const asked = (values: Record<string, unknown>) => inputFiles(video.inputs, form(values)).map((f) => f.file);
     expect(asked({ upscale: "Video: SeedVR2 (restores)", seedvrModel: "seedvr2_7b.safetensors" })).toContain("seedvr2_7b.safetensors");
     expect(asked({ upscale: "Off", seedvrModel: "seedvr2_7b.safetensors" })).not.toContain("seedvr2_7b.safetensors");
     expect(asked({ upscale: "Latent: re-sampled", upscaleLatentModel: "minimax_h3_latent_upscaler_v2.safetensors" })).toContain("minimax_h3_latent_upscaler_v2.safetensors");

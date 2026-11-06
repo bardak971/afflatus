@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formGap, isShown, parseInput, pickChoice, plannedClipMs, plannedSeconds, RANDOM_SEED, schemaFor, type InputSpec } from "../src";
+import { formGap, inputFiles, isShown, parseInput, pickChoice, plannedClipMs, plannedSeconds, RANDOM_SEED, schemaFor, slotDownload, type InputSpec } from "../src";
 
 const specs: InputSpec[] = [
   { id: "prompt", type: "prompt", label: "Tags", style: "tags" },
@@ -195,5 +195,43 @@ describe("a clip's form filled enough to render (card #260)", () => {
     // the clip before gives its opening picture
     expect(formGap(motion, { description: "zz-test" }, { carries: true, afterStill: false })).toBe("It has no driving video: drop one on the Source lane under the track.");
     expect(formGap(motion, { description: "zz-test", picture: "p1", source: { asset: "v1" } }, { carries: false, afterStill: false })).toBeNull();
+  });
+});
+
+describe("inputFiles, the model files a form picks (card #288)", () => {
+  const form: InputSpec[] = [
+    { id: "checkpoint", type: "model", label: "Model", folder: "checkpoints" },
+    { id: "loras", type: "loras", label: "LoRAs", max: 4 },
+    { id: "regions", type: "regions", label: "Regions", max: 4, lora: "scoped" },
+    { id: "hires", type: "toggle", label: "Hi-res fix", default: false },
+    { id: "upscaler", type: "choice", label: "Upscaler", options: { node: "UpscaleModelLoader", input: "model_name" }, extra: ["latent"], default: "4xNomos8kSC.safetensors", showWhen: "hires" },
+    { id: "sampler", type: "choice", label: "Sampler", options: { node: "KSampler", input: "sampler_name" }, default: "euler" },
+  ];
+  const box = { x: 0, y: 0, w: 0.5, h: 0.5 };
+
+  it("says models, LoRAs (a region's under the form's list) and file choices, each with its folder, none at weight 0", () => {
+    const files = inputFiles(form, {
+      checkpoint: "zz-test.safetensors", hires: true, upscaler: "4xNomos8kSC.safetensors", sampler: "euler",
+      loras: [{ file: "zz-on.safetensors", weight: 0.5 }, { file: "zz-off.safetensors", weight: 0 }],
+      regions: [{ id: "a", box, prompt: "x", lora: { file: "zz-coat.safetensors", weight: 0.6 }, castLora: { file: "zz-cast.safetensors", weight: 0 } }],
+    });
+    expect(files).toEqual([
+      { input: "checkpoint", file: "zz-test.safetensors", folder: "checkpoints", kind: "model" },
+      { input: "loras", file: "zz-on.safetensors", folder: "loras", kind: "lora" },
+      { input: "loras", file: "zz-coat.safetensors", folder: "loras", kind: "lora" },
+      { input: "upscaler", file: "4xNomos8kSC.safetensors", folder: "upscale_models", kind: "choice", default: true },
+    ]);
+  });
+
+  it("leaves out a choice not in play, one of its own options, and a choice another file than its default", () => {
+    expect(inputFiles(form, { hires: false, upscaler: "4xNomos8kSC.safetensors" })).toEqual([]);
+    expect(inputFiles(form, { hires: true, upscaler: "latent" })).toEqual([]);
+    expect(inputFiles(form, { hires: true, upscaler: "zz-other.pth" })).toEqual([{ input: "upscaler", file: "zz-other.pth", folder: "upscale_models", kind: "choice" }]);
+  });
+
+  it("finds the family slot that downloads a default, in its folder only, whatever its case", () => {
+    const families = [{ slots: [{ folder: "upscale_models", get: { file: "4xNomos8kSC.safetensors", url: "https://example.com/n" } }] }];
+    expect(slotDownload(families, { file: "4xnomos8ksc.safetensors", folder: "upscale_models" })).toEqual({ file: "4xNomos8kSC.safetensors", folder: "upscale_models", url: "https://example.com/n" });
+    expect(slotDownload(families, { file: "4xNomos8kSC.safetensors", folder: "loras" })).toBeUndefined();
   });
 });

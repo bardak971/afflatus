@@ -1,9 +1,9 @@
-import { fileKey, isOfficialFile, modelName, modelOf, sameFile, type NodeCatalog, type Recipe } from "@afflatus/core";
+import { fileKey, inputFiles, isOfficialFile, modelName, modelOf, sameFile, type NodeCatalog, type Recipe } from "@afflatus/core";
 import type { Db } from "./db";
 import { paceOf } from "./forecast";
 import type { Scan } from "@afflatus/comfy";
 import { roomFor, type Loaded } from "./jobFiles";
-import { filesAsked, lackOn, toolLackOn, toolSlots, type Lack } from "./machineScans";
+import { lackOn, toolLackOn, toolSlots, type Lack } from "./machineScans";
 import type { PodFiles, PodFileState } from "./podFiles";
 import { PACKS_MS } from "./podPacks";
 
@@ -370,7 +370,7 @@ export class Planner {
       const pinStopped = pin && !offPods.has(r.id) && machines.get(pin)?.rented && this.d.unavailable(pin) === "stopped" ? pin : undefined;
       // no machine can run it now, and a pod not up holds what it asks for: it waits for that pod (its row's Start), not for
       // a Download on a machine of the user's own, and never goes there (card #139)
-      const startPod = pinStopped ?? (!can.size && recipe && !offPods.has(r.id) && held.size ? podHolding(filesAsked(recipe, input).filter((f) => recipe.inputs.some((i) => i.id === f.input && (i.type === "model" || i.type === "loras"))), held, (f) => official.has(fileKey(f)) || scans.some(({ scan }) => {
+      const startPod = pinStopped ?? (!can.size && recipe && !offPods.has(r.id) && held.size ? podHolding(inputFiles(recipe.inputs, input).filter((f) => f.kind !== "choice"), held, (f) => official.has(fileKey(f)) || scans.some(({ scan }) => {
         const list = scan?.comfy.online ? scan.recipes.find((x) => x.id === recipe.id)?.options[f.input] : undefined;
         return Boolean(list && sameFile(list, f.file));
       }), (id) => !pin || pin === id) : undefined);

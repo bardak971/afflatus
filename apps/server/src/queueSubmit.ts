@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { openAsBlob } from "node:fs";
-import { baseModels, checkGraph, choiceFiles, graphFiles, clockFits, exactSoundPart, FRAME_SLACK_MS, folderOfFileInput, inputsIn, isChunkStart, latentClockOf, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, neededSlots, onGrid, optionsIn, packOfNode, parseInput, pickChoice, pickedFiles, RANDOM_SEED, randomSeed, relocateFiles, soundPartOf, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type Family, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue, type SetFinding } from "@afflatus/core";
+import { baseModels, checkGraph, choiceFiles, graphFiles, clockFits, exactSoundPart, FRAME_SLACK_MS, folderOfFileInput, inputFiles, inputsIn, isChunkStart, latentClockOf, leadInBefore, mainModel, missingNodesSaid, missingSlotFile, missingSlotIn, modelFileName, modelName, modelOf, neededSlots, onGrid, optionsIn, packOfNode, parseInput, pickChoice, pickedFiles, RANDOM_SEED, randomSeed, relocateFiles, slotDownload, soundPartOf, timeKey, WARM_SINK, warmGraph, type BuildContext, type BuiltGraph, type ClipValue, type CueValue, type Family, type InputSpec, type MediaFacts, type Recipe, type ReferenceValue, type SetFinding } from "@afflatus/core";
 import { catalogKey, ComfyCancelled, ComfyError, ComfyUnreachable, filesIn } from "@afflatus/comfy";
 import { Kept } from "./kept";
 import { chunksOf, forecast, fromRates, sizedFrom, workOf, type Forecast } from "./forecast";
@@ -105,28 +105,22 @@ export function standIns(recipe: Recipe<any>, input: Record<string, unknown>): {
  */
 function settled(recipe: Recipe<any>, input: Record<string, unknown>, catalog: Awaited<ReturnType<Comfy["catalog"]>>, pod: readonly Family[] | null = null): Record<string, unknown> {
   const chosen: Record<string, unknown> = { ...input };
+  // every choice of a node's list (a sampler's too), whether in play or not: not inputFiles, which says only the files picked
   for (const spec of recipe.inputs as InputSpec[]) {
     if (spec.type !== "choice" || Array.isArray(spec.options)) continue;
-    if (pod && chosen[spec.id] === spec.default && pinnedDefault(pod, spec.options, String(spec.default))) continue;
+    const folder = folderOfFileInput(spec.options.node, spec.options.input);
+    if (pod && folder && chosen[spec.id] === spec.default && slotDownload(pod, { file: spec.default, folder })) continue;
     const all = choiceFiles(spec, catalog);
     if (all.length && !all.includes(String(chosen[spec.id])) && chosen[spec.id] === spec.default) chosen[spec.id] = pickChoice(spec, all);
   }
   return chosen;
 }
 
+/** Whether the job goes to a rented pod: its lane's machine is one (QueueCore.podFiles). */
+const onPod = (core: Pick<QueueCore, "podFiles">): boolean => Boolean(core.podFiles?.());
+
 /** The families whose downloads a rented pod fetches a default from (settled); null on a machine of the user's own. */
 const podFamilies = (core: Pick<QueueCore, "registry">, pod: boolean): readonly Family[] | null => (pod ? core.registry.families() : null);
-
-/** The download a family slot gives for `file` in the folder the choice's loader reads (podSources.ts podSource: a pod fetches it from there); null when none does. */
-function pinnedDefault(families: readonly Family[], from: { node: string; input: string }, file: string): { file: string; folder: string; url: string } | null {
-  const folder = folderOfFileInput(from.node, from.input);
-  const name = file.toLowerCase();
-  for (const f of folder ? families : []) {
-    const slot = f.slots.find((s) => s.folder === folder && s.get?.file.toLowerCase() === name);
-    if (slot?.get) return { file: slot.get.file, folder: folder!, url: slot.get.url };
-  }
-  return null;
-}
 
 /**
  * The defaults settled kept on a rented pod for it to fetch, that its ComfyUI does not list yet, as podHeld waits for a
@@ -143,10 +137,12 @@ async function podDefaults(
   const pod = core.podFiles?.();
   if (!pod) return { chosen, said: [] };
   const families = core.registry.families();
-  const kept = (recipe.inputs as InputSpec[]).flatMap((spec) => {
-    if (spec.type !== "choice" || Array.isArray(spec.options) || chosen[spec.id] !== spec.default) return [];
+  // (a file choice another input hides is not among them: its graph does not read it)
+  const kept = inputFiles(recipe.inputs, chosen).flatMap((f) => {
+    const spec = recipe.inputs.find((i) => i.id === f.input);
+    if (!f.default || spec?.type !== "choice") return [];
     const all = choiceFiles(spec, catalog);
-    const get = all.includes(String(spec.default)) ? null : pinnedDefault(families, spec.options, String(spec.default));
+    const get = all.includes(f.file) ? undefined : slotDownload(families, f);
     return get ? [{ spec, all, get, on: pod.state(get) }] : [];
   });
   // (a graph that cannot be built here is refused at its build below, in its own words)
@@ -261,7 +257,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
   // a timeline clip: what it joins onto is settled now, when the clips around it have their takes
   const plan = row.clip_id && core.clips ? await core.clips.plan(row.clip_id, recipe, raw, Boolean(row.clip_fit), row.finished_from, false, readJson<string[]>(row.clip_mirror, [])) : null;
   const input = plan ? (parseInput(recipe, plan.input) as Record<string, unknown>) : raw;
-  const settledChosen = settled(recipe, input, catalog, podFamilies(core, Boolean(core.podFiles?.())));
+  const settledChosen = settled(recipe, input, catalog, podFamilies(core, onPod(core)));
   // what the options are given here, and why one is done without (its pack cannot come, the row said Run without)
   const facts = (await core.packFacts?.().catch(() => null)) ?? ANY_PACKS;
   const missing = recipe.nodes(input).filter((n: string) => !(n in catalog));
@@ -272,7 +268,7 @@ export async function submit(core: QueueCore, comfy: Comfy, recipe: Recipe<any>,
     const kept = await comfy.scanKept()?.catch(() => null);
     throw new Error(`${missingNodesSaid(missing, kept?.comfy.online ? kept.comfy.version : null)}${cannot.length ? ` Not installed by Afflatus: ${cannot.join("; ")}.` : ""}`);
   }
-  const dryOf = async (files: Record<string, string>) => (await builtOf(core, recipe.id, plan ? plan.input : raw, { finishedFrom: row.finished_from, canvas: plan?.canvas, slots: files, catalog, comfy, pod: Boolean(core.podFiles?.()) }).catch(() => null))?.graph ?? null;
+  const dryOf = async (files: Record<string, string>) => (await builtOf(core, recipe.id, plan ? plan.input : raw, { finishedFrom: row.finished_from, canvas: plan?.canvas, slots: files, catalog, comfy, pod: onPod(core) }).catch(() => null))?.graph ?? null;
   // a family file its pod is getting is waited for, not refused (podHeld)
   const { files: slotFiles, gaps } = await timedPart("scan", async () => podHeld(core, comfy, recipe, input, row, await slots(core, comfy, recipe), dryOf));
   // a family file not here is refused only when this job's graph reads it, seen before anything goes up when it can be
@@ -1246,11 +1242,11 @@ export async function forecastOf(
   // the first machine's node list, waited for CATALOG_WAIT_MS at most: one that accepts and never answers held every forecast
   // a minute (H-3); unread, the form is not built, and is priced from its recipe's usual times
   const catalog = await within((await core.comfy()).catalog(), CATALOG_WAIT_MS);
-  const build = () => (catalog ? builtOf(core, recipeId, plan ? plan.input : rawInput, { finishedFrom: opts.finishedFrom ?? null, canvas: plan?.canvas, catalog, pod: Boolean(core.podFiles?.()) }).catch(() => null) : Promise.resolve(null));
+  const build = () => (catalog ? builtOf(core, recipeId, plan ? plan.input : rawInput, { finishedFrom: opts.finishedFrom ?? null, canvas: plan?.canvas, catalog, pod: onPod(core) }).catch(() => null) : Promise.resolve(null));
   // kept by its form and that node list: one that cannot be built on it is not built again at each pass either
   const built = await (catalog && opts.builds && !opts.clip ? opts.builds.get([recipeId, opts.finishedFrom ?? "", catalogKey(catalog) ?? "", JSON.stringify(rawInput)].join("\u0001"), build) : build());
   // its settings as submit files them: a file left on its default that this ComfyUI does not have is its best one (the time key)
-  if (built) chosen = settled(recipe, chosen, catalog!, podFamilies(core, Boolean(core.podFiles?.())));
+  if (built) chosen = settled(recipe, chosen, catalog!, podFamilies(core, onPod(core)));
   const shape = built ? workOf(built) : null;
   const model = built ? modelFileOf(recipe, chosen, built) : (modelOf(recipe.inputs, chosen) ?? "");
   const paces = opts.machine || opts.machines?.length ? await core.paces() : undefined;
