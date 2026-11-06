@@ -1,4 +1,4 @@
-import { fileKey, graphFiles, parseInput, pathKey, pickedFiles, regionsOf, type GraphFile, type InputSpec, type LoraValue } from "@afflatus/core";
+import { fileKey, graphFiles, inputFiles, parseInput, pathKey, type GraphFile, type InputSpec } from "@afflatus/core";
 import { now, type Db } from "./db";
 import { keptRead } from "./dbWrites";
 import type { Services } from "./services";
@@ -58,18 +58,9 @@ export async function linkUses(db: Db, jobId: string, generationId: string): Pro
   await db.updateTable("model_uses").set({ generation_id: generationId }).where("job_id", "=", jobId).execute().catch((err: Error) => console.warn("[model uses]", err.message));
 }
 
-/** The model files a form chose itself (its model and LoRA inputs): what a backfill knows exactly. */
-export function chosenFiles(inputs: readonly InputSpec[], input: Record<string, unknown>): Array<{ folder: string; file: string }> {
-  // (the model inputs in play: one another input shows holds its file while it is off)
-  const out: Array<{ folder: string; file: string }> = pickedFiles(inputs, input).map(({ folder, file }) => ({ folder, file }));
-  for (const spec of inputs) {
-    const value = input[spec.id];
-    if (spec.type === "loras" && Array.isArray(value)) for (const l of value as LoraValue[]) if (l?.file) out.push({ folder: "loras", file: l.file });
-    // a region's LoRA and its person's (card #271)
-    if (spec.type === "regions") for (const r of regionsOf(value)) for (const l of [r.lora, r.castLora]) if (l?.file) out.push({ folder: "loras", file: l.file });
-  }
-  return out;
-}
+/** The model files a form chose itself (its model and LoRA inputs, core inputFiles): what a backfill knows exactly. */
+export const chosenFiles = (inputs: readonly InputSpec[], input: Record<string, unknown>): Array<{ folder: string; file: string }> =>
+  inputFiles(inputs, input).flatMap(({ kind, folder, file }) => (kind === "choice" ? [] : [{ folder, file }]));
 
 /**
  * The uses of the renders from before 0.8.2, read once: every generation (kept for good, unlike the jobs) not counted yet.

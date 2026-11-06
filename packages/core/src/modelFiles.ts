@@ -55,6 +55,19 @@ type Downloads = ReadonlyArray<{ slots?: ReadonlyArray<{ get?: { file: string; u
  */
 export const nameKey = (file: string) => baseName(file).toLowerCase();
 
+/**
+ * The download a family slot of `f`'s folder gives for it, by its name in any case (podSources.ts podSource: a pod fetches
+ * it from there): a file choice's default kept on a pod (queueSubmit settled). Undefined when none does.
+ */
+export function slotDownload(families: ReadonlyArray<{ slots: ReadonlyArray<{ folder: string; get?: { file: string; url: string } }> }>, f: { file: string; folder: string }): { file: string; folder: string; url: string } | undefined {
+  const name = f.file.toLowerCase();
+  for (const family of families) {
+    const slot = family.slots.find((s) => s.folder === f.folder && s.get?.file.toLowerCase() === name);
+    if (slot?.get) return { file: slot.get.file, folder: f.folder, url: slot.get.url };
+  }
+  return undefined;
+}
+
 /** Whether `file` is a family's official file by its name (a slot's download), whatever its sub-folder or case. */
 export const isOfficialName = (families: Downloads, file: string): boolean =>
   families.some((f) => (f.slots ?? []).some((x) => x.get !== undefined && nameKey(x.get.file) === nameKey(file)));

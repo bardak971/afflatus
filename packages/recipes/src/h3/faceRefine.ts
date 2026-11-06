@@ -195,7 +195,7 @@ export function faceRefineNeeds(input: Partial<Pick<H3Video, "faceRefine" | "ref
 
 /**
  * The family file Face refine's model is (faceRefineNeeds): the fused turbo's slot when left out; a file picked is asked by
- * its input (machineScans filesAsked); the clip's own model nothing more where the clip loads it, its slot where a Finish ›
+ * its input (core inputFiles); the clip's own model nothing more where the clip loads it, its slot where a Finish ›
  * Face refine samples nothing (referenceNeeds then asks for none), and the fused turbo where the clip's model follows no picture.
  */
 function faceModelNeeds(input: Partial<Pick<H3Video, "faceRefineModel" | "faceRefineOnly">>, clip: Pick<ClipModel, "follows" | "slot" | "turboSlot"> | undefined): string[] {

@@ -1,13 +1,12 @@
 import { EventEmitter } from "node:events";
 import { ComfyAway, ComfyCancelled, ComfyError, ComfyFailed, ComfyLost, ComfyUnreachable, filesIn, systemLoadFromStatus, waitForOutputs, type Measured } from "@afflatus/comfy";
-import { fileKey, formModelInput, lorasOverSaid, modelFileName, modelOf, modelStart, parseInput, refusalOf, removedSaid, sameFile, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
+import { fileKey, formModelInput, inputFiles, lorasOverSaid, modelFileName, modelOf, modelStart, parseInput, refusalOf, removedSaid, sameFile, type BuiltGraph, type InputSpec, type Recipe } from "@afflatus/core";
 import { Comfy, NO_COMFY_URL, type MachineComfy } from "./comfy";
 import { fileName } from "./media";
 import type { Insertable } from "kysely";
 import { newId, now, OWNER, toRun, type Db, type Tables } from "./db";
 import { addedBy } from "./events";
 import { httpError } from "./errors";
-import { filesAsked } from "./machineScans";
 import type { HuntSummary } from "./hunt";
 import { paceOf } from "./forecast";
 import { gathering, observeAdded, observePart } from "./serverMetrics";
@@ -714,8 +713,7 @@ export class Queue {
     if (await this.deps.pods.podComing().catch(() => true)) return;
     // the files picked in a model or LoRA field: a choice among a loader's files (a hires upscaler) that is not there is
     // replaced by one that is at the build
-    const picked = new Set(recipe.inputs.filter((i) => i.type === "model" || i.type === "loras").map((i) => i.id));
-    const asked = filesAsked(recipe, input).filter((f) => picked.has(f.input));
+    const asked = inputFiles(recipe.inputs, input).filter((f) => f.kind !== "choice");
     if (!asked.length) return;
     const official = new Set(this.registry.families().flatMap((f) => (f.slots ?? []).flatMap((x) => (x.get ? [fileKey({ folder: x.folder, file: x.get.file })] : []))));
     const gettable = (f: { file: string; folder: string }) => official.has(fileKey(f)) || Boolean(recipe.files?.some((x) => x.url && fileKey({ folder: f.folder, file: x.file }) === fileKey(f)));

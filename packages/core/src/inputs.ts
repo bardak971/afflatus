@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { endsIn, MODEL_EXTS, nameKey } from "./modelFiles";
 import { withinPixels } from "./frame";
+import { folderOfFileInput } from "./models";
 import { gridAtOrBefore, type FrameGrid } from "./frameGrid";
 import { sigmaOfOldDenoise } from "./sigmas";
 import { RANDOM_SEED, SEED_RANGE } from "./seed";
@@ -779,9 +780,51 @@ export function chosenDefaults(specs: readonly InputSpec[], values: Record<strin
  * holds its file while that is off, and loads nothing then. Never OWN_MODEL, which names no file.
  */
 export function pickedFiles(specs: readonly InputSpec[], values: Record<string, unknown>): Array<{ input: string; file: string; folder: string }> {
-  return specs.flatMap((spec) => {
-    const file = spec.type === "model" ? pickedFile(values[spec.id]) : null;
-    return spec.type === "model" && file && isShown(spec, values, specs) ? [{ input: spec.id, file, folder: spec.folder }] : [];
+  return inputFiles(specs, values).flatMap(({ kind, input, file, folder }) => (kind === "model" ? [{ input, file, folder }] : []));
+}
+
+/** A model file a form's input picks, with the folder it goes in (inputFiles). */
+export interface InputFile {
+  /** The input that names it. A region's LoRA is said under the form's LoRA list, whose files it is looked for among. */
+  input: string;
+  file: string;
+  folder: string;
+  /** A model input's file, a LoRA (the form's list or a region's), or a choice among a loader's files. */
+  kind: "model" | "lora" | "choice";
+  /** A file choice left on its default: on a pod, one a family slot downloads is kept and fetched (queueSubmit settled). */
+  default?: true;
+}
+
+/**
+ * The model files and LoRAs a form picks, by input, each with its folder, its inputs in play only: what a machine must list
+ * for the job to run there, what a pod is sent for it when its graph cannot be read, and the files a backfill knows exactly.
+ * Written once: the server's copies had drifted, one counting a region's LoRA at weight 0, which no build loads (card #288).
+ * - a model input's file, never OWN_MODEL, which names no file; one another input shows (Face refine's model) holds its
+ *   file while that is off, and loads nothing then;
+ * - a LoRA, of the form's list or of a region and its person (card #271), but not one at weight 0;
+ * - a choice among a model folder's files (a hires upscaler, a detector, a ControlNet: its options read from a loader
+ *   node's file input), its file chosen: a pod planned for an SDXL job with hires fix fetched its checkpoint, text encoder
+ *   and VAE, and every render then failed for the upscaler it was never sent. Its own options (`extra`: "Latent", "Same
+ *   as the first pass") name no file.
+ */
+export function inputFiles(specs: readonly InputSpec[], values: Record<string, unknown>): InputFile[] {
+  const loraList = specs.find((x) => x.type === "loras")?.id;
+  const loras = (input: string, list: ReadonlyArray<LoraValue | undefined>): InputFile[] =>
+    list.flatMap((l) => (l?.file && l.weight !== 0 ? [{ input, file: l.file, folder: "loras", kind: "lora" as const }] : []));
+  return specs.flatMap((spec): InputFile[] => {
+    if (!isShown(spec, values, specs)) return [];
+    const v = values[spec.id];
+    if (spec.type === "model") {
+      const file = pickedFile(v);
+      return file ? [{ input: spec.id, file, folder: spec.folder, kind: "model" }] : [];
+    }
+    if (spec.type === "loras") return Array.isArray(v) ? loras(spec.id, v as LoraValue[]) : [];
+    if (spec.type === "regions") return loras(loraList ?? spec.id, regionsOf(v).flatMap((r) => [r.lora, r.castLora]));
+    if (spec.type === "choice" && !Array.isArray(spec.options) && typeof v === "string" && v && !spec.extra?.includes(v)) {
+      const folder = folderOfFileInput(spec.options.node, spec.options.input);
+      return folder ? [{ input: spec.id, file: v, folder, kind: "choice", ...(v === spec.default ? { default: true as const } : {}) }] : [];
+    }
+    return [];
   });
 }
 
