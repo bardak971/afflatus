@@ -10,7 +10,8 @@
 // (versions/trial names it), when versions/previous names another one that is installed, is left for that one, with
 // the library as it was before the update and a note in DATA_DIR/updates/fallback.json for the server to show.
 import { spawn } from "node:child_process";
-import { closeSync, copyFileSync, existsSync, fsyncSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, copyFileSync, existsSync, fstatSync, fsyncSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { arch, release, totalmem } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -37,11 +38,146 @@ export const DATA_FOLDER = 4;
 export function decide(s) {
   if (s.code === RESTART) return { action: "restart" };
   // Windows reports a console's Ctrl+C or a closed window as STATUS_CONTROL_C_EXIT (0xC000013A)
-  const byUser = s.signal !== null || s.code === 0xc000013a || s.code === 130;
+  // a stop asked for (Ctrl+C, a SIGTERM or SIGHUP from the system or the person), not a crash: a SIGKILL, SIGSEGV or SIGABRT
+  // during a first start is the version's (a native module it ships, its Node) as much as an exit code is
+  const byUser = STOP_SIGNALS.includes(s.signal) || s.code === 0xc000013a || s.code === 130;
   const notTheVersion = s.code === PORT_TAKEN || s.code === DATA_FOLDER;
   const firstStart = s.trial !== null && s.trial === s.version;
   if (!s.started && !byUser && !notTheVersion && firstStart && s.previous && s.previous !== s.version && s.previousInstalled) return { action: "fallback", to: s.previous };
   return { action: "stop", code: s.code ?? 1 };
+}
+
+/** The signals that ask a process to stop, as Ctrl+C, a closed terminal or a shutdown send them; any other is a crash or a kill. */
+const STOP_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"];
+/** The signals a process dies on when it crashes in its own code (a native module, Node itself). */
+const CRASH_SIGNALS = ["SIGSEGV", "SIGBUS", "SIGILL", "SIGFPE", "SIGABRT", "SIGTRAP", "SIGSYS"];
+/** Windows's codes for a process that crashed: an access violation, a stack overrun or overflow, a corrupted heap. */
+const WINDOWS_CRASHES = { 0xc0000005: "an access violation", 0xc0000409: "a stack buffer overrun", 0xc00000fd: "a stack overflow", 0xc0000374: "a corrupted heap", 0xc000001d: "an illegal instruction" };
+
+/**
+ * The line the launcher says once the server has stopped and it stops too, in the terminal and the log: every way out says
+ * why. A server killed by a signal says nothing itself (no handler of its runs on a SIGKILL or a SIGSEGV), and the shell
+ * says nothing either, as its own child (this launcher) exits normally: up to 0.10.0 such a stop gave the prompt back with
+ * no word at all (macOS, 2026-11-10).
+ *
+ * @param {{ code: number | null, signal: string | null, log: string | null }} s
+ */
+export function stopLine(s) {
+  const send = s.log ? ` If it happens again, send the log: ${s.log}` : "";
+  if (s.signal === "SIGKILL") return `Afflatus stopped: the server was killed (SIGKILL), with no chance to say why. The system does this when it runs short of memory (on macOS too), or another program did it. Start it again.${send}`;
+  if (CRASH_SIGNALS.includes(s.signal)) return `Afflatus stopped: the server crashed (${s.signal}) in native code (the image library, or Node itself). Start it again.${send}`;
+  if (s.signal) return `Afflatus stopped: the server was ended by ${s.signal}${STOP_SIGNALS.includes(s.signal) ? ", a stop asked of it (Ctrl+C, a closed terminal, the system or another program)" : ""}.`;
+  if (s.code === 0) return "Afflatus stopped.";
+  if (s.code === 0xc000013a || s.code === 130) return "Afflatus stopped (Ctrl+C, or its window closed).";
+  const crash = WINDOWS_CRASHES[s.code];
+  if (crash) return `Afflatus stopped: the server crashed (${crash}, 0x${s.code.toString(16).toUpperCase()}) in native code (the image library, or Node itself). Start it again.${send}`;
+  if (s.code === PORT_TAKEN || s.code === DATA_FOLDER) return `Afflatus stopped (exit code ${s.code}): why is said just above.`;
+  // Windows's large codes (a process ended from Task Manager is 0xFFFFFFFF) read as they are documented, in hex
+  const said = s.code === null ? "none" : s.code > 0xffff ? `0x${s.code.toString(16).toUpperCase()}` : s.code;
+  return `Afflatus stopped: the server ended with exit code ${said}; what it said last is just above.${send}`;
+}
+
+/** How many days of logs data/logs keeps: the files of older days are taken away at a start. */
+export const LOG_DAYS = 14;
+/** A day's log past this size is set aside as afflatus-<day>.old.log (one only, the one before it replaced) and started afresh. */
+export const LOG_MAX = 32 * 1024 * 1024;
+/** The launcher's log files' names: afflatus-<day>.log and the one set aside, never the server's own afflatus.log (access.ts) beside them. */
+const LOG_NAME = /^afflatus-(\d{4}-\d{2}-\d{2})(?:\.old)?\.log$/;
+
+/** A day as the log files are named: the local date, 2026-11-10. */
+const dayOf = (at) => `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`;
+
+/**
+ * The bundle's log file: everything the server prints, and the launcher's own lines, each line stamped with its time, in
+ * DATA_DIR/logs/afflatus-<day>.log, a file a day, kept LOG_DAYS days and LOG_MAX bytes at most. Each write goes to the
+ * disk at once (a write to the file, not a buffer): a server killed the next moment leaves its last lines in the file.
+ * A log that cannot be written never stops Afflatus: it is said once in the terminal and left off.
+ *
+ * @param {string} dir
+ * @param {{ now?: () => Date, max?: number, days?: number, warn?: (line: string) => void }} [o]
+ */
+export function openLog(dir, o = {}) {
+  const now = o.now ?? (() => new Date());
+  const max = o.max ?? LOG_MAX;
+  const warn = o.warn ?? ((line) => process.stderr.write(`${line}\n`));
+  let fd = null;
+  let day = null;
+  let size = 0;
+  let off = false;
+  // whether the next text of each stream starts a line, which then takes a time stamp
+  const atStart = new Map();
+  const fileOf = (d) => join(dir, `afflatus-${d}.log`);
+  const close = () => {
+    if (fd !== null) closeSync(fd);
+    fd = null;
+  };
+  const fail = (err) => {
+    off = true;
+    try {
+      close();
+    } catch {}
+    warn(`[log] the log file in ${dir} cannot be written (${err.message}): Afflatus goes on, its lines in this terminal only.`);
+  };
+  const open = (d) => {
+    close();
+    mkdirSync(dir, { recursive: true });
+    fd = openSync(fileOf(d), "a");
+    size = fstatSync(fd).size;
+    day = d;
+  };
+  try {
+    open(dayOf(now()));
+    const oldest = dayOf(new Date(now().getTime() - (o.days ?? LOG_DAYS) * 86_400_000));
+    for (const name of readdirSync(dir)) {
+      const m = LOG_NAME.exec(name);
+      if (m && m[1] < oldest) rmSync(join(dir, name), { force: true });
+    }
+  } catch (err) {
+    fail(err);
+  }
+  /** Text as a stream gives it (a line in pieces, or several at once), from `from` ("out", "err", the launcher's own). */
+  const write = (text, from = "launcher") => {
+    if (off || !text) return;
+    try {
+      const at = now();
+      const d = dayOf(at);
+      if (d !== day) open(d);
+      else if (size >= max) {
+        close();
+        renameSync(fileOf(d), join(dir, `afflatus-${d}.old.log`));
+        open(d);
+      }
+      const stamp = at.toISOString();
+      let out = "";
+      for (const part of text.split(/(?<=\n)/)) {
+        if (atStart.get(from) ?? true) out += `${stamp} ${from === "launcher" ? "[launcher] " : ""}`;
+        out += part;
+        atStart.set(from, part.endsWith("\n"));
+      }
+      const bytes = Buffer.from(out);
+      writeSync(fd, bytes);
+      size += bytes.length;
+    } catch (err) {
+      fail(err);
+    }
+  };
+  return {
+    /** The day's file, null when the log is off. */
+    get path() {
+      return off ? null : fileOf(day);
+    },
+    write,
+    /** One line of the launcher's: in the terminal (stderr for a warning) and the log. */
+    say(line, err = false) {
+      (err ? process.stderr : process.stdout).write(`${line}\n`);
+      write(`${line}\n`);
+    },
+    close() {
+      try {
+        close();
+      } catch {}
+    },
+  };
 }
 
 /**
@@ -200,9 +336,26 @@ async function main() {
     const run = spawn(process.execPath, [join(app, "apps", "server", "dist", "index.mjs"), ...process.argv.slice(2)], { env, stdio: "inherit" });
     process.exit(await new Promise((done) => run.on("exit", (code) => done(code ?? 1))));
   }
-  console.log(`Afflatus ${env.AFFLATUS_VERSION} - http://127.0.0.1:${port}  (${win ? "close this window" : "Ctrl+C"} to stop it)`);
+  // the log file, which the terminal's lines are lost without: what the server said before a stop that came with no word
+  const log = openLog(join(env.DATA_DIR, "logs"));
+  log.write(`Afflatus ${env.AFFLATUS_VERSION} starting: ${process.platform} ${release()} ${arch()}, Node ${process.version}, ${Math.round(totalmem() / 2 ** 30)} GB of memory\n`);
+  log.say(`Afflatus ${env.AFFLATUS_VERSION} - http://127.0.0.1:${port}  (${win ? "close this window" : "Ctrl+C"} to stop it)${log.path ? `\nIts log: ${log.path}` : ""}`);
 
-  const server = spawn(process.execPath, ["--enable-source-maps", join(app, "apps", "server", "dist", "index.mjs"), ...process.argv.slice(2)], { env, stdio: "inherit" });
+  // the server's output through this process, to the terminal and the log both. Its stdin stays the terminal's, and the
+  // console the same: Ctrl+C reaches the server as before
+  const server = spawn(process.execPath, ["--enable-source-maps", join(app, "apps", "server", "dist", "index.mjs"), ...process.argv.slice(2)], { env, stdio: ["inherit", "pipe", "pipe"] });
+  // a terminal closed under it (its SIGHUP is passed on below) leaves writes to it failing: the log still takes them
+  for (const to of [process.stdout, process.stderr]) to.on("error", () => {});
+  for (const [from, stream, to] of [["out", server.stdout, process.stdout], ["err", server.stderr, process.stderr]]) {
+    stream.setEncoding("utf8");
+    stream.on("data", (text) => {
+      to.write(text);
+      log.write(text, from);
+    });
+  }
+  // the server's last words read to the end before this says why it stopped: its pipes close after its exit, unless a
+  // child of its holds them, which is waited for 2 s at most
+  const closed = new Promise((done) => server.on("close", done));
   // Ctrl+C reaches the server by itself (same console, same process group): this one only waits for it to close
   // its database and stop, and passing it on would cut that short (on Windows a kill is a TerminateProcess). A
   // SIGTERM or SIGHUP sent to this process alone is passed on, rather than leaving the server running
@@ -226,6 +379,7 @@ async function main() {
   }
 
   const [code, signal] = await new Promise((done) => server.on("exit", (c, s) => done([c, s])));
+  await Promise.race([closed, new Promise((done) => setTimeout(done, 2000))]);
   clearInterval(watch);
   const wasUp = existsSync(started);
   rmSync(started, { force: true });
@@ -233,6 +387,8 @@ async function main() {
   const trial = versionName(readLine(join(versions, "trial")));
   const next = decide({ code, signal, started: wasUp, version, trial, previous, previousInstalled: !!previous && installed(root, previous) });
   if (next.action === "restart") {
+    log.write("the server asked for a restart (an update, Go back)\n");
+    log.close();
     writeFileSync(restarting, "");
     process.exit(RESTART);
   }
@@ -242,9 +398,9 @@ async function main() {
     if (!env.DATABASE_URL?.trim()) {
       try {
         const aside = restoreLibrary(env.DATA_DIR, version);
-        if (aside !== false) console.log(`The library is back as it was before ${version}${aside ? `; the database as ${version} left it is kept in ${aside}` : ""}.`);
+        if (aside !== false) log.say(`The library is back as it was before ${version}${aside ? `; the database as ${version} left it is kept in ${aside}` : ""}.`);
       } catch (err) {
-        console.error(`The library could not be put back as it was before ${version} (${err.message}): with Afflatus stopped, put ${join(env.DATA_DIR, "backups", `before-${version}.db`)} in place of afflatus.db.`);
+        log.say(`The library could not be put back as it was before ${version} (${err.message}): with Afflatus stopped, put ${join(env.DATA_DIR, "backups", `before-${version}.db`)} in place of afflatus.db.`, true);
       }
     }
     // the note goes where the server reads its data, so that it is found whichever DATA_DIR the user set
@@ -253,11 +409,14 @@ async function main() {
     writeFileSync(join(updates, "fallback.json"), JSON.stringify({ version, previous: next.to, at: new Date().toISOString(), code }) + "\n");
     writeAtomic(join(versions, "current"), `${next.to}\n`);
     rmSync(join(versions, "trial"), { force: true });
-    console.log(`Afflatus ${version} did not start; starting ${next.to} again.`);
+    log.say(`Afflatus ${version} did not start (${signal ?? `exit code ${code}`}); starting ${next.to} again.`);
+    log.close();
     // a first start that failed has no page open yet: the previous version opens one
     if (!firstStart) writeFileSync(restarting, "");
     process.exit(RESTART);
   }
+  log.say(stopLine({ code, signal, log: log.path }), code !== 0 || signal !== null);
+  log.close();
   process.exit(next.code);
 }
 

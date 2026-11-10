@@ -9,3 +9,13 @@ export declare function clearStaleMarkers(versionDir: string, isAlive?: (pid: nu
 export declare function restoreLibrary(dataDir: string, version: string, at?: Date): string | null | false;
 export declare function readLine(file: string): string | null;
 export declare function installed(root: string, version: string): boolean;
+export declare function stopLine(s: { code: number | null; signal: string | null; log: string | null }): string;
+export declare const LOG_DAYS: number;
+export declare const LOG_MAX: number;
+export interface Log {
+  readonly path: string | null;
+  write(text: string, from?: string): void;
+  say(line: string, err?: boolean): void;
+  close(): void;
+}
+export declare function openLog(dir: string, o?: { now?: () => Date; max?: number; days?: number; warn?: (line: string) => void }): Log;
