@@ -5,18 +5,23 @@
  * (apps/server/test/framesKit.ts: each frame shows its clip and index as a barcode), the real editor plays the timeline in headless Chrome, and every frame the player shows is read off
  * the video that is visible at that moment. It fails on a frame shown out of order, a flash of the clip before after the
  * hand-over, a hidden run-up frame shown, or more dropped frames than a busy machine explains. The chain is played again under
- * load (CPU slowed, videos starting late: see playChain), where only the order, flicker and run-up faults count. Then, in a fresh page: Space
+ * load (CPU slowed, videos starting late: see playChain), where only the order, flicker and run-up faults count, and twice as
+ * Safari's media plays it (its clock, slow seeks, frame callbacks that never come), where a frame held too long at a hand-over
+ * (a freeze, which drops nothing) counts too, as it does in the first pass. Then, in a fresh page: Space
  * pressed twice on a clip whose video has not loaded yet must leave it still (it started on its own, with its sound, once
  * its file came), and a range looped (I, O, L) must go back to In at Out, again and again, without playing on past it. Last,
  * a selected clip's trim edges at a join must take a press there (the browser's own hit test), and a drag of one trims.
  *
- * Needs the web app built (`pnpm build`), ffmpeg, and Chrome (or CHROME=<path to a Chromium>).
+ * Needs the web app built (`pnpm build`), ffmpeg, and Chrome (or CHROME=<path to a Chromium>). PLAYER_BROWSER=webkit plays it
+ * in Playwright's WebKit instead (`pnpm exec playwright-core install webkit` once), Safari's engine but not its media (on
+ * Windows it has no frame callbacks and its own clock): the pass under load is then played with late starts only, WebKit
+ * having no CPU throttling to ask for.
  */
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium, type Page } from "playwright-core";
+import { chromium, webkit, type Page } from "playwright-core";
 import { plural } from "@afflatus/core";
 import { buildApp } from "../apps/server/src/app";
 import { migrate, openSqlite } from "../apps/server/src/db";
@@ -38,12 +43,77 @@ const DROPS_ALLOWED = 0.1;
 const LAST_SECOND = FILE - 48;
 /** Frames a hand-over may drop, in the clip before's last second and over the change: more is the pre-roll stalling it. */
 const HANDOVER_DROPS = 5;
+/**
+ * How long one frame may stay up at a hand-over: a frame at 48 a second is up 21 ms, and a busy machine shows one two or
+ * three refreshes (up to 56 ms measured). Seeks slower than the pre-roll held the clip before's last frame 320 to 420 ms.
+ */
+const HELD_MS = 150;
 /** How late every video starts in the pass under load (see playChain): past the 70 ms the player first expects (startLag). */
 const LATE_PLAY_MS = 100;
 /** Every video's play() taking effect LATE_PLAY_MS late, as a loaded machine's media pipeline does. Plain text, as WATCH. */
 const LATE_PLAY = `{
     const play = HTMLMediaElement.prototype.play;
     HTMLMediaElement.prototype.play = function () { return new Promise((done) => setTimeout(done, ${LATE_PLAY_MS})).then(() => play.call(this)); };
+  }`;
+
+/**
+ * The player's frame callbacks never coming, as Safari may do for a video just seeked (WebKit bug 283662): asked for, never
+ * called. WATCH keeps the browser's own. Plain text, as WATCH.
+ */
+const SILENT_FRAMES = `HTMLVideoElement.prototype.requestVideoFrameCallback = function () { return 1; };`;
+
+/** How long a seek takes in the pass with slow seeks (see SLOW_SEEK): past the pre-roll the player gives the clip after. */
+const SLOW_SEEK_MS = 350;
+/**
+ * Every seek taking SLOW_SEEK_MS before the video can play from it, as Safari's exact seek into a take with one keyframe
+ * (every take a pod makes) may: a video told to play meanwhile starts only then, and a playing one stops until then. Plain
+ * text, as WATCH.
+ */
+const SLOW_SEEK = `{
+    const time = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "currentTime");
+    const play = HTMLMediaElement.prototype.play;
+    const seekAt = new WeakMap();
+    Object.defineProperty(HTMLMediaElement.prototype, "currentTime", {
+      configurable: true,
+      get() { return time.get.call(this); },
+      set(v) {
+        const was = !this.paused;
+        seekAt.set(this, performance.now());
+        time.set.call(this, v);
+        if (was) { this.pause(); setTimeout(() => play.call(this), ${SLOW_SEEK_MS}); }
+      },
+    });
+    HTMLMediaElement.prototype.play = function () {
+      const wait = (seekAt.get(this) ?? -1e9) + ${SLOW_SEEK_MS} - performance.now();
+      return wait > 0 ? new Promise((done) => setTimeout(done, wait)).then(() => play.call(this)) : play.call(this);
+    };
+  }`;
+
+/**
+ * Every video's currentTime as Safari gives it to the page (WebKit's MediaPlayerPrivateRemote TimeProgressEstimator): the
+ * media plays in another process, which says where it is every 100 ms (AVFoundation's periodic observer); in between the
+ * page works it out from the clock, never going back, and after a play() or a seek it stays on the moment it was put at
+ * until the next report. The frames themselves come as they do. Plain text, as WATCH.
+ */
+const SAFARI_CLOCK = `{
+    const time = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "currentTime");
+    const play = HTMLMediaElement.prototype.play;
+    const told = new WeakMap();
+    const put = (v, t, held) => told.set(v, { t, at: performance.now(), held, last: undefined });
+    setInterval(() => document.querySelectorAll("video").forEach((v) => { if (!v.paused && !v.seeking) put(v, time.get.call(v), false); }), 100);
+    Object.defineProperty(HTMLMediaElement.prototype, "currentTime", {
+      configurable: true,
+      get() {
+        const s = told.get(this);
+        if (!s || this.paused) return time.get.call(this);
+        if (s.held) return s.t;
+        const t = Math.min(this.duration || Infinity, Math.max(s.last ?? 0, s.t + ((performance.now() - s.at) / 1000) * this.playbackRate));
+        s.last = t;
+        return t;
+      },
+      set(v) { time.set.call(this, v); put(this, v, true); },
+    });
+    HTMLMediaElement.prototype.play = function () { put(this, time.get.call(this), true); return play.call(this); };
   }`;
 
 const dir = mkdtempSync(join(tmpdir(), "afflatus-player-"));
@@ -76,20 +146,25 @@ const WATCH = `(() => {
     canvas.height = H;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     const watched = new WeakSet();
+    // the browser's own, kept before a pass changes the player's (see SAFARI_FRAMES)
+    const rvfc = HTMLVideoElement.prototype.requestVideoFrameCallback;
     const watch = (v) => {
       if (watched.has(v)) return;
       watched.add(v);
-      const tick = () => {
+      const tick = (now) => {
         const seen = v.isConnected && v.style.visibility !== "hidden" && Number(getComputedStyle(v).opacity) > 0.5 && v.offsetWidth > 0;
         if (seen) {
           ctx.drawImage(v, 0, 0, W, H);
           const px = ctx.getImageData(0, 0, W, H).data;
           const word = (y) => { let n = 0; for (let j = 0; j < BITS; j++) if (px[(y * W + j * 16 + 8) * 4] > 128) n += 2 ** j; return n; };
-          shown.push({ clip: word(48), index: word(16) });
+          shown.push({ clip: word(48), index: word(16), at: now });
         }
-        v.requestVideoFrameCallback(tick);
+        next(tick);
       };
-      v.requestVideoFrameCallback(tick);
+      // a browser without the video's own frame callback (Playwright's WebKit) is read at every redraw, a frame repainted
+      // there counted once (as everywhere: see playChain)
+      const next = rvfc ? (f) => rvfc.call(v, f) : (f) => requestAnimationFrame(f);
+      next(tick);
     };
     const all = () => document.querySelectorAll("video").forEach(watch);
     window.__watch = all;
@@ -97,14 +172,18 @@ const WATCH = `(() => {
   })();`;
 
 /** The frames a page has seen so far, as `WATCH` read them. */
-const shownIn = (page: Page) => page.evaluate(() => (window as unknown as { __shown: Array<{ clip: number; index: number }> }).__shown.slice());
+type Shown = { clip: number; index: number; at: number };
+const shownIn = (page: Page) => page.evaluate(() => (window as unknown as { __shown: Shown[] }).__shown.slice());
 
 let failed = false;
-const browser = await chromium.launch({
-  ...(process.env.CHROME ? { executablePath: process.env.CHROME } : { channel: "chrome" }),
-  headless: true,
-  args: ["--autoplay-policy=no-user-gesture-required", "--mute-audio"],
-});
+const inWebkit = process.env.PLAYER_BROWSER === "webkit";
+const browser = inWebkit
+  ? await webkit.launch({ headless: true })
+  : await chromium.launch({
+    ...(process.env.CHROME ? { executablePath: process.env.CHROME } : { channel: "chrome" }),
+    headless: true,
+    args: ["--autoplay-policy=no-user-gesture-required", "--mute-audio"],
+  });
 try {
   // the chain: three clips, each after the first carrying on from the one before, decoded as one piece with it. The second
   // as a pod made it, its sound 134 ms past its picture: handed over at its picture's end, not its sound's (card #207)
@@ -133,14 +212,20 @@ try {
    * repaint). `loaded` plays it as on a machine busy elsewhere (a render running, a CI runner): the page's CPU four times
    * slower, and every video starting LATE_PLAY_MS after it is told to play. CPU throttling alone leaves the decoder (another
    * process) as fast and passed; the late start is what a loaded machine does to the clip after, which then runs behind its
-   * start at the cut (the 0.6.0 release run showed a run-up frame so, card #48).
+   * start at the cut (the 0.6.0 release run showed a run-up frame so, card #48). `safari` plays it as Safari's media does
+   * (SAFARI_CLOCK and SLOW_SEEK), with its frame callbacks never coming too when `silent` (SILENT_FRAMES).
    */
-  const playChain = async (loaded: boolean) => {
+  const playChain = async (loaded: boolean, as: { safari?: boolean; silent?: boolean } = {}) => {
     const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
     await page.addInitScript(WATCH);
+    if (as.safari) {
+      await page.addInitScript(SAFARI_CLOCK);
+      await page.addInitScript(SLOW_SEEK);
+    }
+    if (as.silent) await page.addInitScript(SILENT_FRAMES);
     if (loaded) {
       await page.addInitScript(LATE_PLAY);
-      await (await page.context().newCDPSession(page)).send("Emulation.setCPUThrottlingRate", { rate: 4 });
+      if (!inWebkit) await (await page.context().newCDPSession(page)).send("Emulation.setCPUThrottlingRate", { rate: 4 });
     }
     await page.goto(`${base}/timelines/${tl.id}`);
     await page.waitForFunction(() => document.querySelectorAll("video").length > 0, null, { timeout: 30_000 });
@@ -157,8 +242,10 @@ try {
   /**
    * The faults no machine may show, however slow: a frame out of order, the clip before again after the hand-over, a frame of
    * the hidden run-up, a clip never seen. Gives the frame each hand-over landed on (the next from the frame after its run-up).
+   * `early`: frames of the run-up let through, for a cut made on the clock (no frame callbacks), "a frame early rather than
+   * late" by design (useHandover CUT_EARLY_MS).
    */
-  const orderFaults = (seen: Array<{ clip: number; index: number }>, under: string) => {
+  const orderFaults = (seen: Shown[], under: string, early = 0) => {
     const landed: number[] = [];
     for (let i = 1; i < seen.length; i++) {
       const a = seen[i - 1]!;
@@ -167,7 +254,7 @@ try {
       else if (b.clip === a.clip && b.index <= a.index) problems.push(`${under}clip ${b.clip}: frame ${a.index} then ${b.index}, out of order (a duplicated or repeated stretch)`);
       else if (b.clip !== a.clip) {
         landed.push(b.index);
-        if (b.index < RUN_UP_LAST) problems.push(`${under}clip ${b.clip} starts at frame ${b.index}: a frame of its hidden run-up is shown`);
+        if (b.index < RUN_UP_LAST - early) problems.push(`${under}clip ${b.clip} starts at frame ${b.index}: a frame of its hidden run-up is shown`);
       }
     }
     const clipsSeen = [...new Set(seen.map((f) => f.clip))];
@@ -175,8 +262,35 @@ try {
     return landed;
   };
 
+  /**
+   * The longest any frame stayed up around each hand-over (from the clip before's last second to the clip after's first),
+   * in ms, by when each frame was first presented: a freeze there, the clip before held on its last frame or the clip after
+   * stalled by a seek, shows every frame in order and drops none, and only its time tells it.
+   */
+  const heldAround = (seen: Shown[]) => [1, 2].map((clip) => {
+    let most = 0;
+    for (let i = 1; i < seen.length; i++) {
+      const a = seen[i - 1]!;
+      const b = seen[i]!;
+      const near = (a.clip === clip && a.index >= LAST_SECOND) || (a.clip === clip + 1 && a.index < RUN_UP_LAST + 48);
+      if (near && b.clip <= clip + 1) most = Math.max(most, b.at - a.at);
+    }
+    return Math.round(most);
+  });
+  /** A frame held past HELD_MS at a hand-over is a fault (a warning on a CI runner, as the drops); says the longest. */
+  const heldFaults = (seen: Shown[], under: string) => {
+    const held = heldAround(seen);
+    held.forEach((ms, i) => {
+      if (ms <= HELD_MS) return;
+      const said = `${under}a frame stayed up ${ms} ms at the hand-over from clip ${i + 1} to ${i + 2} (at most ${HELD_MS}): a freeze`;
+      if (process.env.CI) console.log(`::warning::player check: ${said} (a slow runner, not failed in CI)`);
+      else problems.push(said);
+    });
+    return held;
+  };
   const seen = await playChain(false);
   orderFaults(seen, "");
+  console.log(`  longest a frame stayed up around the hand-overs: ${heldFaults(seen, "").join(" ms, ")} ms`);
   let drops = 0;
   const gaps: string[] = [];
   for (let i = 1; i < seen.length; i++) {
@@ -218,6 +332,15 @@ try {
   // ---- the chain again under load: drops are the machine's there, but the hand-overs must still land past the run-up
   const landed = orderFaults(await playChain(true), "under load: ");
   console.log(`player check, under load: the hand-overs landed on frames ${landed.join(", ") || "none"} (the run-up ends before ${RUN_UP_LAST})`);
+
+  // ---- the chain as Safari plays it (its clock, its slow seeks), then with its frame callbacks never coming too: the
+  // hand-overs in order and past the run-up, and no freeze at them (the owner saw freezes and jumps in Safari, 2026-11-10)
+  for (const silent of [false, true]) {
+    const under = silent ? "as Safari, no frame callbacks: " : "as Safari: ";
+    const played = await playChain(false, { safari: true, silent });
+    const where = orderFaults(played, under, silent ? 1 : 0);
+    console.log(`player check, ${under}landed on frames ${where.join(", ") || "none"}, the longest a frame stayed up ${heldFaults(played, under).join(" ms, ")} ms`);
+  }
 
   // ---- Space twice before a far clip's video has loaded: it stays still. In a fresh page, clip 3's file held back four
   // seconds; [ ] go to clip 2 (clip 3's video put on the page under it, waiting for its file), then to clip 3

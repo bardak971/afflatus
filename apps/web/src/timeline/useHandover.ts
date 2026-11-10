@@ -9,6 +9,15 @@ import { heardByVideo } from "./useSong";
  * hand-over, check:player); 300 ms drops 2, and still leaves the sound's hand-over (SOUND_HANDOVER_MS) a clip already running.
  */
 const PREROLL_MS = 300;
+/**
+ * How long before a clip ends the clip after is put, paused and hidden, where its pre-roll will start: a seek takes time, and
+ * made at the pre-roll it could make the clip after late. Safari's exact seek into a take with one keyframe (every take a pod
+ * makes) can take longer than PREROLL_MS: this clip then stayed on its last frame (HOLD_MS) and the clip after came in ahead,
+ * frames skipped, at every join (the owner, 2026-11-10; check:player's pass with slow seeks).
+ */
+const PREPARE_MS = 1500;
+/** How far off where it should start the clip after may be put and not be sought again at its pre-roll: one display refresh, and a little. */
+const SEEK_SLACK_MS = 20;
 /** How early the cut to the clip after is made: a video frame at 48 a second plus the animation frame the check may be late by. */
 const CUT_EARLY_MS = 24;
 /**
@@ -117,6 +126,8 @@ export function useHandover(h: Handover) {
     let frameId = 0;
     /** Since when this clip has been held on its last frame for the clip after (HOLD_MS); 0 while it is not. */
     let heldSince = 0;
+    /** The clip after was put where its pre-roll starts (PREPARE_MS). */
+    let prepared = false;
     step.current = () => {
       const c = seq[at];
       if (!c) return true;
@@ -211,9 +222,11 @@ export function useHandover(h: Handover) {
        */
       const arm = (v: HTMLVideoElement, first: number) => {
         if (blend || dissolveOf(after, c) || !("requestVideoFrameCallback" in v)) return;
-        armed.current = true;
         const watch = (_now: number, meta: { mediaTime: number }) => {
           if (!fadeOn.current || handReady.current) return;
+          // watched from the first frame it calls back with, not from the ask: Safari may never call back on a video just
+          // seeked (WebKit bug 283662), and the change then waited on this clip's last frame (HOLD_MS) instead of the cut in step
+          armed.current = true;
           if (meta.mediaTime * 1000 >= first - 4) {
             v.style.opacity = "1";
             // heard from the same frame (it ran silent by its volume)
@@ -223,6 +236,13 @@ export function useHandover(h: Handover) {
         };
         v.requestVideoFrameCallback(watch);
       };
+      // put where its pre-roll will start while it waits (PREPARE_MS), once its file says where things are; one a transition
+      // holds waits on its first frame, where it was put when it came on the page
+      if (nextEl && nextEl !== el && !prepared && !fadeOn.current && !holdFirst && after && remaining <= PREPARE_MS && remaining > PREROLL_MS && nextEl.paused && nextEl.readyState >= 1) {
+        prepared = true;
+        const ready = Math.max(0, startOf(after) - PREROLL_MS + lag);
+        if (Math.abs(nextEl.currentTime * 1000 - ready) > SEEK_SLACK_MS) nextEl.currentTime = ready / 1000;
+      }
       if (nextEl && !fadeOn.current && remaining <= PREROLL_MS) {
         fadeOn.current = true;
         // silent by its volume, not muted: unmuted at the take-over, a playing video starts its sound and its picture stalled
@@ -235,9 +255,11 @@ export function useHandover(h: Handover) {
         // made the frames come unevenly elsewhere). A fade or a dissolve brings it in itself
         if (!blend && !dissolveOf(after, c)) nextEl.style.opacity = "0.004";
         // started ahead by the delay it will lose; a clip that starts at its very first frame waits there, paused on it (and
-        // one a transition holds, on its first frame shown)
-        nextEl.currentTime = (holdFirst && after ? startOf(after) : Math.max(0, expected + lag)) / 1000;
-        if (expected + lag >= 0 && !holdFirst) {
+        // one a transition holds, on its first frame shown). Put there already (see PREPARE_MS), it is not sought again: a
+        // little ahead, it waits until it is due (below)
+        const want = holdFirst && after ? startOf(after) : Math.max(0, expected + lag);
+        if (Math.abs(nextEl.currentTime * 1000 - want) > SEEK_SLACK_MS) nextEl.currentTime = want / 1000;
+        if (!holdFirst && expected + lag >= nextEl.currentTime * 1000 - 4) {
           void nextEl.play().catch(() => {});
           started.current = { at: t, checked: false };
           if (after) arm(nextEl, startOf(after));
@@ -245,7 +267,7 @@ export function useHandover(h: Handover) {
       }
       if (nextEl && fadeOn.current) {
         // one that waited on its first frame starts when it is due, as early as it will be late
-        if (nextEl.paused && (holdFirst ? remaining <= lag : expected + lag >= 0 && remaining > 30)) {
+        if (nextEl.paused && (holdFirst ? remaining <= lag : expected + lag >= nextEl.currentTime * 1000 - 4 && remaining > 30)) {
           void nextEl.play().catch(() => {});
           started.current = { at: t, checked: false };
           if (after) arm(nextEl, startOf(after));
