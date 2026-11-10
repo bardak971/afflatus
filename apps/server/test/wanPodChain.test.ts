@@ -64,7 +64,7 @@ function pretendFetch() {
   const there = new Set<string>();
   const fetch: PodFetch = {
     fileState: (_machine, f) => (there.has(f.file) ? { state: "ready" } : asked.some((a) => a.file === f.file) ? { state: "fetching" } : null),
-    failed: () => null, short: async () => null, untilThere: async () => 1_000, drop: () => {}, holding: () => false, moving: () => false, stalled: () => null, failingPacks: () => new Map(), restartsFor: () => null,
+    failed: () => null, short: async () => null, untilThere: async () => 1_000, drop: () => {}, holding: () => false, moving: () => false, stalled: () => null, failingPacks: () => new Map(), restartsFor: () => null, lost: async () => 0,
     want: (_machine, files, tier, job) => {
       for (const f of files) asked.push({ file: f.file, tier, job });
     },

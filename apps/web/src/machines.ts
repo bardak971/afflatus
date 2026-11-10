@@ -1,4 +1,4 @@
-import type { MachineState, PodFile, QueueStatus, RentedState } from "./api";
+import type { MachineState, PodAgain, PodFile, QueueStatus, RentedState } from "./api";
 import { hasOutsideWork, POD_BOOT_LIMIT_MIN, stepSaid, usdFor } from "@afflatus/core";
 import { gb, minutesSaid, plural, usd } from "./format";
 
@@ -44,6 +44,17 @@ export function gettingFiles(m: WithFiles): { left: PodFile[]; done: number; tot
   const total = files.reduce((n, f) => n + f.total, 0);
   const known = left.every((f) => f.total > 0);
   return { left, done, total, share: known && total > 0 ? Math.min(1, done / total) : null, now: left.find((f) => f.state === "fetching") ?? left[0]!, ahead };
+}
+
+/**
+ * What a pod lost and is getting again, in a line: "Container restarted: 3 files fetched again", the ones no job needs any
+ * more said apart; a container restarted on a volume that kept its files says so.
+ */
+export function againSaid(a: PodAgain): string {
+  const what = a.restart ? "Container restarted" : "Files gone from the pod";
+  if (a.lost === 0) return `${what}: its files were still there`;
+  if (a.files === a.lost) return `${what}: ${plural(a.files, "file")} fetched again`;
+  return `${what}: ${plural(a.lost, "file")} gone, ${a.files} fetched again (no job needs the others)`;
 }
 
 /**

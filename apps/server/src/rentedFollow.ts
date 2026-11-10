@@ -40,6 +40,11 @@ const CAP_GRACE_MS = 60 * 60_000;
  * the start when its GPU is read idle, else only past its forecast, capped (queue.ts quietFor).
  */
 const STUCK_MS = 10 * 60_000;
+/**
+ * How much later than the last known one a container's start, from RunPod's uptime, must be to be a restart (containerUp):
+ * an uptime read late, or rounded, is not one.
+ */
+const CONTAINER_AGAIN_MS = 60_000;
 /** How long RunPod is asked less often after it said to slow down (429). */
 const BACK_OFF_MS = 60_000;
 /** A pod running this long without its ComfyUI ever answering did not come up (its container failed): its idle action applies. */
@@ -112,6 +117,8 @@ const DAY_MS = 24 * 60 * 60_000;
  */
 export class RentedFollow extends RentedBilling {
   bootEveryMs = BOOT_READ_MS;
+  /** How often a running pod's uptime is asked of RunPod's GraphQL (containerUp): a restart of its container is seen within it. */
+  uptimeEveryMs = 60_000;
   pullEveryMs = PULL_READ_MS;
   /** An image's layers, from its registry (a test's stand-in in place of imageLayers); asked once per image and kept. */
   imageLayersOf: (image: string) => Promise<ImageLayer[] | null> = (image) => imageLayers(image);
@@ -485,7 +492,7 @@ export class RentedFollow extends RentedBilling {
     }
     // a pod gone stays gone: said once, not at every read
     const changed = !s.read || (before?.status ?? null) !== (pod?.status ?? null) || Boolean(pod?.cost && pod.cost !== s.rate);
-    if (pod?.status === "RUNNING") await this.containerUp(m, s, pod, key);
+    if (pod?.status === "RUNNING") await this.containerUp(m, s, pod, key, before);
     else s.containerAt = null;
     // a deployed pod's container up (RunPod says its uptime from then): its card goes from pulling the image to ComfyUI
     // starting at once, not at the next change
@@ -767,8 +774,31 @@ export class RentedFollow extends RentedBilling {
    * start: its first line), and RunPod's GraphQL, asked only while it boots and until known, its failures taken as nothing.
    * Known once, its uptime counts from then: what its card says (pulling the image, then starting) and its session keeps.
    */
-  private async containerUp(m: Machine, s: Seen, pod: Pod, key: string): Promise<void> {
-    if (pod.uptime !== null) s.containerAt ??= this.now() - pod.uptime * 1000;
+  private async containerUp(m: Machine, s: Seen, pod: Pod, key: string, before: Pod | null): Promise<void> {
+    // up, its uptime asked of RunPod's GraphQL now and then: its list says none of a running pod either, nor a new start of
+    // its container (a real A40's list kept its first startedAt through three restarts, card #336). Without it, a container
+    // restarted without a volume came back empty, and its files here still said them there
+    if (pod.uptime === null && s.containerAt !== null && this.now() - s.uptimeReadAt >= this.uptimeEveryMs) {
+      s.uptimeReadAt = this.now();
+      const up = await this.client(key).uptime(pod.id).catch(() => null);
+      if (up !== null) pod.uptime = up;
+    }
+    // its uptime reset, or its start said anew while it ran: its container started again (an environment changed through
+    // RunPod's API, a restart of RunPod's own), and a pod without a volume came back with an empty disk (card #336). Its
+    // files are read on its lists again. RunPod's uptime holds still for about 30 s at a time (a real A40 said 5 s for 35 s
+    // after its restart): a container started again a minute after its boot read as one started 63 s later, under the
+    // slack, and was missed. An uptime lower than the last one said is a restart whatever the slack
+    const start = pod.uptime !== null ? this.now() - pod.uptime * 1000 : null;
+    const was = s.containerAt ?? s.containerWas;
+    const anew = before?.status === "RUNNING" && before.startedAt !== null && pod.startedAt !== null && pod.startedAt !== before.startedAt;
+    const lower = pod.uptime !== null && s.uptimeWas !== null && pod.uptime < s.uptimeWas;
+    if (pod.uptime !== null) s.uptimeWas = pod.uptime;
+    if (anew || lower || (start !== null && was !== null && start - was > CONTAINER_AGAIN_MS)) {
+      s.containerAt = start ?? (pod.startedAt ? Math.min(Date.parse(pod.startedAt), this.now()) : null);
+      console.log(`[rented] ${m.name || m.id}: its container restarted (${start !== null ? `uptime ${pod.uptime} s` : `started at ${pod.startedAt}`}), its files read again`);
+      this.deps.containerRestarted(m.id);
+    }
+    if (start !== null) s.containerAt ??= start;
     // asked a while after its first answer too: a ComfyUI up within a read of its container (15 s on a real pod) answered
     // before its start was known, which then never was
     else if (s.containerAt === null && this.booting(s)) {
@@ -783,6 +813,7 @@ export class RentedFollow extends RentedBilling {
       }
     }
     if (pod.uptime === null && s.containerAt !== null) pod.uptime = Math.max(0, Math.round((this.now() - s.containerAt) / 1000));
+    if (s.containerAt !== null) s.containerWas = s.containerAt;
   }
 
   /**

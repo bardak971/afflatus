@@ -415,6 +415,7 @@ export class Queue {
             fetch.want(l.id, files, "need", job);
             return fetch.stalled(l.id, job, files);
           },
+          lost: (files) => fetch.lost(l.id, files),
         };
       },
     };

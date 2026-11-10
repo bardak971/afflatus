@@ -141,6 +141,16 @@ export interface PodFile {
   error?: string;
   /** The waiting jobs that wait for it. */
   jobs: string[];
+  /** It was on the pod and is fetched again: its container restarted without it, or its pod's list stopped naming it. */
+  again?: "restart" | "unlisted";
+}
+
+/** What a rented pod lost and is getting again: when it was found, how many files were gone, how many of them are fetched again, and whether its container restarted. */
+export interface PodAgain {
+  at: number;
+  lost: number;
+  files: number;
+  restart: boolean;
 }
 /** A finished job as the queue's history shows it: with what it made and how. (Not how long it would take, nor how a clip joined: GET /api/jobs leaves those out.) */
 export interface HistoryJob extends Omit<Job, "estimateMs" | "join" | "machine" | "pinned" | "pinGone" | "startsInMs" | "runsOn" | "lacks" | "startPod" | "fetch" | "packs" | "stalled" | "by"> {
@@ -692,6 +702,8 @@ export interface RentedState {
   packs: PodPack[];
   /** Its disk as its node pack last said it (0.19.0 on); null: not known (not read yet, or an older pack). */
   disk: PodDisk | null;
+  /** What it lost and is getting again (its container restarted without a volume); null: nothing. */
+  again?: PodAgain | null;
 }
 
 /** A node pack a rented pod gets for its waiting jobs. */

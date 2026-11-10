@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -1455,5 +1455,132 @@ describe("the pod's files read again as its files land or fail", () => {
     // what was sent to that ComfyUI is still known there: a landing does not send each window's photo again
     expect(comfy.uploaded.has("input/zz-test")).toBe(true);
     pf.forget("pod");
+  });
+});
+
+describe("a rented pod's container restarted (card #336)", () => {
+  const A = { file: "a.safetensors", folder: "loras" };
+  const fetchedOnce = async () => {
+    files.want("pod", [{ ...A, url: `${siteUrl}/files/a.safetensors` }], { tier: "need", job: "j1" });
+    await settle("pod", A.file);
+    expect(pod.packFetched).toHaveLength(1);
+  };
+  /** Until the pod's list was read for it (verifyAll is apart from the pass): its state then. */
+  const readAgain = () => {
+    const was = files.againOf("pod");
+    return until(async () => {
+      await files.tick();
+      return files.view("pod")[0]?.state !== "ready" || files.againOf("pod") !== was;
+    });
+  };
+
+  it("without a volume: a file it had, gone with its disk, is fetched again, its job waiting for it, its fetch counted as a fresh pod's", async () => {
+    await fetchedOnce();
+    // its container started again, its disk empty: what Afflatus sent there is gone
+    rmSync(join(disk, "loras", A.file));
+    files.recheck("pod", true);
+    await readAgain();
+    expect(files.jobState("pod", "j1")?.state).toBe("waiting");
+    await settle("pod", A.file);
+    expect(files.view("pod")[0]).toMatchObject({ state: "ready", again: "restart" });
+    expect(readFileSync(join(disk, "loras", A.file)).equals(FILE)).toBe(true);
+    expect(pod.packFetched).toHaveLength(2);
+    expect(files.jobState("pod", "j1")?.state).toBe("ready");
+    // its card says it, and Costs counts the fetch again as it counts a fresh pod's
+    expect(files.againOf("pod")).toMatchObject({ lost: 1, files: 1, restart: true });
+    expect(await t.services.db.selectFrom("pod_fetches").select("file").execute()).toEqual([{ file: A.file }, { file: A.file }]);
+  });
+
+  it("on a network volume: its file still listed, nothing is fetched, and its card says the files were still there", async () => {
+    await fetchedOnce();
+    files.recheck("pod", true);
+    await readAgain();
+    await files.tick();
+    expect(files.view("pod")[0]).toMatchObject({ state: "ready" });
+    expect(files.view("pod")[0]?.again).toBeUndefined();
+    expect(pod.packFetched).toHaveLength(1);
+    expect(files.againOf("pod")).toMatchObject({ lost: 0, files: 0, restart: true });
+  });
+
+  it("its ComfyUI not up yet: read again at the next passes, until it lists its folders", async () => {
+    await fetchedOnce();
+    rmSync(join(disk, "loras", A.file));
+    pod.down = true;
+    files.recheck("pod", true);
+    for (let i = 0; i < 3; i++) await files.tick();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(files.view("pod")[0]?.state).toBe("ready");
+    pod.down = false;
+    await readAgain();
+    await settle("pod", A.file);
+    expect(pod.packFetched).toHaveLength(2);
+  });
+
+  it("asked for as lacking while ready (the plan's scan did not list it): its job waits, and a file gone is fetched again, once on such a hint", async () => {
+    await fetchedOnce();
+    rmSync(join(disk, "loras", A.file));
+    files.want("pod", [A], { tier: "need", job: "j1" });
+    // its job does not start on a file its pod's list was not read for
+    expect(files.jobState("pod", "j1")?.state).toBe("waiting");
+    await readAgain();
+    await settle("pod", A.file);
+    expect(files.view("pod")[0]).toMatchObject({ state: "ready", again: "unlisted" });
+    expect(pod.packFetched).toHaveLength(2);
+    // gone again, and asked for again: a hint fetches it once (a ComfyUI that never lists it is not fetched for ever)
+    rmSync(join(disk, "loras", A.file));
+    files.want("pod", [A], { tier: "need", job: "j1" });
+    for (let i = 0; i < 3; i++) await files.tick();
+    expect(files.jobState("pod", "j1")?.state).toBe("ready");
+    expect(pod.packFetched).toHaveLength(2);
+    expect(await files.lost("pod", [A])).toBe(0);
+    // a restart of its container lets it be fetched again
+    files.recheck("pod", true);
+    await readAgain();
+    await settle("pod", A.file);
+    expect(pod.packFetched).toHaveLength(3);
+  });
+
+  it("found unlisted at a job's submit (lost): fetched again when its folder answers without it, never when it lists it", async () => {
+    await fetchedOnce();
+    expect(await files.lost("pod", [A])).toBe(0);
+    expect(files.view("pod")[0]?.state).toBe("ready");
+    rmSync(join(disk, "loras", A.file));
+    expect(await files.lost("pod", [A])).toBe(1);
+    expect(files.jobState("pod", "j1")?.state).toBe("waiting");
+    await settle("pod", A.file);
+    expect(pod.packFetched).toHaveLength(2);
+    expect(files.againOf("pod")).toMatchObject({ lost: 1, files: 1, restart: false });
+  });
+
+  it("a file it lost that no job waiting needs any more is forgotten, not fetched again", async () => {
+    files.want("pod", [{ ...A, url: `${siteUrl}/files/a.safetensors` }], { tier: "need", job: "gone-job", sentFor: "gone-job" });
+    await settle("pod", A.file);
+    rmSync(join(disk, "loras", A.file));
+    files.recheck("pod", true);
+    await readAgain();
+    expect(files.view("pod")).toEqual([]);
+    expect(files.againOf("pod")).toMatchObject({ lost: 1, files: 0, restart: true });
+    await files.tick();
+    expect(pod.packFetched).toHaveLength(1);
+    // a later job asks for it: fetched again, and said so (the #336 pod test's card said "0 fetched again")
+    files.want("pod", [{ ...A, url: `${siteUrl}/files/a.safetensors` }], { tier: "need", job: "next-job", sentFor: "next-job" });
+    await settle("pod", A.file);
+    expect(files.view("pod")[0]).toMatchObject({ state: "ready", again: "restart" });
+    expect(files.againOf("pod")).toMatchObject({ lost: 1, files: 1, restart: true });
+    expect(pod.packFetched).toHaveLength(2);
+  });
+
+  it("fetching it again fails: its job's line says the pod's container restarted without it, not that a file is missing", async () => {
+    files.want("pod", [{ ...A, url: `${siteUrl}/files/a.safetensors` }], { tier: "need", job: "j1" });
+    await settle("pod", A.file);
+    rmSync(join(disk, "loras", A.file));
+    // the site gone meanwhile: its download is refused
+    t.services.downloads.signer = async () => ({ url: `${siteUrl}/nothing-here` });
+    files.recheck("pod", true);
+    await readAgain();
+    await settle("pod", A.file);
+    const st = files.jobState("pod", "j1");
+    expect(st?.state).toBe("failed");
+    expect(st?.error).toContain("its pod's container restarted without it, and fetching it again failed");
   });
 });

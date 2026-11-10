@@ -4,7 +4,7 @@ import { SqliteAdapter, sql, type Expression } from "kysely";
 import { cents, modelName, modelOf, type JoinKind, joinKindOf } from "@afflatus/core";
 import type { Comfy } from "./comfy";
 import type { Lack } from "./machineScans";
-import type { PodDisk, PodFileView } from "./podFiles";
+import type { PodAgain, PodDisk, PodFileView } from "./podFiles";
 import type { PodPackView } from "./podPacks";
 import type { PackWait } from "./jobPacks";
 import { finishForecast, usesGpu } from "./queueTools";
@@ -19,7 +19,7 @@ import type { RentedView } from "./rentedModel";
 
 /** What a machine row says of a rented pod (rented.ts). */
 /** A rented pod's row: its state, and the model files it is getting (podFiles.ts). */
-export type RentedRow = RentedView & { files: PodFileView[]; packs: PodPackView[]; /** Its disk as its node pack last said it (0.19.0 on); null: not known. */ disk: PodDisk | null };
+export type RentedRow = RentedView & { files: PodFileView[]; packs: PodPackView[]; /** Its disk as its node pack last said it (0.19.0 on); null: not known. */ disk: PodDisk | null; /** What it lost and is getting again (its container restarted, card #336); null: nothing. */ again: PodAgain | null };
 
 /** What the queue screen shows: the line as it stands with the running job's progress, the history of finished jobs, and a live preview. */
 

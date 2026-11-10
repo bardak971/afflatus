@@ -1,9 +1,9 @@
 import type { Machine, MachineState, RentedMachine } from "../../api";
 import type { PodFile, PodPack } from "../../api";
-import { minutesSaid, plural, size, usd } from "../../format";
+import { hourMinute, minutesSaid, plural, size, usd } from "../../format";
 import { useCopied, useNow, useSecond } from "../../hooks";
 import { Link } from "wouter";
-import { gettingFiles, idleEndSaid, IDLE_MINUTES, rateSaid, rentedSaid, volumeHref } from "../../machines";
+import { againSaid, gettingFiles, idleEndSaid, IDLE_MINUTES, rateSaid, rentedSaid, volumeHref } from "../../machines";
 import type { useRentedOps } from "../../rentedOps";
 import { Select } from "../../Select";
 import { Progress } from "../../progress/Progress";
@@ -49,7 +49,7 @@ export function PodFiles({ files, packs = [] }: { files: PodFile[]; packs?: PodP
         return (
           <span key={`${f.folder}|${f.file}`} className="grid grid-cols-[minmax(0,1fr)_90px_110px] items-center gap-3" data-tip={f.error ?? (f.via ? `from ${VIA_SAID[f.via]}` : undefined)}>
             <span className={cx("min-w-0 truncate", f.state === "next" && f.tier === "ahead" && "text-ink-2")}>
-              {f.file}<span className="text-ink-3"> · {f.tier === "need" ? `for ${plural(Math.max(1, f.jobs.length), "job")}` : "ahead"}{f.via === "upload" ? " · from this PC" : ""}</span>
+              {f.file}<span className="text-ink-3"> · {f.tier === "need" ? `for ${plural(Math.max(1, f.jobs.length), "job")}` : "ahead"}{f.via === "upload" ? " · from this PC" : ""}{f.again ? " · fetched again" : ""}</span>
             </span>
             <Progress value={f.state === "ready" ? 1 : share / 100} className="h-1" under="bg-hover" radius="" tone={f.state === "ready" ? "bg-good" : f.state === "failed" ? "bg-warn" : f.tier === "ahead" ? "bg-ink-3" : "bg-accent"} label={f.file} />
             <span className={cx("text-right text-xs", f.state === "ready" ? "text-good" : f.state === "failed" ? "text-warn-ink" : "text-ink-3")}>
@@ -128,9 +128,13 @@ export function RentedRows({ machine, state, put, ops, remove }: { machine: Mach
           )}
         </Block>
       )}
-      {r && (r.files.length > 0 || r.packs.length > 0) && (
+      {r && (r.files.length > 0 || r.packs.length > 0 || r.again) && (
         <Row label="Models" help={WHY_FILES}>
-          <PodFiles files={r.files} packs={r.packs} />
+          <span className="flex min-w-0 grow flex-col gap-1">
+            {/* its container restarted (without a volume, its disk came back empty): what was fetched again, and when */}
+            {r.again && <span className="text-xs text-ink-2">{againSaid(r.again)} · {hourMinute(r.again.at)}</span>}
+            <PodFiles files={r.files} packs={r.packs} />
+          </span>
         </Row>
       )}
       {r && r.status === "RUNNING" && (

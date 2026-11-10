@@ -149,6 +149,9 @@ export async function createServices(
       // saved, so that the node pack goes in by itself (the pages read the settings again)
       const id = m.id;
       c.onFirstAnswer = () => void comfyFolder(id).then((saved) => saved && queue.events.emit("setup"), () => {});
+      // started again (its container too, maybe): what a pod has by its own word is read on its lists, the files gone
+      // fetched again (card #336); nothing for a machine of the user's own, which podFiles has nothing of
+      c.onAgain = () => podFiles.recheck(id, false);
       pool.set(m.id, c);
     }
     // a token set, renewed or taken off goes with the next call; an open socket stays open (the lock let it in)
@@ -217,6 +220,7 @@ export async function createServices(
       podFiles.want(id, files.map(({ file, folder, url, civitai, size }) => ({ file, folder, ...(url ? { url } : {}), ...(civitai ? { civitai } : {}), ...(size ? { size } : {}) })), { tier: "ahead" });
     },
     forgetFiles: (id) => podFiles.forget(id),
+    containerRestarted: (id) => podFiles.recheck(id, true),
     filesLeft: (id) => {
       const files = podFiles.view(id);
       const waiting = files.filter((f) => f.state === "next" || f.state === "fetching");
@@ -243,7 +247,7 @@ export async function createServices(
       // a pod's row says the files it is getting
       rentedOf: (m) => {
         const row = rented.view(m);
-        return row ? { ...row, files: podFiles.view(m.id), packs: podFiles.packsView(m.id), disk: podFiles.diskOf(m.id) } : null;
+        return row ? { ...row, files: podFiles.view(m.id), packs: podFiles.packsView(m.id), disk: podFiles.diskOf(m.id), again: podFiles.againOf(m.id) } : null;
       },
       // a ComfyUI of its own's row says the model files downloading into it (a set's Fill, a missing model's Download), as a
       // pod's are said: it is getting files, not idle

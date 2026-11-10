@@ -3,7 +3,7 @@ import { fileName } from "./media";
 import { civitaiVersion, keyFor } from "./civitai";
 import type { Comfy } from "./comfy";
 import { filesIn } from "@afflatus/comfy";
-import { isOfficialFile, type PresetFile } from "@afflatus/core";
+import { isOfficialFile, plural, type PresetFile } from "@afflatus/core";
 import type { Db } from "./db";
 import { PASSING, type Downloads } from "./downloads";
 import { stat } from "node:fs/promises";
@@ -47,6 +47,22 @@ export interface PodFileView {
   error?: string;
   /** The jobs that wait for it. */
   jobs: string[];
+  /**
+   * It was on the pod and is fetched again: its container restarted and came back without it ("restart"), or its pod's own
+   * list stopped naming it ("unlisted").
+   */
+  again?: "restart" | "unlisted";
+}
+
+/**
+ * What a pod lost and is getting again, for its card and its row: when it was found, how many of the files it had were gone
+ * (`lost`), how many of them are fetched again (`files`: the others no job needs any more), and whether its container restarted.
+ */
+export interface PodAgain {
+  at: number;
+  lost: number;
+  files: number;
+  restart: boolean;
 }
 
 export interface PodFileWant {
@@ -95,6 +111,15 @@ interface Entry extends PodFileView {
   refusedBy?: string[];
   /** The waiting jobs the queue's plan sent it for (need or ahead): once none of them may run here, it is dropped. */
   sentFor?: string[];
+  /**
+   * Fetched again once already on a hint (the plan or a submit found it unlisted, lost()): a second hint does not fetch it
+   * again, or a ComfyUI that never lists a file it has would have it fetched for ever, billed. A restart of the pod's
+   * container or ComfyUI (recheck) allows it again.
+   */
+  lostOnce?: boolean;
+  /** Its pod's list is to be read for it (the plan asked for it while it was ready), and when it last was. */
+  verify?: boolean;
+  verifiedAt?: number;
 }
 
 /** A pod's disk as its node pack said it (0.19.0 on): the bytes free and in all, and when it was read. */
@@ -178,6 +203,13 @@ const NO_SOURCE = "no site is known for it, and this computer's ComfyUI has no c
 const DISK_EVERY_MS = 15_000;
 /** How often what a pod's models hold on a network volume is listed again for its disk (a walk of the volume's models folder). */
 const VOLUME_LIST_MS = 60_000;
+/** How long after a file's list was read for it (verify) the plan asking for it again has it read again. */
+const VERIFY_EVERY_MS = 30_000;
+/**
+ * How long a pod restarted waits for its ComfyUI to list its folders before what it has is left as it was (recheck): a
+ * container started again boots as at its deploy (its node packs checked, ComfyUI started), a few minutes at most.
+ */
+const RECHECK_MS = 10 * 60_000;
 const gbSaid = (bytes: number) => `${(bytes / 2 ** 30).toFixed(1)} GB`;
 const keyOf = (folder: string, file: string) => `${folder}|${fileName(file).toLowerCase()}`;
 /** A source in a word, to know one that refused a file again: a Civitai version is refused whatever file of it is picked. */
@@ -561,6 +593,13 @@ export class PodFiles {
       let e = pod.get(key);
       if (!e) {
         e = { file: f.file, folder: f.folder, state: "next", nextAt: Date.now(), tier: o.tier, bytes: 0, total: f.size ?? 0, jobs: [], needAt: o.tier === "need" ? ++this.seq : Infinity };
+        // one the pod lost while no job needed it (lostOf forgot it), asked for again: fetched again, and said so
+        const lost = this.forgotten.get(machine);
+        if (lost?.delete(key)) {
+          const was = this.agains.get(machine);
+          e.again = was?.restart ? "restart" : "unlisted";
+          if (was) was.files++;
+        }
         if (f.url) e.url = f.url;
         if (f.url && f.sha256) e.sha256 = f.sha256;
         if (f.civitai) e.civitai = f.civitai;
@@ -569,6 +608,12 @@ export class PodFiles {
       } else if (o.tier === "need" && e.tier === "ahead") {
         e.tier = "need";
         e.needAt = ++this.seq;
+        changed = true;
+      }
+      // there by its own word, and asked for as lacking: the queue asks only for what the pod's folders did not list. Its list
+      // is read for it (verify): gone (its container restarted without a volume, card #336), it is fetched again
+      if (e.state === "ready" && !e.verify && Date.now() - (e.verifiedAt ?? 0) >= VERIFY_EVERY_MS) {
+        e.verify = true;
         changed = true;
       }
       // where it comes from, when the first ask had none: a job's plan names a model picked in its form with no address, and the
@@ -647,7 +692,9 @@ export class PodFiles {
     if (failed) return { state: "failed", error: `${fileName(failed.file)}: ${failed.error ?? "it could not be had"}`, files };
     const pack = packs.find((p) => p.state === "failed");
     if (pack) return { state: "failed", error: `the node pack ${pack.name}: ${pack.error ?? "it was not installed"}`, files };
-    return { state: mine.every((e) => e.state === "ready") && packs.every((p) => p.state === "ready") ? "ready" : "waiting", files };
+    // one the plan asked for while ready, its pod's list not read for it yet (verify): waited for, or its job started on a
+    // file its container lost (card #336)
+    return { state: mine.every((e) => e.state === "ready" && !e.verify) && packs.every((p) => p.state === "ready") ? "ready" : "waiting", files };
   }
 
   /**
@@ -701,10 +748,10 @@ export class PodFiles {
     return { via: measureKind(src), size: size === ASSUMED_BYTES ? null : size };
   }
 
-  /** A file as that pod is getting it (its state, and why it failed); null when it was never asked for there. */
-  fileState(machine: string, folder: string, file: string): { state: PodFileState; error?: string } | null {
+  /** A file as that pod is getting it (its state, why it failed, whether it is one the pod lost); null when it was never asked for there. */
+  fileState(machine: string, folder: string, file: string): { state: PodFileState; error?: string; again?: PodFileView["again"] } | null {
     const e = this.pods.get(machine)?.get(keyOf(folder, file));
-    return e ? { state: e.state, ...(e.error ? { error: e.error } : {}) } : null;
+    return e ? { state: e.state, ...(e.error ? { error: e.error } : {}), ...(e.again ? { again: e.again } : {}) } : null;
   }
 
   /** Whether a file failed on that pod already (asking again would fail again): its reason. */
@@ -831,8 +878,152 @@ export class PodFiles {
     void this.tick();
   }
 
+  /** The pods whose files are read again on their own lists (recheck): since when, and whether RunPod said its container restarted. */
+  private readonly rechecks = new Map<string, { since: number; container: boolean }>();
+  /** The pods whose lists are being read for that now (verifyAll): one read at a time per pod. */
+  private readonly verifying = new Set<string>();
+  /** What each pod last lost and is getting again (lostOf), for its card and its row. */
+  private readonly agains = new Map<string, PodAgain>();
+  /** The files each pod lost that no job needed then (lostOf forgot them): one asked for again later is said fetched again (want). */
+  private readonly forgotten = new Map<string, Set<string>>();
+
+  /**
+   * The pod's container or its ComfyUI started again (RunPod's uptime of it reset, its socket opened again): what it was
+   * sent may have gone with its container's disk. On 2026-11-06 a pod without a volume whose environment was changed came
+   * back empty, and Krea 2 failed twice "came to its pod, and its ComfyUI did not list it": its files here still said them
+   * there, and nothing was fetched (card #336). Every file it has by its own word is read on its list once its ComfyUI
+   * answers, and the ones not there are fetched again as on a fresh pod (lostOf). A network volume's files stay listed:
+   * nothing is fetched for them. `container`: RunPod said its container restarted, which its card says even when nothing was lost.
+   */
+  recheck(machine: string, container: boolean): void {
+    const pod = this.pods.get(machine);
+    if (!pod?.size) return;
+    // a restart is no hint: a file fetched once on a hint may be fetched again now
+    for (const e of pod.values()) delete e.lostOnce;
+    this.rechecks.set(machine, { since: Date.now(), container: container || Boolean(this.rechecks.get(machine)?.container) });
+    void this.tick();
+  }
+
+  /** What the pod last lost and is getting again, for its card and its row; null when it lost nothing. */
+  againOf(machine: string): PodAgain | null {
+    return this.agains.get(machine) ?? null;
+  }
+
+  /**
+   * Files a submit found unlisted that the pod has by its own word (queueSubmit.ts podHeld, podDefaults): read on its list
+   * now, and the ones its folder answers without are fetched again, once on such a hint (lostOnce). How many are.
+   */
+  async lost(machine: string, files: ReadonlyArray<{ file: string; folder: string }>): Promise<number> {
+    const pod = this.pods.get(machine);
+    const ready = files.map((f) => pod?.get(keyOf(f.folder, f.file))).filter((e): e is Entry => e?.state === "ready" && !e.lostOnce);
+    if (!ready.length) return 0;
+    return (await this.lostOf(machine, ready, false)) ?? 0;
+  }
+
+  /**
+   * The pass's part: a restarted pod's files, and the ones the plan asked for while ready (verify), read on its lists,
+   * apart from the pass (a pod's proxy can be slow to answer). A restart's read is asked again at each pass until its
+   * ComfyUI answers, RECHECK_MS at most.
+   */
+  private verifyAll(machine: string): void {
+    if (this.verifying.has(machine)) return;
+    const re = this.rechecks.get(machine);
+    // a hint fetches a file again once (lostOnce): its flag is let go, and nothing is read for it
+    for (const e of this.ordered(machine)) if (e.verify && e.lostOnce && !re) delete e.verify;
+    const list = this.ordered(machine).filter((e) => e.state === "ready" && (re || e.verify));
+    if (!re && !list.length) return;
+    this.verifying.add(machine);
+    void (async () => {
+      const lost = await this.lostOf(machine, list, re?.container ?? false);
+      if (!re || this.rechecks.get(machine) !== re) return;
+      if (lost !== null) {
+        this.rechecks.delete(machine);
+        // its container restarted, its files all still there (a network volume's): its card says so all the same
+        if (re.container && lost === 0) this.agains.set(machine, { at: Date.now(), files: 0, lost: 0, restart: true });
+        if (re.container) this.d.changed?.();
+      } else if (Date.now() - re.since >= RECHECK_MS) {
+        this.rechecks.delete(machine);
+        console.warn(`[pod files] ${machine} restarted, and its ComfyUI did not list its folders in ${RECHECK_MS / 60_000} min: its files are left as they were`);
+      }
+    })()
+      .catch((err: Error) => console.warn(`[pod files] ${machine}'s files not read again: ${err.message}`))
+      .finally(() => this.verifying.delete(machine));
+  }
+
+  /**
+   * These files, there by the pod's word, read on its own lists: the ones its folders answer without are lost. One a job
+   * waiting or running needs, or the user asked for, goes back in line and is fetched again, its fetch counted as a fresh
+   * pod's is (its pod_fetches row, its job waiting for it); one nothing needs any more is forgotten, asked anew if a job
+   * comes to. How many were lost; null when its ComfyUI listed none of their folders (not up yet).
+   */
+  private async lostOf(machine: string, entries: Entry[], restart: boolean): Promise<number | null> {
+    const comfy = await this.d.comfyOf(machine).catch(() => null);
+    if (!comfy) return null;
+    const lists = new Map<string, Promise<string[] | null>>();
+    const listOf = (folder: string) => {
+      let l = lists.get(folder);
+      if (!l) lists.set(folder, (l = filesIn(comfy.client, folder).then((files) => files.map((f) => fileName(f)), () => null)));
+      return l;
+    };
+    const read = await Promise.all(entries.map(async (e) => ({ e, files: await listOf(e.folder) })));
+    const now = Date.now();
+    for (const { e } of read) {
+      delete e.verify;
+      e.verifiedAt = now;
+    }
+    if (read.length && read.every((r) => r.files === null)) return null;
+    // a folder that did not answer says nothing of its files: they stay as they were
+    const gone = read.filter((r) => r.files !== null && !r.files.includes(fileName(r.e.file)) && this.current(machine, r.e) && r.e.state === "ready").map((r) => r.e);
+    if (!gone.length) return 0;
+    const ids = [...new Set(gone.flatMap((e) => [...e.jobs, ...(e.sentFor ?? [])]))];
+    const active = new Set(ids.length ? (await this.d.db.selectFrom("jobs").select("id").where("id", "in", ids).where("status", "in", ["queued", "running"]).execute()).map((j) => j.id) : []);
+    const pod = this.pods.get(machine);
+    let again = 0;
+    for (const e of gone) {
+      if (!this.current(machine, e) || e.state !== "ready") continue;
+      if (!e.byUser && ![...e.jobs, ...(e.sentFor ?? [])].some((j) => active.has(j))) {
+        pod?.delete(keyOf(e.folder, e.file));
+        let lost = this.forgotten.get(machine);
+        if (!lost) this.forgotten.set(machine, (lost = new Set()));
+        lost.add(keyOf(e.folder, e.file));
+        continue;
+      }
+      // its download is done with: nothing to stop
+      delete e.downloadId;
+      this.requeue(e);
+      delete e.tries;
+      delete e.notBefore;
+      delete e.error;
+      e.roomTried = false;
+      e.lostOnce = true;
+      e.again = restart || e.again === "restart" ? "restart" : "unlisted";
+      again++;
+    }
+    console.warn(`[pod files] ${machine}: ${restart ? "its container restarted without" : "its ComfyUI no longer lists"} ${plural(gone.length, "file")} it had; ${again} fetched again now (the others when a job asks)`);
+    this.agains.set(machine, { at: now, files: again, lost: gone.length, restart });
+    // its disk is emptier: read again, and the files failed for want of room go back in line, as after files deleted (freed)
+    for (const e of pod?.values() ?? []) {
+      if (e.state !== "failed" || !(NO_ROOM.test(e.error ?? "") || DISK_FULL.test(e.error ?? ""))) continue;
+      e.state = "next";
+      e.nextAt = now;
+      e.bytes = 0;
+      delete e.error;
+      delete e.downloadId;
+      e.roomTried = false;
+    }
+    const d = this.disks.get(machine);
+    if (d) this.disks.set(machine, { ...d, at: 0 });
+    this.d.settled?.(machine, true);
+    this.d.changed?.();
+    void this.tick();
+    return gone.length;
+  }
+
   /** The pod is gone (terminated, stopped, removed): what it was getting is stopped and forgotten. */
   forget(machine: string): void {
+    this.rechecks.delete(machine);
+    this.agains.delete(machine);
+    this.forgotten.delete(machine);
     const pod = this.pods.get(machine);
     if (!pod) return;
     for (const e of pod.values()) {
@@ -856,8 +1047,8 @@ export class PodFiles {
   }
 
   private viewOf(e: Entry): PodFileView {
-    const { file, folder, state, tier, bytes, total, via, error, jobs } = e;
-    return { file, folder, state, tier, bytes, total, ...(via ? { via } : {}), ...(error ? { error } : {}), jobs: [...jobs] };
+    const { file, folder, state, tier, bytes, total, via, error, jobs, again } = e;
+    return { file, folder, state, tier, bytes, total, ...(via ? { via } : {}), ...(error ? { error } : {}), jobs: [...jobs], ...(again ? { again } : {}) };
   }
 
   private ordered(machine: string): Entry[] {
@@ -876,6 +1067,8 @@ export class PodFiles {
       }
       // not up now (being stopped, or one read without it): nothing moves, and nothing is forgotten
       if (!this.d.alive(machine)) continue;
+      // its container or ComfyUI started again, or files it has asked for as lacking: read on its lists (recheck)
+      this.verifyAll(machine);
       for (const e of this.ordered(machine)) if (e.state === "fetching" && e.downloadId && this.follow(machine, e)) changed = true;
       // its ComfyUI restarts for node packs: nothing starts until it is back
       if (this.packs.restartingNow(machine)) continue;
@@ -1206,7 +1399,8 @@ export class PodFiles {
 
   private fail(machine: string, e: Entry, error: string): true {
     e.state = "failed";
-    e.error = error;
+    // one the pod lost: its job's line says so, not that a file is missing
+    e.error = e.again ? `${e.again === "restart" ? "its pod's container restarted without it" : "its pod no longer listed it"}, and fetching it again failed: ${error}` : error;
     console.warn(`[pod files] ${e.file} (${e.folder}) failed on ${machine}: ${error}`);
     this.d.settled?.(machine, false);
     return true;

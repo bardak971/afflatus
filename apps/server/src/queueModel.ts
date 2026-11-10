@@ -230,9 +230,11 @@ export interface QueueCore {
 /** A rented pod's files as a job's submit reads them (queueSubmit.ts podHeld). */
 export interface PodFilesOf {
   /** A file as the pod is getting it: there whole ("ready"), in its line or under way, failed there (with why); null when never asked for there. */
-  state(f: { file: string; folder: string }): { state: PodFileState; error?: string } | null;
+  state(f: { file: string; folder: string }): { state: PodFileState; error?: string; again?: "restart" | "unlisted" } | null;
   /** Have the pod fetch these first, for this job; why they are not coming (podFiles.ts stalled), null while they come. */
   need(files: Array<{ file: string; folder: string; url?: string }>, job: string): string | null;
+  /** Files there by the pod's word that its folders do not list: read on its list, and the ones gone fetched again (podFiles.ts lost). How many are. */
+  lost(files: Array<{ file: string; folder: string }>): Promise<number>;
 }
 
 /** A machine's lane: its ComfyUI, the job it runs, what it was last asked to load, whether it is paused by hand. */
