@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-import { clearStaleMarkers, decide, restoreLibrary, versionName } from "../../../scripts/release/launch.mjs";
+import { clearStaleMarkers, decide, openLog, restoreLibrary, stopLine, versionName } from "../../../scripts/release/launch.mjs";
 import { until } from "./helpers";
 
 /** Renames onto these paths fail, as one a virus scanner holding the file keeps failing past renameSoon's tries. */
@@ -57,10 +57,86 @@ describe("the bundle's launch: what happens when the server stops", () => {
     expect(decide({ ...base, code: 130 })).toEqual({ action: "stop", code: 130 });
   });
 
+  it("takes a crash or a kill during the first start for the version's, a stop asked for for the user's", () => {
+    // a native module the version ships crashing, or the system killing it, before it ever listened: the version's doing
+    for (const signal of ["SIGKILL", "SIGSEGV", "SIGBUS", "SIGABRT"]) expect(decide({ ...base, code: null, signal })).toEqual({ action: "fallback", to: "0.4.0" });
+    for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) expect(decide({ ...base, code: null, signal })).toEqual({ action: "stop", code: 1 });
+    // once up, a signal stops it like anything else
+    expect(decide({ ...base, code: null, signal: "SIGKILL", started: true })).toEqual({ action: "stop", code: 1 });
+  });
+
+  it("says why it stopped, every way out, with the log to send when it was not asked for", () => {
+    const log = "/zz-test/data/logs/afflatus-2026-11-10.log";
+    expect(stopLine({ code: null, signal: "SIGKILL", log })).toMatch(/^Afflatus stopped: the server was killed \(SIGKILL\).*memory.*send the log: \/zz-test\/data\/logs\/afflatus-2026-11-10\.log$/);
+    for (const signal of ["SIGSEGV", "SIGBUS", "SIGABRT"]) expect(stopLine({ code: null, signal, log })).toMatch(new RegExp(`crashed \\(${signal}\\) in native code.*send the log`));
+    expect(stopLine({ code: null, signal: "SIGTERM", log })).toMatch(/ended by SIGTERM, a stop asked of it/);
+    expect(stopLine({ code: null, signal: "SIGTERM", log })).not.toMatch(/send the log/);
+    expect(stopLine({ code: 0, signal: null, log })).toBe("Afflatus stopped.");
+    expect(stopLine({ code: 0xc000013a, signal: null, log })).toMatch(/Ctrl\+C/);
+    expect(stopLine({ code: 0xc0000005, signal: null, log })).toMatch(/crashed \(an access violation, 0xC0000005\).*send the log/);
+    expect(stopLine({ code: 3, signal: null, log })).toMatch(/exit code 3\): why is said just above/);
+    expect(stopLine({ code: 1, signal: null, log })).toMatch(/exit code 1;.*send the log/);
+    expect(stopLine({ code: 0xffffffff, signal: null, log })).toMatch(/exit code 0xFFFFFFFF;/);
+    // no log file (it could not be written): no path to send
+    expect(stopLine({ code: 1, signal: null, log: null })).not.toMatch(/send the log/);
+  });
+
   it("takes only a version's name from the versions/ files, never a path out of it", () => {
     expect(versionName("0.4.1")).toBe("0.4.1");
     expect(versionName("0.4.0-rc.2+build.1")).toBe("0.4.0-rc.2+build.1");
     for (const bad of ["../../x", "..", ".", "...", "a/b", "a\\b", "", "0.4.1.", ".hidden", null, 3]) expect(versionName(bad)).toBeNull();
+  });
+});
+
+describe("the bundle's log file", () => {
+  const dir = mkdtempSync(join(tmpdir(), "afflatus-log-"));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("stamps each line, from whichever stream, and writes it at once", () => {
+    const at = new Date(2026, 10, 10, 9, 30);
+    const log = openLog(join(dir, "a", "logs"), { now: () => at });
+    expect(log.path).toBe(join(dir, "a", "logs", "afflatus-2026-11-10.log"));
+    log.write("[queue] one\n[queue] tw", "out");
+    log.write("zz-test warning\n", "err");
+    log.write("o\n", "out");
+    log.write("zz-test launcher line\n");
+    // read before the close: each write is on disk already, as a kill the next moment leaves it
+    const lines = readFileSync(log.path!, "utf8").split("\n");
+    log.close();
+    const stamp = at.toISOString();
+    expect(lines).toEqual([`${stamp} [queue] one`, `${stamp} [queue] tw${stamp} zz-test warning`, "o", `${stamp} [launcher] zz-test launcher line`, ""]);
+  });
+
+  it("starts a file a day, keeps LOG_DAYS of them, and sets a day's aside once it is too big", () => {
+    const logs = join(dir, "b");
+    mkdirSync(logs, { recursive: true });
+    // the server's own log (access.ts) and anything else in the folder are never taken away
+    for (const name of ["afflatus-2026-10-01.log", "afflatus-2026-10-01.old.log", "afflatus-2026-11-01.log", "afflatus.log", "notes.txt"]) writeFileSync(join(logs, name), "zz-test");
+    let at = new Date(2026, 10, 10, 23, 59);
+    const log = openLog(logs, { now: () => at, max: 100, days: 14 });
+    expect(readdirSync(logs).sort()).toEqual(["afflatus-2026-11-01.log", "afflatus-2026-11-10.log", "afflatus.log", "notes.txt"]);
+    log.write("x".repeat(120) + "\n");
+    log.write("after the cap\n");
+    expect(readFileSync(join(logs, "afflatus-2026-11-10.old.log"), "utf8")).toContain("x".repeat(120));
+    expect(readFileSync(join(logs, "afflatus-2026-11-10.log"), "utf8")).toMatch(/after the cap\n$/);
+    at = new Date(2026, 10, 11, 0, 1);
+    log.write("the next day\n");
+    expect(log.path).toBe(join(logs, "afflatus-2026-11-11.log"));
+    expect(readFileSync(log.path!, "utf8")).toMatch(/the next day\n$/);
+    log.close();
+  });
+
+  it("never stops Afflatus when it cannot be written: said once, then left off", () => {
+    // a file where the logs folder should be
+    const blocked = join(dir, "c");
+    writeFileSync(blocked, "zz-test");
+    const warned: string[] = [];
+    const log = openLog(blocked, { warn: (line) => warned.push(line) });
+    expect(log.path).toBeNull();
+    log.write("lost\n");
+    log.close();
+    expect(warned).toHaveLength(1);
+    expect(warned[0]).toMatch(/^\[log\] the log file in .* cannot be written/);
   });
 });
 
@@ -172,6 +248,35 @@ describe("the bundle's launch, run in a pretend bundle", () => {
     expect(current()).toBe("0.4.1");
     expect(existsSync(fallbackNote)).toBe(false);
     rmSync(join(root, "versions", "trial"));
+  });
+
+  it("keeps what the server said, and why it stopped, in the log as well as the terminal", () => {
+    rmSync(join(root, "data", "logs"), { recursive: true, force: true });
+    version("0.4.1", `writeFileSync(process.env.AFFLATUS_STARTED_FILE, ""); console.log("[queue] zz-test working"); console.error("zz-test last words"); process.exit(7);`);
+    writeFileSync(join(root, "versions", "current"), "0.4.1\n");
+    const r = spawnSync(process.execPath, [join(root, "versions", "0.4.1", "app", "launch.mjs")], { env: envOf(), encoding: "utf8" });
+    expect(r.status).toBe(7);
+    expect(r.stdout).toContain("[queue] zz-test working");
+    expect(r.stderr).toContain("zz-test last words");
+    expect(r.stderr).toMatch(/Afflatus stopped: the server ended with exit code 7; .* send the log: .*afflatus-\d{4}-\d{2}-\d{2}\.log/);
+    const [file] = readdirSync(join(root, "data", "logs"));
+    const text = readFileSync(join(root, "data", "logs", file!), "utf8");
+    expect(text).toMatch(/\[launcher\] Afflatus v0\.4\.1 starting: /);
+    expect(text).toMatch(/Z \[queue\] zz-test working\n/);
+    expect(text).toMatch(/Z zz-test last words\n/);
+    expect(text).toMatch(/\[launcher\] Afflatus stopped: the server ended with exit code 7/);
+  });
+
+  it.skipIf(process.platform === "win32")("says the signal a server was killed by, where up to 0.10.0 it said nothing", () => {
+    version("0.4.1", `writeFileSync(process.env.AFFLATUS_STARTED_FILE, ""); console.log("zz-test before the kill"); process.kill(process.pid, "SIGKILL");`);
+    writeFileSync(join(root, "versions", "current"), "0.4.1\n");
+    const r = spawnSync(process.execPath, [join(root, "versions", "0.4.1", "app", "launch.mjs")], { env: envOf(), encoding: "utf8" });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/Afflatus stopped: the server was killed \(SIGKILL\)/);
+    const logs = join(root, "data", "logs");
+    const text = readdirSync(logs).map((f) => readFileSync(join(logs, f), "utf8")).join("");
+    expect(text).toContain("zz-test before the kill");
+    expect(text).toMatch(/\[launcher\] Afflatus stopped: the server was killed \(SIGKILL\)/);
   });
 
   it("stops with the server's code once it was up", () => {

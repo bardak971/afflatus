@@ -1,4 +1,5 @@
 import { loadConfig } from "./config";
+import { watchProcess } from "./processWatch";
 import { check, DataFolderError, EXIT_DATA_FOLDER, EXIT_PORT_TAKEN, PortTakenError, resetPasswordCommand, start, webDir } from "./start";
 
 // the start itself is in start.ts, where a test runs it; here only what a process does around it: a start that cannot go
@@ -8,6 +9,8 @@ const config = loadConfig();
 if (process.argv.includes("--check")) process.exit(await check(config));
 // the password and every session removed, without the page (access.ts resetAccess): with Afflatus stopped
 if (process.argv.includes("reset-password")) process.exit(await resetPasswordCommand(config));
+// a crash said with its stack, and the memory held as it grows, for the log (processWatch.ts)
+watchProcess();
 let started: Awaited<ReturnType<typeof start>>;
 try {
   started = await start(config, { webDir: webDir() });
