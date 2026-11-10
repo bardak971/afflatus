@@ -157,6 +157,15 @@ export interface Seen {
   pulledKept: boolean;
   /** When its container started (ms), once known (RunPod's uptime, its boot log): its uptime from then while RunPod says none. */
   containerAt: number | null;
+  /**
+   * Its container's start as last known, kept while it is not running (containerAt is not): a start later than it, RunPod's
+   * uptime reset, is its container restarted (containerUp).
+   */
+  containerWas: number | null;
+  /** Its uptime as RunPod's list last said it (s): one lower is its container started again (containerUp). */
+  uptimeWas: number | null;
+  /** When its uptime was last asked of RunPod's GraphQL once it was up (containerUp): its list says none. */
+  uptimeReadAt: number;
   /** What its boot log said of its node packs, as last kept on its session (JSON): written again only when it changes. */
   packsKept: string | null;
   /**
@@ -175,7 +184,7 @@ const fresh = (): Seen => ({
   pod: null, rate: null, watchdog: "unknown", answers: null, busyAt: null, busyKept: null, busyRestored: false, stoppedBy: null, stopAfter: false, cappedAt: null,
   stopping: false, stopAction: null, lockTried: false, seenRunningAt: null, sessionFrom: null, epoch: 0, error: null, bootNote: null, secretDropped: false, upAt: null, answered: false, answeredAt: null,
   read: false, gpuFailed: null, startFailed: null, comfyDied: null, hung: null, missing: 0, stoppingSince: null, aliveAt: null, startingSince: null,
-  handed: false, fillFrom: null, fillProgress: null, fillMovedAt: null, cutWhy: null, pulledKept: false, packsKept: null, containerAt: null,
+  handed: false, fillFrom: null, fillProgress: null, fillMovedAt: null, cutWhy: null, pulledKept: false, packsKept: null, containerAt: null, containerWas: null, uptimeWas: null, uptimeReadAt: 0,
   pullLines: [], pullReadAt: 0, pull: null, pullKept: false, bootLogKept: null,
 });
 
@@ -252,6 +261,8 @@ export interface RentedDeps {
   onUp: (machine: string, files: PresetFile[], leaveOut: Array<{ file: string; folder: string }>) => void;
   /** What a pod was getting forgotten (podFiles.ts forget), its machine taken out. */
   forgetFiles: (machine: string) => void;
+  /** Its container restarted (RunPod's uptime of it reset): what it was sent is read on its lists again, the files gone fetched again (podFiles.ts recheck). */
+  containerRestarted: (machine: string) => void;
   /** The files a machine's pod still waits for (how many, their names), all it was given, the bytes in so far, and those that failed (podFiles). */
   filesLeft: (machine: string) => PodFilesLeft;
 }

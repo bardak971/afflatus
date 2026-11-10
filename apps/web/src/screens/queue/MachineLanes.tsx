@@ -5,7 +5,7 @@ import type { MachineState, PodDisk, QueueStatus, RunningJob, SystemLoad } from 
 import { useMenu } from "../../ContextMenu";
 import { gb, phaseLabel, plural, timeLeft } from "../../format";
 import { LivePreview, StageStrip } from "../../LivePreview";
-import { machineLabel, machineState, OUTSIDE_TIP, outsideSaid, rentedSaid, type MachineWord } from "../../machines";
+import { againSaid, machineLabel, machineState, OUTSIDE_TIP, outsideSaid, rentedSaid, type MachineWord } from "../../machines";
 import { useQueueOps } from "../../queueOps";
 import { useSystem } from "../../store";
 import { Bar, Button, cx } from "../../ui";
@@ -246,7 +246,8 @@ function MachineRow({ m, onStop, onPin }: { m: MachineState; onStop(id: string):
       {m.running ? <JobCell run={m.running} figures={figures} /> : files && state === "getting" ? (
         <span className="flex min-w-0 flex-col gap-1">
           <span className="flex min-w-0 items-center gap-2">
-            <span className="truncate font-semibold" data-tip={filesTip(name, files)}>{plural(files.left.length, "file")}{files.ahead ? " for later jobs" : " for its jobs"}</span>
+            {/* files it lost (its container restarted) coming again: said as such, not as a first fetch */}
+            <span className="truncate font-semibold" data-tip={filesTip(name, files)}>{m.rented?.again && files.left.some((f) => f.again) ? againSaid(m.rented.again) : `${plural(files.left.length, "file")}${files.ahead ? " for later jobs" : " for its jobs"}`}</span>
             <span className="grow" />
             <Link href={filesHref(m)} className="shrink-0 text-xs font-semibold text-accent hover:underline" data-tip={filesTip(name, files)}>Files ›</Link>
           </span>

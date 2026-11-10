@@ -149,8 +149,12 @@ async function podDefaults(
   const graph = kept.length ? await dry() : null;
   const read = graph ? new Set(Object.values(graph).flatMap((n) => Object.values(n.inputs))) : new Set();
   const lacking = kept.filter((l) => read.has(l.get.file));
-  const whole = lacking.find((l) => l.on?.state === "ready");
-  if (whole) throw new SlotComing(`${whole.get.file} came to its pod, and its ComfyUI did not list it`, true);
+  const wholes = lacking.filter((l) => l.on?.state === "ready");
+  // there by the pod's word, not listed: one its folder answers without went with its container (card #336), and is
+  // fetched again, the job waiting for it with no attempt spent
+  if (wholes.length && (await pod.lost(wholes.map((l) => l.get)))) throw new SlotComing(`waits for ${wholes.map((l) => l.get.file).join(", ")}, gone from its pod and fetched again`, false);
+  const whole = wholes[0];
+  if (whole) throw new SlotComing(notListed(whole.get.file, whole.on!), true);
   const coming = lacking.filter((l) => l.on?.state !== "failed");
   const why = coming.length ? pod.need(coming.map((l) => l.get), row.id) : null;
   if (coming.length && !why) throw new SlotComing(`waits for ${coming.map((l) => l.get.file).join(", ")}, still coming to its pod`, false);
@@ -963,6 +967,10 @@ export class SlotComing extends Error {
   }
 }
 
+/** A file the pod has by its own word that its ComfyUI does not list, said as what happened to it: fetched again after its container restarted, or come there. */
+const notListed = (file: string, on: { again?: "restart" | "unlisted" }) =>
+  on.again === "restart" ? `${file} was fetched again after its pod's container restarted, and its ComfyUI did not list it` : `${file} came to its pod, and its ComfyUI did not list it`;
+
 /** How many more times a pod's folders are read when its pack has a file whole that they do not list (podHeld). */
 const RELIST_TRIES = 3;
 const RELIST_MS = 3_000;
@@ -1026,7 +1034,11 @@ async function podHeld(
     if (!whole.length) return got;
     if (tries >= RELIST_TRIES) {
       const gap = whole.find((f) => f.gap);
-      if (gap) throw new SlotComing(`${got.gaps[gap.id]} (${gap.on ? `${gap.file} came to its pod, and its ComfyUI did not list it` : listed.get(gap.id) ? `its pod's ComfyUI lists ${gap.file} in its folder, not among its models` : `its pod's ComfyUI did not list its ${gap.folder} folder`})`, true);
+      // still not listed: one its folder answers without went with its container (card #336), and is fetched again, the job
+      // waiting for it with no attempt spent (once: a ComfyUI that never lists it fails it as before)
+      const ready = whole.filter((f) => f.on?.state === "ready");
+      if (gap && ready.length && (await pod.lost(ready))) throw new SlotComing(`waits for ${ready.map((f) => f.file).join(", ")}, gone from its pod and fetched again`, false);
+      if (gap) throw new SlotComing(`${got.gaps[gap.id]} (${gap.on ? notListed(gap.file, gap.on) : listed.get(gap.id) ? `its pod's ComfyUI lists ${gap.file} in its folder, not among its models` : `its pod's ComfyUI did not list its ${gap.folder} folder`})`, true);
       return got;
     }
     await new Promise((go) => setTimeout(go, core.opts.relistMs ?? RELIST_MS));

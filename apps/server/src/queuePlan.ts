@@ -78,7 +78,9 @@ export type Able = {
  */
 export interface PodFetch {
   /** A file as that pod is getting it: there whole ("ready"), in its line or under way, failed there (with why); null when never asked for there. */
-  fileState(machine: string, file: { file: string; folder: string }): { state: PodFileState; error?: string } | null;
+  fileState(machine: string, file: { file: string; folder: string }): { state: PodFileState; error?: string; again?: "restart" | "unlisted" } | null;
+  /** Files there by that pod's word that its folders do not list: read on its list, and the ones gone fetched again (podFiles.ts lost). How many are. */
+  lost(machine: string, files: Lack["files"]): Promise<number>;
   /** Why these files (or node packs) cannot come to that machine: one of them failed there already. Null: they can. */
   failed(machine: string, files: Lack["files"], packs?: string[]): string | null;
   /** Why these files do not fit on that pod's disk, beside what it could delete when it makes room; null: they fit, or it is not known. */
@@ -106,7 +108,7 @@ export interface PodFetch {
 }
 
 /** A rented pod's files as the queue reads them, from podFiles.ts: `filesOf` is read at each call, the pods' files being made after the queue (services.ts). */
-export function podFetchOf(filesOf: () => Pick<PodFiles, "fileState" | "failed" | "failedPacks" | "failingPacks" | "short" | "untilThere" | "want" | "wantPacks" | "jobState" | "holding" | "moving" | "stalled" | "dropUnsought" | "holdsFor" | "restartsFor">): PodFetch {
+export function podFetchOf(filesOf: () => Pick<PodFiles, "fileState" | "failed" | "failedPacks" | "failingPacks" | "short" | "untilThere" | "want" | "wantPacks" | "jobState" | "holding" | "moving" | "stalled" | "dropUnsought" | "holdsFor" | "restartsFor" | "lost">): PodFetch {
   return {
     fileState: (machine, f) => filesOf().fileState(machine, f.folder, f.file),
     short: (machine, list) => filesOf().short(machine, list),
@@ -124,6 +126,7 @@ export function podFetchOf(filesOf: () => Pick<PodFiles, "fileState" | "failed" 
     stalled: (machine, job, list, packs) => filesOf().stalled(machine, job, list, packs),
     failingPacks: (machine) => filesOf().failingPacks(machine),
     restartsFor: (job) => filesOf().restartsFor(job),
+    lost: (machine, list) => filesOf().lost(machine, list),
   };
 }
 

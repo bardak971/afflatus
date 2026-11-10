@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { MachineState, QueueStatus, RentedState } from "../src/api";
 import { usd } from "../src/format";
 import { busiest, doing } from "../src/machineBits";
-import { bootNote, bootSaid, clock, idleEndSaid, machinesByName, machineState, onlineSaid, rateParts, rateSaid, rentedSaid, rentedSpent, rentedUp, severalMachines } from "../src/machines";
+import { againSaid, bootNote, bootSaid, clock, idleEndSaid, machinesByName, machineState, onlineSaid, rateParts, rateSaid, rentedSaid, rentedSpent, rentedUp, severalMachines } from "../src/machines";
 
 /** What a rented pod's row, its Start and the pill say (machines.ts), and when the machines' own controls show. */
 
@@ -150,5 +150,15 @@ describe("a pod's rate in its parts", () => {
   it("says nothing when the rate is the GPU's alone: no \"+ its disk $0.00\"", () => {
     expect(rateParts({ rate: 0.59, gpuRate: 0.59 })).toBeNull();
     expect(rateParts({ rate: 0.59, gpuRate: null })).toBeNull();
+  });
+});
+
+describe("what a pod whose container restarted lost and gets again (card #336)", () => {
+  it("is said in a line: the files fetched again, the ones no job needs apart, a volume's kept", () => {
+    expect(againSaid({ at: 0, lost: 3, files: 3, restart: true })).toBe("Container restarted: 3 files fetched again");
+    expect(againSaid({ at: 0, lost: 1, files: 1, restart: true })).toBe("Container restarted: 1 file fetched again");
+    expect(againSaid({ at: 0, lost: 3, files: 1, restart: true })).toBe("Container restarted: 3 files gone, 1 fetched again (no job needs the others)");
+    expect(againSaid({ at: 0, lost: 0, files: 0, restart: true })).toBe("Container restarted: its files were still there");
+    expect(againSaid({ at: 0, lost: 1, files: 1, restart: false })).toBe("Files gone from the pod: 1 file fetched again");
   });
 });

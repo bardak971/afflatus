@@ -106,7 +106,7 @@ describe("a file choice left on a default a family downloads, on a pod that list
     const asked: Array<{ file: string; job: string }> = [];
     const fetch: PodFetch = {
       fileState: (_machine, f) => states.get(f.file) ?? null,
-      failed: () => null, short: async () => null, untilThere: async () => 1_000, drop: () => {}, holding: () => false, moving: () => false, stalled: () => null, failingPacks: () => new Map(), restartsFor: () => null,
+      failed: () => null, short: async () => null, untilThere: async () => 1_000, drop: () => {}, holding: () => false, moving: () => false, stalled: () => null, failingPacks: () => new Map(), restartsFor: () => null, lost: async () => 0,
       want: (_machine, files, _tier, job) => {
         for (const f of files) asked.push({ file: f.file, job });
       },
@@ -141,7 +141,7 @@ describe("a default its pod cannot get (card #319)", () => {
     const id = await deployed();
     const fetch: PodFetch = {
       fileState: (_machine, f) => (f.file === UPSCALER_DEFAULT ? { state: "failed", error: "its site answered 404" } : null),
-      failed: () => null, short: async () => null, untilThere: async () => 1_000, drop: () => {}, holding: () => false, moving: () => false, stalled: () => null, failingPacks: () => new Map(), restartsFor: () => null,
+      failed: () => null, short: async () => null, untilThere: async () => 1_000, drop: () => {}, holding: () => false, moving: () => false, stalled: () => null, failingPacks: () => new Map(), restartsFor: () => null, lost: async () => 0,
       want: () => {}, holdsFor: () => false, jobState: () => "ready",
     };
     t.services.queue.deps.pods.podFetch = fetch;

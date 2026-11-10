@@ -55,10 +55,15 @@ export class Comfy {
     // changed, a node pack just written among them, so nothing kept about it holds
     this.monitor.onOpen = (again) => {
       this.openedAt = Date.now();
-      if (again) this.forgetAll();
-      else this.onFirstAnswer?.();
+      if (again) {
+        this.forgetAll();
+        this.onAgain?.();
+      } else this.onFirstAnswer?.();
     };
   }
+
+  /** Its socket opened again (ComfyUI restarted, or its line came back): a rented pod's files are read on its lists again (services.ts). */
+  onAgain?: () => void;
 
   /**
    * When its socket last opened (ms; 0 before it ever did): a ComfyUI restarted since then, by hand or by anyone, loaded what
