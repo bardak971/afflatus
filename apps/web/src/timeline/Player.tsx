@@ -11,9 +11,13 @@ import { playSignature } from "./model";
 import { useHandover } from "./useHandover";
 import { heardByVideo, useSong } from "./useSong";
 import { PLAYER_FRAMES } from "./transitionLook";
+import { lightFilter, svgFiltersOnVideo } from "./nudgeLook";
 import { useRunningOf } from "./useRunning";
 import { useQueueOf } from "../screens/studio/queueOf";
 import { queryKeys } from "../queryKeys";
+
+/** The colour nudge drawn as a colour matrix (SVG), or its light alone by CSS where a video takes no SVG filter (nudgeLook.ts). */
+const SVG_NUDGE = svgFiltersOnVideo();
 
 export interface PlayerHandle {
   /** Go to a moment of what plays. */
@@ -359,7 +363,7 @@ export const Player = forwardRef<PlayerHandle, {
       {now && (
         // design: the letterbox is black whatever the theme, as the video's own bars are
         <div className="relative overflow-hidden bg-black" style={{ width: w, height: h }}>
-          {nudges.size > 0 && (
+          {SVG_NUDGE && nudges.size > 0 && (
             <svg className="absolute h-0 w-0" aria-hidden="true">
               <defs>
                 {[...new Set([now, next, frozen])].flatMap((c) => {
@@ -396,7 +400,7 @@ export const Player = forwardRef<PlayerHandle, {
                 onTimeUpdate={() => c === now && step.current()}
                 onEnded={() => c === now && step.current()}
                 onClick={() => onPlaying(!playing)}
-                style={{ ...(c !== now && fading ? { transition: `opacity ${fading}ms linear` } : {}), ...(nudges.has(c.id) ? { filter: `url(#nudge-${c.id})` } : {}) }}
+                style={{ ...(c !== now && fading ? { transition: `opacity ${fading}ms linear` } : {}), ...(nudges.has(c.id) ? { filter: SVG_NUDGE ? `url(#nudge-${c.id})` : lightFilter(nudges.get(c.id)!.y) || undefined } : {}) }}
                 className={cx("absolute inset-0 h-full w-full", c.fill ? "object-cover" : "object-contain", c === now ? "opacity-100" : fading || c === frozen ? "pointer-events-none opacity-100" : "pointer-events-none opacity-0")}
               />
             ) : (
