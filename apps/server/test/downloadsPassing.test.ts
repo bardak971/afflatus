@@ -11,6 +11,7 @@ const wrap = (why: string) => `The Afflatus node pack could not download it: ${w
 describe("which of the node pack's failures pass", () => {
   it.each([
     "the download failed 5 times in a row (the source answered 429)",
+    "the source kept asking to slow down for 16 min (it answered 429)",
     "the download failed 5 times in a row (the source answered 503)",
     "the download failed 5 times in a row (the source answered 502)",
     "the download failed 5 times in a row (Afflatus answered 503)",

@@ -4,6 +4,9 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Fixed
+- **Downloads wait out a site's rate limit** instead of giving up after 30 s. Two files of 20 GB from Civitai at once failed at 12.8 and 14.7 GB on a 429 from its file server (Cloudflare's page, Retry-After 56 s), counted as a 5xx: five tries over 30 s. Now a 429 counts no try: its Retry-After is waited out (held between 5 s and 10 min; without one 30 s, then 60, 120, 240), by every download from that site, and the download is given up only after some 15–18 minutes of 429s with nothing coming. A 429 to a piece keeps the file in parts on the same link, over half the connections for 10 minutes (the downloads of the site together, a Download again included), never down to one at once; a 429 never asks for a fresh link, link requests to a site go one at a time, and one connection carrying on after the parts uses the link they had. The Downloads list says it: "Civitai asks to slow down (429): waiting 56 s, then carrying on over 4 connections from 12.8 GB". The node pack (0.50.3) does the same on pods.
+
 ## [0.10.0] - 2026-11-06
 
 Image generation grown up: Paint and fix on the Stage, every fix coming back as a version of the picture; Edit in a box; the X/Y/Z plot with its board; Regions on SDXL, Krea 2 and the new MOSS-Image family; ADetailer-style Detail passes, ControlNet and IP-Adapter / FaceID; PNG info both ways, wildcards and a CLIP token count; zoom, Compare and a library selection that acts. Every picture form on one skeleton, and the fixes of two reviews (data, security, UI): pods on image 0.1.58 (ComfyUI v0.44.0), node pack 0.50.1, migrations 0110 and 0111.

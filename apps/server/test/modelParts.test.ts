@@ -3,9 +3,9 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "n
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { fetchToFile, Refused, Slots, type FetchTo } from "../src/modelDownload";
+import { Calm, fetchToFile, Passing, Refused, retryAfterMs, Slots, type FetchTo } from "../src/modelDownload";
 import { until } from "./helpers";
 
 /**
@@ -49,7 +49,19 @@ let mode: {
   stallOnce?: boolean;
   /** The size the site says on its redirect (Hugging Face's x-linked-size). */
   linkedSize?: number;
+  /**
+   * The next `left` requests to the file server (pieces only: closed ranges past the first byte) answered 429, as
+   * Cloudflare's page in front of Civitai's (2026-11-12): HTML, with its Retry-After when one is given.
+   */
+  tooMany?: { left: number; retryAfter?: string; pieces?: boolean };
+  /** An open-ended request (one connection's) on the first signature's link is refused: it expired. */
+  expireWhole?: boolean;
+  /** The next `left` requests to the site's own address answered 429 so. */
+  siteTooMany?: { left: number; retryAfter?: string };
 };
+/** The most parts the file server sent at once once its first 429 had gone out. */
+let mostAfter: number;
+let serving: number;
 let open: number;
 let most: number;
 
@@ -60,6 +72,8 @@ beforeEach(async () => {
   mode = {};
   open = 0;
   most = 0;
+  mostAfter = -1;
+  serving = 0;
   dir = mkdtempSync(join(tmpdir(), "afflatus-parts-"));
   let signed = 0;
   let cut = false;
@@ -68,6 +82,10 @@ beforeEach(async () => {
     const path = req.url ?? "";
     asked.push({ host: "site", path, range: req.headers.range, auth: req.headers.authorization });
     if (path !== "/api/download/models/1") return void res.writeHead(404).end();
+    if (mode.siteTooMany && mode.siteTooMany.left > 0) {
+      mode.siteTooMany.left--;
+      return void tooMany(res, mode.siteTooMany.retryAfter);
+    }
     if (req.headers.authorization !== "Bearer k-123456789") {
       res.writeHead(401, { "content-type": "application/json" });
       return void res.end(JSON.stringify({ error: "Unauthorized", message: "The creator of this asset requires you to be logged in to download it" }));
@@ -87,6 +105,17 @@ beforeEach(async () => {
     if (mode.expireAfter !== undefined && sig === 1 && asked.filter((a) => a.host === "store" && a.sig === 1).length > mode.expireAfter) return void res.writeHead(403).end();
     const got = /^bytes=(\d+)-(\d*)$/.exec(range ?? "");
     const closed = Boolean(got?.[2]) && range !== "bytes=0-0";
+    if (mode.expireWhole && sig === 1 && got && !got[2]) return void res.writeHead(403).end();
+    if (mode.tooMany && mode.tooMany.left > 0 && (!mode.tooMany.pieces || closed)) {
+      mode.tooMany.left--;
+      mostAfter = Math.max(mostAfter, 0);
+      return void tooMany(res, mode.tooMany.retryAfter);
+    }
+    if (closed && got?.[1] !== "0") {
+      serving++;
+      if (mostAfter >= 0) mostAfter = Math.max(mostAfter, serving);
+      res.on("close", () => serving--);
+    }
     if (closed && mode.refuse && Number(got![1]) >= mode.refuse.from) {
       const { status } = mode.refuse;
       return void setTimeout(() => (status === 429 ? res.writeHead(429).end() : res.writeHead(200, { "content-type": "application/octet-stream", "content-length": SIZE }).end(FILE)), 150);
@@ -122,6 +151,18 @@ afterEach(async () => {
   await new Promise((r) => store.close(r));
   rmSync(dir, { recursive: true, force: true });
 });
+
+/** Cloudflare's rate-limit page: a 429 in HTML, never to be taken for the file. */
+const tooMany = (res: ServerResponse, retryAfter?: string) => {
+  res.writeHead(429, { "content-type": "text/html; charset=UTF-8", ...(retryAfter ? { "retry-after": retryAfter } : {}) });
+  res.end("<!DOCTYPE html><title>Access denied | b2-large.civitai.com used Cloudflare to restrict access</title>");
+};
+
+/** A clock whose waits take no time: each is noted, and moves the time on by as much. */
+const fakeClock = () => {
+  const c = { t: 1_800_000_000_000, waits: [] as number[], now: () => c.t, pause: async (ms: number) => void (c.waits.push(ms), (c.t += ms)) };
+  return c;
+};
 
 const fetchTo = (over: Partial<FetchTo> = {}, name = "model.safetensors") => {
   const notes: string[] = [];
@@ -166,22 +207,30 @@ describe("Afflatus's own downloads over several connections (card #205)", () => 
     expect(notes).toEqual([expect.stringMatching(/^The connection was cut: trying that part again \(2 of 5\)\.$/)]);
   });
 
-  it.each([[200, "the site sent the whole file to a request for part of it"], [429, "the site answered 429 to several connections at once"]] as const)(
-    "carries on over one connection from the bytes whole from the first on, when a part is answered %i",
-    async (status, why) => {
-      mode.refuse = { status, from: 2 * PIECE };
-      const { done, notes, dest } = fetchTo();
-      await expect(done).resolves.toMatchObject({ bytes: SIZE, sha256: SHA });
-      expect(readFileSync(dest).equals(FILE)).toBe(true);
-      expect(notes).toEqual([expect.stringMatching(new RegExp(`^${why[0]!.toUpperCase()}${why.slice(1)}: the rest over one connection, from \\d+ MB\\.$`))]);
-      // one connection, from the site again (with the key) and on to the file server with its Range, from a byte past the first
-      const last = asked.at(-1)!;
-      expect(last).toMatchObject({ host: "store", range: expect.stringMatching(/^bytes=\d+-$/) });
-      expect(Number(/\d+/.exec(last.range!)![0])).toBeGreaterThanOrEqual(2 * PIECE);
-      expect(last.auth).toBeUndefined();
-      expect(asked.at(-2)).toMatchObject({ host: "site", auth: "Bearer k-123456789", range: last.range });
-    },
-  );
+  it("carries on over one connection from the bytes whole from the first on, on the link it had, when a part is answered 200", async () => {
+    mode.refuse = { status: 200, from: 2 * PIECE };
+    const { done, notes, dest } = fetchTo();
+    await expect(done).resolves.toMatchObject({ bytes: SIZE, sha256: SHA });
+    expect(readFileSync(dest).equals(FILE)).toBe(true);
+    expect(notes).toEqual([expect.stringMatching(/^The site sent the whole file to a request for part of it: the rest over one connection, from \d+ MB\.$/)]);
+    // one connection, on to the file server's link with its Range, from a byte past the first, never with the key
+    const last = asked.at(-1)!;
+    expect(last).toMatchObject({ host: "store", sig: 1, range: expect.stringMatching(/^bytes=\d+-$/) });
+    expect(Number(/\d+/.exec(last.range!)![0])).toBeGreaterThanOrEqual(2 * PIECE);
+    expect(last.auth).toBeUndefined();
+    // the site asked for its link once: the link it gave still held
+    expect(asked.filter((a) => a.host === "site")).toHaveLength(1);
+  });
+
+  it("goes back to the site for a fresh link when the link one connection carries on from is refused", async () => {
+    mode.refuse = { status: 200, from: 2 * PIECE };
+    mode.expireWhole = true;
+    const { done, dest } = fetchTo();
+    await expect(done).resolves.toMatchObject({ bytes: SIZE, sha256: SHA });
+    expect(readFileSync(dest).equals(FILE)).toBe(true);
+    expect(asked.filter((a) => a.host === "site").at(-1)).toMatchObject({ auth: "Bearer k-123456789", range: expect.stringMatching(/^bytes=\d+-$/) });
+    expect(asked.filter((a) => a.host === "store" && a.auth)).toEqual([]);
+  });
 
   it("asks the site again for a link that expired, one connection for all, and the key still goes to the site alone", async () => {
     mode.expireAfter = 4;
@@ -284,5 +333,94 @@ describe("Afflatus's own downloads over several connections (card #205)", () => 
     await expect(done).resolves.toMatchObject({ bytes: SIZE, sha256: SHA });
     expect(readFileSync(dest).equals(FILE)).toBe(true);
     expect(notes).toEqual(["Nothing came for 300 ms: trying that part again (2 of 5)."]);
+  });
+});
+
+describe("a site's rate limit (429), waited out (2026-11-12: two files of 20 GB given up at 12.8 and 14.7 GB)", () => {
+  it("waits out a 429's Retry-After over one connection, twice, and the file comes", async () => {
+    mode.tooMany = { left: 2, retryAfter: "3" };
+    const clock = fakeClock();
+    const { done, notes, dest } = fetchTo({ parts: undefined, clock, calm: new Calm(), limit: { leastMs: 0 } });
+    await expect(done).resolves.toEqual({ bytes: SIZE, sha256: SHA });
+    expect(readFileSync(dest).equals(FILE)).toBe(true);
+    expect(clock.waits).toEqual([3000, 3000]);
+    expect(notes).toEqual(Array(2).fill(expect.stringMatching(/^127\.0\.0\.1:\d+ asks to slow down \(429\): waiting 3 s, then trying again\.$/)));
+  });
+
+  it("holds a Retry-After to 5 s at least and 10 min at most, and reads one said as a date", async () => {
+    for (const [said, wait] of [["0", 5000], ["86400", 600_000]] as const) {
+      mode.tooMany = { left: 1, retryAfter: said };
+      const clock = fakeClock();
+      await expect(fetchTo({ parts: undefined, clock, calm: new Calm() }, `m${said}.safetensors`).done).resolves.toMatchObject({ bytes: SIZE });
+      expect(clock.waits).toEqual([wait]);
+    }
+    const now = Date.parse("2026-11-12T10:00:00Z");
+    expect(retryAfterMs("Thu, 12 Nov 2026 10:02:00 GMT", now)).toBe(120_000);
+    expect(retryAfterMs("56", now)).toBe(56_000);
+    expect(retryAfterMs("soon", now)).toBeNull();
+    expect(retryAfterMs(null, now)).toBeNull();
+  });
+
+  it("waits longer each time a 429 says no Retry-After, and gives up only after some 15 minutes, keeping what came", async () => {
+    mode.tooMany = { left: Infinity };
+    const clock = fakeClock();
+    const { done, notes, dest } = fetchTo({ parts: undefined, clock, calm: new Calm(), keepPart: true });
+    const err = await done.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Passing);
+    expect(clock.waits).toEqual([30_000, 60_000, 120_000, 240_000, 240_000, 240_000]);
+    expect(clock.waits.reduce((a, b) => a + b)).toBeLessThanOrEqual(18 * 60_000);
+    expect((err as Error).message).toMatch(/^127\.0\.0\.1:\d+ kept answering 429 \(too many requests\) for 16 min\. Press Download again later\.$/);
+    expect(notes.at(-1)).toMatch(/waiting 4 min, then trying again\.$/);
+    // nothing came: no .part kept, the 429's page least of all
+    expect(readdirSync(dir).filter((f) => f.startsWith(basename(dest)))).toEqual([]);
+  });
+
+  it("gets fewer connections after a 429 to a piece, not one at once, and carries on in parts on the same link", async () => {
+    mode.tooMany = { left: 2, retryAfter: "1", pieces: true };
+    const clock = fakeClock();
+    const calm = new Calm();
+    const { done, notes, dest } = fetchTo({ clock, calm, limit: { leastMs: 0 } });
+    await expect(done).resolves.toEqual({ bytes: SIZE, sha256: SHA });
+    expect(readFileSync(dest).equals(FILE)).toBe(true);
+    // half the connections for a while, the second 429 of the same rush lowering nothing more
+    const site = new URL(siteUrl).host;
+    expect(calm.width(site, 4, clock.now())).toBe(2);
+    expect(notes).toContainEqual(expect.stringMatching(/asks to slow down \(429\): waiting 1 s, then carrying on over 2 connections from \d+ MB\.$/));
+    expect(notes.join(" ")).not.toMatch(/one connection/);
+    expect(mostAfter).toBeGreaterThan(0);
+    expect(mostAfter).toBeLessThanOrEqual(2);
+    // never the whole file over one, never a fresh link for a 429
+    expect(asked.filter((a) => a.host === "store" && /^bytes=\d+-$/.test(a.range ?? ""))).toEqual([]);
+    expect(asked.filter((a) => a.host === "site")).toHaveLength(1);
+  });
+
+  it("waits out a 429 to the request for its link, and fetches the file in parts after", async () => {
+    mode.siteTooMany = { left: 1, retryAfter: "2" };
+    const clock = fakeClock();
+    const { done, notes } = fetchTo({ clock, calm: new Calm(), limit: { leastMs: 0 } });
+    await expect(done).resolves.toEqual({ bytes: SIZE, sha256: SHA });
+    expect(clock.waits).toEqual([2000]);
+    expect(notes).toEqual([expect.stringMatching(/asks to slow down \(429\): waiting 2 s, then starting\.$/)]);
+    expect(asked.filter((a) => a.host === "site").map((a) => a.range)).toEqual(["bytes=0-0", "bytes=0-0"]);
+    expect(piecesAsked().length).toBe(9);
+  });
+
+  it("waits out the hold another download of the site met, before it asks the site anything (Download again included)", async () => {
+    const clock = fakeClock();
+    const calm = new Calm();
+    calm.hold(new URL(siteUrl).host, 40_000, clock.now());
+    await expect(fetchTo({ clock, calm }).done).resolves.toEqual({ bytes: SIZE, sha256: SHA });
+    expect(clock.waits).toEqual([40_000]);
+  });
+
+  it("starts with the fewer connections a 429 left the site with, the downloads of it together", async () => {
+    const clock = fakeClock();
+    const calm = new Calm();
+    const site = new URL(siteUrl).host;
+    calm.lower(site, 4, 60_000, clock.now());
+    calm.lower(site, 4, 60_000, clock.now());
+    await expect(fetchTo({ clock, calm }).done).resolves.toEqual({ bytes: SIZE, sha256: SHA });
+    expect(most).toBe(1);
+    expect(calm.busy(site)).toBe(0);
   });
 });

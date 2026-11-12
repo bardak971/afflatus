@@ -39,6 +39,8 @@ let versionPage: () => object;
 
 /** The cut file was cut already: it is sent whole from now on. */
 let cutOnce: boolean;
+/** The rate-limited file was answered 429 once already. */
+let limitedOnce: boolean;
 let site: Server;
 let siteUrl: string;
 let fake: FakeComfy;
@@ -62,6 +64,7 @@ beforeEach(async () => {
   asked = [];
   slowDropped = false;
   cutOnce = false;
+  limitedOnce = false;
   versionPage = () => twoNames(false);
   site = createServer((req, res) => {
     asked.push({ url: req.url ?? "", auth: req.headers.authorization, ...(req.headers.range ? { range: req.headers.range } : {}) });
@@ -105,6 +108,16 @@ beforeEach(async () => {
       return res.end(JSON.stringify(version(50, "v3")));
     }
     if (req.url === "/files/soft" || req.url === "/files/plain.safetensors" || req.url === "/files/big8") {
+      res.writeHead(200, { "content-type": "application/octet-stream", "content-length": FILE.length });
+      return res.end(FILE);
+    }
+    // a rate limit once (Cloudflare's page in front of Civitai's file server), then the file
+    if (req.url === "/files/limited.safetensors" && !limitedOnce) {
+      limitedOnce = true;
+      res.writeHead(429, { "content-type": "text/html", "retry-after": "1" });
+      return res.end("<html>Access denied</html>");
+    }
+    if (req.url === "/files/limited.safetensors") {
       res.writeHead(200, { "content-type": "application/octet-stream", "content-length": FILE.length });
       return res.end(FILE);
     }
@@ -507,6 +520,20 @@ describe("who downloads", () => {
     // lets the last piece it held go)
     expect(asked.filter((a) => a.url === "/files/cut.safetensors").map((a) => a.range)).toEqual(["bytes=0-0", undefined, expect.stringMatching(/^bytes=\d+-$/)]);
     expect(fake.installAsked).toEqual([]);
+  });
+
+  it("says in its note that it waits out the site's 429, and how long, then carries on: no cut counted", async () => {
+    await start(true, { folderPaths: paths() });
+    await on();
+    // a Retry-After of 1 s held to 400 ms at most: the test waits that
+    t.services.downloads.limit = { leastMs: 0, mostMs: 400 };
+    const d = (await post(t.app, "/api/downloads", { file: "limited.safetensors", folder: "loras", url: `${siteUrl}/files/limited.safetensors` })).json();
+    expect(d.via).toBe("afflatus");
+    await until(async () => /asks to slow down \(429\): waiting 1 s, then (trying again|starting)\.$/.test((await item(d.id)).note ?? ""), 2000, 5);
+    await done(d.id);
+    expect(await item(d.id)).toMatchObject({ status: "done", bytes: FILE.length });
+    expect(readFileSync(join(disk, "loras", "limited.safetensors")).equals(FILE)).toBe(true);
+    expect((await item(d.id)).note ?? "").not.toMatch(/cut/);
   });
 
   it("runs two at a time; the third says what it waits behind, and goes when one is stopped", async () => {
