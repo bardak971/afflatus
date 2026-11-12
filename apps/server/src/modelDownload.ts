@@ -3,7 +3,7 @@ import { access, constants, mkdir, open, realpath, rename, rm, stat, statfs } fr
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 import { basename, dirname, isAbsolute, join, posix, win32 } from "node:path";
-import { otherName, SAFETENSORS } from "@afflatus/core";
+import { otherName, plural, SAFETENSORS } from "@afflatus/core";
 import { civitaiSites } from "./civitai";
 import { hashOf, isInside, sleep } from "./fsUtil";
 import { isNetworkPath } from "./linked";
@@ -144,8 +144,8 @@ export interface FetchTo {
   dest: string;
   signal: AbortSignal;
   onBytes(bytes: number, total: number): void;
-  /** Hears why it starts again, and from where. */
-  onRetry?(note: string): void;
+  /** Hears why it starts again, and from where; `waitMs` when it waits out the site's 429 that long (no cut). */
+  onRetry?(note: string, waitMs?: number): void;
   /** Tries in a row that gain nothing before it gives up. */
   attempts?: number;
   /** The first wait before trying again; it doubles each time. */
@@ -166,6 +166,184 @@ export interface FetchTo {
   reserved?(): number;
   /** How long a request may bring nothing before it is taken for cut (STALL_MS; shorter in tests). */
   stallMs?: number;
+  /** How a site's rate limit (a 429) is waited out (LIMIT; shorter in tests). */
+  limit?: Partial<Limit>;
+  /** What those waits are kept on: the sites' 429s every download shares (CALM; a fresh one in tests). */
+  calm?: Calm;
+  /** The time, and a wait in it (a stand-in in the tests, which then wait nothing). */
+  clock?: Clock;
+}
+
+/**
+ * How a site's 429 is waited out. A rate limit lasts minutes (Civitai's file server, behind Cloudflare, said Retry-After 56
+ * s, 2026-11-12): five tries over 30 s, as for a 5xx, gave two files of 20 GB up at 12.8 and 14.7 GB.
+ */
+export interface Limit {
+  /** The first wait when the site says none (Retry-After); it doubles each time, to 8 times this at most. */
+  firstMs: number;
+  /** A Retry-After held within these: a site saying 0 or an hour is not taken at its word. */
+  leastMs: number;
+  mostMs: number;
+  /** How long the 429s may go on, nothing of the file coming, before the download is given up (Passing). */
+  patienceMs: number;
+  /** How long a site keeps fewer connections after a 429 to a piece. */
+  fewerMs: number;
+}
+export const LIMIT: Limit = { firstMs: 30_000, leastMs: 5_000, mostMs: 600_000, patienceMs: 18 * 60_000, fewerMs: 10 * 60_000 };
+
+export interface Clock {
+  now(): number;
+  pause(ms: number, signal: AbortSignal): Promise<void>;
+}
+const CLOCK: Clock = { now: () => Date.now(), pause: sleep };
+
+/** A Retry-After in ms, as seconds or as an HTTP date; null when there is none, or it says nothing readable. */
+export function retryAfterMs(said: string | null, now = Date.now()): number | null {
+  const s = said?.trim();
+  if (!s) return null;
+  if (/^\d+$/.test(s)) return Number(s) * 1000;
+  const at = Date.parse(s);
+  return Number.isNaN(at) ? null : Math.max(0, at - now);
+}
+
+/** A wait in words: "3 s", "2 min". */
+export const waitWords = (ms: number) => (ms < 90_000 ? `${Math.max(1, Math.round(ms / 1000))} s` : `${Math.round(ms / 60_000)} min`);
+
+/** Who a download's site is, in the words the list says it with. */
+const siteName = (source: string) =>
+  civitaiSites().some((site) => source.toLowerCase().startsWith(`${site.toLowerCase()}/`)) ? "Civitai" : /^https:\/\/(huggingface\.co|hf\.co)\//i.test(source) ? "Hugging Face" : hostOf(source);
+
+/**
+ * What every download knows of a site's 429s, by the host of its source (civitai.com: its API and its file servers count as
+ * one, a 429 from either slows both): until when none asks it again, how many connections it takes at once for a while
+ * after a 429 to a piece, how many are at it, and its link requests one at a time. Two big files at once kept asking with 8
+ * connections, and each fallback to one asked for a fresh link: the site's limit only grew.
+ */
+export class Calm {
+  private readonly sites = new Map<string, { until: number; lastAt: number; width?: number; fewerUntil: number; busy: number; asker: Slots }>();
+
+  private of(site: string) {
+    let s = this.sites.get(site);
+    if (!s) this.sites.set(site, (s = { until: 0, lastAt: -Infinity, fewerUntil: 0, busy: 0, asker: new Slots(1) }));
+    return s;
+  }
+
+  /** The site answered 429 at `now`: none asks it again for `ms`. Gives until when. */
+  hold(site: string, ms: number, now: number): number {
+    const s = this.of(site);
+    s.until = Math.max(s.until, now + ms);
+    s.lastAt = now;
+    return s.until;
+  }
+
+  /** Until when the site is not asked (0, or past: now). */
+  until(site: string): number {
+    return this.of(site).until;
+  }
+
+  /** When its last 429 came: one to a request sent before it is of the same rush, and lowers nothing more. */
+  lastAt(site: string): number {
+    return this.of(site).lastAt;
+  }
+
+  /** Half as many connections at once to the site (one at least), for `ms`. */
+  lower(site: string, full: number, ms: number, now: number): number {
+    const s = this.of(site);
+    s.width = Math.max(1, Math.ceil(this.width(site, full, now) / 2));
+    s.fewerUntil = now + ms;
+    return s.width;
+  }
+
+  /** How many connections may be at the site at once now: `full`, or fewer for a while after a 429. */
+  width(site: string, full: number, now: number): number {
+    const s = this.of(site);
+    if (s.width !== undefined && now >= s.fewerUntil) delete s.width;
+    return Math.min(full, s.width ?? full);
+  }
+
+  /** A connection of a download in parts at the site: counted from when it starts to when it ends or steps aside. */
+  join(site: string): void {
+    this.of(site).busy++;
+  }
+
+  leave(site: string): void {
+    this.of(site).busy--;
+  }
+
+  busy(site: string): number {
+    return this.of(site).busy;
+  }
+
+  /** The site's link requests (its API, a fresh link) one at a time, whatever the download. */
+  asker(site: string): Slots {
+    return this.of(site).asker;
+  }
+}
+
+/** What all downloads of this Afflatus share of the sites' 429s. */
+const CALM = new Calm();
+
+/** A site's 429, with its Retry-After in ms when it says one. */
+class Limited extends Error {
+  constructor(readonly said: number | null) {
+    super("the site answered 429");
+  }
+}
+
+/**
+ * How long the 429s of one download have gone on: the wait before the next request (its Retry-After held within the limits,
+ * else growing from `firstMs`), or Passing once they have gone on past `patienceMs` with nothing of the file coming. Counted
+ * in time, not in tries: several connections meeting the same rush count it once.
+ */
+class Patience {
+  private since: number | null = null;
+  private times = 0;
+
+  constructor(private readonly limit: Limit, private readonly clock: Clock, private readonly site: string) {}
+
+  wait(said: number | null, then: string): number {
+    const now = this.clock.now();
+    this.since ??= now;
+    const ms = said === null ? Math.min(this.limit.firstMs * 2 ** this.times, this.limit.firstMs * 8) : Math.min(this.limit.mostMs, Math.max(this.limit.leastMs, said));
+    if (now + ms - this.since > this.limit.patienceMs) throw new Passing(`${this.site} kept answering 429 (too many requests) for ${waitWords(now - this.since)}. ${then}`);
+    this.times++;
+    return ms;
+  }
+
+  /** Some of the file came: its 429s are over. */
+  gained(): void {
+    this.since = null;
+    this.times = 0;
+  }
+}
+
+/** A download's side of its site's 429s: the limits, what all downloads know of the site, the time, its own patience. */
+interface Waits {
+  limit: Limit;
+  calm: Calm;
+  clock: Clock;
+  /** The host of its source, which its 429s are kept under (Calm). */
+  site: string;
+  /** Its site in words: "Civitai". */
+  name: string;
+  patience: Patience;
+}
+
+/** Before a request: the hold another request met at the site waited out, unless this one's (`mine`) already took it. */
+async function calmFirst(w: Waits, mine: { until: number }, signal: AbortSignal): Promise<void> {
+  const until = w.calm.until(w.site);
+  const now = w.clock.now();
+  if (until <= now || until <= mine.until) return;
+  mine.until = until;
+  await w.clock.pause(until - now, signal);
+}
+
+/** A 429 met: how long to wait, held for every download of the site; Passing, saying `then`, once the patience is spent. */
+function limitedFor(w: Waits, mine: { until: number }, err: Limited, then: string): number {
+  const ms = w.patience.wait(err.said, then);
+  w.calm.hold(w.site, ms, w.clock.now());
+  mine.until = w.clock.now() + ms;
+  return ms;
 }
 
 /**
@@ -331,7 +509,8 @@ class Tries {
  * checked. A stop (the signal) removes the .part, and so does a failure, unless `keepPart`: then only one whose bytes are
  * wrong does, and the next download of the file carries on from it (`takeOver`). Refused is thrown for what trying again
  * would not change. A big file the site serves in parts comes over several connections first (`parts`, inParts), and
- * over one from where they left it.
+ * over one from where they left it, on the link they had while it holds. A 429 (a rate limit) is no try that failed: its
+ * Retry-After is waited out, by every download of the site (Calm), for as long as LIMIT's patience lasts.
  */
 export async function fetchToFile(o: FetchTo): Promise<{ bytes: number; sha256: string }> {
   const part = `${o.dest}.part`;
@@ -354,20 +533,30 @@ export async function fetchToFile(o: FetchTo): Promise<{ bytes: number; sha256: 
     if (sha256) expect.sha = sha256;
   };
   const parts = o.parts && o.parts.connections > 1 && !(o.size && o.size < (o.parts.from ?? PARTS_FROM)) ? { ...o.parts, slots: o.parts.slots ?? SLOTS } : null;
+  const clock = o.clock ?? CLOCK;
+  const w: Waits = { limit: { ...LIMIT, ...o.limit }, calm: o.calm ?? CALM, clock, site: hostOf(o.source), name: siteName(o.source), patience: null! };
+  w.patience = new Patience(w.limit, clock, w.name);
+  // the site's 429 this download's requests waited out already: a later hold, another's, is waited for, never this one twice
+  const mine = { until: 0 };
+  // the file server's link the parts had: one connection carries on from it, without asking the site for another (a link
+  // asked for again and again added to the site's rate limit), and asks the site again only once it is refused (expired)
+  let url = o.source;
   // what an earlier try left, carried on from (never more than the file is said to be: that one is not of this file)
   if (o.takeOver) have = await stat(part).then((s) => (s.isFile() && !(o.size && s.size > o.size) ? s.size : 0), () => 0);
   if (have) hash = await hashOf(part, have);
   else await removePart();
   try {
     if (parts) {
-      const got = await inParts(o, parts, part, seen, expect, { have, hash });
+      const got = await inParts(o, parts, part, seen, expect, { have, hash }, w);
       if (got) {
         ({ have, total, hash } = got);
+        url = got.link;
         roomChecked = true;
       }
     }
     while (!total || have < total) {
       if (o.signal.aborted) throw o.signal.reason ?? new Error("stopped");
+      await calmFirst(w, mine, o.signal);
       const before = have;
       let file: Awaited<ReturnType<typeof open>> | null = null;
       // over several connections, one request takes one of those all downloads share, for as long as it reads
@@ -375,8 +564,23 @@ export async function fetchToFile(o: FetchTo): Promise<{ bytes: number; sha256: 
       const stall = stallGuard(o.signal, stallMs);
       try {
         if (parts) release = await parts.slots.take(o.signal);
+        // the site's own address hands out a link: asked by one request at a time, whatever the download
+        const asking = url === o.source ? await w.calm.asker(w.site).take(o.signal) : null;
         stall.poke();
-        const res = await fetchPublic(o.source, { headers: { "User-Agent": "afflatus", Accept: "*/*", ...o.headers, ...(have ? { Range: `bytes=${have}-` } : {}) }, signal: stall.signal }, o.allow, 5, seen);
+        // the key to the site's own host alone: a file server's link holds what it needs
+        const headers = { "User-Agent": "afflatus", Accept: "*/*", ...(hostOf(url) === w.site ? o.headers : {}), ...(have ? { Range: `bytes=${have}-` } : {}) };
+        const res = await fetchPublic(url, { headers, signal: stall.signal }, o.allow, 5, seen).finally(() => asking?.());
+        // a rate limit (Cloudflare's page in front of Civitai's file server, in HTML): waited out, never taken for the file
+        if (res.status === 429) {
+          await res.body?.cancel().catch(() => {});
+          throw new Limited(retryAfterMs(res.headers.get("retry-after"), clock.now()));
+        }
+        // the link refused: it expired. The site is asked for a fresh one, as at first
+        if (url !== o.source && (res.status === 401 || res.status === 403 || res.status === 410)) {
+          await res.body?.cancel().catch(() => {});
+          url = o.source;
+          continue;
+        }
         if (res.status === 416 && have) {
           await res.body?.cancel().catch(() => {});
           // asked for what comes after the last byte: it was all there already
@@ -391,12 +595,14 @@ export async function fetchToFile(o: FetchTo): Promise<{ bytes: number; sha256: 
           await removePart();
           throw new Error("the site would not carry on from where the file had stopped");
         }
-        if (res.status >= 500 || res.status === 429) {
+        if (res.status >= 500) {
           await res.body?.cancel().catch(() => {});
           throw new Error(`the site answered ${res.status}`);
         }
         const wrong = await notTheFile(res, o.source, o.headers);
         if (wrong || !res.body) throw new Refused(wrong?.said ?? `The site answered ${res.status}.`);
+        // the file comes again: the site's 429s, if any, are over
+        w.patience.gained();
         const range = res.status === 206 ? rangeOf(res) : null;
         if (range && range.start === have) {
           total = range.size ?? total;
@@ -453,6 +659,12 @@ export async function fetchToFile(o: FetchTo): Promise<{ bytes: number; sha256: 
         await file?.close().catch(() => {});
         if (o.signal.aborted) throw err;
         if (err instanceof Refused) throw err;
+        if (err instanceof Limited) {
+          const ms = limitedFor(w, mine, err, o.keepPart && have ? `Press Download again later to carry on from ${sizeText(have)}.` : "Press Download again later.");
+          o.onRetry?.(`${w.name} asks to slow down (429): waiting ${waitWords(ms)}, then ${have ? `carrying on from ${sizeText(have)}` : "trying again"}.`, ms);
+          await clock.pause(ms, o.signal);
+          continue;
+        }
         // a redirect refused on the way (into the network, down to http, one too many): the same again next time
         if (typeof (err as { statusCode?: unknown }).statusCode === "number") throw new Refused((err as Error).message);
         if (diskFull(err)) throw new Refused(DISK_FULL_SAID(err));
@@ -495,12 +707,13 @@ function heldTo(total: number, listed?: number): void {
   if (total > MOST) throw new Wrong(`The site says the file is ${sizeText(total)}: no model file is that big.`);
 }
 
-/** The site no longer answers parts of the file (a 200 to a Range, a 429, its link refused again and again): the rest over one connection. */
+/** The site no longer answers parts of the file (a 200 to a Range, its link refused again and again): the rest over one connection. */
 class NoParts extends Error {}
 
 /** A piece's request answered with another status than a part. */
 class Answered extends Error {
-  constructor(readonly status: number) {
+  /** `said`: a 429's Retry-After, in ms. */
+  constructor(readonly status: number, readonly said: number | null = null) {
     super(`the site answered ${status}`);
   }
 }
@@ -520,7 +733,8 @@ interface Piece {
  * request takes one of the connections every download shares. The SHA-256 is read as the bytes become whole from the first
  * on, so the check costs no wait at the end. A link refused (it expired: Civitai's last 24 h) is asked for again at the
  * source, by one connection while the others wait. A piece answered shorter than asked (a server that caps its parts) is
- * taken as far as it goes, and the rest of it asked for next.
+ * taken as far as it goes, and the rest of it asked for next. A 429 is waited out, never a reason to renew the link or to
+ * give the parts up: the site gets fewer connections for a while (Calm), the downloads of it together.
  *
  * Null when the site does not answer a part (one connection says what is wrong then). However it ends, the .part is cut back
  * to its bytes whole from the first on; a stop or a failure throws, a site that stops answering parts gives back those
@@ -528,8 +742,8 @@ interface Piece {
  */
 async function inParts(
   o: FetchTo, p: Required<Pick<Parts, "connections" | "slots">> & Parts, part: string, seen: (res: Response) => void,
-  expect: { size: number }, from: { have: number; hash: ReturnType<typeof createHash> },
-): Promise<{ have: number; total: number; hash: ReturnType<typeof createHash> } | null> {
+  expect: { size: number }, from: { have: number; hash: ReturnType<typeof createHash> }, w: Waits,
+): Promise<{ have: number; total: number; hash: ReturnType<typeof createHash>; link: string } | null> {
   const attempts = o.attempts ?? 5;
   const backoff = o.backoffMs ?? 2000;
   const stallMs = o.stallMs ?? STALL_MS;
@@ -544,7 +758,14 @@ async function inParts(
   const ask = async (refused: boolean): Promise<{ link: string; total: number } | null> => {
     const release = await p.slots.take(quit.signal);
     try {
-      const res = await fetchPublic(o.source, { headers: { "User-Agent": "afflatus", Accept: "*/*", ...o.headers, Range: "bytes=0-0" }, signal: AbortSignal.any([quit.signal, AbortSignal.timeout(stallMs)]) }, o.allow, 5, seen);
+      // the site's link requests one at a time, whatever the download
+      const asking = await w.calm.asker(w.site).take(quit.signal);
+      const res = await fetchPublic(o.source, { headers: { "User-Agent": "afflatus", Accept: "*/*", ...o.headers, Range: "bytes=0-0" }, signal: AbortSignal.any([quit.signal, AbortSignal.timeout(stallMs)]) }, o.allow, 5, seen)
+        .finally(asking);
+      if (res.status === 429) {
+        await res.body?.cancel().catch(() => {});
+        throw new Limited(retryAfterMs(res.headers.get("retry-after"), w.clock.now()));
+      }
       const range = res.status === 206 ? rangeOf(res) : null;
       if (range?.start === 0 && range.end === 0 && range.size) {
         await res.body?.cancel().catch(() => {});
@@ -559,12 +780,29 @@ async function inParts(
     }
   };
 
+  const later = o.keepPart ? "Press Download again later to carry on from where it stopped." : "Press Download again later.";
+  /** ask, its 429 (the site's, or its file server's on the way) waited out as long as the patience lasts: never a reason to give the parts up. */
+  const askCalmly = async (refused: boolean, then: string) => {
+    const mine = { until: 0 };
+    for (;;) {
+      await calmFirst(w, mine, quit.signal);
+      try {
+        return await ask(refused);
+      } catch (err) {
+        if (!(err instanceof Limited) || quit.signal.aborted) throw err;
+        const ms = limitedFor(w, mine, err, later);
+        o.onRetry?.(`${w.name} asks to slow down (429): waiting ${waitWords(ms)}, then ${then}.`, ms);
+        await w.clock.pause(ms, quit.signal);
+      }
+    }
+  };
+
   let first: Awaited<ReturnType<typeof ask>>;
   try {
-    first = await ask(false);
+    first = await askCalmly(false, from.have ? `carrying on from ${sizeText(from.have)}` : "starting");
   } catch (err) {
     o.signal.removeEventListener("abort", stop);
-    if (o.signal.aborted) throw err;
+    if (o.signal.aborted || err instanceof Passing) throw err;
     // what kept it from answering is said by one connection, which asks the same
     return null;
   }
@@ -586,7 +824,7 @@ async function inParts(
   }
   if (from.have === total) {
     o.signal.removeEventListener("abort", stop);
-    return { have: total, total, hash: from.hash };
+    return { have: total, total, hash: from.hash, link: first.link };
   }
   let link = first.link;
 
@@ -616,7 +854,7 @@ async function inParts(
       // refused again and again, the site may not want this many connections: the rest over one
       if (++renewals > 2) throw new NoParts(`the site refused its link ${renewals} times`);
       // a blip on the way is not the site's answer: one connection asks it again, with its own tries
-      const fresh = await ask(true).catch((err: unknown) => {
+      const fresh = await askCalmly(true, "asking for a fresh link").catch((err: unknown) => {
         if (err instanceof Refused || quit.signal.aborted) throw err;
         throw new NoParts(`the link could not be asked for again (${whyFailed(err)})`);
       });
@@ -637,7 +875,8 @@ async function inParts(
       const res = await fetchPublic(url, { headers, signal: stall.signal }, o.allow);
       if (res.status !== 206 || !res.body) {
         await res.body?.cancel().catch(() => {});
-        throw res.status === 200 ? new NoParts("the site sent the whole file to a request for part of it") : new Answered(res.status);
+        throw res.status === 200 ? new NoParts("the site sent the whole file to a request for part of it")
+          : new Answered(res.status, res.status === 429 ? retryAfterMs(res.headers.get("retry-after"), w.clock.now()) : null);
       }
       // from the byte asked, up to the piece's end at most: a server that caps the size of its parts sends less
       const got = rangeOf(res);
@@ -664,48 +903,90 @@ async function inParts(
     }
   };
 
+  const full = p.connections;
+  /** Fewer connections at the site for a while after a 429 (its downloads together), and more than that at it with `extra` more. */
+  const crowded = (extra: number) => {
+    const width = w.calm.width(w.site, full, w.clock.now());
+    return width < full && w.calm.busy(w.site) + extra > width;
+  };
   const connection = async () => {
     const tries = new Tries(attempts, backoff);
-    while (!ended && todo.length) {
-      const piece = todo.shift()!;
-      try {
-        while (left(piece) && !ended) {
-          const before = piece.done;
-          const url = link;
-          let why: string;
-          try {
-            const release = await p.slots.take(quit.signal);
-            try {
-              await readPiece(piece, url);
-            } finally {
-              release();
-            }
-            tries.succeeded();
-            continue;
-          } catch (err) {
-            if (ended || quit.signal.aborted) return;
-            if (err instanceof Refused || err instanceof NoParts) throw err;
-            // a redirect refused on the way (into the network, down to http): the same again next time
-            if (typeof (err as { statusCode?: unknown }).statusCode === "number") throw new Refused((err as Error).message);
-            if (diskFull(err)) throw new Refused(DISK_FULL_SAID(err));
-            if (err instanceof Answered) {
-              // the signed link refused: it expired
-              if (err.status === 401 || err.status === 403 || err.status === 410) {
-                await renew(url);
-                continue;
-              }
-              if (err.status === 429) throw new NoParts("the site answered 429 to several connections at once");
-              if (err.status < 500) throw new Refused(`The site answered ${err.status}.`);
-            }
-            why = whyFailed(err);
-          }
-          const wait = tries.failed(why, piece.done > before, o.keepPart ? "Press Download again to carry on from where it stopped." : "Press Download again to start over.");
-          o.onRetry?.(`${why[0]!.toUpperCase()}${why.slice(1)}: trying that part again ${tries.next}.`);
-          await sleep(wait, quit.signal);
+    const mine = { until: 0 };
+    let joined = true;
+    w.calm.join(w.site);
+    try {
+      while (!ended && todo.length && !quit.signal.aborted) {
+        // the site wants fewer at once: this one steps aside until there is room again (the while is over, or another ended)
+        if (crowded(0)) {
+          w.calm.leave(w.site);
+          joined = false;
+          while (!ended && todo.length && !quit.signal.aborted && crowded(1)) await sleep(250, quit.signal);
+          w.calm.join(w.site);
+          joined = true;
+          continue;
         }
-      } finally {
-        if (left(piece)) todo.unshift(piece);
+        await onePiece(tries, mine);
       }
+    } finally {
+      if (joined) w.calm.leave(w.site);
+    }
+  };
+
+  /** A piece taken from what is left to do, and read till it is whole; given back when it is not. */
+  const onePiece = async (tries: Tries, mine: { until: number }) => {
+    const piece = todo.shift()!;
+    try {
+      while (left(piece) && !ended) {
+        await calmFirst(w, mine, quit.signal);
+        if (ended || quit.signal.aborted) return;
+        const before = piece.done;
+        const url = link;
+        const sentAt = w.clock.now();
+        let why: string;
+        try {
+          const release = await p.slots.take(quit.signal);
+          try {
+            await readPiece(piece, url);
+          } finally {
+            release();
+          }
+          tries.succeeded();
+          w.patience.gained();
+          continue;
+        } catch (err) {
+          if (ended || quit.signal.aborted) return;
+          if (err instanceof Refused || err instanceof NoParts) throw err;
+          // a redirect refused on the way (into the network, down to http): the same again next time
+          if (typeof (err as { statusCode?: unknown }).statusCode === "number") throw new Refused((err as Error).message);
+          if (diskFull(err)) throw new Refused(DISK_FULL_SAID(err));
+          if (err instanceof Answered) {
+            // the signed link refused: it expired
+            if (err.status === 401 || err.status === 403 || err.status === 410) {
+              await renew(url);
+              continue;
+            }
+            if (err.status === 429) {
+              // the link still holds: the site asks for fewer requests. Waited out (its Retry-After), and fewer connections
+              // for a while: half, by the first 429 of a rush (to a request sent after the last one), never one at once
+              const rush = sentAt <= w.calm.lastAt(w.site);
+              const ms = limitedFor(w, mine, new Limited(err.said), later);
+              const width = rush ? w.calm.width(w.site, full, w.clock.now()) : w.calm.lower(w.site, full, w.limit.fewerMs, w.clock.now());
+              o.onRetry?.(`${w.name} asks to slow down (429): waiting ${waitWords(ms)}, then carrying on over ${plural(width, "connection")} from ${sizeText(counted)}.`, ms);
+              await w.clock.pause(ms, quit.signal);
+              // one too many now: the piece goes back, for one that stays
+              if (crowded(0)) return;
+              continue;
+            }
+            if (err.status < 500) throw new Refused(`The site answered ${err.status}.`);
+          }
+          why = whyFailed(err);
+        }
+        const wait = tries.failed(why, piece.done > before, o.keepPart ? "Press Download again to carry on from where it stopped." : "Press Download again to start over.");
+        o.onRetry?.(`${why[0]!.toUpperCase()}${why.slice(1)}: trying that part again ${tries.next}.`);
+        await sleep(wait, quit.signal);
+      }
+    } finally {
+      if (left(piece)) todo.unshift(piece);
     }
   };
 
@@ -751,7 +1032,7 @@ async function inParts(
   if (ended && !(ended instanceof NoParts)) throw ended;
   if (ended) o.onRetry?.(`${(ended as Error).message[0]!.toUpperCase()}${(ended as Error).message.slice(1)}: the rest over one connection, from ${sizeText(have)}.`);
   // the follower stopped short (a read that failed): what is whole is read again
-  return { have, total, hash: hashed === have ? hash : await hashOf(part, have) };
+  return { have, total, hash: hashed === have ? hash : await hashOf(part, have), link };
 }
 
 /**

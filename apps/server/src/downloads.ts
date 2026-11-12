@@ -10,7 +10,7 @@ import { civitaiSites } from "./civitai";
 import type { Comfy } from "./comfy";
 import { httpError } from "./errors";
 import { fileName } from "./media";
-import { assertRoom, BAD_NAME, comfyBase, comfyFolderPaths, CONNECTIONS, fetchToFile, freeBytes, linkedOf, modelRoot, NOT_MODELS, notTheFile, type OtherRoute, type Parts, placeIn, rangeOf, Refused, refusalOf, samePath, shaOf, shownPlace } from "./modelDownload";
+import { assertRoom, BAD_NAME, comfyBase, comfyFolderPaths, CONNECTIONS, fetchToFile, freeBytes, type Limit, linkedOf, modelRoot, NOT_MODELS, notTheFile, type OtherRoute, type Parts, placeIn, rangeOf, Refused, refusalOf, samePath, shaOf, shownPlace } from "./modelDownload";
 import { noPackRoute } from "./podUpload";
 import { olderThan } from "./version";
 import { assertPublicUrl, cannotReach, fetchFailure, fetchOnce, fetchPublic } from "./outbound";
@@ -201,6 +201,8 @@ interface Download extends DownloadView {
   /** How many times the connection was cut, and the byte it was picked up from last. */
   cuts?: number;
   resumedFrom?: number;
+  /** Until when it waits out the site's 429 (no cut): its note says so until then. */
+  slowedUntil?: number;
 }
 
 /**
@@ -391,6 +393,8 @@ export class Downloads {
   parts: Parts = { connections: CONNECTIONS };
   /** How long one of Afflatus's own requests may bring nothing before it is tried again (modelDownload.ts STALL_MS; shorter in tests). */
   stallMs?: number;
+  /** How a site's 429 is waited out (modelDownload.ts LIMIT; shorter in tests). */
+  limit?: Partial<Limit>;
 
   constructor(private readonly events: EventEmitter, private readonly stateFile?: string) {
     this.restored = this.restore();
@@ -1010,23 +1014,27 @@ export class Downloads {
     try {
       await fetchToFile({
         source: d.source, headers: d.headers, allow: civitaiSites(), dest: d.dest!, signal: d.abort.signal,
-        attempts: this.attempts, backoffMs: this.backoffMs, free: this.free, parts: this.parts, stallMs: this.stallMs,
+        attempts: this.attempts, backoffMs: this.backoffMs, free: this.free, parts: this.parts, stallMs: this.stallMs, limit: this.limit,
         // what came is kept through a failure that passes, for a Download again to carry on from (card #256)
         keepPart: true, takeOver: Boolean(d.takeOver), reserved: () => this.reservedBy(d, d),
         ...(d.total ? { size: d.total } : {}), ...(d.sha256 ? { sha256: d.sha256 } : {}),
         onBytes: (bytes, total) => {
           d.bytes = bytes;
           if (total) d.total = total;
-          // flowing again after a cut: the note says it was picked up, no longer that it is being tried
-          if (d.cuts && d.resumedFrom !== undefined && bytes > d.resumedFrom) {
-            d.note = `Picked up again after ${d.cuts === 1 ? "a cut" : `${d.cuts} cuts`}.`;
+          // flowing again after a cut: the note says it was picked up, no longer that it is being tried. While it waits out the
+          // site's 429, the other connections' last bytes still coming in, the wait is what it says
+          const slowed = d.slowedUntil !== undefined && Date.now() < d.slowedUntil;
+          if ((d.cuts || d.slowedUntil) && !slowed && d.resumedFrom !== undefined && bytes > d.resumedFrom) {
+            d.note = d.cuts ? `Picked up again after ${d.cuts === 1 ? "a cut" : `${d.cuts} cuts`}.` : "Carrying on: the site no longer asks to slow down.";
             d.resumedFrom = undefined;
+            d.slowedUntil = undefined;
             this.tell(true);
           }
           this.tell();
         },
-        onRetry: (note) => {
-          d.cuts = (d.cuts ?? 0) + 1;
+        onRetry: (note, waitMs) => {
+          if (waitMs === undefined) d.cuts = (d.cuts ?? 0) + 1;
+          else d.slowedUntil = Date.now() + waitMs;
           d.resumedFrom = d.bytes;
           d.note = note;
           this.tell(true);

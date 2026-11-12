@@ -3,12 +3,15 @@ HTTP server on this machine stands in for Afflatus's one-time address; no ComfyU
 
 import asyncio
 import contextlib
+import email.utils
 import hashlib
 import http.server
 import os
 import re
 import threading
+import time
 import types
+import urllib.parse
 
 import pytest
 
@@ -651,6 +654,17 @@ class _PartsSite:
                 start = int(got.group(1)) if got else 0
                 end = int(got.group(2)) if got and got.group(2) else size - 1
                 what = site.fault(n, start)
+                if isinstance(what, tuple):
+                    # a status with headers of its own: a 429 as Cloudflare's page in front of Civitai's file server
+                    self.send_response(what[0])
+                    for k, v in what[1].items():
+                        self.send_header(k, v)
+                    page = b"<html>Access denied</html>"
+                    self.send_header("Content-Type", "text/html")
+                    self.send_header("Content-Length", str(len(page)))
+                    self.end_headers()
+                    self.wfile.write(page)
+                    return
                 if isinstance(what, int):
                     self.send_response(what)
                     self.send_header("Content-Length", "0")
@@ -823,15 +837,69 @@ def test_a_source_that_stops_answering_parts_half_way_carries_on_over_one_connec
         assert f.read() == FILE
 
 
-def test_too_many_requests_falls_back_to_one_connection(tmp_path, parts_site):
-    s = parts_site(fault=lambda n, start: 429 if n == 3 else None)
-    job = _in_parts(_direct(tmp_path, s.url))
-    assert job.state == "done"
+def _host(s):
+    return urllib.parse.urlsplit(s.url).netloc
+
+
+def test_a_429_to_a_piece_is_waited_out_and_the_file_comes_in_parts_over_fewer_connections(tmp_path, parts_site):
+    # two pieces of the first rush answered 429 with a Retry-After of 1 s (Civitai's file server, 2026-11-12)
+    s = parts_site(fault=lambda n, start: (429, {"Retry-After": "1"}) if n in (1, 2) else None, delay=0.02)
+    calm = downloads._Calm()
+    began = time.time()
+    job = _in_parts(_direct(tmp_path, s.url), calm=calm, limit={"least": 0})
+    assert (job.state, job.error) == ("done", None)
     with open(job.path, "rb") as f:
         assert f.read() == FILE
-    # the last request is one connection's, from the bytes whole from the first on: with none whole yet (the 429 came before
-    # the first piece ended, as a busy runner has it) it asks for the whole file, with no Range at all
-    assert s.asked[-1] is None or re.match(r"^bytes=\d+-$", s.asked[-1])
+    assert time.time() - began >= 1
+    # half the connections for a while, not one: the second 429 of the same rush lowered nothing more
+    assert calm.width(_host(s), 4, time.time()) == 2
+    assert calm.busy(_host(s)) == 0
+    # never the rest over one connection
+    assert not [r for r in s.asked if r and re.match(r"^bytes=\d+-$", r)]
+
+
+def test_a_429_over_one_connection_waits_its_retry_after_and_counts_no_try(tmp_path, parts_site):
+    s = parts_site(fault=lambda n, start: (429, {"Retry-After": "1"}) if n < 2 else None)
+    began = time.time()
+    # one try only: a 429 is none
+    job = _in_parts(_direct(tmp_path, s.url), attempts=1, parts_from=SIZE + 1, calm=downloads._Calm(), limit={"least": 0})
+    assert (job.state, job.error) == ("done", None)
+    assert time.time() - began >= 2
+    assert s.asked == [None, None, None]
+
+
+def test_429s_without_a_retry_after_wait_longer_each_time_and_give_up_once_the_patience_is_spent(tmp_path, parts_site):
+    s = parts_site(fault=lambda n, start: (429, {}))
+    job = _in_parts(_direct(tmp_path, s.url), parts_from=SIZE + 1, calm=downloads._Calm(), limit={"first": 0.05, "patience": 0.5})
+    assert job.state == "error"
+    assert re.match(r"^the source kept asking to slow down for \d+ s \(it answered 429\)$", job.error)
+    # waits of 0.05, 0.1 and 0.2 s; the next, 0.4, would have gone past the patience
+    assert len(s.asked) == 4
+
+
+def test_a_429_to_the_first_byte_asked_is_waited_out_and_the_file_still_comes_in_parts(tmp_path, parts_site):
+    s = parts_site(fault=lambda n, start: (429, {"Retry-After": "1"}) if n == 0 else None)
+    job = _in_parts(_direct(tmp_path, s.url), calm=downloads._Calm(), limit={"least": 0})
+    assert (job.state, job.error) == ("done", None)
+    assert s.asked[:2] == ["bytes=0-0", "bytes=0-0"]
+    assert not [r for r in s.asked if r and re.match(r"^bytes=\d+-$", r)]
+
+
+def test_a_hold_another_download_met_is_waited_out_first(tmp_path, parts_site):
+    s = parts_site()
+    calm = downloads._Calm()
+    calm.hold(_host(s), 1.0, time.time())
+    began = time.time()
+    job = _in_parts(_direct(tmp_path, s.url), calm=calm)
+    assert job.state == "done" and time.time() - began >= 1
+
+
+def test_a_retry_after_is_read_as_seconds_or_as_a_date():
+    assert downloads._retry_after({"Retry-After": "56"}) == 56
+    soon = email.utils.formatdate(time.time() + 120, usegmt=True)
+    assert 115 <= downloads._retry_after({"Retry-After": soon}) <= 121
+    assert downloads._retry_after({"Retry-After": "soon"}) is None
+    assert downloads._retry_after({}) is None
 
 
 def test_a_stop_ends_every_connection_and_keeps_only_whole_bytes_when_asked(tmp_path, parts_site):

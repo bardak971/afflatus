@@ -52,11 +52,19 @@ A file asked for with a sha256 that is in the folder already (0.49.7) is not ans
 else put it there unchecked (Impact Subpack's installer fetched the YOLO pickles from Hugging Face's main on every pod
 before Afflatus's checked fetch, card #265). Its bytes are read: the download is done at once when they are the ones its
 source lists; else the file is removed (a pickle with other bytes is never left for ComfyUI to load) and fetched as any.
+
+A 429 (0.50.3) is a rate limit, no try that failed: its Retry-After is waited out (held within LIMIT's bounds, else a wait
+that grows from 30 s), by every download from that host, and the download is given up only once the 429s have gone on for
+LIMIT's patience with nothing of the file coming. A 429 to a piece leaves the file in parts on the same link, over half the
+connections for a while (the downloads from that host together), never over one at once. Civitai's file server, behind
+Cloudflare, answered 429 with Retry-After 56 (2026-11-12): five tries over 30 s, as for a 5xx, gave two files of 20 GB up.
 """
 
 import asyncio
 import collections
 import contextlib
+import datetime
+import email.utils
 import errno
 import hashlib
 import os
@@ -107,6 +115,10 @@ PIECE_MIN = 32 * 2**20
 PIECE_MAX = 256 * 2**20
 _SLOTS = threading.BoundedSemaphore(CONNECTIONS)
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+# how a source's 429 is waited out, in seconds: a Retry-After held within `least` and `most`, else `first` doubling (to 8
+# times it at most); given up once the 429s went on for `patience` with nothing of the file coming; `fewer`: how long a host
+# keeps half the connections after a 429 to a piece
+LIMIT = {"first": 30.0, "least": 5.0, "most": 600.0, "patience": 18 * 60.0, "fewer": 600.0}
 
 
 class Refused(ValueError):
@@ -546,8 +558,136 @@ def _slot(job, slots):
         slots.release()
 
 
+def _retry_after(headers):
+    """A 429's Retry-After in seconds, said as seconds or as an HTTP date; None when there is none, or nothing readable."""
+    said = ((headers.get("Retry-After") if headers is not None else None) or "").strip()
+    if not said:
+        return None
+    if said.isdigit():
+        return float(said)
+    try:
+        at = email.utils.parsedate_to_datetime(said)
+    except (TypeError, ValueError):
+        return None
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=datetime.timezone.utc)
+    return max(0.0, at.timestamp() - time.time())
+
+
+def _words(s):
+    return f"{max(1, round(s))} s" if s < 90 else f"{round(s / 60)} min"
+
+
+class _Limited(Exception):
+    """A source's 429, with its Retry-After in seconds when it says one."""
+
+    def __init__(self, said):
+        super().__init__("the source answered 429")
+        self.said = said
+
+
+class _Calm:
+    """What every download of this ComfyUI knows of a host's 429s (the host and port of its link): until when none asks it
+    again, when its last 429 came, how many connections it takes at once for a while after a 429 to a piece, and how many
+    of the downloads in parts are at it."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.hosts = {}
+
+    def _of(self, host):
+        return self.hosts.setdefault(host, {"until": 0.0, "last": float("-inf"), "width": None, "fewer_until": 0.0, "busy": 0})
+
+    def hold(self, host, wait, now):
+        with self.lock:
+            h = self._of(host)
+            h["until"] = max(h["until"], now + wait)
+            h["last"] = now
+
+    def until(self, host):
+        with self.lock:
+            return self._of(host)["until"]
+
+    def last(self, host):
+        with self.lock:
+            return self._of(host)["last"]
+
+    def width(self, host, full, now):
+        with self.lock:
+            h = self._of(host)
+            if h["width"] is not None and now >= h["fewer_until"]:
+                h["width"] = None
+            return min(full, h["width"] or full)
+
+    def lower(self, host, full, wait, now):
+        """Half as many connections at once to the host (one at least), for `wait` seconds."""
+        width = self.width(host, full, now)
+        with self.lock:
+            h = self._of(host)
+            h["width"] = max(1, -(-width // 2))
+            h["fewer_until"] = now + wait
+            return h["width"]
+
+    def join(self, host, n=1):
+        with self.lock:
+            self._of(host)["busy"] += n
+
+    def busy(self, host):
+        with self.lock:
+            return self._of(host)["busy"]
+
+
+_CALM = _Calm()
+
+
+class _Patience:
+    """How long one download's 429s have gone on, counted in time (several connections meeting the same rush count it once):
+    the wait before the next request, or _Passing once they went on past LIMIT's patience with nothing of the file coming."""
+
+    def __init__(self, limit):
+        self.limit = limit
+        self.since = None
+        self.times = 0
+        self.lock = threading.Lock()
+
+    def wait(self, said, now):
+        lim = self.limit
+        with self.lock:
+            if self.since is None:
+                self.since = now
+            wait = min(lim["first"] * 2**self.times, lim["first"] * 8) if said is None else min(lim["most"], max(lim["least"], said))
+            if now + wait - self.since > lim["patience"]:
+                raise _Passing(f"the source kept asking to slow down for {_words(now - self.since)} (it answered 429)")
+            self.times += 1
+            return wait
+
+    def gained(self):
+        with self.lock:
+            self.since = None
+            self.times = 0
+
+
+def _calm_first(job, calm, host, mine):
+    """Before a request: the hold another request met at the host waited out, unless this one's (`mine`) already took it."""
+    until = calm.until(host)
+    now = time.time()
+    if until > now and until > mine[0]:
+        mine[0] = until
+        if job.cancelled.wait(until - now):
+            raise _Stopped()
+
+
+def _limited(calm, host, patience, mine, said):
+    """A 429 met: how long to wait, held for every download from the host; _Passing once the patience is spent."""
+    now = time.time()
+    wait = patience.wait(said, now)
+    calm.hold(host, wait, now)
+    mine[0] = now + wait
+    return wait
+
+
 class _NoParts(Exception):
-    """The source no longer answers parts of the file (a 200 to a Range, a 429, links refused again and again): the rest
+    """The source no longer answers parts of the file (a 200 to a Range, links refused again and again): the rest
     comes over one connection."""
 
 
@@ -575,6 +715,11 @@ def _answers_parts(job, have, opener, timeout):
             return have < job.total
     except Refused:
         raise
+    except urllib.error.HTTPError as e:
+        # a rate limit is waited out (run), never a reason to leave the file to one connection
+        if e.code == 429:
+            raise _Limited(_retry_after(e.headers))
+        return False
     except Exception:
         return False
 
@@ -607,7 +752,7 @@ def _read_piece(job, url, piece, f, opener, chunk, timeout, moved):
                 moved(n)
 
 
-def _in_parts(job, have, opener, attempts, backoff, chunk, timeout, renew_wait, slots, width, piece_size=None):
+def _in_parts(job, have, opener, attempts, backoff, chunk, timeout, renew_wait, slots, width, piece_size=None, waits=None):
     """
     The rest of the file from byte `have` over `width` connections at once, a piece each at a time, into job.parts (the
     .part taken over first, when there is one). Returns (bytes whole from the first on, the file's sha256 when it is known
@@ -627,6 +772,13 @@ def _in_parts(job, have, opener, attempts, backoff, chunk, timeout, renew_wait, 
     ended = []
     renewals = [0]
     over = threading.Event()
+    calm, host, patience, limit = waits or (_Calm(), "", _Patience(LIMIT), LIMIT)
+    full = width
+
+    def crowded(extra):
+        # fewer connections at the host for a while after a 429 (its downloads together), and more than that at it
+        now_width = calm.width(host, full, time.time())
+        return now_width < full and calm.busy(host) + extra > now_width
 
     def whole():
         # the bytes whole from the first on: up to the first piece not all there, and what of it came
@@ -646,9 +798,25 @@ def _in_parts(job, have, opener, attempts, backoff, chunk, timeout, renew_wait, 
 
     def connection():
         fails = 0
+        mine = [0.0]
+        joined = [True]
+        calm.join(host)
         try:
             with open(job.parts, "r+b", buffering=0) as f:
                 while True:
+                    # the host wants fewer at once: this one steps aside until there is room again (the while is over, or
+                    # another ended)
+                    if crowded(0):
+                        calm.join(host, -1)
+                        joined[0] = False
+                        while crowded(1):
+                            with lock:
+                                if ended or not todo:
+                                    return
+                            if job.cancelled.wait(0.25):
+                                return
+                        calm.join(host)
+                        joined[0] = True
                     with lock:
                         if ended or not todo:
                             return
@@ -657,11 +825,14 @@ def _in_parts(job, have, opener, attempts, backoff, chunk, timeout, renew_wait, 
                         while piece.left:
                             if ended or job.cancelled.is_set():
                                 return
+                            _calm_first(job, calm, host, mine)
                             before = piece.done
                             url = job.url
+                            sent = time.time()
                             try:
                                 with _slot(job, slots):
                                     _read_piece(job, url, piece, f, opener, chunk, timeout, moved)
+                                patience.gained()
                                 continue
                             except urllib.error.HTTPError as e:
                                 if e.code in (401, 403, 410):
@@ -677,7 +848,20 @@ def _in_parts(job, have, opener, attempts, backoff, chunk, timeout, renew_wait, 
                                                 raise Refused("the download link expired, and Afflatus sent no fresh one")
                                     continue
                                 if e.code == 429:
-                                    raise _NoParts("the source answered 429 to several connections at once")
+                                    # the link still holds: the source asks for fewer requests. Waited out (its Retry-After),
+                                    # and fewer connections for a while: half, by the first 429 of a rush (to a request sent
+                                    # after the last one), never one at once
+                                    rush = sent <= calm.last(host)
+                                    wait = _limited(calm, host, patience, mine, _retry_after(e.headers))
+                                    now = time.time()
+                                    n = calm.width(host, full, now) if rush else calm.lower(host, full, limit["fewer"], now)
+                                    job.note = f"The source asks to slow down (429): waiting {_words(wait)}, then carrying on over {n} connection{'' if n == 1 else 's'} from byte {whole()}."
+                                    if job.cancelled.wait(wait):
+                                        return
+                                    # one too many now: the piece goes back, for one that stays
+                                    if crowded(0):
+                                        break
+                                    continue
                                 if e.code < 500:
                                     raise Refused(_gone("the source", e.code))
                                 why = f"the source answered {e.code}"
@@ -699,6 +883,9 @@ def _in_parts(job, have, opener, attempts, backoff, chunk, timeout, renew_wait, 
                                 todo.appendleft(piece)
         except BaseException as e:  # noqa: BLE001 -- whatever ends one connection ends them all, said once
             end(e)
+        finally:
+            if joined[0]:
+                calm.join(host, -1)
 
     digest = [None]
 
@@ -793,15 +980,21 @@ def _checked_there(job):
 
 
 def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeout=60, renew_wait=RENEW_WAIT_S,
-        slots=_SLOTS, width=CONNECTIONS, parts_from=PARTS_FROM, piece_size=None):
+        slots=_SLOTS, width=CONNECTIONS, parts_from=PARTS_FROM, piece_size=None, limit=None, calm=_CALM):
     """Fetch `job.url` into `job.path`, through `<path>.part`: picked up with a Range after a cut (or from what an earlier
     download of it left, _taken_over), tried again with a growing wait, named only once whole. Sets job.state to done,
     error or stopped; the .part outlives only a stop asked to keep it and a failure that passes (_Passing). A big file on a
     source's own link that answers parts of it comes over `width` connections at once first (_in_parts); every request
-    takes one of `slots`, the connections all downloads share."""
+    takes one of `slots`, the connections all downloads share. A 429 is waited out as `limit` says (LIMIT), the host's hold
+    kept on `calm` for every download from it."""
     part = job.part
     have = 0
     fails = 0
+    limit = {**LIMIT, **(limit or {})}
+    host = urllib.parse.urlsplit(job.url).netloc
+    patience = _Patience(limit)
+    # the host's 429 this download waited out already: a later hold, another's, is waited for, never this one twice
+    mine = [0.0]
     digest = None
     # all of it came over several connections: nothing left for one
     came = False
@@ -820,15 +1013,26 @@ def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeou
             job.note = f"Carrying on from byte {have}, as an earlier download of it left it."
         # only a source's own link: Afflatus's one-time address streams one request at a time (a second lets the first go)
         if job.direct and width > 1 and job.total >= parts_from and have < job.total:
-            with _slot(job, slots):
-                parts = _answers_parts(job, have, opener, timeout)
+            while True:
+                _calm_first(job, calm, host, mine)
+                try:
+                    with _slot(job, slots):
+                        parts = _answers_parts(job, have, opener, timeout)
+                    break
+                except _Limited as e:
+                    wait = _limited(calm, host, patience, mine, e.said)
+                    job.note = f"The source asks to slow down (429): waiting {_words(wait)}, then {f'carrying on from byte {have}' if have else 'starting'}."
+                    if job.cancelled.wait(wait):
+                        raise _Stopped()
             if parts and job.total >= parts_from:
                 _room(job, have)
-                have, digest = _in_parts(job, have, opener, attempts, backoff, chunk, timeout, renew_wait, slots, width, piece_size)
+                have, digest = _in_parts(job, have, opener, attempts, backoff, chunk, timeout, renew_wait, slots, width, piece_size,
+                                         (calm, host, patience, limit))
                 came = have == job.total
         while not came:
             if job.cancelled.is_set():
                 raise _Stopped()
+            _calm_first(job, calm, host, mine)
             before = have
             try:
                 req = urllib.request.Request(job.url, headers={"User-Agent": "afflatus-nodes", **({"Range": f"bytes={have}-"} if have else {})})
@@ -886,7 +1090,15 @@ def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeou
                     job.bytes = have
                     continue
                 where = "the source" if job.direct else "Afflatus"
-                if e.code < 500 and e.code != 429:
+                # a rate limit (Cloudflare's page in front of Civitai's file server): its Retry-After waited out, no try
+                # counted, as long as the patience lasts
+                if e.code == 429:
+                    wait = _limited(calm, host, patience, mine, _retry_after(e.headers))
+                    job.note = f"{where[0].upper()}{where[1:]} asks to slow down (429): waiting {_words(wait)}, then {f'carrying on from byte {have}' if have else 'trying again'}."
+                    if job.cancelled.wait(wait):
+                        raise _Stopped()
+                    continue
+                if e.code < 500:
                     raise Refused(_gone(where, e.code))
                 why = f"{where} answered {e.code}"
             except Exception as e:  # a cut, a timeout, a reset: tried again
@@ -902,6 +1114,8 @@ def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeou
             # what is on disk is what counts: a write cut half way leaves less than was read
             have = os.path.getsize(part) if os.path.exists(part) else 0
             job.bytes = have
+            if have > before:
+                patience.gained()
             fails = 1 if have > before else fails + 1
             if fails >= attempts:
                 raise _Passing(f"the download failed {attempts} times in a row ({why})")
