@@ -43,7 +43,7 @@ describe("the designer's guide on a clip whose sound is a recording, and on Moti
     expect(said).not.toContain("Voices numbered (S1)");
     expect(said).not.toContain(h3.guide!.slice(0, 80));
     // H3's own layout rules stay, in the family's very words
-    for (const line of ["Afflatus adds the model's layout itself (field labels, the [Shot 1] mark, the picture alignment lines)", "- The camera as type + amplitude + speed:", "- Write what you WANT, never what you do not want", "- A first frame: one clause of what it preserves"]) {
+    for (const line of ["Afflatus adds the model's layout itself (field labels, the [Shot 1] mark, the picture alignment lines)", "- The camera chosen for what the shot needs, at most one move:", "- Write what you WANT, never what you do not want", "- A first frame: one clause of what it preserves"]) {
       expect(h3.guide).toContain(line);
       expect(said).toContain(line);
     }

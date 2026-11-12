@@ -11,7 +11,7 @@ import type { OutputCheck } from "./outputChecks";
 /** How a family's prompts are written, when the family does not say itself. */
 const GENERIC: Record<"tags" | "sentences", string> = {
   tags: `A GOOD PROMPT is comma-separated tags, most important first: the subject and how many, their look, the outfit one tag per garment, the expression, the pose, the framing and camera angle, the place and time of day, the light. One idea per tag, concrete, lower case, no contradictions.`,
-  sentences: `A GOOD PROMPT is plain sentences, present tense, concrete nouns: who and what they do, what they wear, the place with a few concrete details, the light, the camera (framing, angle, one move for a video). One moment for a picture; for a video, the motion over time ("at first", "then", "as she…"). No tag lists, no weights.`,
+  sentences: `A GOOD PROMPT is plain sentences, present tense, concrete nouns: who and what they do, what they wear, the place with a few concrete details, the light, the camera (framing, angle; for a video often still, one move only when the shot calls for it). One moment for a picture; for a video, the motion over time ("at first", "then", "as she…"). No tag lists, no weights.`,
 };
 
 /** A family's prompting guide as the designer is handed it: the built-in text, or the generic one for a family that has none. */

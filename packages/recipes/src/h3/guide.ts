@@ -11,7 +11,9 @@ const RULES = "RULES FOR THE PROMPT (the model's integrated description)";
 const shot = (words: string) => `- One short sentence of visual style first ("Live-action, cinematic, handheld, warm tungsten light."), then ONE continuous shot in the present tense, in the order things happen. ${words} words.`;
 const LOOKS = "who is in it and how they look (hair, build, clothing with colour and material)";
 const TIMING = `with timing words ("at first", "then", "as she…")`;
-const CAMERA = `- The camera as type + amplitude + speed: "The camera pushes in with small amplitude at slow speed toward her face." One move per shot.`;
+// the camera chosen for the shot, a still one as good as a move: its one example used to be a push-in toward the face, and
+// the designer put a push-in in nearly every clip (owner, 2026-11-12)
+const CAMERA = `- The camera chosen for what the shot needs, at most one move: often it holds still ("The camera holds still at eye level."); a move only when the action calls for it, as type + amplitude + speed ("The camera trucks left with small amplitude at slow speed, following her."; a pan, a tilt, a pull-out, a push-in). Never a push-in by habit.`;
 const CUT = `- A cut only when asked or past 9 seconds: "[Shot 2] At 00:05.000, the camera cuts to …".`;
 const ON_SCREEN = "- Text that must appear on screen: English double quotes, word for word.";
 const POSITIVE = `- Write what you WANT, never what you do not want: the model has no negative branch ("the street stays empty", not "no other people").`;

@@ -378,7 +378,7 @@ export const wanVideo = defineRecipe<WanVideo>({
     },
     {
       id: "prompt", type: "prompt", label: "Prompt", style: "sentences",
-      placeholder: "She turns to the camera and smiles, her hair moving in the wind. The camera pushes in slowly.",
+      placeholder: "She turns to the camera and smiles, her hair moving in the wind. Fixed camera.",
     },
     { id: "start", type: "image", role: "start", label: "First frame", note: "the first frame. Without one, the clip is made from the words alone, which needs words-to-video (T2V) models: picture-to-video (I2V) ones make a gray clip without a picture", optional: true },
     { id: "end", type: "image", role: "end", label: "Last frame", note: "the last frame", optional: true },

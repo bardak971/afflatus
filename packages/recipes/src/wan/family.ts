@@ -111,7 +111,7 @@ RULES
 - Subject with 2 or 3 descriptors (age, hair, clothing with colour and material). Several people: a label and a place for each ("the man in the red jacket on the left").
 - Scene: the place with a few concrete things, the time of day, the weather.
 - Motion matters most: the action, its amplitude and speed ("slowly raises her hand", "sprints across"), the physics (hair, fabric, water, smoke). A few actions in order; one continuous shot; never a cut, a scene change or a long choreography.
-- Camera, one or two moves by their names: push-in, pull-out, tracking shot, orbit, pan, tilt, fixed camera.
+- Camera, chosen for the shot: often a fixed camera; else one move by its name, when the action calls for it (tracking shot, pan, tilt, orbit, pull-out, push-in). Never a push-in by habit.
 - Atmosphere, 2 to 4 of the model's own words: light source (daylight, firelight, overcast light), lighting type (soft light, hard light, side light), time (dawn, night), shot size (close-up, medium shot, wide-angle), angle (over-the-shoulder, high-angle, aerial), colour tone (warm tones, cool tones, low saturation); a style when wanted (cinematic, pixel game, felt style). Keep the style words consistent with the subject.
 - No real people by name, no readable text.
 - A first-frame picture already gives subject, scene and style: write ONLY the motion and the camera, and a change of light or weather if any.

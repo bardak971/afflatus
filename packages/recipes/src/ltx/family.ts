@@ -26,13 +26,13 @@ export function ltxGuide(name: string, more: string[] = []): string {
   return `${name} makes the picture AND the sound together, and ${LTX_LITERAL} ${LTX_FORM("60 to 200")}
 RULES
 - Start with the main action, as a cinematographer describing a shot as it plays.
-- In order: shot size, camera move and where it ends; setting, time of day, light; the subject (age, clothing, features); the actions as they happen; the look (palette, film stock, grain); and LAST the audio.
+- In order: shot size, the camera (often still; else one move and where it ends, never a push-in by habit); setting, time of day, light; the subject (age, clothing, features); the actions as they happen; the look (palette, film stock, grain); and LAST the audio.
 - The audio sentence is mandatory: "The audio is …" with ambience, effects and any music; "no music" said plainly when wanted. What is not written is not reliably heard.
 - Speech in quotation marks inside the paragraph, with who says it and how ("She says quietly, in English: "What a view.""); the voice described physically (low and resonant, a whisper, an accent). One speaker at a time. The user's words stay as written, never translated.
 ${LTX_TALKING}
 ${LTX_TAIL}
 ${extra(more)}${LTX_EXAMPLE}
-A saxophone player in a wrinkled suit plays a slow melody with his eyes closed, swaying gently, in a dimly lit 1950s New York jazz club. Smoke curls through amber spotlights behind him; a few patrons at small tables to the left cradle drinks in blue shadow. Medium shot from a slightly low angle, the camera pushing in slowly and settling on his face as he opens his eyes mid-phrase. Warm amber light on him, deep blue shadows, a film noir palette with soft grain. The audio is the slow saxophone line over the clink of glasses and low murmured conversation, no other music.`;
+A saxophone player in a wrinkled suit plays a slow melody with his eyes closed, swaying gently, in a dimly lit 1950s New York jazz club. Smoke curls through amber spotlights behind him; a few patrons at small tables to the left cradle drinks in blue shadow. Medium shot from a slightly low angle, the camera holding still as he opens his eyes mid-phrase. Warm amber light on him, deep blue shadows, a film noir palette with soft grain. The audio is the slow saxophone line over the clink of glasses and low murmured conversation, no other music.`;
 }
 
 /** Never written under a recording: its words and its voice are the recording's. */
@@ -48,7 +48,7 @@ export function ltxRecordingGuide(name: string, more: string[] = []): { lipSync:
   return {
     lipSync: `${name} ${LTX_LITERAL} In this clip the sound is a RECORDING, pinned under the clip from the first step so that the picture, the mouth first, is made to it: the recording is what is said and the clip's whole sound, and the text gives the scene and how the person speaks. ${LTX_FORM("40 to 120")}
 RULES
-- Start with the shot: its size, the camera and where it ends; then the setting, time of day, light; the person (age, clothing, features); how they speak as it plays (the tone, the expression, the gestures, where they look); the look (palette, film stock, grain).
+- Start with the shot: its size, the camera (often still) and where it ends; then the setting, time of day, light; the person (age, clothing, features); how they speak as it plays (the tone, the expression, the gestures, where they look); the look (palette, film stock, grain).
 - One continuous shot on the person who speaks, their face in frame for as long as they speak.
 ${LTX_NO_LINE} Nor an audio sentence: the recording is the clip's sound. Say how they speak through the face and the body ("she speaks warmly to the camera, smiling between phrases").
 ${LTX_TALKING}
@@ -58,7 +58,7 @@ A medium close-up holds still at eye level on a man in his forties with a short 
     over: `${name} makes the picture AND the sound together, and ${LTX_LITERAL} In this clip a RECORDING plays over the picture unchanged (a song, a voice-over, someone off screen): the take's sound is the recording, the model's own is replaced by it, and the text gives the picture, what is seen and what moves. ${LTX_FORM("60 to 200")}
 RULES
 - Start with the main action, as a cinematographer describing a shot as it plays.
-- In order: shot size, camera move and where it ends; setting, time of day, light; the subject (age, clothing, features); the actions as they happen; the look (palette, film stock, grain); and LAST the audio.
+- In order: shot size, the camera (often still; else one move and where it ends, never a push-in by habit); setting, time of day, light; the subject (age, clothing, features); the actions as they happen; the look (palette, film stock, grain); and LAST the audio.
 - The audio sentence is the place's quiet ambience only ("The audio is soft wind and distant gulls, no music."): it keeps the people on screen silent while the model makes the clip.
 - The people on screen are silent under the recording: write them listening, watching, moving or playing, their lips closed ("she listens, her lips closed, swaying gently").
 ${LTX_NO_LINE}
