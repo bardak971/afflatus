@@ -11,7 +11,7 @@ import { civitaiVersion } from "../src/civitai";
 import { Comfy } from "../src/comfy";
 import { NO_DIRECT, signedLink } from "../src/downloads";
 import { DOWNLOADS_DISABLED } from "../src/modelDownload";
-import { PodFiles } from "../src/podFiles";
+import { PodFiles, type PodFilesDeps } from "../src/podFiles";
 import { estimateFiles, GUESSED, measuredRange, recordMeasure, MEASURED_FROM } from "../src/podMeasures";
 import { forgetHuggingFace } from "../src/huggingface";
 import { localCopy, measureKind, podSource, USUAL_COPIES } from "../src/podSources";
@@ -1538,6 +1538,20 @@ describe("a rented pod's container restarted (card #336)", () => {
     await readAgain();
     await settle("pod", A.file);
     expect(pod.packFetched).toHaveLength(3);
+  });
+
+  it("asked for as lacking while ready, its list still naming it: its job starts at once, without waiting for another pass (P1)", async () => {
+    await fetchedOnce();
+    // the queue's side (services.ts): a nudge looks at the jobs again; nothing else pumps on a quiet pod
+    const told: boolean[] = [];
+    (files as unknown as { d: PodFilesDeps }).d.settled = (_m, changed) => void told.push(changed);
+    files.want("pod", [A], { tier: "need", job: "j1" });
+    expect(files.jobState("pod", "j1")?.state).toBe("waiting");
+    await until(async () => (await files.tick(), files.jobState("pod", "j1")?.state === "ready"));
+    // the file was there: nothing fetched, and the queue told so, for the pod not to bill idle with its job held
+    await until(() => told.length > 0);
+    expect(told).toEqual([false]);
+    expect(pod.packFetched).toHaveLength(1);
   });
 
   it("found unlisted at a job's submit (lost): fetched again when its folder answers without it, never when it lists it", async () => {
