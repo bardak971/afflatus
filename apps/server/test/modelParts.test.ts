@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Calm, fetchToFile, Passing, Refused, retryAfterMs, Slots, type FetchTo } from "../src/modelDownload";
+import { setTimeout as sleep } from "node:timers/promises";
 import { until } from "./helpers";
 
 /**
@@ -58,6 +59,11 @@ let mode: {
   expireWhole?: boolean;
   /** The next `left` requests to the site's own address answered 429 so. */
   siteTooMany?: { left: number; retryAfter?: string };
+  /**
+   * Every part asked for within `ms` of the first (real time) answered 429, saying `retryAfter`, `lateMs` late (the other
+   * requests meanwhile waiting their turn): `served` counts them.
+   */
+  holdFor?: { ms: number; retryAfter: string; lateMs: number; until?: number; served: number };
 };
 /** The most parts the file server sent at once once its first 429 had gone out. */
 let mostAfter: number;
@@ -111,6 +117,14 @@ beforeEach(async () => {
       mostAfter = Math.max(mostAfter, 0);
       return void tooMany(res, mode.tooMany.retryAfter);
     }
+    if (mode.holdFor && closed && got?.[1] !== "0") {
+      const h = mode.holdFor;
+      h.until ??= Date.now() + h.ms;
+      if (Date.now() < h.until) {
+        h.served++;
+        return void setTimeout(() => tooMany(res, h.retryAfter), h.lateMs);
+      }
+    }
     if (closed && got?.[1] !== "0") {
       serving++;
       if (mostAfter >= 0) mostAfter = Math.max(mostAfter, serving);
@@ -162,6 +176,13 @@ const tooMany = (res: ServerResponse, retryAfter?: string) => {
 const fakeClock = () => {
   const c = { t: 1_800_000_000_000, waits: [] as number[], now: () => c.t, pause: async (ms: number) => void (c.waits.push(ms), (c.t += ms)) };
   return c;
+};
+
+/** The real time, `k` times as fast: a Retry-After of 56 s waited out in 56 / k s, the downloads' connections overlapping as they do. */
+const fastClock = (k: number) => {
+  const t0 = Date.now();
+  const base = 1_800_000_000_000;
+  return { now: () => base + (Date.now() - t0) * k, pause: (ms: number, signal: AbortSignal) => sleep(ms / k, undefined, { signal }) };
 };
 
 const fetchTo = (over: Partial<FetchTo> = {}, name = "model.safetensors") => {
@@ -361,16 +382,17 @@ describe("a site's rate limit (429), waited out (2026-11-12: two files of 20 GB 
     expect(retryAfterMs(null, now)).toBeNull();
   });
 
-  it("waits longer each time a 429 says no Retry-After, and gives up only after some 15 minutes, keeping what came", async () => {
+  it("waits longer each time a 429 says no Retry-After, and gives up only after 18 minutes, keeping what came", async () => {
     mode.tooMany = { left: Infinity };
     const clock = fakeClock();
     const { done, notes, dest } = fetchTo({ parts: undefined, clock, calm: new Calm(), keepPart: true });
     const err = await done.catch((e: unknown) => e);
     expect(err).toBeInstanceOf(Passing);
-    expect(clock.waits).toEqual([30_000, 60_000, 120_000, 240_000, 240_000, 240_000]);
-    expect(clock.waits.reduce((a, b) => a + b)).toBeLessThanOrEqual(18 * 60_000);
-    expect((err as Error).message).toMatch(/^127\.0\.0\.1:\d+ kept answering 429 \(too many requests\) for 16 min\. Press Download again later\.$/);
-    expect(notes.at(-1)).toMatch(/waiting 4 min, then trying again\.$/);
+    // the last wait no longer than what is left of the patience: the site is asked once more at 18 min, then given up
+    expect(clock.waits).toEqual([30_000, 60_000, 120_000, 240_000, 240_000, 240_000, 150_000]);
+    expect(clock.waits.reduce((a, b) => a + b)).toBe(18 * 60_000);
+    expect((err as Error).message).toMatch(/^127\.0\.0\.1:\d+ kept answering 429 \(too many requests\) for 18 min\. Press Download again later\.$/);
+    expect(notes.at(-1)).toMatch(/waiting 3 min, then trying again\.$/);
     // nothing came: no .part kept, the 429's page least of all
     expect(readdirSync(dir).filter((f) => f.startsWith(basename(dest)))).toEqual([]);
   });
@@ -403,6 +425,52 @@ describe("a site's rate limit (429), waited out (2026-11-12: two files of 20 GB 
     expect(notes).toEqual([expect.stringMatching(/asks to slow down \(429\): waiting 2 s, then starting\.$/)]);
     expect(asked.filter((a) => a.host === "site").map((a) => a.range)).toEqual(["bytes=0-0", "bytes=0-0"]);
     expect(piecesAsked().length).toBe(9);
+  });
+
+  it("gives up only once the patience is spent, not at a 429 whose wait would end past it (D3)", async () => {
+    mode.tooMany = { left: Infinity, retryAfter: "600" };
+    const clock = fakeClock();
+    const err = await fetchTo({ parts: undefined, clock, calm: new Calm() }).done.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Passing);
+    // 10 min, then the 8 left of the 18: two 429s saying 10 min each no longer give up at the second
+    expect(clock.waits).toEqual([600_000, 480_000]);
+    expect((err as Error).message).toMatch(/for 18 min\./);
+  });
+
+  it("waits longer only at the first 429 of a rush: the connections that met the same one wait as long (D2)", async () => {
+    mode.tooMany = { left: 4, pieces: true };
+    const clock = fakeClock();
+    const { done, notes } = fetchTo({ clock, calm: new Calm() });
+    await expect(done).resolves.toEqual({ bytes: SIZE, sha256: SHA });
+    const waits = notes.filter((n) => /429/.test(n));
+    expect(waits).toHaveLength(4);
+    expect(waits).toEqual(Array(4).fill(expect.stringMatching(/waiting 30 s, then/)));
+  });
+
+  it("asks the site nothing during a hold its requests waited a connection for, and halves once (D1)", async () => {
+    // two files of 20 GB at once: 16 connections for the 8 there are, the file server's 429 saying 56 s, 1 s here
+    mode.holdFor = { ms: 1000, retryAfter: "56", lateMs: 200, served: 0 };
+    const clock = fastClock(56);
+    const calm = new Calm();
+    const parts = { ...PARTS, connections: 8, slots: new Slots(8) };
+    const a = fetchTo({ clock, calm, parts }, "a.safetensors");
+    const b = fetchTo({ clock, calm, parts }, "b.safetensors");
+    await expect(Promise.all([a.done, b.done])).resolves.toEqual([{ bytes: SIZE, sha256: SHA }, { bytes: SIZE, sha256: SHA }]);
+    // only the requests already sent met the 429: the ones that waited for a connection waited out the hold after
+    expect(mode.holdFor.served).toBeGreaterThan(0);
+    expect(mode.holdFor.served).toBeLessThanOrEqual(8);
+    expect(calm.width(new URL(siteUrl).host, 8, clock.now())).toBe(4);
+  });
+
+  it("counts a request's 60 s with nothing coming from once its turn to ask the site came, not while it waited for it (D4)", async () => {
+    const calm = new Calm();
+    const site = new URL(siteUrl).host;
+    // another download asking the site for its link, for longer than a request may bring nothing
+    const turn = await calm.asker(site).take(new AbortController().signal);
+    setTimeout(turn, 600);
+    const { done, notes } = fetchTo({ parts: undefined, calm, stallMs: 200 });
+    await expect(done).resolves.toEqual({ bytes: SIZE, sha256: SHA });
+    expect(notes).toEqual([]);
   });
 
   it("waits out the hold another download of the site met, before it asks the site anything (Download again included)", async () => {
