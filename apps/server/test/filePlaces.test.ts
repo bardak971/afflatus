@@ -63,7 +63,8 @@ describe("the lists across machines", () => {
     expect(s.places.on.checkpoints["other.safetensors"]).toEqual([home1]);
     expect(s.places.down).toEqual({});
     // its header is read on the pod, so that it is grouped by what it is for as this PC's files are
-    await until(async () => POD_ONLY in (await get(t.app, "/api/models/checkpoints/info")).json().items);
+    // its header read on the pod takes a while on a loaded machine (CI timed out at the default wait)
+    await until(async () => POD_ONLY in (await get(t.app, "/api/models/checkpoints/info")).json().items, 20_000, 50);
   });
 
   it("says nothing of where files are with the user's own machines alone", async () => {

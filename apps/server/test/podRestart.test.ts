@@ -130,8 +130,10 @@ describe("a rented pod's container restarted (card #336)", () => {
     expect(onDisk()).toBe(true);
     expect(pod.packFetched).toHaveLength(2);
     expect(await job(a)).toMatchObject({ status: "running", error: null });
-    // its card says it, and the file's row
-    const row = (await t.app.inject({ method: "GET", url: "/api/queue" })).json().machines.find((m: { id: string }) => m.id === id);
+    // its card says it, and the file's row: the row turns ready a moment after the job is sent (a loaded CI saw "fetching")
+    const rowOf = async () => (await t.app.inject({ method: "GET", url: "/api/queue" })).json().machines.find((m: { id: string }) => m.id === id);
+    await until(async () => (await rowOf()).rented.files.find((f: { file: string }) => f.file === TE)?.state === "ready", 10_000, 50);
+    const row = await rowOf();
     expect(row.rented.again).toMatchObject({ lost: 1, files: 1, restart: true });
     expect(row.rented.files.find((f: { file: string }) => f.file === TE)).toMatchObject({ state: "ready", again: "restart" });
   }, 40_000);
