@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
 import { fileKey } from "@afflatus/core";
 import { api, type BrowseCard } from "./api";
@@ -106,6 +106,15 @@ export function FindModels({ target }: { target: FindTarget }) {
   // every drawing, it was rebuilt for every card of every page). Not after a failed one: its Try again asks.
   const end = useRef<HTMLDivElement | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
+  // where the results were scrolled to as a model opened, put back as it closes: hidden under it, a box can come back at
+  // its top (owner, 2026-11-21)
+  const scrolledTo = useRef(0);
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    if (opened) return;
+    el.scrollTop = scrolledTo.current;
+  }, [opened]);
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = results;
   useEffect(() => {
     const el = end.current;
@@ -153,14 +162,20 @@ export function FindModels({ target }: { target: FindTarget }) {
   /** A card's + (or a drop): its one file at once; a version of several files, or one without a folder, opens to choose. */
   const quick = async (card: BrowseCard) => {
     const v = card.versions[0];
-    if (!(v?.files.length === 1 && v.files[0]!.folder)) return setOpened(card);
+    if (!(v?.files.length === 1 && v.files[0]!.folder)) {
+      scrolledTo.current = scroller.current?.scrollTop ?? 0;
+      return setOpened(card);
+    }
     // a version Civitai sells: asked first, then picked as any other (card #163)
     if (await askPaid(v, "Pick")) add([pickedOf(v.files[0]!, card, v.name)]);
   };
   // the cards' callbacks, the same at every drawing (Card is memoised): a new page draws only its own cards
   const latest = useRef({ quick, setOpened });
   latest.current = { quick, setOpened };
-  const openCard = useCallback((c: BrowseCard) => latest.current.setOpened(c), []);
+  const openCard = useCallback((c: BrowseCard) => {
+    scrolledTo.current = scroller.current?.scrollTop ?? 0;
+    latest.current.setOpened(c);
+  }, []);
   const quickCard = useCallback((c: BrowseCard) => latest.current.quick(c), []);
   const cardPicked = (c: BrowseCard) => c.versions.some((v) => v.files.some((f) => pickedKeys.has(fileKey({ file: f.name, folder: f.folder ?? "" }))));
 
@@ -244,11 +259,13 @@ export function FindModels({ target }: { target: FindTarget }) {
           <div className="flex min-h-0 flex-col">
             {tab === "yours" ? (
               <Yours words={words} onWords={setWords} picked={pickedKeys} onPick={add} />
-            ) : opened ? (
-              // keyed: another card opens with its own ticks and folders, not the last one's
-              <Opened key={`${opened.site}:${opened.id}`} card={opened} picked={pickedNames} onPick={(files) => { add(files); setOpened(null); }} onClose={() => setOpened(null)} />
             ) : (
-              <div ref={scroller} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+              <>
+              {/* keyed: another card opens with its own ticks and folders, not the last one's */}
+              {opened && <Opened key={`${opened.site}:${opened.id}`} card={opened} picked={pickedNames} onPick={(files) => { add(files); setOpened(null); }} onClose={() => setOpened(null)} />}
+              {/* the results stay drawn under a model opened, only hidden: closed, it is back where it was scrolled to (owner,
+                  2026-11-21: it came back at the top, the cards it had loaded down the page to find again) */}
+              <div ref={scroller} className={cx("min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4", opened ? "hidden" : "flex")}>
                 {failed && !moreFailed && !isLink(q) && <SiteFailed error={failed} other={tab === "civitai" ? "Hugging Face" : "Civitai"} onRetry={retry} />}
                 {link.error && <Failed what="The link could not be read" error={link.error} />}
                 {link.isPending && <span className="text-xs text-ink-3">Reading the link…</span>}
@@ -269,6 +286,7 @@ export function FindModels({ target }: { target: FindTarget }) {
                 {results.isSuccess && !results.isPlaceholderData && !cards.length && <Empty title={`Nothing found${notMine ? " that you do not have" : ""}`}>Fewer words, or another base model.</Empty>}
                 <div ref={end} className="pb-2 text-center text-xs text-ink-3">{!results.hasNextPage && !results.isPlaceholderData && cards.length ? "That is all." : ""}</div>
               </div>
+              </>
             )}
           </div>
 
