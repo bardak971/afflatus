@@ -220,7 +220,7 @@ export async function createServices(
       podFiles.want(id, files.map(({ file, folder, url, civitai, size }) => ({ file, folder, ...(url ? { url } : {}), ...(civitai ? { civitai } : {}), ...(size ? { size } : {}) })), { tier: "ahead" });
     },
     forgetFiles: (id) => podFiles.forget(id),
-    containerRestarted: (id) => podFiles.recheck(id, true),
+    containerRestarted: (id, startedAt) => podFiles.recheck(id, true, startedAt),
     filesLeft: (id) => {
       const files = podFiles.view(id);
       const waiting = files.filter((f) => f.state === "next" || f.state === "fetching");

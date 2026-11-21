@@ -897,14 +897,19 @@ export class PodFiles {
    * there, and nothing was fetched (card #336). Every file it has by its own word is read on its list once its ComfyUI
    * answers, and the ones not there are fetched again as on a fresh pod (lostOf). A network volume's files stay listed:
    * nothing is fetched for them. `container`: RunPod said its container restarted, which its card says even when nothing was lost.
+   * `startedAt`: when RunPod says that container started (ms). What a read found lost since then was lost to that restart.
    */
-  recheck(machine: string, container: boolean): void {
+  recheck(machine: string, container: boolean, startedAt?: number): void {
     const pod = this.pods.get(machine);
     if (!pod?.size) return;
     // a restart is no hint: a file fetched once on a hint may be fetched again now
     for (const e of pod.values()) delete e.lostOnce;
     const was = this.rechecks.get(machine);
-    this.rechecks.set(machine, { since: Date.now(), first: was?.first ?? Date.now(), container: container || Boolean(was?.container) });
+    // RunPod's uptime is read once a minute, its socket's opening seen at once: on the 0.10.1 pod test the socket's read
+    // found 2 files gone and had them fetched again 45 s before RunPod said the restart, its read over by then. From the
+    // container's start, that read is the same restart's
+    const first = Math.min(was?.first ?? Date.now(), startedAt ?? Date.now());
+    this.rechecks.set(machine, { since: Date.now(), first, container: container || Boolean(was?.container) });
     void this.tick();
   }
 
@@ -943,8 +948,10 @@ export class PodFiles {
       if (lost !== null) {
         this.rechecks.delete(machine);
         // its container restarted, its files all still there (a network volume's): its card says so all the same. Not over
-        // what a read of the same restart found lost (its socket opened again meanwhile): "N files fetched again" stands
-        if (re.container && lost === 0 && !((this.agains.get(machine)?.at ?? -Infinity) >= re.first)) this.agains.set(machine, { at: Date.now(), files: 0, lost: 0, restart: true });
+        // what a read of the same restart found lost (its socket opened again, before or meanwhile): "N files fetched again"
+        // stands, said of its container restarted
+        const said = this.agains.get(machine);
+        if (re.container && lost === 0) this.agains.set(machine, said && said.at >= re.first ? { ...said, restart: true } : { at: Date.now(), files: 0, lost: 0, restart: true });
         if (re.container) this.d.changed?.();
       } else if (Date.now() - re.since >= RECHECK_MS) {
         this.rechecks.delete(machine);

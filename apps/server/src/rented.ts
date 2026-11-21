@@ -5,7 +5,7 @@ import { bootOf } from "./podBoot";
 import { buildOf } from "./podImage";
 import { forgetSetAside, machinesSetAside, readSettings, updateSettings, type Machine } from "./settings";
 import { CAP_REACHED } from "./queueModel";
-import type { RentedView, Seen } from "./rentedModel";
+import { newContainer, type RentedView, type Seen } from "./rentedModel";
 import { capReached } from "./rentedBilling";
 import { BILLED, bootLimit, secretOf, TRANSITIONAL } from "./rentedFollow";
 import { ownPorts, RentedDeploy } from "./rentedDeploy";
@@ -307,6 +307,8 @@ export class Rented extends RentedDeploy {
       }
       throw err;
     });
+    // a new container, whether a read saw it stopped or not: its uptime from the run before is no restart's measure
+    newContainer(this.seenOf(m.id));
     // said on its card for the run: it may run open until it is up and locked
     this.seenOf(m.id).bootNote = unprepared;
     return this.view(m)!;

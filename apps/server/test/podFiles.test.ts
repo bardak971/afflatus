@@ -1502,6 +1502,24 @@ describe("a rented pod's container restarted (card #336)", () => {
     expect(files.againOf("pod")).toMatchObject({ lost: 0, files: 0, restart: true });
   });
 
+  it("its socket opened again first, RunPod's uptime said a minute later: one restart, its card \"Container restarted: 1 file fetched again\" (P3)", async () => {
+    await fetchedOnce();
+    // the 0.10.1 pod test: its container restarted at 19:27:23, the socket's read found 2 files gone and fetched them
+    // again at 19:27:51, and RunPod's GraphQL uptime, read once a minute, said the restart at 19:28:36. That read found
+    // nothing lost (fetched again by then), and its card went from "2 files fetched again" to "its files were still there"
+    const restartedAt = Date.now();
+    rmSync(join(disk, "loras", A.file));
+    files.recheck("pod", false);
+    await readAgain();
+    await settle("pod", A.file);
+    expect(files.againOf("pod")).toMatchObject({ lost: 1, files: 1, restart: false });
+    await new Promise((r) => setTimeout(r, 20));
+    files.recheck("pod", true, restartedAt);
+    await until(async () => (await files.tick(), files.againOf("pod")?.restart === true));
+    expect(files.againOf("pod")).toMatchObject({ lost: 1, files: 1, restart: true });
+    expect(pod.packFetched).toHaveLength(2);
+  });
+
   it("its ComfyUI not up yet: read again at the next passes, until it lists its folders", async () => {
     await fetchedOnce();
     rmSync(join(disk, "loras", A.file));

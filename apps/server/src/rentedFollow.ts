@@ -11,7 +11,7 @@ import { SEARCHED_FOLDERS } from "./modelSets";
 import { noteFill, recordHoldings } from "./rentedVolumes";
 import { machineSaid } from "./notifyWords";
 import { machinesSetAside, readSettings, updateSettings, type Machine, type MachineSetAside, type Settings } from "./settings";
-import { resetRun, type PodFilesLeft, type RentedView, type Seen } from "./rentedModel";
+import { newContainer, resetRun, type PodFilesLeft, type RentedView, type Seen } from "./rentedModel";
 import { capReached, RentedBilling } from "./rentedBilling";
 import { overrunAllowed } from "./queueModel";
 import { KeepAwake } from "./keepAwake";
@@ -497,12 +497,7 @@ export class RentedFollow extends RentedBilling {
       s.containerAt = null;
       // stopped (or gone): its next start is a new container, not one restarted. What its last run said of it went on, and
       // every Stop then Start was said "Container restarted"
-      if (!pod || pod.status === "EXITED") {
-        s.containerWas = null;
-        s.uptimeWas = null;
-        s.uptimeGot = null;
-        s.uptimeRun++;
-      }
+      if (!pod || pod.status === "EXITED") newContainer(s);
     }
     // a deployed pod's container up (RunPod says its uptime from then): its card goes from pulling the image to ComfyUI
     // starting at once, not at the next change
@@ -811,7 +806,7 @@ export class RentedFollow extends RentedBilling {
     if (anew || lower || (start !== null && was !== null && start - was > CONTAINER_AGAIN_MS)) {
       s.containerAt = start ?? (pod.startedAt ? Math.min(Date.parse(pod.startedAt), this.now()) : null);
       console.log(`[rented] ${m.name || m.id}: its container restarted (${start !== null ? `uptime ${pod.uptime} s` : `started at ${pod.startedAt}`}), its files read again`);
-      this.deps.containerRestarted(m.id);
+      this.deps.containerRestarted(m.id, s.containerAt ?? undefined);
     }
     if (start !== null) s.containerAt ??= start;
     // asked a while after its first answer too: a ComfyUI up within a read of its container (15 s on a real pod) answered
