@@ -219,6 +219,20 @@ export function resetRun(s: Seen): void {
   s.hung = null;
 }
 
+/**
+ * Its next start is a new container, not one restarted: what its last run said of its container and uptime is let go, and a
+ * GraphQL answer still coming from that run is dropped. At a read finding it stopped (follow), and at the user's Start: a
+ * Start 6 s after a Stop came before any read saw it EXITED, the run before's uptime stood, the new run's lower one read as
+ * a restart, and its log said "its container restarted" (the 0.10.1 pod test).
+ */
+export function newContainer(s: Seen): void {
+  s.containerAt = null;
+  s.containerWas = null;
+  s.uptimeWas = null;
+  s.uptimeGot = null;
+  s.uptimeRun++;
+}
+
 /** What Rented asks of the queue (queue.ts): the work on each pod, which holds its idle time and its stops. */
 export interface QueueForRented {
   readonly events: EventEmitter;
@@ -269,8 +283,8 @@ export interface RentedDeps {
   onUp: (machine: string, files: PresetFile[], leaveOut: Array<{ file: string; folder: string }>) => void;
   /** What a pod was getting forgotten (podFiles.ts forget), its machine taken out. */
   forgetFiles: (machine: string) => void;
-  /** Its container restarted (RunPod's uptime of it reset): what it was sent is read on its lists again, the files gone fetched again (podFiles.ts recheck). */
-  containerRestarted: (machine: string) => void;
+  /** Its container restarted (RunPod's uptime of it reset), when it started (ms) if known: what it was sent is read on its lists again, the files gone fetched again (podFiles.ts recheck). */
+  containerRestarted: (machine: string, startedAt?: number) => void;
   /** The files a machine's pod still waits for (how many, their names), all it was given, the bytes in so far, and those that failed (podFiles). */
   filesLeft: (machine: string) => PodFilesLeft;
 }

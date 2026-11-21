@@ -124,7 +124,7 @@ describe("a rented pod's container restarted (card #336)", () => {
     // its disk came back empty
     rmSync(join(disk, "text_encoders", TE));
     await restarted();
-    expect(recheck).toHaveBeenCalledWith(id, true);
+    expect(recheck).toHaveBeenCalledWith(id, true, expect.any(Number));
     const a = await pinned(id);
     await until(() => pod.prompts.size === 1, 20_000);
     expect(onDisk()).toBe(true);
@@ -159,7 +159,22 @@ describe("a rented pod's container restarted (card #336)", () => {
     expect((await post(t.app, `/api/machines/${id}/start`, {})).statusCode).toBe(200);
     await until(async () => (await t.services.rented.poll(), runpod.pods[0]?.status === "RUNNING" && Boolean(runpod.pods[0].upAt)), 15_000);
     for (let i = 0; i < 3; i++) await uptimeRead();
-    expect(recheck).not.toHaveBeenCalledWith(id, true);
+    expect(recheck.mock.calls.filter(([m, container]) => m === id && container)).toEqual([]);
+  }, 40_000);
+
+  it("stopped and started again before any read saw it stopped: still a new container, not one restarted (P2)", async () => {
+    // the 0.10.1 pod test: Stop at 19:29:17, Start 6 s later, before the follow read the pod EXITED; its uptime from the
+    // run before (about 5 min) stood, the new run's 18 s was lower, and its log said "its container restarted"
+    const id = await deployed();
+    runpod.pods[0]!.upAt = new Date(Date.now() - 10 * 60_000).toISOString();
+    await uptimeRead();
+    const recheck = vi.spyOn(t.services.podFiles, "recheck");
+    expect((await post(t.app, `/api/machines/${id}/stop`, {})).statusCode).toBe(200);
+    await until(() => runpod.pods[0]?.status === "EXITED");
+    expect((await post(t.app, `/api/machines/${id}/start`, {})).statusCode).toBe(200);
+    await until(async () => (await t.services.rented.poll(), runpod.pods[0]?.status === "RUNNING" && Boolean(runpod.pods[0].upAt)), 15_000);
+    for (let i = 0; i < 3; i++) await uptimeRead();
+    expect(recheck.mock.calls.filter(([m, container]) => m === id && container)).toEqual([]);
   }, 40_000);
 
   it("RunPod's GraphQL hanging holds no read of the pods: their caps and idle times are not held behind it (P4)", async () => {
