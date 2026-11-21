@@ -11,7 +11,7 @@
 // the library as it was before the update and a note in DATA_DIR/updates/fallback.json for the server to show.
 import { spawn } from "node:child_process";
 import { closeSync, copyFileSync, existsSync, fstatSync, fsyncSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
-import { arch, release, totalmem } from "node:os";
+import { arch, homedir, release, totalmem } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -44,7 +44,19 @@ export function decide(s) {
   const notTheVersion = s.code === PORT_TAKEN || s.code === DATA_FOLDER;
   const firstStart = s.trial !== null && s.trial === s.version;
   if (!s.started && !byUser && !notTheVersion && firstStart && s.previous && s.previous !== s.version && s.previousInstalled) return { action: "fallback", to: s.previous };
-  return { action: "stop", code: s.code ?? 1 };
+  return { action: "stop", code: exitCode(s.code, byUser) };
+}
+
+/**
+ * The code this launcher exits with once the server stopped for good, as Afflatus.bat's `if errorlevel 1 pause` reads it:
+ * cmd takes an exit code as a signed number, so a native crash (0xC0000005 is -1073741819) or an End task (0xFFFFFFFF,
+ * -1) was below 1, and the window shut on the line saying why it stopped before it could be read. Any stop that is
+ * neither a clean one nor the user's own Ctrl+C gives 1 or more: the server's own small codes (3, 4, 7) as they are, every
+ * other 1. The .bat of an unpacked install never changes, so this has to be done here.
+ */
+export function exitCode(code, byUser = false) {
+  if (code === 0 || byUser) return code ?? 1;
+  return code !== null && code >= 1 && code <= 255 ? code : 1;
 }
 
 /** The signals that ask a process to stop, as Ctrl+C, a closed terminal or a shutdown send them; any other is a crash or a kill. */
@@ -77,7 +89,7 @@ export function stopLine(s) {
   return `Afflatus stopped: the server ended with exit code ${said}; what it said last is just above.${send}`;
 }
 
-/** How many days of logs data/logs keeps: the files of older days are taken away at a start. */
+/** How many days of logs data/logs keeps: the files of older days are taken away at a start, and at each new day of a long run. */
 export const LOG_DAYS = 14;
 /** A day's log past this size is set aside as afflatus-<day>.old.log (one only, the one before it replaced) and started afresh. */
 export const LOG_MAX = 32 * 1024 * 1024;
@@ -88,17 +100,40 @@ const LOG_NAME = /^afflatus-(\d{4}-\d{2}-\d{2})(?:\.old)?\.log$/;
 const dayOf = (at) => `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`;
 
 /**
+ * The user's home folder taken out of the text the log file keeps, as `~`: that log is the one people are asked to send,
+ * and its paths (the log's own, the library set aside on a fall back, every line of a crash's stack) named the account it
+ * ran under (C:\Users\<name>\...). Each form a path is printed in is caught: either slash, a file:// URL with its spaces as
+ * %20, and any case on Windows, where C:\Users and c:\users are the same folder. The paths the launcher works with are
+ * left as they are; only what is written down changes.
+ *
+ * @param {string} home
+ * @returns {(text: string) => string}
+ */
+export function hideHome(home, win = process.platform === "win32") {
+  const trimmed = home.replace(/[\\/]+$/, "");
+  // a home at the root of a disk (/, C:\) would turn every path into ~
+  if (!/[\\/][^\\/]/.test(trimmed)) return (text) => text;
+  const forms = [...new Set([trimmed, trimmed.replace(/\\/g, "/"), trimmed.replace(/\//g, "\\"), encodeURI(trimmed.replace(/\\/g, "/"))])];
+  const escape = (f) => f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // the whole folder only: /home/bob is not taken out of /home/bobby
+  const re = new RegExp(`(?:${forms.map(escape).join("|")})(?![\\w.-])`, win ? "gi" : "g");
+  return (text) => text.replace(re, "~");
+}
+
+/**
  * The bundle's log file: everything the server prints, and the launcher's own lines, each line stamped with its time, in
  * DATA_DIR/logs/afflatus-<day>.log, a file a day, kept LOG_DAYS days and LOG_MAX bytes at most. Each write goes to the
  * disk at once (a write to the file, not a buffer): a server killed the next moment leaves its last lines in the file.
- * A log that cannot be written never stops Afflatus: it is said once in the terminal and left off.
+ * A log that cannot be written never stops Afflatus: it is said once in the terminal and left off. The user's home folder
+ * is written as `~` in the file (hideHome), not in the terminal, where the path is there to be opened.
  *
  * @param {string} dir
- * @param {{ now?: () => Date, max?: number, days?: number, warn?: (line: string) => void }} [o]
+ * @param {{ now?: () => Date, max?: number, days?: number, warn?: (line: string) => void, home?: string }} [o]
  */
 export function openLog(dir, o = {}) {
   const now = o.now ?? (() => new Date());
   const max = o.max ?? LOG_MAX;
+  const hide = hideHome(o.home ?? homedir());
   const warn = o.warn ?? ((line) => process.stderr.write(`${line}\n`));
   let fd = null;
   let day = null;
@@ -118,6 +153,15 @@ export function openLog(dir, o = {}) {
     } catch {}
     warn(`[log] the log file in ${dir} cannot be written (${err.message}): Afflatus goes on, its lines in this terminal only.`);
   };
+  // the days past LOG_DAYS taken away: at the start, and again when a server left up for weeks reaches a new day, where
+  // up to 0.10.0 a long run kept every day's file (up to some 64 MB each)
+  const sweep = (at) => {
+    const oldest = dayOf(new Date(at.getTime() - (o.days ?? LOG_DAYS) * 86_400_000));
+    for (const name of readdirSync(dir)) {
+      const m = LOG_NAME.exec(name);
+      if (m && m[1] < oldest) rmSync(join(dir, name), { force: true });
+    }
+  };
   const open = (d) => {
     close();
     mkdirSync(dir, { recursive: true });
@@ -126,12 +170,9 @@ export function openLog(dir, o = {}) {
     day = d;
   };
   try {
-    open(dayOf(now()));
-    const oldest = dayOf(new Date(now().getTime() - (o.days ?? LOG_DAYS) * 86_400_000));
-    for (const name of readdirSync(dir)) {
-      const m = LOG_NAME.exec(name);
-      if (m && m[1] < oldest) rmSync(join(dir, name), { force: true });
-    }
+    const at = now();
+    open(dayOf(at));
+    sweep(at);
   } catch (err) {
     fail(err);
   }
@@ -141,8 +182,10 @@ export function openLog(dir, o = {}) {
     try {
       const at = now();
       const d = dayOf(at);
-      if (d !== day) open(d);
-      else if (size >= max) {
+      if (d !== day) {
+        open(d);
+        sweep(at);
+      } else if (size >= max) {
         close();
         renameSync(fileOf(d), join(dir, `afflatus-${d}.old.log`));
         open(d);
@@ -154,7 +197,7 @@ export function openLog(dir, o = {}) {
         out += part;
         atStart.set(from, part.endsWith("\n"));
       }
-      const bytes = Buffer.from(out);
+      const bytes = Buffer.from(hide(out));
       writeSync(fd, bytes);
       size += bytes.length;
     } catch (err) {
@@ -334,7 +377,7 @@ async function main() {
   const port = Number(env.PORT) || 8720;
   if (command) {
     const run = spawn(process.execPath, [join(app, "apps", "server", "dist", "index.mjs"), ...process.argv.slice(2)], { env, stdio: "inherit" });
-    process.exit(await new Promise((done) => run.on("exit", (code) => done(code ?? 1))));
+    process.exit(await new Promise((done) => run.on("exit", (code) => done(exitCode(code)))));
   }
   // the log file, which the terminal's lines are lost without: what the server said before a stop that came with no word
   const log = openLog(join(env.DATA_DIR, "logs"));
