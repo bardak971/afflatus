@@ -9,13 +9,20 @@
  */
 
 /**
- * Whether this browser draws an SVG filter on a video. Told by the engine, not by a feature test: the filter is taken and
- * kept by Safari (CSS.supports says yes) and only its drawing leaves it out, which the page cannot read back (a canvas
- * draws the video without its CSS). Every browser on WebKit (Safari, and any browser on an iPhone) says AppleWebKit and no
- * Chrome; Chrome, Edge and Opera say both.
+ * Whether this browser runs on WebKit, whose media the player works around (its filters here, its seeks in useHandover).
+ * Every browser on WebKit (Safari, and any browser on an iPhone) says AppleWebKit and no Chrome; Chrome, Edge and Opera say both.
+ */
+export function onWebKit(ua = typeof navigator === "undefined" ? "" : navigator.userAgent): boolean {
+  return /AppleWebKit/.test(ua) && !/Chrome\//.test(ua);
+}
+
+/**
+ * Whether this browser draws an SVG filter on a video. Told by the engine (onWebKit), not by a feature test: the filter is
+ * taken and kept by Safari (CSS.supports says yes) and only its drawing leaves it out, which the page cannot read back (a
+ * canvas draws the video without its CSS).
  */
 export function svgFiltersOnVideo(ua = typeof navigator === "undefined" ? "" : navigator.userAgent): boolean {
-  return !/AppleWebKit/.test(ua) || /Chrome\//.test(ua);
+  return !onWebKit(ua);
 }
 
 /**

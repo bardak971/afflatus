@@ -1,6 +1,7 @@
 import { useEffect, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { FRAME_SLACK_MS, joinFade, MIN_FADE_MS, soundHandover, TRANSITIONS, transitionSpan } from "@afflatus/core";
 import type { Clip } from "../api";
+import { onWebKit } from "./nudgeLook";
 import { heardByVideo } from "./useSong";
 
 /**
@@ -13,7 +14,9 @@ const PREROLL_MS = 300;
  * How long before a clip ends the clip after is put, paused and hidden, where its pre-roll will start: a seek takes time, and
  * made at the pre-roll it could make the clip after late. Safari's exact seek into a take with one keyframe (every take a pod
  * makes) can take longer than PREROLL_MS: this clip then stayed on its last frame (HOLD_MS) and the clip after came in ahead,
- * frames skipped, at every join (the owner, 2026-11-10; check:player's pass with slow seeks).
+ * frames skipped, at every join (the owner, 2026-11-10; check:player's pass with slow seeks). Made on WebKit only (slowSeeks):
+ * left there, the clip after may start up to SEEK_SLACK_MS behind where it should, and a browser whose seeks are quick
+ * (Chrome) is sought once, at its pre-roll, to the very moment, as in 0.10.0.
  */
 const PREPARE_MS = 1500;
 /** How far off where it should start the clip after may be put and not be sought again at its pre-roll: one display refresh, and a little. */
@@ -102,6 +105,8 @@ export interface Handover {
   tuneMusic(global: number, force?: boolean): void;
   keyOf(c: Clip): string;
   startOf(c: Clip): number;
+  /** Whether the clip after is sought ahead (PREPARE_MS): on WebKit, whose seeks are slow (onWebKit, the default). */
+  slowSeeks?: boolean;
 }
 
 /**
@@ -112,14 +117,25 @@ export interface Handover {
  */
 export function useHandover(h: Handover) {
   const { seq, at, playing, els, pos, said, masterRef, fadeOn, fadedIn, handReady, armed, thaw, crossOn, cross, setFrozen, setFading, place, onPlaying, onTime, tuneMusic, keyOf, startOf } = h;
+  const slowSeeks = h.slowSeeks ?? onWebKit();
   /**
    * How late a video runs after it is told to play from a moment: it is started that much ahead. Learned at every join
    * (60 to 85 ms measured). Kept in step by its speed instead, it was in step at the take-over but its frames then came
    * unevenly (one display refresh, then five) for most of a second after it, at every join (2026-10-08).
    */
   const startLag = useRef(70);
-  /** When the clip after was started, and whether it was checked once since. */
-  const started = useRef({ at: 0, checked: false });
+  /**
+   * When the clip after was started, whether it was checked once since, and how far behind where it should be it was put
+   * then (left where it was sought ahead, SEEK_SLACK_MS at most): that much is not the delay it loses, never learned as such.
+   */
+  const started = useRef({ at: 0, checked: false, behind: 0 });
+  /**
+   * The video held on its last frame under a dissolve, and until when (the thaw's time: a seek that ends the dissolve
+   * sooner leaves it to run out). The player keeps one video a take, so a clip two on (A, then B dissolved in over A, then
+   * C of A's take) is that very element: put where its pre-roll starts while A was still seen under B, A's held frame
+   * jumped to C's mid-dissolve.
+   */
+  const frozenEl = useRef<{ el: HTMLVideoElement | null; until: number }>({ el: null, until: 0 });
   const step = useRef<() => boolean>(() => false);
   useEffect(() => {
     if (!playing) return;
@@ -163,6 +179,7 @@ export function useHandover(h: Handover) {
             el.pause();
             window.clearTimeout(thaw.current);
             setFrozen(c);
+            frozenEl.current = { el, until: t + dissolve + 60 };
             thaw.current = window.setTimeout(() => setFrozen(null), dissolve + 60);
             const nextVideo = following.take ? els.current.get(following.take.id) : undefined;
             // design: the dissolve is the video's own (the export draws it), so it plays with reduced motion too
@@ -237,8 +254,10 @@ export function useHandover(h: Handover) {
         v.requestVideoFrameCallback(watch);
       };
       // put where its pre-roll will start while it waits (PREPARE_MS), once its file says where things are; one a transition
-      // holds waits on its first frame, where it was put when it came on the page
-      if (nextEl && nextEl !== el && !prepared && !fadeOn.current && !holdFirst && after && remaining <= PREPARE_MS && remaining > PREROLL_MS && nextEl.paused && nextEl.readyState >= 1) {
+      // holds waits on its first frame, where it was put when it came on the page. Never the video still seen under a dissolve
+      // (frozenEl): the clip after's own when it is of the same take as the clip before this one
+      const underDissolve = nextEl === frozenEl.current.el && t < frozenEl.current.until;
+      if (slowSeeks && nextEl && nextEl !== el && !underDissolve && !prepared && !fadeOn.current && !holdFirst && after && remaining <= PREPARE_MS && remaining > PREROLL_MS && nextEl.paused && nextEl.readyState >= 1) {
         prepared = true;
         const ready = Math.max(0, startOf(after) - PREROLL_MS + lag);
         if (Math.abs(nextEl.currentTime * 1000 - ready) > SEEK_SLACK_MS) nextEl.currentTime = ready / 1000;
@@ -255,13 +274,13 @@ export function useHandover(h: Handover) {
         // made the frames come unevenly elsewhere). A fade or a dissolve brings it in itself
         if (!blend && !dissolveOf(after, c)) nextEl.style.opacity = "0.004";
         // started ahead by the delay it will lose; a clip that starts at its very first frame waits there, paused on it (and
-        // one a transition holds, on its first frame shown). Put there already (see PREPARE_MS), it is not sought again: a
-        // little ahead, it waits until it is due (below)
+        // one a transition holds, on its first frame shown). Put there already on WebKit (see PREPARE_MS), it is not sought
+        // again: a little ahead, it waits until it is due (below). Elsewhere it is sought to the very moment
         const want = holdFirst && after ? startOf(after) : Math.max(0, expected + lag);
-        if (Math.abs(nextEl.currentTime * 1000 - want) > SEEK_SLACK_MS) nextEl.currentTime = want / 1000;
+        if (Math.abs(nextEl.currentTime * 1000 - want) > (slowSeeks ? SEEK_SLACK_MS : 0)) nextEl.currentTime = want / 1000;
         if (!holdFirst && expected + lag >= nextEl.currentTime * 1000 - 4) {
           void nextEl.play().catch(() => {});
-          started.current = { at: t, checked: false };
+          started.current = { at: t, checked: false, behind: expected + lag - nextEl.currentTime * 1000 };
           if (after) arm(nextEl, startOf(after));
         }
       }
@@ -269,14 +288,16 @@ export function useHandover(h: Handover) {
         // one that waited on its first frame starts when it is due, as early as it will be late
         if (nextEl.paused && (holdFirst ? remaining <= lag : expected + lag >= nextEl.currentTime * 1000 - 4 && remaining > 30)) {
           void nextEl.play().catch(() => {});
-          started.current = { at: t, checked: false };
+          started.current = { at: t, checked: false, behind: expected + lag - nextEl.currentTime * 1000 };
           if (after) arm(nextEl, startOf(after));
         } else if (!holdFirst && !nextEl.paused && !started.current.checked && t - started.current.at > 200 && expected >= 0) {
           // once, out of sight, when it has settled: how far off it runs teaches the next join. It is not set right here
           // with a seek: started PREROLL_MS before the take-over and settled 200 ms later, it is 100 ms at most from being
           // shown, and a seek that close stalls its picture at the take-over (never by its speed either)
           started.current.checked = true;
-          const off = expected - nextEl.currentTime * 1000;
+          // less what it was put behind (started.behind): left a refresh short where it was sought ahead, that error taught
+          // the next join a delay it does not lose, a clip after started that much early
+          const off = expected - nextEl.currentTime * 1000 - started.current.behind;
           startLag.current = Math.max(0, Math.min(200, lag + off * 0.7 + 4));
         }
       }

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-import { clearStaleMarkers, decide, openLog, restoreLibrary, stopLine, versionName } from "../../../scripts/release/launch.mjs";
+import { clearStaleMarkers, decide, exitCode, hideHome, openLog, restoreLibrary, stopLine, versionName } from "../../../scripts/release/launch.mjs";
 import { until } from "./helpers";
 
 /** Renames onto these paths fail, as one a virus scanner holding the file keeps failing past renameSoon's tries. */
@@ -55,6 +55,22 @@ describe("the bundle's launch: what happens when the server stops", () => {
     expect(decide({ ...base, code: null, signal: "SIGINT" })).toEqual({ action: "stop", code: 1 });
     expect(decide({ ...base, code: 0xc000013a })).toEqual({ action: "stop", code: 0xc000013a });
     expect(decide({ ...base, code: 130 })).toEqual({ action: "stop", code: 130 });
+  });
+
+  it("exits 1 or more for every stop that is not clean nor the user's, as Afflatus.bat's `if errorlevel 1 pause` reads it (L1)", () => {
+    // cmd reads these as negative: -1073741819, -1073741571, -1 (an End task); the window shut before the line saying why
+    for (const code of [0xc0000005, 0xc00000fd, 0xffffffff, 0x80000003]) {
+      expect(decide({ ...base, started: true, code })).toEqual({ action: "stop", code: 1 });
+      expect(decide({ ...base, trial: null, code })).toEqual({ action: "stop", code: 1 });
+    }
+    // past what a POSIX shell keeps (256 would read as 0 there), and a negative code
+    expect(exitCode(256)).toBe(1);
+    expect(exitCode(-1)).toBe(1);
+    expect(exitCode(null)).toBe(1);
+    // the server's own codes are kept, a clean stop and the user's Ctrl+C too (no pause after those)
+    for (const code of [1, 3, 4, 7, 255]) expect(exitCode(code)).toBe(code);
+    expect(exitCode(0)).toBe(0);
+    expect(decide({ ...base, started: true, code: 0xc000013a })).toEqual({ action: "stop", code: 0xc000013a });
   });
 
   it("takes a crash or a kill during the first start for the version's, a stop asked for for the user's", () => {
@@ -124,6 +140,48 @@ describe("the bundle's log file", () => {
     expect(log.path).toBe(join(logs, "afflatus-2026-11-11.log"));
     expect(readFileSync(log.path!, "utf8")).toMatch(/the next day\n$/);
     log.close();
+  });
+
+  it("takes away the days past LOG_DAYS again when a long run reaches a new day, not only at its start (L2)", () => {
+    const logs = join(dir, "d");
+    mkdirSync(logs, { recursive: true });
+    let at = new Date(2026, 10, 10, 23, 59);
+    const log = openLog(logs, { now: () => at, days: 14 });
+    // written while the run was up: the 27th is the last day kept on the 10th, not on the 11th
+    for (const name of ["afflatus-2026-10-27.log", "afflatus-2026-10-27.old.log", "afflatus-2026-10-28.log", "afflatus.log"]) writeFileSync(join(logs, name), "zz-test");
+    log.write("before midnight\n");
+    expect(readdirSync(logs)).toContain("afflatus-2026-10-27.log");
+    at = new Date(2026, 10, 11, 0, 1);
+    log.write("after midnight\n");
+    expect(readdirSync(logs).sort()).toEqual(["afflatus-2026-10-28.log", "afflatus-2026-11-10.log", "afflatus-2026-11-11.log", "afflatus.log"]);
+    log.close();
+  });
+
+  it("writes the user's home folder as ~ in the file, in every form a path is printed, and only the whole folder (L3)", () => {
+    const win = hideHome("C:\\Users\\zz test", true);
+    expect(win("Its log: C:\\Users\\zz test\\Afflatus\\data\\logs\\afflatus-2026-11-10.log")).toBe("Its log: ~\\Afflatus\\data\\logs\\afflatus-2026-11-10.log");
+    expect(win("    at main (file:///C:/Users/zz%20test/Afflatus/versions/0.10.1/app/launch.mjs:12:3)")).toBe("    at main (file:///~/Afflatus/versions/0.10.1/app/launch.mjs:12:3)");
+    expect(win("at c:\\users\\ZZ TEST\\x.js and C:/Users/zz test/y.js")).toBe("at ~\\x.js and ~/y.js");
+    expect(win("C:\\Users\\zz testing\\x.js")).toBe("C:\\Users\\zz testing\\x.js");
+    const mac = hideHome("/Users/zz/", false);
+    expect(mac("kept in /Users/zz/Afflatus/data/backups/after-failed-0.4.1.db; /Users/zzz/a, /Users/ZZ/b")).toBe("kept in ~/Afflatus/data/backups/after-failed-0.4.1.db; /Users/zzz/a, /Users/ZZ/b");
+    // a home at a disk's root is no folder of anyone's
+    expect(hideHome("/", false)("/var/log")).toBe("/var/log");
+    expect(hideHome("C:\\", true)("C:\\x")).toBe("C:\\x");
+
+    const logs = join(dir, "e");
+    const log = openLog(logs, { home: dir });
+    // the terminal's copy keeps the path as it is (to be opened), and is not wanted in the test's output
+    const out = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    log.say(`Its log: ${log.path}`);
+    expect(out).toHaveBeenCalledWith(`Its log: ${log.path}\n`);
+    out.mockRestore();
+    log.write(`Error: zz-test\n    at ${join(dir, "app", "x.mjs")}:1:1\n`, "err");
+    const text = readFileSync(log.path!, "utf8");
+    log.close();
+    expect(text).not.toContain(dir);
+    expect(text).toContain(`Its log: ${join("~", "e", "afflatus-")}`);
+    expect(text).toContain(`at ${join("~", "app", "x.mjs")}:1:1`);
   });
 
   it("never stops Afflatus when it cannot be written: said once, then left off", () => {
@@ -286,6 +344,14 @@ describe("the bundle's launch, run in a pretend bundle", () => {
     expect(current()).toBe("0.4.1");
     expect(existsSync(fallbackNote)).toBe(false);
     rmSync(join(root, "versions", "trial"));
+  });
+
+  it.runIf(process.platform === "win32")("exits 1 when the server ends with a code cmd reads as negative, so the .bat pauses on why (L1)", () => {
+    // -1 is 0xFFFFFFFF on Windows, as an End task gives
+    version("0.4.1", `writeFileSync(process.env.AFFLATUS_STARTED_FILE, ""); process.exit(-1);`);
+    const r = spawnSync(process.execPath, [join(root, "versions", "0.4.1", "app", "launch.mjs")], { env: envOf(), encoding: "utf8" });
+    expect(r.stderr).toMatch(/exit code 0xFFFFFFFF;/);
+    expect(r.status).toBe(1);
   });
 
   it("leaves the running one's marker on a second launch, and neither falls back", async () => {

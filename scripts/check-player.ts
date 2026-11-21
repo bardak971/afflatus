@@ -116,6 +116,9 @@ const SAFARI_CLOCK = `{
     HTMLMediaElement.prototype.play = function () { put(this, time.get.call(this), true); return play.call(this); };
   }`;
 
+/** Safari's user agent, for the passes played as its media (the player tells WebKit by it, useHandover's slowSeeks). */
+const SAFARI_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15";
+
 const dir = mkdtempSync(join(tmpdir(), "afflatus-player-"));
 const db = openSqlite(":memory:");
 await migrate(db);
@@ -216,7 +219,8 @@ try {
    * (SAFARI_CLOCK and SLOW_SEEK), with its frame callbacks never coming too when `silent` (SILENT_FRAMES).
    */
   const playChain = async (loaded: boolean, as: { safari?: boolean; silent?: boolean } = {}) => {
-    const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+    // as Safari, the player is told it is on WebKit too (SAFARI_UA): it seeks the clip after ahead only there
+    const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, ...(as.safari && !inWebkit ? { userAgent: SAFARI_UA } : {}) });
     await page.addInitScript(WATCH);
     if (as.safari) {
       await page.addInitScript(SAFARI_CLOCK);

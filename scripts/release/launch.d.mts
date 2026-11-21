@@ -4,6 +4,8 @@ export declare const PORT_TAKEN: 3;
 export declare const DATA_FOLDER: 4;
 export type Next = { action: "restart" } | { action: "fallback"; to: string } | { action: "stop"; code: number };
 export declare function decide(s: { code: number | null; signal: string | null; started: boolean; version: string; trial: string | null; previous: string | null; previousInstalled: boolean }): Next;
+export declare function exitCode(code: number | null, byUser?: boolean): number;
+export declare function hideHome(home: string, win?: boolean): (text: string) => string;
 export declare function versionName(name: unknown): string | null;
 export declare function clearStaleMarkers(versionDir: string, isAlive?: (pid: number) => boolean): void;
 export declare function restoreLibrary(dataDir: string, version: string, at?: Date): string | null | false;
@@ -18,4 +20,4 @@ export interface Log {
   say(line: string, err?: boolean): void;
   close(): void;
 }
-export declare function openLog(dir: string, o?: { now?: () => Date; max?: number; days?: number; warn?: (line: string) => void }): Log;
+export declare function openLog(dir: string, o?: { now?: () => Date; max?: number; days?: number; warn?: (line: string) => void; home?: string }): Log;
