@@ -4,8 +4,27 @@ Every release of Afflatus, newest first. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-21
+
+Fixes after 0.10.0: Detail and the face passes see faces again on rented GPUs, big downloads wait out a site's rate limit, a pod whose container restarts fetches its files again, the bundle says why it stopped and keeps a log, Safari plays joins smoothly; plus an X/Y/Z model axis across families and Detail's max faces. Pods on image 0.1.61, node pack 0.50.4.
+
+### Added
+- **An X/Y/Z Model axis across families** (card #294): the same prompt on SDXL, Klein, Krea 2, MOSS… as one grid, values typed A1111's way (`illustrious, Klein: base-4b, moss: moss`) or picked from a list grouped by family. Each cell renders on its own family's form (its steps, CFG and LoRAs; the prompt, negative, size and seed carried), the board and queue name the family, and an axis a family cannot take is said before anything is priced. On a rented GPU every family's missing files are counted once in the price, the "up to" figure, the ask and MCP's hold ("Fetches 3 model files first: 24.1 GB, about 9 min"). MCP's render_grid takes the same axis.
+- **Detail: max faces / hands / people** (card #334), ADetailer's "top k largest": a row under each detector's size gate. Faces 0 (no cap) by default; hands 4 and person 2, the caps they already had, now shown.
+
+### Changed
+- **Face passes on distilled files run their own share of steps** (card #330): Krea 2 Turbo's Face refine and Detail face 8 → 3 steps, distilled Klein's 8 (or 4) → 2. A pod A/B found Krea 2 Turbo's 8 steps grainy and 3 clean, Klein's 2 the same as 8 by eye, all 2–3× faster.
+- **The prompt designer stops putting a camera push-in in every clip**: H3's camera rule says a still camera is often right and a move only when the action calls for it (its one example was a push-in toward the face); LTX's and Wan's guides likewise.
+- **Pods deploy on afflatus-pod 0.1.61** (node pack 0.50.4).
+
 ### Fixed
+- **Detail, Face refine and Find mask on rented GPUs** (card #335): after a diffusion model had run, ComfyUI's DynamicVRAM left the YOLO face detector broken on pods: 300 boxes on leaves and sky (a real face blacked out), or none at all. The face, hand and person detectors now run on the CPU (node pack 0.50.2's "Afflatus: YOLO Detector on CPU", 0.2–0.3 s a picture), the Subpack's on older packs.
 - **Downloads wait out a site's rate limit** instead of giving up after 30 s. Two files of 20 GB from Civitai at once failed at 12.8 and 14.7 GB on a 429 from its file server (Cloudflare's page, Retry-After 56 s), counted as a 5xx: five tries over 30 s. Now a 429 counts no try: its Retry-After is waited out (held between 5 s and 10 min; without one 30 s, then 60, 120, 240), by every download from that site, the requests that waited for a connection meanwhile included (none asks into the wait), and the download is given up once 18 minutes of 429s have gone by with nothing coming. The connections that met the same 429 wait as long as each other: the wait grows at the first 429 of each rush only. A 429 to a piece keeps the file in parts on the same link, over half the connections for 10 minutes (the downloads of the site together, a Download again included), never down to one at once; a 429 never asks for a fresh link, link requests to a site go one at a time, and one connection carrying on after the parts uses the link they had. The Downloads list says it: "Civitai asks to slow down (429): waiting 56 s, then carrying on over 4 connections from 12.8 GB". The node pack (0.50.4) does the same on pods.
+- **A rented GPU whose container restarts fetches its files again** (card #336) instead of failing its jobs ("came to its pod, and its ComfyUI did not list it"): the restart is read from RunPod's uptime and ComfyUI's reconnect, the pod's folders are read again, what is gone is fetched for the jobs that need it, a volume's files are left alone. The pod's card and Queue row say "Container restarted: 2 files fetched again". A job held on a billed pod while its file was checked starts at once, and a Stop then Start is not taken for a restart.
+- **The bundle says why it stopped, and keeps a log**: a server killed by a signal (SIGKILL, a crash) made the launcher quit with nothing printed; on Windows a crash's negative code closed the console before its line could be read. Every stop now says why, a crash prints its stack, and `data/logs/afflatus-YYYY-MM-DD.log` keeps every line (14 days, the home folder written as `~`).
+- **Joins in Safari play smoothly**: the next clip was sought 300 ms before the cut, and Safari's slower seek on a one-keyframe take froze then jumped; on WebKit it is now placed 1.5 s ahead. Its colour match at joins is drawn as brightness (Safari draws no SVG filter on video). Chrome plays as before.
+- **Find models comes back where it was** after a model opened from the results is closed, not at the top.
+- **The form's "more below" fade lets clicks through**: as a 48 px button the width of the form it took the first click meant for a fold header or a picker under it.
 
 ## [0.10.0] - 2026-11-06
 
@@ -969,7 +988,8 @@ The 0.6.0 cycle: the timeline reworked around sources, recordings and joins, H3 
 
 The first release: the Studio and its library, a form per model family, timelines, the prompt kit, imported workflows, the queue, the node pack, the Docker image, the Helm chart and the desktop bundles.
 
-[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/bardak971/afflatus/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/bardak971/afflatus/releases/tag/v0.10.1
 [0.10.0]: https://github.com/bardak971/afflatus/releases/tag/v0.10.0
 [0.9.1]: https://github.com/bardak971/afflatus/releases/tag/v0.9.1
 [0.9.0]: https://github.com/bardak971/afflatus/releases/tag/v0.9.0
