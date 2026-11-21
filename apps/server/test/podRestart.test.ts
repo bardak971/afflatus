@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFakeComfy, startFakeRunpod, type FakeComfy, type FakeRunpod } from "@afflatus/comfy/testing";
 import { h3 } from "@afflatus/recipes";
+import { Runpod } from "../src/runpod";
 import { readSettings, writeSettings } from "../src/settings";
 import { makeApp, makeFake, post, referenceCatalog, until, type TestApp } from "./helpers";
 
@@ -103,8 +104,15 @@ async function sent(id: string): Promise<void> {
 async function restarted(): Promise<void> {
   // up ten minutes by its last read
   runpod.pods[0]!.upAt = new Date(Date.now() - 10 * 60_000).toISOString();
-  await t.services.rented.poll();
+  await uptimeRead();
   runpod.pods[0]!.upAt = new Date().toISOString();
+  await uptimeRead();
+}
+
+/** Its uptime as RunPod's GraphQL says it now, read: asked apart from the follow, its answer taken at the read after. */
+async function uptimeRead(): Promise<void> {
+  await t.services.rented.poll();
+  await new Promise((r) => setTimeout(r, 100));
   await t.services.rented.poll();
 }
 
@@ -139,6 +147,32 @@ describe("a rented pod's container restarted (card #336)", () => {
     expect(pod.packFetched).toHaveLength(1);
     expect(await job(a)).toMatchObject({ status: "running", error: null });
   }, 40_000);
+
+  it("stopped and started again: a new container, not one restarted, and nothing said or read again for it (P2)", async () => {
+    const id = await deployed();
+    runpod.pods[0]!.upAt = new Date(Date.now() - 10 * 60_000).toISOString();
+    await uptimeRead();
+    const recheck = vi.spyOn(t.services.podFiles, "recheck");
+    expect((await post(t.app, `/api/machines/${id}/stop`, {})).statusCode).toBe(200);
+    await until(async () => (await t.services.rented.poll(), runpod.pods[0]?.status === "EXITED"));
+    await t.services.rented.poll();
+    expect((await post(t.app, `/api/machines/${id}/start`, {})).statusCode).toBe(200);
+    await until(async () => (await t.services.rented.poll(), runpod.pods[0]?.status === "RUNNING" && Boolean(runpod.pods[0].upAt)), 15_000);
+    for (let i = 0; i < 3; i++) await uptimeRead();
+    expect(recheck).not.toHaveBeenCalledWith(id, true);
+  }, 40_000);
+
+  it("RunPod's GraphQL hanging holds no read of the pods: their caps and idle times are not held behind it (P4)", async () => {
+    await deployed();
+    // the read its boot asked, answered
+    await uptimeRead();
+    const hang = vi.spyOn(Runpod.prototype, "uptime").mockImplementation(() => new Promise((r) => setTimeout(() => r(null), 3000)));
+    const from = Date.now();
+    await t.services.rented.poll();
+    expect(hang).toHaveBeenCalled();
+    expect(Date.now() - from).toBeLessThan(1500);
+    hang.mockRestore();
+  }, 20_000);
 
   it("its restart not seen (RunPod said nothing): the job's submit finds the file gone, has it fetched again, and runs, no attempt spent", async () => {
     const id = await deployed();

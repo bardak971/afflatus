@@ -873,8 +873,53 @@ def test_429s_without_a_retry_after_wait_longer_each_time_and_give_up_once_the_p
     job = _in_parts(_direct(tmp_path, s.url), parts_from=SIZE + 1, calm=downloads._Calm(), limit={"first": 0.05, "patience": 0.5})
     assert job.state == "error"
     assert re.match(r"^the source kept asking to slow down for \d+ s \(it answered 429\)$", job.error)
-    # waits of 0.05, 0.1 and 0.2 s; the next, 0.4, would have gone past the patience
-    assert len(s.asked) == 4
+    # waits of 0.05, 0.1 and 0.2 s, then the 0.15 s left of the patience (not 0.4): asked once more as it ends, then given up
+    assert len(s.asked) == 5
+
+
+def test_the_patience_grows_only_at_the_first_429_of_a_rush_and_ends_when_it_is_spent_not_before():
+    patience = downloads._Patience({**downloads.LIMIT, "first": 30, "patience": 1080, "most": 600})
+    # four connections sent at 99 meet the same rush: each waits the first wait, not 30, 60, 120, 240
+    assert [patience.wait(None, 100 + i, 99) for i in range(4)] == [30, 30, 30, 30]
+    # the next rush, to a request sent after the last 429, waits twice as long
+    assert patience.wait(None, 140, 135) == 60
+    # two 429s saying 10 min: the second waits the 8 min left of the 18, it no longer gives up at 10
+    ten = downloads._Patience({**downloads.LIMIT, "patience": 1080, "most": 600})
+    assert ten.wait(600, 0, -1) == 600
+    assert ten.wait(600, 600, 599) == 480
+    with pytest.raises(downloads._Passing, match="for 18 min"):
+        ten.wait(600, 1080, 1079)
+
+
+def test_requests_that_waited_for_a_connection_ask_nothing_during_the_hold_a_429_began(tmp_path, parts_site):
+    # two files at once, 8 connections for the 4 there are; every part asked within 1 s of the first is answered 429,
+    # saying 1 s, a moment late (the 4 others meanwhile waiting for a connection): only the 4 sent met it
+    window = {}
+    served = []
+
+    def fault(n, start):
+        if re.match(r"^bytes=(\d+)-\1$", s.asked[n] or ""):
+            return None
+        window.setdefault("until", time.time() + 1.0)
+        if time.time() < window["until"]:
+            served.append(n)
+            threading.Event().wait(0.2)
+            return (429, {"Retry-After": "1"})
+        return None
+
+    s = parts_site(fault=fault, delay=0.02)
+    calm = downloads._Calm()
+    slots = threading.BoundedSemaphore(4)
+    jobs = [_direct(tmp_path, s.url, name=f"{n}.safetensors") for n in "ab"]
+    threads = [threading.Thread(target=_in_parts, args=(j,), kwargs={"width": 4, "slots": slots, "calm": calm, "limit": {"least": 0}}) for j in jobs]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(30)
+    assert [(j.state, j.error) for j in jobs] == [("done", None), ("done", None)]
+    assert 0 < len(served) <= 4
+    # one rush, halved once
+    assert calm.width(_host(s), 4, time.time()) == 2
 
 
 def test_a_429_to_the_first_byte_asked_is_waited_out_and_the_file_still_comes_in_parts(tmp_path, parts_site):

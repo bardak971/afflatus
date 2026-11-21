@@ -878,8 +878,11 @@ export class PodFiles {
     void this.tick();
   }
 
-  /** The pods whose files are read again on their own lists (recheck): since when, and whether RunPod said its container restarted. */
-  private readonly rechecks = new Map<string, { since: number; container: boolean }>();
+  /**
+   * The pods whose files are read again on their own lists (recheck): since when, since when one has been pending (`first`:
+   * a socket opening again after RunPod's restart), and whether RunPod said its container restarted.
+   */
+  private readonly rechecks = new Map<string, { since: number; first: number; container: boolean }>();
   /** The pods whose lists are being read for that now (verifyAll): one read at a time per pod. */
   private readonly verifying = new Set<string>();
   /** What each pod last lost and is getting again (lostOf), for its card and its row. */
@@ -900,7 +903,8 @@ export class PodFiles {
     if (!pod?.size) return;
     // a restart is no hint: a file fetched once on a hint may be fetched again now
     for (const e of pod.values()) delete e.lostOnce;
-    this.rechecks.set(machine, { since: Date.now(), container: container || Boolean(this.rechecks.get(machine)?.container) });
+    const was = this.rechecks.get(machine);
+    this.rechecks.set(machine, { since: Date.now(), first: was?.first ?? Date.now(), container: container || Boolean(was?.container) });
     void this.tick();
   }
 
@@ -938,8 +942,9 @@ export class PodFiles {
       if (!re || this.rechecks.get(machine) !== re) return;
       if (lost !== null) {
         this.rechecks.delete(machine);
-        // its container restarted, its files all still there (a network volume's): its card says so all the same
-        if (re.container && lost === 0) this.agains.set(machine, { at: Date.now(), files: 0, lost: 0, restart: true });
+        // its container restarted, its files all still there (a network volume's): its card says so all the same. Not over
+        // what a read of the same restart found lost (its socket opened again meanwhile): "N files fetched again" stands
+        if (re.container && lost === 0 && !((this.agains.get(machine)?.at ?? -Infinity) >= re.first)) this.agains.set(machine, { at: Date.now(), files: 0, lost: 0, restart: true });
         if (re.container) this.d.changed?.();
       } else if (Date.now() - re.since >= RECHECK_MS) {
         this.rechecks.delete(machine);
@@ -967,22 +972,31 @@ export class PodFiles {
     };
     const read = await Promise.all(entries.map(async (e) => ({ e, files: await listOf(e.folder) })));
     const now = Date.now();
+    // a job held for one of them (verify, jobState) may start once it is read, whatever its list says
+    let held = false;
     for (const { e } of read) {
+      held ||= Boolean(e.verify);
       delete e.verify;
       e.verifiedAt = now;
     }
     if (read.length && read.every((r) => r.files === null)) return null;
     // a folder that did not answer says nothing of its files: they stay as they were
     const gone = read.filter((r) => r.files !== null && !r.files.includes(fileName(r.e.file)) && this.current(machine, r.e) && r.e.state === "ready").map((r) => r.e);
-    if (!gone.length) return 0;
+    if (!gone.length) {
+      // all still there: the queue is told, else a quiet pod billed idle with the job held until its idle time ran out
+      if (held && this.pods.has(machine)) this.d.settled?.(machine, false);
+      return 0;
+    }
     const ids = [...new Set(gone.flatMap((e) => [...e.jobs, ...(e.sentFor ?? [])]))];
     const active = new Set(ids.length ? (await this.d.db.selectFrom("jobs").select("id").where("id", "in", ids).where("status", "in", ["queued", "running"]).execute()).map((j) => j.id) : []);
     const pod = this.pods.get(machine);
+    // forgotten meanwhile (terminated, stopped, removed; deployed again since): nothing of it is said or fetched again
+    if (!pod || !gone.some((e) => this.current(machine, e))) return 0;
     let again = 0;
     for (const e of gone) {
       if (!this.current(machine, e) || e.state !== "ready") continue;
       if (!e.byUser && ![...e.jobs, ...(e.sentFor ?? [])].some((j) => active.has(j))) {
-        pod?.delete(keyOf(e.folder, e.file));
+        pod.delete(keyOf(e.folder, e.file));
         let lost = this.forgotten.get(machine);
         if (!lost) this.forgotten.set(machine, (lost = new Set()));
         lost.add(keyOf(e.folder, e.file));
@@ -1002,7 +1016,7 @@ export class PodFiles {
     console.warn(`[pod files] ${machine}: ${restart ? "its container restarted without" : "its ComfyUI no longer lists"} ${plural(gone.length, "file")} it had; ${again} fetched again now (the others when a job asks)`);
     this.agains.set(machine, { at: now, files: again, lost: gone.length, restart });
     // its disk is emptier: read again, and the files failed for want of room go back in line, as after files deleted (freed)
-    for (const e of pod?.values() ?? []) {
+    for (const e of pod.values()) {
       if (e.state !== "failed" || !(NO_ROOM.test(e.error ?? "") || DISK_FULL.test(e.error ?? ""))) continue;
       e.state = "next";
       e.nextAt = now;

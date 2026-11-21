@@ -58,6 +58,8 @@ that grows from 30 s), by every download from that host, and the download is giv
 LIMIT's patience with nothing of the file coming. A 429 to a piece leaves the file in parts on the same link, over half the
 connections for a while (the downloads from that host together), never over one at once. Civitai's file server, behind
 Cloudflare, answered 429 with Retry-After 56 (2026-11-12): five tries over 30 s, as for a 5xx, gave two files of 20 GB up.
+Since 0.50.4 a request that waited for a connection while a 429 came waits its hold out before it asks (_turn), the wait grows
+only at the first 429 of a rush, and the patience is counted to when it is spent, the last wait cut to what is left of it.
 """
 
 import asyncio
@@ -546,16 +548,11 @@ def _taken_over(job):
     return best[1]
 
 
-@contextlib.contextmanager
-def _slot(job, slots):
+def _take(job, slots):
     """One of the connections every download shares, waited for as long as it takes; a stop ends the wait."""
     while not slots.acquire(timeout=0.5):
         if job.cancelled.is_set():
             raise _Stopped()
-    try:
-        yield
-    finally:
-        slots.release()
 
 
 def _retry_after(headers):
@@ -641,25 +638,34 @@ _CALM = _Calm()
 
 
 class _Patience:
-    """How long one download's 429s have gone on, counted in time (several connections meeting the same rush count it once):
-    the wait before the next request, or _Passing once they went on past LIMIT's patience with nothing of the file coming."""
+    """How long one download's 429s have gone on, counted in time (several connections meeting the same rush count it once,
+    and wait as long): the wait before the next request, or _Passing once they went on for LIMIT's patience with nothing of
+    the file coming."""
 
     def __init__(self, limit):
         self.limit = limit
         self.since = None
         self.times = 0
+        # when its last 429 came: one to a request sent before it is of the same rush
+        self.last = float("-inf")
         self.lock = threading.Lock()
 
-    def wait(self, said, now):
+    def wait(self, said, now, sent):
+        """A 429 at `now` to a request sent at `sent`."""
         lim = self.limit
         with self.lock:
             if self.since is None:
                 self.since = now
-            wait = min(lim["first"] * 2**self.times, lim["first"] * 8) if said is None else min(lim["most"], max(lim["least"], said))
-            if now + wait - self.since > lim["patience"]:
+            if now - self.since >= lim["patience"]:
                 raise _Passing(f"the source kept asking to slow down for {_words(now - self.since)} (it answered 429)")
-            self.times += 1
-            return wait
+            # the first 429 of a rush waits longer than the last did: eight connections meeting the same one jumped to the
+            # longest wait
+            if sent > self.last:
+                self.times += 1
+            self.last = now
+            wait = min(lim["first"] * 2 ** (self.times - 1), lim["first"] * 8) if said is None else min(lim["most"], max(lim["least"], said))
+            # never past the patience: the source is asked once more as it ends (two 429s saying 10 min gave up at 10, not 18)
+            return min(wait, self.since + lim["patience"] - now)
 
     def gained(self):
         with self.lock:
@@ -667,20 +673,44 @@ class _Patience:
             self.times = 0
 
 
+def _held(calm, host, mine):
+    """Whether the host is held for a request: another request met a 429 it has not waited out yet (`mine`: [the hold it
+    waited out, when it was last sent])."""
+    until = calm.until(host)
+    return until > time.time() and until > mine[0]
+
+
 def _calm_first(job, calm, host, mine):
     """Before a request: the hold another request met at the host waited out, unless this one's (`mine`) already took it."""
-    until = calm.until(host)
-    now = time.time()
-    if until > now and until > mine[0]:
-        mine[0] = until
-        if job.cancelled.wait(until - now):
+    if _held(calm, host, mine):
+        mine[0] = calm.until(host)
+        if job.cancelled.wait(max(0.0, mine[0] - time.time())):
             raise _Stopped()
+
+
+@contextlib.contextmanager
+def _turn(job, slots, calm, host, mine):
+    """A request's turn: the host's hold waited out, one of the connections every download shares taken, and the hold looked
+    at again; one that began while it waited for it (another's 429) is waited out with it let go. Two files at once, the
+    requests that waited for the 8 connections took those the 429s let go and asked straight into the hold, each pushing it
+    later. When it goes is noted (mine[1]): a 429 to it is of the rush that began after."""
+    while True:
+        _calm_first(job, calm, host, mine)
+        _take(job, slots)
+        if not _held(calm, host, mine):
+            break
+        slots.release()
+    mine[1] = time.time()
+    try:
+        yield
+    finally:
+        slots.release()
 
 
 def _limited(calm, host, patience, mine, said):
     """A 429 met: how long to wait, held for every download from the host; _Passing once the patience is spent."""
     now = time.time()
-    wait = patience.wait(said, now)
+    wait = patience.wait(said, now, mine[1])
     calm.hold(host, wait, now)
     mine[0] = now + wait
     return wait
@@ -798,7 +828,7 @@ def _in_parts(job, have, opener, attempts, backoff, chunk, timeout, renew_wait, 
 
     def connection():
         fails = 0
-        mine = [0.0]
+        mine = [0.0, 0.0]
         joined = [True]
         calm.join(host)
         try:
@@ -825,12 +855,12 @@ def _in_parts(job, have, opener, attempts, backoff, chunk, timeout, renew_wait, 
                         while piece.left:
                             if ended or job.cancelled.is_set():
                                 return
-                            _calm_first(job, calm, host, mine)
                             before = piece.done
                             url = job.url
-                            sent = time.time()
                             try:
-                                with _slot(job, slots):
+                                with _turn(job, slots, calm, host, mine):
+                                    # the link as it is once its turn came: one renewed while it waited is the one asked
+                                    url = job.url
                                     _read_piece(job, url, piece, f, opener, chunk, timeout, moved)
                                 patience.gained()
                                 continue
@@ -851,7 +881,7 @@ def _in_parts(job, have, opener, attempts, backoff, chunk, timeout, renew_wait, 
                                     # the link still holds: the source asks for fewer requests. Waited out (its Retry-After),
                                     # and fewer connections for a while: half, by the first 429 of a rush (to a request sent
                                     # after the last one), never one at once
-                                    rush = sent <= calm.last(host)
+                                    rush = mine[1] <= calm.last(host)
                                     wait = _limited(calm, host, patience, mine, _retry_after(e.headers))
                                     now = time.time()
                                     n = calm.width(host, full, now) if rush else calm.lower(host, full, limit["fewer"], now)
@@ -993,8 +1023,9 @@ def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeou
     limit = {**LIMIT, **(limit or {})}
     host = urllib.parse.urlsplit(job.url).netloc
     patience = _Patience(limit)
-    # the host's 429 this download waited out already: a later hold, another's, is waited for, never this one twice
-    mine = [0.0]
+    # the host's 429 this download waited out already (a later hold, another's, is waited for, never this one twice), and when
+    # its last request went
+    mine = [0.0, 0.0]
     digest = None
     # all of it came over several connections: nothing left for one
     came = False
@@ -1014,9 +1045,8 @@ def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeou
         # only a source's own link: Afflatus's one-time address streams one request at a time (a second lets the first go)
         if job.direct and width > 1 and job.total >= parts_from and have < job.total:
             while True:
-                _calm_first(job, calm, host, mine)
                 try:
-                    with _slot(job, slots):
+                    with _turn(job, slots, calm, host, mine):
                         parts = _answers_parts(job, have, opener, timeout)
                     break
                 except _Limited as e:
@@ -1032,11 +1062,10 @@ def run(job, attempts=5, backoff=2.0, opener=_OPENER.open, chunk=1 << 20, timeou
         while not came:
             if job.cancelled.is_set():
                 raise _Stopped()
-            _calm_first(job, calm, host, mine)
             before = have
             try:
                 req = urllib.request.Request(job.url, headers={"User-Agent": "afflatus-nodes", **({"Range": f"bytes={have}-"} if have else {})})
-                with _slot(job, slots), opener(req, timeout=timeout) as res:
+                with _turn(job, slots, calm, host, mine), opener(req, timeout=timeout) as res:
                     _a_file(res, "the source" if job.direct else "Afflatus")
                     got = re.match(r"^bytes (\d+)-\d+/(\d+|\*)$", res.headers.get("Content-Range") or "") if res.status == 206 else None
                     if have and got and int(got.group(1)) == have:

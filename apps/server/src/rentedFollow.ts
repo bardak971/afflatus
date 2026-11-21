@@ -493,7 +493,17 @@ export class RentedFollow extends RentedBilling {
     // a pod gone stays gone: said once, not at every read
     const changed = !s.read || (before?.status ?? null) !== (pod?.status ?? null) || Boolean(pod?.cost && pod.cost !== s.rate);
     if (pod?.status === "RUNNING") await this.containerUp(m, s, pod, key, before);
-    else s.containerAt = null;
+    else {
+      s.containerAt = null;
+      // stopped (or gone): its next start is a new container, not one restarted. What its last run said of it went on, and
+      // every Stop then Start was said "Container restarted"
+      if (!pod || pod.status === "EXITED") {
+        s.containerWas = null;
+        s.uptimeWas = null;
+        s.uptimeGot = null;
+        s.uptimeRun++;
+      }
+    }
     // a deployed pod's container up (RunPod says its uptime from then): its card goes from pulling the image to ComfyUI
     // starting at once, not at the next change
     if (m.rented!.deployedAt && (before?.uptime ?? null) === null && pod?.uptime !== null && pod?.uptime !== undefined) this.events.emit("queue");
@@ -778,21 +788,26 @@ export class RentedFollow extends RentedBilling {
     // up, its uptime asked of RunPod's GraphQL now and then: its list says none of a running pod either, nor a new start of
     // its container (a real A40's list kept its first startedAt through three restarts, card #336). Without it, a container
     // restarted without a volume came back empty, and its files here still said them there
-    if (pod.uptime === null && s.containerAt !== null && this.now() - s.uptimeReadAt >= this.uptimeEveryMs) {
-      s.uptimeReadAt = this.now();
-      const up = await this.client(key).uptime(pod.id).catch(() => null);
-      if (up !== null) pod.uptime = up;
+    let read: { up: number; at: number } | null = null;
+    if (pod.uptime === null && s.containerAt !== null) {
+      const ask = this.now() - s.uptimeReadAt >= this.uptimeEveryMs;
+      if (ask) s.uptimeReadAt = this.now();
+      read = this.uptimeRead(s, pod.id, key, ask);
+      if (read) pod.uptime = read.up + Math.round((this.now() - read.at) / 1000);
     }
     // its uptime reset, or its start said anew while it ran: its container started again (an environment changed through
     // RunPod's API, a restart of RunPod's own), and a pod without a volume came back with an empty disk (card #336). Its
     // files are read on its lists again. RunPod's uptime holds still for about 30 s at a time (a real A40 said 5 s for 35 s
     // after its restart): a container started again a minute after its boot read as one started 63 s later, under the
     // slack, and was missed. An uptime lower than the last one said is a restart whatever the slack
-    const start = pod.uptime !== null ? this.now() - pod.uptime * 1000 : null;
+    // a GraphQL answer from when it came: its uptime as RunPod said it then (one that holds still is not lower), its start
+    // from then, not from now
+    const start = read ? read.at - read.up * 1000 : pod.uptime !== null ? this.now() - pod.uptime * 1000 : null;
+    const said = read ? read.up : pod.uptime;
     const was = s.containerAt ?? s.containerWas;
     const anew = before?.status === "RUNNING" && before.startedAt !== null && pod.startedAt !== null && pod.startedAt !== before.startedAt;
-    const lower = pod.uptime !== null && s.uptimeWas !== null && pod.uptime < s.uptimeWas;
-    if (pod.uptime !== null) s.uptimeWas = pod.uptime;
+    const lower = said !== null && s.uptimeWas !== null && said < s.uptimeWas;
+    if (said !== null) s.uptimeWas = said;
     if (anew || lower || (start !== null && was !== null && start - was > CONTAINER_AGAIN_MS)) {
       s.containerAt = start ?? (pod.startedAt ? Math.min(Date.parse(pod.startedAt), this.now()) : null);
       console.log(`[rented] ${m.name || m.id}: its container restarted (${start !== null ? `uptime ${pod.uptime} s` : `started at ${pod.startedAt}`}), its files read again`);
@@ -808,12 +823,31 @@ export class RentedFollow extends RentedBilling {
       const run = pod.startedAt ? Date.parse(pod.startedAt) - 60_000 : Number.NEGATIVE_INFINITY;
       if (Number.isFinite(logged) && logged >= run) s.containerAt = Math.min(logged, this.now());
       else {
-        const up = await this.client(key).uptime(pod.id).catch(() => null);
-        if (up !== null) s.containerAt = this.now() - up * 1000;
+        const got = this.uptimeRead(s, pod.id, key, true);
+        if (got) s.containerAt = Math.min(got.at - got.up * 1000, this.now());
       }
     }
     if (pod.uptime === null && s.containerAt !== null) pod.uptime = Math.max(0, Math.round((this.now() - s.containerAt) / 1000));
     if (s.containerAt !== null) s.containerWas = s.containerAt;
+  }
+
+  /**
+   * RunPod's GraphQL uptime of the pod, asked apart from the follow (`ask`), one read at a time: its answer is kept for the
+   * next follow. Awaited, a read that hung (15 s) held every pod after it in the loop, their caps and idle checks with it:
+   * 10 pods, some 2.5 min. The answer that came since the last follow, with when (its uptime then); null when none did.
+   */
+  private uptimeRead(s: Seen, id: string, key: string, ask: boolean): { up: number; at: number } | null {
+    const got = s.uptimeGot;
+    s.uptimeGot = null;
+    if (ask && !s.uptimeAsking) {
+      const run = s.uptimeRun;
+      s.uptimeAsking = true;
+      void this.client(key).uptime(id).catch(() => null).then((up) => {
+        s.uptimeAsking = false;
+        if (up !== null && s.uptimeRun === run) s.uptimeGot = { up, at: this.now() };
+      });
+    }
+    return got;
   }
 
   /**

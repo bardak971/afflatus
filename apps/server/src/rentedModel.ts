@@ -166,6 +166,13 @@ export interface Seen {
   uptimeWas: number | null;
   /** When its uptime was last asked of RunPod's GraphQL once it was up (containerUp): its list says none. */
   uptimeReadAt: number;
+  /**
+   * RunPod's GraphQL read of its uptime, apart from the follow (uptimeRead): one under way, its answer (s) and when it came,
+   * kept for the next follow, and the run it is of (one of a run before a stop is dropped).
+   */
+  uptimeAsking: boolean;
+  uptimeGot: { up: number; at: number } | null;
+  uptimeRun: number;
   /** What its boot log said of its node packs, as last kept on its session (JSON): written again only when it changes. */
   packsKept: string | null;
   /**
@@ -185,6 +192,7 @@ const fresh = (): Seen => ({
   stopping: false, stopAction: null, lockTried: false, seenRunningAt: null, sessionFrom: null, epoch: 0, error: null, bootNote: null, secretDropped: false, upAt: null, answered: false, answeredAt: null,
   read: false, gpuFailed: null, startFailed: null, comfyDied: null, hung: null, missing: 0, stoppingSince: null, aliveAt: null, startingSince: null,
   handed: false, fillFrom: null, fillProgress: null, fillMovedAt: null, cutWhy: null, pulledKept: false, packsKept: null, containerAt: null, containerWas: null, uptimeWas: null, uptimeReadAt: 0,
+  uptimeAsking: false, uptimeGot: null, uptimeRun: 0,
   pullLines: [], pullReadAt: 0, pull: null, pullKept: false, bootLogKept: null,
 });
 
